@@ -10,69 +10,25 @@
 
 ## 1. Структура контент-плана (Google Sheets)
 
-Создайте таблицу. Первая строка — заголовки:
+Первая строка — заголовки:
 
 | A | B | C | D | E | F | G |
 |---|---|---|---|---|---|---|
 | Дата | Тема | Платформа | Бриф | Тон | Статус | Ссылка |
 
 - **Дата** — формат `YYYY-MM-DD`, например `2026-04-20`
-- **Тема** — короткое название поста
 - **Платформа** — любая комбинация: `ВК`, `TG`, `Блог` (через запятую)
-- **Бриф** — ключевые мысли, факты, что обязательно упомянуть
-- **Тон** — стиль (например: `тёплый, неформальный`). Можно оставить пустым
-- **Статус** — оставьте пустым. Скрипт поставит `✓` после выполнения
-- **Ссылка** — оставьте пустым. Скрипт вставит URL Google Doc
+- **Статус** и **Ссылка** — оставьте пустыми, скрипт заполнит сам
 
 ---
 
-## 2. Google Cloud — сервисный аккаунт
+## 2. GitHub Secrets
 
-1. Перейдите в [Google Cloud Console](https://console.cloud.google.com/)
-2. Создайте проект (или используйте существующий)
-3. Включите API:
-   - **Google Sheets API**
-   - **Google Drive API**
-   - **Google Docs API**
-4. Создайте **Service Account** (`IAM & Admin → Service Accounts → Create`)
-5. Создайте ключ в формате JSON (`Keys → Add Key → JSON`) — скачайте файл
-6. Откройте вашу Google Таблицу и нажмите **Поделиться** — дайте **редактора** email сервисного аккаунта (выглядит как `xxx@yyy.iam.gserviceaccount.com`)
-7. Откройте папку Google Drive с постами и тоже дайте **редактора** тому же email
+`Settings → Secrets and variables → Actions → New repository secret`
 
----
-
-## 3. Получить ID таблицы и папки
-
-- **GOOGLE_SHEET_ID** — из URL таблицы:
-  `https://docs.google.com/spreadsheets/d/**ВОТ_ЭТО**/edit`
-
-- **GOOGLE_DRIVE_FOLDER_ID** — из URL папки:
-  `https://drive.google.com/drive/folders/**ВОТ_ЭТО**`
-
----
-
-## 4. GitHub Secrets
-
-Перейдите в репозиторий → **Settings → Secrets and variables → Actions → New repository secret**.
-
-Добавьте четыре секрета:
-
-| Имя секрета | Значение |
+| Имя | Значение |
 |---|---|
-| `ANTHROPIC_API_KEY` | Ключ Claude API (получить на [console.anthropic.com](https://console.anthropic.com)) |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Всё содержимое скачанного JSON-файла сервисного аккаунта |
-| `GOOGLE_SHEET_ID` | ID вашей Google Таблицы |
-| `GOOGLE_DRIVE_FOLDER_ID` | ID вашей папки в Google Drive |
-
----
-
-## 5. Запуск
-
-- **Автоматически**: каждый день в 10:00 МСК
-- **Вручную**: вкладка **Actions** → `Болдино LIFE — ежедневный пост` → **Run workflow**
-
----
-
-## 6. Что делать, если задач нет
-
-Если все строки в таблице уже отмечены `✓` или нет строк с датой ≤ сегодня, скрипт завершится с сообщением _«Нет задач на сегодня»_ — это нормально, ошибки не будет.
+| `ANTHROPIC_API_KEY` | Ключ с console.anthropic.com |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Весь JSON сервисного аккаунта |
+| `GOOGLE_SHEET_ID` | `1cT_62X_MF03pj9v2xIJNoKwC6hGpoMKdpjmxEBgYnL4` |
+| `GOOGLE_DRIVE_FOLDER_ID` | ID папки из Drive |
