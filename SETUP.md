@@ -33,7 +33,8 @@
 | `GOOGLE_SHEET_ID` | `1cT_62X_MF03pj9v2xIJNoKwC6hGpoMKdpjmxEBgYnL4` |
 | `GOOGLE_DRIVE_FOLDER_ID` | ID папки из Drive |
 | `PEXELS_API_KEY` | Ключ с pexels.com/api (для рилзов, бесплатно) |
-| `GOOGLE_DRIVE_REELS_FOLDER_ID` | `1H8Dj1u_KJcWucWanUgQeG0QSoR4q_rIh` (или своя папка) |
+| `GOOGLE_DRIVE_REELS_FOLDER_ID` | ID папки для рилзов |
+| `GOOGLE_SERVICE_ACCOUNT_JSON_REELS` | (опц.) отдельный сервисный аккаунт для рилзов. Если не задан — используется `GOOGLE_SERVICE_ACCOUNT_JSON`. |
 
 ---
 

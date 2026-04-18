@@ -44,6 +44,7 @@ jobs:
       - name: Generate reels
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON_REELS: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_REELS }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_REELS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REELS_FOLDER_ID }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
