@@ -245,18 +245,16 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
         accent_font_esc = ffmpeg_escape_path(accent_font)
 
         filters = [
-            # Fit to 1080x1920, losing top/bottom if needed.
-            f'scale={OUTPUT_W}:-2:force_original_aspect_ratio=increase',
-            f'crop={OUTPUT_W}:{OUTPUT_H}',
-            # Slight zoom-in over time for cinematic feel.
+            f'fps=25',
+            # Oversize slightly so we can pan/zoom inside the crop window.
+            f'scale={int(OUTPUT_W * 1.1)}:-2:force_original_aspect_ratio=increase',
+            # Time-varying crop gives a subtle zoom-in without zoompan's frame-multiply bug.
             (
-                f'zoompan=z=\'min(zoom+0.0005,1.10)\':d={CLIP_DURATION_SEC * 25}:'
-                f's={OUTPUT_W}x{OUTPUT_H}:fps=25'
+                f'crop={OUTPUT_W}:{OUTPUT_H}:'
+                f"'(in_w-{OUTPUT_W})/2':'(in_h-{OUTPUT_H})/2'"
             ),
-            # Dark gradient at top and bottom for text readability.
             f'drawbox=x=0:y=0:w=iw:h=ih*0.45:color=black@0.45:t=fill',
             f'drawbox=x=0:y=ih*0.75:w=iw:h=ih*0.25:color=black@0.55:t=fill',
-            # Thin cyan accent strip under the accent word.
             f'drawbox=x=iw*0.1:y=ih*0.62:w=iw*0.8:h=4:color={COLOR_CYAN}:t=fill',
         ]
 
@@ -297,14 +295,16 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
             'ffmpeg', '-y',
             '-ss', '0', '-t', str(CLIP_DURATION_SEC),
             '-i', str(src_video),
+            '-t', str(CLIP_DURATION_SEC),
             '-vf', filter_chain,
+            '-r', '25',
             '-an',
-            '-c:v', 'libx264', '-preset', 'medium', '-crf', '22',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
             '-pix_fmt', 'yuv420p',
             '-movflags', '+faststart',
             str(dest_video),
         ]
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=180)
 
 
 # --- Step 4: upload to Drive ---------------------------------------------
