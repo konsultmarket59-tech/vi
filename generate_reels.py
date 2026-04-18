@@ -77,6 +77,7 @@ ACCENT_FONT_CANDIDATES = [
     'Martina-Script.ttf',
     'DancingScript-Bold.ttf',
     'DancingScript.ttf',
+    'DancingScript[wght].ttf',
 ]
 
 

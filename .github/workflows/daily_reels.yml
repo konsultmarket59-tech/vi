@@ -26,21 +26,6 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Download fallback fonts (Cyrillic-capable)
-        run: |
-          mkdir -p fonts
-          # Headline — Bebas Neue (free, Cyrillic support).
-          if [ ! -f fonts/BebasNeuePro-Bold.ttf ] && [ ! -f fonts/BebasNeue-Regular.ttf ]; then
-            curl -fsSL -o fonts/BebasNeue-Regular.ttf \
-              https://github.com/google/fonts/raw/main/ofl/bebasneue/BebasNeue-Regular.ttf
-          fi
-          # Accent — Dancing Script (free, Cyrillic support) as Martina Script fallback.
-          if [ ! -f fonts/MartinaScript.ttf ] && [ ! -f fonts/DancingScript-Bold.ttf ]; then
-            curl -fsSL -o fonts/DancingScript-Bold.ttf \
-              https://github.com/google/fonts/raw/main/ofl/dancingscript/static/DancingScript-Bold.ttf
-          fi
-          ls -la fonts
-
       - name: Generate reels
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
