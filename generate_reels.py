@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 import requests
-from anthropic import Anthropic
+from openai import OpenAI
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -144,13 +144,14 @@ HOOK_PROMPT = """Ты — креативный директор маркетин
 """
 
 
-def generate_hooks(claude, n):
-    message = claude.messages.create(
-        model='claude-opus-4-7',
+def generate_hooks(client, n):
+    model = os.environ.get('LLM_MODEL', 'anthropic/claude-sonnet-4.6')
+    resp = client.chat.completions.create(
+        model=model,
         max_tokens=2048,
         messages=[{'role': 'user', 'content': HOOK_PROMPT.format(n=n)}],
     )
-    text = message.content[0].text.strip()
+    text = (resp.choices[0].message.content or '').strip()
 
     # Strip ```json fences if the model added them.
     match = re.search(r'\[.*\]', text, re.DOTALL)
@@ -336,13 +337,16 @@ def main():
     accent_font = find_font(ACCENT_FONT_CANDIDATES)
     print(f'Fonts: headline={headline_font}, accent={accent_font}')
 
-    claude = Anthropic()
+    llm = OpenAI(
+        api_key=os.environ['LLM_API_KEY'],
+        base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
+    )
     creds = get_google_credentials()
     drive = build('drive', 'v3', credentials=creds)
 
     n = random.randint(REELS_MIN, REELS_MAX)
     print(f'Generating {n} hooks…')
-    hooks = generate_hooks(claude, n)
+    hooks = generate_hooks(llm, n)
 
     today = datetime.date.today().isoformat()
     work_dir = Path(tempfile.mkdtemp(prefix='reels_'))
