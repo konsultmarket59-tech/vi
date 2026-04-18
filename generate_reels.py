@@ -146,7 +146,7 @@ HOOK_PROMPT = """Ты — креативный директор маркетин
 
 def generate_hooks(claude, n):
     message = claude.messages.create(
-        model='claude-opus-4-7',
+        model='claude-sonnet-4-6',
         max_tokens=2048,
         messages=[{'role': 'user', 'content': HOOK_PROMPT.format(n=n)}],
     )
@@ -336,7 +336,11 @@ def main():
     accent_font = find_font(ACCENT_FONT_CANDIDATES)
     print(f'Fonts: headline={headline_font}, accent={accent_font}')
 
-    claude = Anthropic()
+    claude_kwargs = {}
+    base_url = os.environ.get('ANTHROPIC_BASE_URL')
+    if base_url:
+        claude_kwargs['base_url'] = base_url
+    claude = Anthropic(**claude_kwargs)
     creds = get_google_credentials()
     drive = build('drive', 'v3', credentials=creds)
 
