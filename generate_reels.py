@@ -99,7 +99,9 @@ def ffmpeg_escape_path(path):
 
 
 def get_google_credentials():
-    info = json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'])
+    raw = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON_REELS') \
+        or os.environ['GOOGLE_SERVICE_ACCOUNT_JSON']
+    info = json.loads(raw)
     return service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPES)
 
 
