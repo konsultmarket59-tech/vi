@@ -28,8 +28,9 @@ jobs:
 
       - name: Generate reels
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
           GOOGLE_SERVICE_ACCOUNT_JSON_REELS: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_REELS }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_REELS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REELS_FOLDER_ID }}
