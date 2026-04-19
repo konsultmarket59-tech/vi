@@ -297,10 +297,12 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
 
 # --- Step 4: send to Max bot ---------------------------------------------
 
-def resolve_max_chat_id(token):
-    chat_id = os.environ.get('MAX_CHAT_ID')
-    if chat_id:
-        return chat_id.strip()
+def resolve_max_target(token):
+    """Возвращает dict {user_id: …} или {chat_id: …} для отправки сообщения."""
+    if os.environ.get('MAX_USER_ID'):
+        return {'user_id': os.environ['MAX_USER_ID'].strip()}
+    if os.environ.get('MAX_CHAT_ID'):
+        return {'chat_id': os.environ['MAX_CHAT_ID'].strip()}
 
     resp = requests.get(
         f'{MAX_API_BASE}/updates',
@@ -310,14 +312,20 @@ def resolve_max_chat_id(token):
     resp.raise_for_status()
     updates = resp.json().get('updates', [])
     for upd in updates:
+        if upd.get('update_type') != 'message_created':
+            continue
         msg = upd.get('message') or {}
         recipient = msg.get('recipient') or {}
-        cid = recipient.get('chat_id')
-        if cid:
-            return str(cid)
+        sender = msg.get('sender') or {}
+        # Для диалога шлём user_id отправителя — recipient это сам бот.
+        if recipient.get('chat_type') == 'dialog' and sender.get('user_id'):
+            return {'user_id': str(sender['user_id'])}
+        if recipient.get('chat_id'):
+            return {'chat_id': str(recipient['chat_id'])}
     raise RuntimeError(
-        'Не нашёл chat_id. Напишите боту /start в Max и перезапустите, '
-        'либо задайте MAX_CHAT_ID в секретах.'
+        'Не нашёл адресата. Напишите боту /start в Max и перезапустите, '
+        'либо задайте MAX_USER_ID (для личных сообщений) или MAX_CHAT_ID '
+        '(для группового чата) в секретах.'
     )
 
 
@@ -342,7 +350,7 @@ def _extract_token_from_url(url):
     return None
 
 
-def send_to_max(token, chat_id, file_path, caption):
+def send_to_max(token, target, file_path, caption):
     # Step 1: запрашиваем upload endpoint.
     up = requests.post(
         f'{MAX_API_BASE}/uploads',
@@ -413,22 +421,32 @@ def send_to_max(token, chat_id, file_path, caption):
         'text': caption,
         'attachments': [{'type': 'video', 'payload': {'token': video_token}}],
     }
+    # Если target = chat_id, но Max отвечает dialog.not.found — пробуем тот же id
+    # как user_id (частая причина: пользователь задал MAX_CHAT_ID, но в диалоге
+    # нужен user_id).
+    targets_to_try = [target]
+    if 'chat_id' in target:
+        targets_to_try.append({'user_id': target['chat_id']})
+
     last_err = None
-    for attempt in range(6):
-        msg_resp = requests.post(
-            f'{MAX_API_BASE}/messages',
-            params={'access_token': token, 'chat_id': chat_id},
-            json=body,
-            timeout=60,
-        )
-        if msg_resp.status_code < 400:
-            return _decode_json(msg_resp, 'messages')
-        last_err = f'{msg_resp.status_code}: {(msg_resp.text or "")[:500]}'
-        if 'not.ready' in last_err or 'processing' in last_err or msg_resp.status_code in (400, 409):
-            time.sleep(5 * (attempt + 1))
-            continue
-        raise RuntimeError(f'messages {last_err}')
-    raise RuntimeError(f'Max отверг сообщение после 6 попыток: {last_err}')
+    for t in targets_to_try:
+        for attempt in range(6):
+            msg_resp = requests.post(
+                f'{MAX_API_BASE}/messages',
+                params={'access_token': token, **t},
+                json=body,
+                timeout=60,
+            )
+            if msg_resp.status_code < 400:
+                return _decode_json(msg_resp, 'messages')
+            last_err = f'{msg_resp.status_code}: {(msg_resp.text or "")[:500]}'
+            if 'dialog.not.found' in last_err:
+                break  # этот target не подходит, переключаемся
+            if 'not.ready' in last_err or 'processing' in last_err or msg_resp.status_code in (400, 409):
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise RuntimeError(f'messages {last_err}')
+    raise RuntimeError(f'Max отверг сообщение: {last_err}')
 
 
 # --- Orchestration --------------------------------------------------------
@@ -451,8 +469,8 @@ def main():
         base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
     )
 
-    chat_id = resolve_max_chat_id(max_token)
-    print(f'Max chat_id: {chat_id}')
+    target = resolve_max_target(max_token)
+    print(f'Max target: {target}')
 
     n = random.randint(REELS_MIN, REELS_MAX)
     print(f'Generating {n} hooks…')
@@ -490,7 +508,7 @@ def main():
                 f"{hook['headline']} · {hook['accent']}\n"
                 f"CTA: {hook['cta']}"
             )
-            send_to_max(max_token, chat_id, out_path, caption)
+            send_to_max(max_token, target, out_path, caption)
             print('  sent to Max ✓')
             successes += 1
 
@@ -502,7 +520,7 @@ def main():
 
         time.sleep(1)
 
-    print(f'\nDone. {successes}/{len(hooks)} reels sent to Max chat {chat_id}.')
+    print(f'\nDone. {successes}/{len(hooks)} reels sent to Max target {target}.')
     if successes == 0:
         raise SystemExit('No reels produced.')
 
