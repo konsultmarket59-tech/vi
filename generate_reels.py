@@ -313,10 +313,11 @@ def _autodetect_target(token):
             time.sleep(2 ** attempt)
     else:
         raise RuntimeError(f'Max /updates недоступен: {last_exc}')
-    updates = resp.json().get('updates', [])
+    data = resp.json()
+    updates = data.get('updates', [])
+    print(f'Max /updates: получено {len(updates)} событий, типы: '
+          f'{[u.get("update_type") for u in updates]}', flush=True)
     for upd in updates:
-        if upd.get('update_type') != 'message_created':
-            continue
         msg = upd.get('message') or {}
         recipient = msg.get('recipient') or {}
         sender = msg.get('sender') or {}
@@ -324,6 +325,10 @@ def _autodetect_target(token):
             return {'user_id': str(sender['user_id'])}
         if recipient.get('chat_id'):
             return {'chat_id': str(recipient['chat_id'])}
+        if sender.get('user_id'):
+            return {'user_id': str(sender['user_id'])}
+    if updates:
+        print(f'Max /updates: первое событие целиком: {updates[0]!r}', flush=True)
     return None
 
 
