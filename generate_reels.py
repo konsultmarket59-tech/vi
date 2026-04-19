@@ -71,15 +71,6 @@ HEADLINE_FONT_CANDIDATES = [
     'BebasNeue-Regular.ttf',
     'BebasNeue.ttf',
 ]
-ACCENT_FONT_CANDIDATES = [
-    'MartinaScript.ttf',
-    'Martina-Script.ttf',
-    'GoodVibesCyr.ttf',
-    'Caveat.ttf',
-    'DancingScript-Bold.ttf',
-    'DancingScript.ttf',
-    'DancingScript[wght].ttf',
-]
 
 
 # --- Helpers --------------------------------------------------------------
@@ -218,7 +209,7 @@ def wrap_headline(text, max_chars_per_line=14):
     return lines[:3]  # cap at 3 lines
 
 
-def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
+def compose_reel(src_video, dest_video, hook, headline_font):
     headline_lines = wrap_headline(hook['headline'])
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -229,14 +220,10 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
             p.write_text(line, encoding='utf-8')
             headline_files.append(p)
 
-        accent_file = tmp / 'accent.txt'
-        accent_file.write_text(hook['accent'], encoding='utf-8')
-
         cta_file = tmp / 'cta.txt'
         cta_file.write_text(hook['cta'], encoding='utf-8')
 
         headline_font_esc = ffmpeg_escape_path(headline_font)
-        accent_font_esc = ffmpeg_escape_path(accent_font)
 
         filters = [
             f'fps=25',
@@ -258,9 +245,6 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
                 f'w=iw:h=ih/{gradient_bands}+1:'
                 f'color=black@{alpha:.3f}:t=fill'
             )
-        filters.append(
-            f'drawbox=x=iw*0.1:y=ih*0.62:w=iw*0.8:h=4:color={COLOR_CYAN}:t=fill'
-        )
 
         # Headline lines, centered horizontally, stacked in upper third.
         headline_font_size = 120
@@ -275,22 +259,13 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
                 f'x=(w-text_w)/2:y={start_y + i * line_gap}'
             )
 
-        # Accent word in script font, brand pink, middle-lower.
-        accent_path = ffmpeg_escape_path(str(accent_file))
-        filters.append(
-            f"drawtext=fontfile='{accent_font_esc}':textfile='{accent_path}':"
-            f'fontsize=180:fontcolor={COLOR_PINK}:'
-            f'borderw=2:bordercolor={COLOR_DARK}:'
-            f'x=(w-text_w)/2:y=h*0.48'
-        )
-
-        # CTA at the bottom in cyan, bold headline font.
+        # CTA in a cyan pill near the bottom: dark text on filled box.
         cta_path = ffmpeg_escape_path(str(cta_file))
         filters.append(
             f"drawtext=fontfile='{headline_font_esc}':textfile='{cta_path}':"
-            f'fontsize=70:fontcolor={COLOR_CYAN}:'
-            f'borderw=2:bordercolor={COLOR_DARK}:'
-            f'x=(w-text_w)/2:y=h*0.85'
+            f'fontsize=80:fontcolor={COLOR_DARK}:'
+            f'box=1:boxcolor={COLOR_CYAN}:boxborderw=40:'
+            f'x=(w-text_w)/2:y=h*0.83'
         )
 
         filter_chain = ','.join(filters)
@@ -558,8 +533,7 @@ def main():
     yadisk_token = os.environ['YANDEX_DISK_TOKEN']
 
     headline_font = find_font(HEADLINE_FONT_CANDIDATES)
-    accent_font = find_font(ACCENT_FONT_CANDIDATES)
-    print(f'Fonts: headline={headline_font}, accent={accent_font}')
+    print(f'Font: headline={headline_font}')
 
     llm = OpenAI(
         api_key=os.environ['LLM_API_KEY'],
@@ -599,7 +573,7 @@ def main():
 
             out_name = f'{today}_{idx:02d}_{safe_filename(hook["headline"])}.mp4'
             out_path = work_dir / out_name
-            compose_reel(raw_path, out_path, hook, headline_font, accent_font)
+            compose_reel(raw_path, out_path, hook, headline_font)
 
             remote_path = f'{remote_dir}/{out_name}'
             url = upload_to_yadisk(yadisk_token, out_path, remote_path)
