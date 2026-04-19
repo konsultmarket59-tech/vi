@@ -36,8 +36,8 @@
 | `LLM_BASE_URL` | (опц.) `https://polza.ai/api/v1` |
 | `LLM_MODEL` | (опц.) `anthropic/claude-sonnet-4.6` |
 | `PEXELS_API_KEY` | Ключ с pexels.com/api (для рилзов, бесплатно) |
-| `MAX_BOT_TOKEN` | Access token бота Max (см. ниже) |
-| `MAX_CHAT_ID` | (опц.) chat_id. Если не задан — скрипт возьмёт из последних сообщений боту. |
+| `YANDEX_DISK_TOKEN` | OAuth-токен Я.Диска (см. ниже) |
+| `YANDEX_DISK_FOLDER` | (опц.) папка на Диске. По умолчанию `Reels`. |
 
 ---
 
@@ -48,7 +48,8 @@
 2. Для каждого хука подбирается вертикальный люкс-ролик с Pexels.
 3. FFmpeg собирает рилз 1080×1920, 12 сек, с наложением текста в палитре
    `#FE3268`, `#00D4FF`, `#2A2A2A`, soft white.
-4. Готовые MP4 отправляются вам в чат с ботом в мессенджере **Max**.
+4. Готовые MP4 заливаются в **Яндекс.Диск** (`/Reels/YYYY-MM-DD/`)
+   и публикуются — ссылки видны в логах workflow.
 
 **Шрифты.** В репозитории уже лежат бесплатные аналоги с кириллицей:
 Bebas Neue (вместо Bebas Neue Pro) и Dancing Script (вместо Martina Script).
@@ -56,12 +57,17 @@ Bebas Neue (вместо Bebas Neue Pro) и Dancing Script (вместо Martina
 - `fonts/BebasNeuePro-Bold.ttf`
 - `fonts/MartinaScript.ttf`
 
-**Как получить `MAX_BOT_TOKEN`:**
-1. В мессенджере Max найдите бота **@MasterBot** и откройте чат.
-2. Команда `/create` → задайте имя и @username бота.
-3. MasterBot пришлёт access token — длинная строка, скопируйте её в секрет `MAX_BOT_TOKEN`.
-4. Откройте чат с вашим ботом и напишите `/start` — это создаст чат и позволит скрипту найти `chat_id` автоматически.
-5. (Опционально) заранее зафиксируйте `MAX_CHAT_ID`: откройте `https://botapi.max.ru/updates?access_token=ВАШ_ТОКЕН`
-   в браузере после того, как написали боту, и скопируйте значение `recipient.chat_id`.
+**Как получить `YANDEX_DISK_TOKEN`:**
+1. Зайдите на https://oauth.yandex.ru/client/new под своим Яндекс-аккаунтом.
+2. Заполните: «Сервис» — любое название (напр. `Reels uploader`),
+   «Платформа» — *Веб-сервисы*, в `Redirect URI` добавьте
+   `https://oauth.yandex.ru/verification_code`.
+3. В разделе «Доступы» отметьте: **`cloud_api:disk.write`** и **`cloud_api:disk.read`**.
+4. Создайте → скопируйте `ClientID`.
+5. Откройте в браузере (вместо `XXX` — ваш ClientID):
+   `https://oauth.yandex.ru/authorize?response_type=token&client_id=XXX`
+6. Подтвердите доступ → скопируйте длинный токен из адресной строки
+   (после `#access_token=`) и сохраните в секрет `YANDEX_DISK_TOKEN`.
 
 **Ручной запуск.** `Actions → Reels — ежедневная генерация → Run workflow`.
+Готовые ссылки появятся в конце лога job'а.
