@@ -33,5 +33,6 @@ jobs:
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
           MAX_BOT_TOKEN: ${{ secrets.MAX_BOT_TOKEN }}
           MAX_CHAT_ID: ${{ secrets.MAX_CHAT_ID }}
+          MAX_USER_ID: ${{ secrets.MAX_USER_ID }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python generate_reels.py
