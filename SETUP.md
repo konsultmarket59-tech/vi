@@ -51,8 +51,8 @@
 4. Готовые MP4 заливаются в **Яндекс.Диск** (`/Reels/YYYY-MM-DD/`)
    и публикуются — ссылки видны в логах workflow.
 
-**Шрифты.** В репозитории уже лежат бесплатные аналоги с кириллицей:
-Bebas Neue (вместо Bebas Neue Pro) и Dancing Script (вместо Martina Script).
+**Шрифты.** В репозитории лежат бесплатные шрифты с кириллицей:
+Oswald (вместо Bebas Neue Pro) и Caveat (вместо Martina Script).
 Чтобы подставить лицензионные оригиналы — положите в папку `fonts/`:
 - `fonts/BebasNeuePro-Bold.ttf`
 - `fonts/MartinaScript.ttf`
