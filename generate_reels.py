@@ -298,12 +298,21 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
 # --- Step 4: send to Max bot ---------------------------------------------
 
 def _autodetect_target(token):
-    resp = requests.get(
-        f'{MAX_API_BASE}/updates',
-        params={'access_token': token, 'limit': 100},
-        timeout=30,
-    )
-    resp.raise_for_status()
+    last_exc = None
+    for attempt in range(4):
+        try:
+            resp = requests.get(
+                f'{MAX_API_BASE}/updates',
+                params={'access_token': token, 'limit': 100},
+                timeout=(10, 60),
+            )
+            resp.raise_for_status()
+            break
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_exc = exc
+            time.sleep(2 ** attempt)
+    else:
+        raise RuntimeError(f'Max /updates недоступен: {last_exc}')
     updates = resp.json().get('updates', [])
     for upd in updates:
         if upd.get('update_type') != 'message_created':
