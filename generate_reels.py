@@ -321,30 +321,59 @@ def resolve_max_chat_id(token):
     )
 
 
+def _decode_json(resp, label):
+    try:
+        return resp.json()
+    except ValueError:
+        snippet = (resp.text or '')[:500]
+        raise RuntimeError(
+            f'{label}: не JSON (status={resp.status_code}, '
+            f'content-type={resp.headers.get("content-type")}): {snippet!r}'
+        )
+
+
 def send_to_max(token, chat_id, file_path, caption):
+    # Step 1: запросить upload_url. У Max /uploads принимает как POST, так и GET —
+    # пробуем оба, на случай если эндпоинт вернёт 405 на POST.
     up = requests.post(
         f'{MAX_API_BASE}/uploads',
         params={'access_token': token, 'type': 'video'},
         timeout=30,
     )
-    up.raise_for_status()
-    upload_url = up.json()['url']
+    if up.status_code == 405:
+        up = requests.get(
+            f'{MAX_API_BASE}/uploads',
+            params={'access_token': token, 'type': 'video'},
+            timeout=30,
+        )
+    if up.status_code >= 400:
+        raise RuntimeError(
+            f'uploads {up.status_code}: {(up.text or "")[:500]}'
+        )
+    up_json = _decode_json(up, 'uploads')
+    upload_url = up_json.get('url')
+    if not upload_url:
+        raise RuntimeError(f'uploads: в ответе нет url: {up_json}')
 
+    # Step 2: залить файл.
     with open(file_path, 'rb') as fh:
         files = {'data': (Path(file_path).name, fh, 'video/mp4')}
         up_resp = requests.post(upload_url, files=files, timeout=600)
-    up_resp.raise_for_status()
-    up_data = up_resp.json()
+    if up_resp.status_code >= 400:
+        raise RuntimeError(
+            f'upload {up_resp.status_code}: {(up_resp.text or "")[:500]}'
+        )
+    up_data = _decode_json(up_resp, 'upload')
     video_token = (
         up_data.get('token')
         or (up_data.get('video') or {}).get('token')
         or (up_data.get('videos') or {}).get('token')
     )
     if not video_token:
-        raise RuntimeError(f'В ответе на загрузку нет token: {up_data}')
+        raise RuntimeError(f'upload: нет token в ответе: {up_data}')
 
-    # Max обрабатывает видео асинхронно — подождём немного, чтобы attachment
-    # успел стать доступным.
+    # Max обрабатывает видео асинхронно — подождём, пока attachment станет
+    # доступным.
     time.sleep(3)
 
     body = {
@@ -360,13 +389,12 @@ def send_to_max(token, chat_id, file_path, caption):
             timeout=60,
         )
         if msg_resp.status_code < 400:
-            return msg_resp.json()
-        last_err = msg_resp.text
-        # attachment.not.ready — типичный ответ, пока Max переваривает видео.
+            return _decode_json(msg_resp, 'messages')
+        last_err = f'{msg_resp.status_code}: {(msg_resp.text or "")[:500]}'
         if 'not.ready' in last_err or msg_resp.status_code in (400, 409):
             time.sleep(5 * (attempt + 1))
             continue
-        msg_resp.raise_for_status()
+        raise RuntimeError(f'messages {last_err}')
     raise RuntimeError(f'Max отверг сообщение после 5 попыток: {last_err}')
 
 
