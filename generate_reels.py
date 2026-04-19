@@ -245,10 +245,20 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
                 f'crop={OUTPUT_W}:{OUTPUT_H}:'
                 f"'(in_w-{OUTPUT_W})/2':'(in_h-{OUTPUT_H})/2'"
             ),
-            f'drawbox=x=0:y=0:w=iw:h=ih*0.45:color=black@0.45:t=fill',
-            f'drawbox=x=0:y=ih*0.75:w=iw:h=ih*0.25:color=black@0.55:t=fill',
-            f'drawbox=x=iw*0.1:y=ih*0.62:w=iw*0.8:h=4:color={COLOR_CYAN}:t=fill',
         ]
+        # Gradient darkening across the full frame: 10% at top → 50% at bottom,
+        # approximated as 20 horizontal bands for smooth stepping.
+        gradient_bands = 20
+        for i in range(gradient_bands):
+            alpha = 0.10 + (0.50 - 0.10) * i / (gradient_bands - 1)
+            filters.append(
+                f'drawbox=x=0:y=ih*{i / gradient_bands:.4f}:'
+                f'w=iw:h=ih/{gradient_bands}+1:'
+                f'color=black@{alpha:.3f}:t=fill'
+            )
+        filters.append(
+            f'drawbox=x=iw*0.1:y=ih*0.62:w=iw*0.8:h=4:color={COLOR_CYAN}:t=fill'
+        )
 
         # Headline lines, centered horizontally, stacked in upper third.
         headline_font_size = 120
