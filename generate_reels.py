@@ -66,6 +66,7 @@ FONT_DIR = Path(__file__).parent / 'fonts'
 HEADLINE_FONT_CANDIDATES = [
     'BebasNeuePro-Bold.ttf',
     'BebasNeuePro.ttf',
+    'bebasneuecyrillic.ttf',
     'Oswald.ttf',
     'BebasNeue-Regular.ttf',
     'BebasNeue.ttf',
@@ -73,6 +74,7 @@ HEADLINE_FONT_CANDIDATES = [
 ACCENT_FONT_CANDIDATES = [
     'MartinaScript.ttf',
     'Martina-Script.ttf',
+    'GoodVibesCyr.ttf',
     'Caveat.ttf',
     'DancingScript-Bold.ttf',
     'DancingScript.ttf',
