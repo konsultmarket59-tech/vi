@@ -56,7 +56,7 @@ LUXURY_QUERIES = [
 ]
 
 # Brand palette.
-COLOR_PINK = '0xFE3268'
+COLOR_PINK = '0xF53165'
 COLOR_CYAN = '0x00D4FF'
 COLOR_DARK = '0x2A2A2A'
 COLOR_WHITE = '0xF5F5F5'
@@ -108,10 +108,18 @@ HOOK_PROMPT = """Ты — креативный директор маркетин
      у мужчин — статус, масштаб, признание
 
 Сгенерируй РОВНО {n} разных хуков для вертикальных рилзов. Каждый хук должен:
-• бить точно в один триггер
-• быть коротким (3–6 слов в заголовке, 1–2 слова в акценте)
-• работать без контекста — зритель должен замереть в первые 2 секунды
-• использовать провокацию, противопоставление или обещание результата
+• БИТЬ БОЛЬНО по конкретному триггеру — вскрывать боль, которую человек прячет
+• быть максимально коротким и острым (3–6 слов в headline)
+• использовать провокацию, противопоставление, жёсткий диагноз или неожиданный разворот
+• вызывать реакцию «это про меня» или «да как он посмел» — зритель не должен остаться равнодушным
+• избегать банальностей типа «успех рядом», «начни сегодня», «ты сможешь» — только хирургический удар
+
+ВАЖНО про поле "cta":
+• это НЕ призыв к действию — никаких «купи», «закажи», «напиши», «оставь заявку», \
+  «переходи», «подписывайся», «получи», «запишись», «узнай подробнее», «жми»
+• пиши провокационную финальную фразу 2-4 слова: констатация, вопрос, приговор, вызов
+• примеры допустимого: «Это лечится», «Или нет», «Честно ответь», «Решай сам», \
+  «Давно пора», «Слабо признать», «Факт», «Тебе решать», «Пока не поздно»
 
 Верни СТРОГО JSON-массив без пояснений, формат:
 [
@@ -119,7 +127,7 @@ HOOK_PROMPT = """Ты — креативный директор маркетин
     "trigger": "категория триггера одним предложением",
     "headline": "ГЛАВНАЯ ФРАЗА КАПСОМ 3-6 СЛОВ",
     "accent": "акцентное слово 1-2 слова",
-    "cta": "короткий CTA 2-4 слова",
+    "cta": "финальная фраза 2-4 слова без прямого призыва",
     "search_query": "english search query for luxury stock video, 2-4 words"
   }}
 ]
@@ -193,6 +201,19 @@ def download_video(url, dest):
 
 # --- Step 3: composing the reel ------------------------------------------
 
+MUSIC_EXTENSIONS = ('.mp3', '.m4a', '.wav', '.ogg', '.aac')
+
+
+def pick_music_track():
+    """Returns a random track from ./music/, or None if the folder is empty."""
+    music_dir = Path(__file__).parent / 'music'
+    if not music_dir.is_dir():
+        return None
+    tracks = [p for p in music_dir.iterdir()
+              if p.is_file() and p.suffix.lower() in MUSIC_EXTENSIONS]
+    return random.choice(tracks) if tracks else None
+
+
 def wrap_headline(text, max_chars_per_line=14):
     words = text.split()
     lines, current = [], ''
@@ -235,27 +256,19 @@ def compose_reel(src_video, dest_video, hook, headline_font):
                 f"'(in_w-{OUTPUT_W})/2':'(in_h-{OUTPUT_H})/2'"
             ),
         ]
-        # Gradient darkening across the full frame: 10% at top → 50% at bottom,
-        # approximated as 20 horizontal bands for smooth stepping.
-        gradient_bands = 20
-        for i in range(gradient_bands):
-            alpha = 0.10 + (0.50 - 0.10) * i / (gradient_bands - 1)
-            filters.append(
-                f'drawbox=x=0:y=ih*{i / gradient_bands:.4f}:'
-                f'w=iw:h=ih/{gradient_bands}+1:'
-                f'color=black@{alpha:.3f}:t=fill'
-            )
+        # Uniform 10% darkening across the whole frame.
+        filters.append('drawbox=x=0:y=0:w=iw:h=ih:color=black@0.10:t=fill')
 
-        # Headline lines, centered horizontally, stacked in upper third.
+        # Headline lines, each on its own pink pill, centered in upper third.
         headline_font_size = 120
-        line_gap = headline_font_size + 20
-        start_y = int(OUTPUT_H * 0.15)
+        line_gap = headline_font_size + 70
+        start_y = int(OUTPUT_H * 0.14)
         for i, hf in enumerate(headline_files):
             path = ffmpeg_escape_path(str(hf))
             filters.append(
                 f"drawtext=fontfile='{headline_font_esc}':textfile='{path}':"
                 f'fontsize={headline_font_size}:fontcolor={COLOR_WHITE}:'
-                f'borderw=3:bordercolor={COLOR_DARK}:'
+                f'box=1:boxcolor={COLOR_PINK}:boxborderw=30:'
                 f'x=(w-text_w)/2:y={start_y + i * line_gap}'
             )
 
@@ -270,14 +283,36 @@ def compose_reel(src_video, dest_video, hook, headline_font):
 
         filter_chain = ','.join(filters)
 
+        music_track = pick_music_track()
         cmd = [
             'ffmpeg', '-y',
             '-ss', '0', '-t', str(CLIP_DURATION_SEC),
             '-i', str(src_video),
+        ]
+        if music_track:
+            music_offset = random.uniform(5, 25)
+            cmd += [
+                '-ss', f'{music_offset:.2f}',
+                '-t', str(CLIP_DURATION_SEC),
+                '-i', str(music_track),
+            ]
+        cmd += [
             '-t', str(CLIP_DURATION_SEC),
             '-vf', filter_chain,
             '-r', '25',
-            '-an',
+        ]
+        if music_track:
+            cmd += [
+                '-map', '0:v:0', '-map', '1:a:0',
+                '-af', 'afade=t=in:st=0:d=0.4,'
+                       f'afade=t=out:st={CLIP_DURATION_SEC - 0.5:.2f}:d=0.5,'
+                       'volume=0.9',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-shortest',
+            ]
+        else:
+            cmd += ['-an']
+        cmd += [
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
             '-pix_fmt', 'yuv420p',
             '-movflags', '+faststart',
