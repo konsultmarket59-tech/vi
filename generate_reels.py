@@ -6,7 +6,7 @@ Daily:
      (Russian entrepreneurs, 25-55, men & women).
   2. For each hook, a vertical luxury-lifestyle clip is downloaded from Pexels.
   3. FFmpeg composes a 1080x1920 MP4 with brand colors and fonts.
-  4. The reel is sent to the user via a Max messenger bot.
+  4. The reel is uploaded to Yandex.Disk and a public link is returned.
 """
 
 import datetime
@@ -25,6 +25,8 @@ from openai import OpenAI
 # --- Configuration --------------------------------------------------------
 
 MAX_API_BASE = 'https://botapi.max.ru'
+YADISK_API = 'https://cloud-api.yandex.net/v1/disk'
+YADISK_FOLDER = os.environ.get('YANDEX_DISK_FOLDER', 'Reels')
 
 REELS_MIN = 5
 REELS_MAX = 6
@@ -64,15 +66,10 @@ FONT_DIR = Path(__file__).parent / 'fonts'
 HEADLINE_FONT_CANDIDATES = [
     'BebasNeuePro-Bold.ttf',
     'BebasNeuePro.ttf',
+    'bebasneuecyrillic.ttf',
+    'Oswald.ttf',
     'BebasNeue-Regular.ttf',
     'BebasNeue.ttf',
-]
-ACCENT_FONT_CANDIDATES = [
-    'MartinaScript.ttf',
-    'Martina-Script.ttf',
-    'DancingScript-Bold.ttf',
-    'DancingScript.ttf',
-    'DancingScript[wght].ttf',
 ]
 
 
@@ -212,7 +209,7 @@ def wrap_headline(text, max_chars_per_line=14):
     return lines[:3]  # cap at 3 lines
 
 
-def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
+def compose_reel(src_video, dest_video, hook, headline_font):
     headline_lines = wrap_headline(hook['headline'])
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -223,14 +220,10 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
             p.write_text(line, encoding='utf-8')
             headline_files.append(p)
 
-        accent_file = tmp / 'accent.txt'
-        accent_file.write_text(hook['accent'], encoding='utf-8')
-
         cta_file = tmp / 'cta.txt'
         cta_file.write_text(hook['cta'], encoding='utf-8')
 
         headline_font_esc = ffmpeg_escape_path(headline_font)
-        accent_font_esc = ffmpeg_escape_path(accent_font)
 
         filters = [
             f'fps=25',
@@ -241,10 +234,17 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
                 f'crop={OUTPUT_W}:{OUTPUT_H}:'
                 f"'(in_w-{OUTPUT_W})/2':'(in_h-{OUTPUT_H})/2'"
             ),
-            f'drawbox=x=0:y=0:w=iw:h=ih*0.45:color=black@0.45:t=fill',
-            f'drawbox=x=0:y=ih*0.75:w=iw:h=ih*0.25:color=black@0.55:t=fill',
-            f'drawbox=x=iw*0.1:y=ih*0.62:w=iw*0.8:h=4:color={COLOR_CYAN}:t=fill',
         ]
+        # Gradient darkening across the full frame: 10% at top → 50% at bottom,
+        # approximated as 20 horizontal bands for smooth stepping.
+        gradient_bands = 20
+        for i in range(gradient_bands):
+            alpha = 0.10 + (0.50 - 0.10) * i / (gradient_bands - 1)
+            filters.append(
+                f'drawbox=x=0:y=ih*{i / gradient_bands:.4f}:'
+                f'w=iw:h=ih/{gradient_bands}+1:'
+                f'color=black@{alpha:.3f}:t=fill'
+            )
 
         # Headline lines, centered horizontally, stacked in upper third.
         headline_font_size = 120
@@ -259,22 +259,13 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
                 f'x=(w-text_w)/2:y={start_y + i * line_gap}'
             )
 
-        # Accent word in script font, brand pink, middle-lower.
-        accent_path = ffmpeg_escape_path(str(accent_file))
-        filters.append(
-            f"drawtext=fontfile='{accent_font_esc}':textfile='{accent_path}':"
-            f'fontsize=180:fontcolor={COLOR_PINK}:'
-            f'borderw=2:bordercolor={COLOR_DARK}:'
-            f'x=(w-text_w)/2:y=h*0.48'
-        )
-
-        # CTA at the bottom in cyan, bold headline font.
+        # CTA in a cyan pill near the bottom: dark text on filled box.
         cta_path = ffmpeg_escape_path(str(cta_file))
         filters.append(
             f"drawtext=fontfile='{headline_font_esc}':textfile='{cta_path}':"
-            f'fontsize=70:fontcolor={COLOR_CYAN}:'
-            f'borderw=2:bordercolor={COLOR_DARK}:'
-            f'x=(w-text_w)/2:y=h*0.85'
+            f'fontsize=80:fontcolor={COLOR_DARK}:'
+            f'box=1:boxcolor={COLOR_CYAN}:boxborderw=40:'
+            f'x=(w-text_w)/2:y=h*0.83'
         )
 
         filter_chain = ','.join(filters)
@@ -471,6 +462,65 @@ def send_to_max(token, target, file_path, caption):
     raise RuntimeError(f'Max отверг сообщение: {last_err}')
 
 
+# --- Step 4 (Yandex.Disk) -------------------------------------------------
+
+def _ya_headers(token):
+    return {'Authorization': f'OAuth {token}'}
+
+
+def ensure_yadisk_folder(token, path):
+    """Создаёт папку на Я.Диске, если её нет. Принимает путь без `disk:` префикса."""
+    parts = [p for p in path.strip('/').split('/') if p]
+    cur = ''
+    for part in parts:
+        cur = f'{cur}/{part}' if cur else part
+        resp = requests.put(
+            f'{YADISK_API}/resources',
+            params={'path': cur},
+            headers=_ya_headers(token),
+            timeout=30,
+        )
+        if resp.status_code in (201, 409):
+            continue
+        raise RuntimeError(f'mkdir {cur}: {resp.status_code} {resp.text[:300]}')
+
+
+def upload_to_yadisk(token, file_path, remote_path):
+    """Заливает файл, возвращает публичную ссылку."""
+    info = requests.get(
+        f'{YADISK_API}/resources/upload',
+        params={'path': remote_path, 'overwrite': 'true'},
+        headers=_ya_headers(token),
+        timeout=30,
+    )
+    if info.status_code >= 400:
+        raise RuntimeError(f'upload-url {info.status_code}: {info.text[:300]}')
+    href = info.json()['href']
+
+    with open(file_path, 'rb') as fh:
+        put = requests.put(href, data=fh, timeout=600)
+    if put.status_code >= 400:
+        raise RuntimeError(f'PUT {put.status_code}: {put.text[:300]}')
+
+    pub = requests.put(
+        f'{YADISK_API}/resources/publish',
+        params={'path': remote_path},
+        headers=_ya_headers(token),
+        timeout=30,
+    )
+    if pub.status_code >= 400:
+        raise RuntimeError(f'publish {pub.status_code}: {pub.text[:300]}')
+
+    meta = requests.get(
+        f'{YADISK_API}/resources',
+        params={'path': remote_path, 'fields': 'public_url,public_key'},
+        headers=_ya_headers(token),
+        timeout=30,
+    )
+    meta.raise_for_status()
+    return meta.json().get('public_url')
+
+
 # --- Orchestration --------------------------------------------------------
 
 def safe_filename(text):
@@ -480,28 +530,29 @@ def safe_filename(text):
 
 def main():
     pexels_key = os.environ['PEXELS_API_KEY']
-    max_token = os.environ['MAX_BOT_TOKEN']
+    yadisk_token = os.environ['YANDEX_DISK_TOKEN']
 
     headline_font = find_font(HEADLINE_FONT_CANDIDATES)
-    accent_font = find_font(ACCENT_FONT_CANDIDATES)
-    print(f'Fonts: headline={headline_font}, accent={accent_font}')
+    print(f'Font: headline={headline_font}')
 
     llm = OpenAI(
         api_key=os.environ['LLM_API_KEY'],
         base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
     )
 
-    target = resolve_max_target(max_token)
-    print(f'Max target: {target}')
+    today = datetime.date.today().isoformat()
+    remote_dir = f'{YADISK_FOLDER}/{today}'
+    ensure_yadisk_folder(yadisk_token, remote_dir)
+    print(f'Yandex.Disk folder: /{remote_dir}')
 
     n = random.randint(REELS_MIN, REELS_MAX)
     print(f'Generating {n} hooks…')
     hooks = generate_hooks(llm, n)
 
-    today = datetime.date.today().isoformat()
     work_dir = Path(tempfile.mkdtemp(prefix='reels_'))
     used_pexels_ids = set()
     successes = 0
+    links = []
 
     for idx, hook in enumerate(hooks, start=1):
         print(f"\n[{idx}/{len(hooks)}] {hook['trigger']}")
@@ -522,16 +573,12 @@ def main():
 
             out_name = f'{today}_{idx:02d}_{safe_filename(hook["headline"])}.mp4'
             out_path = work_dir / out_name
-            compose_reel(raw_path, out_path, hook, headline_font, accent_font)
+            compose_reel(raw_path, out_path, hook, headline_font)
 
-            caption = (
-                f"#{idx} · {today}\n"
-                f"Триггер: {hook['trigger']}\n"
-                f"{hook['headline']} · {hook['accent']}\n"
-                f"CTA: {hook['cta']}"
-            )
-            send_to_max(max_token, target, out_path, caption)
-            print('  sent to Max ✓')
+            remote_path = f'{remote_dir}/{out_name}'
+            url = upload_to_yadisk(yadisk_token, out_path, remote_path)
+            print(f'  uploaded ✓ {url}')
+            links.append((hook['headline'], url))
             successes += 1
 
             raw_path.unlink(missing_ok=True)
@@ -542,7 +589,9 @@ def main():
 
         time.sleep(1)
 
-    print(f'\nDone. {successes}/{len(hooks)} reels sent to Max target {target}.')
+    print(f'\nDone. {successes}/{len(hooks)} reels uploaded to /{remote_dir}.')
+    for headline, url in links:
+        print(f'  • {headline}: {url}')
     if successes == 0:
         raise SystemExit('No reels produced.')
 

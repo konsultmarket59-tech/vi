@@ -31,7 +31,7 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
-          MAX_BOT_TOKEN: ${{ secrets.MAX_BOT_TOKEN }}
-          MAX_CHAT_ID: ${{ secrets.MAX_CHAT_ID }}
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_FOLDER: ${{ secrets.YANDEX_DISK_FOLDER }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         run: python generate_reels.py
