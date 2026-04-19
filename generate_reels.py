@@ -297,13 +297,7 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
 
 # --- Step 4: send to Max bot ---------------------------------------------
 
-def resolve_max_target(token):
-    """Возвращает dict {user_id: …} или {chat_id: …} для отправки сообщения."""
-    if os.environ.get('MAX_USER_ID'):
-        return {'user_id': os.environ['MAX_USER_ID'].strip()}
-    if os.environ.get('MAX_CHAT_ID'):
-        return {'chat_id': os.environ['MAX_CHAT_ID'].strip()}
-
+def _autodetect_target(token):
     resp = requests.get(
         f'{MAX_API_BASE}/updates',
         params={'access_token': token, 'limit': 100},
@@ -317,11 +311,22 @@ def resolve_max_target(token):
         msg = upd.get('message') or {}
         recipient = msg.get('recipient') or {}
         sender = msg.get('sender') or {}
-        # Для диалога шлём user_id отправителя — recipient это сам бот.
         if recipient.get('chat_type') == 'dialog' and sender.get('user_id'):
             return {'user_id': str(sender['user_id'])}
         if recipient.get('chat_id'):
             return {'chat_id': str(recipient['chat_id'])}
+    return None
+
+
+def resolve_max_target(token):
+    """Возвращает dict {user_id: …} или {chat_id: …} для отправки сообщения."""
+    if os.environ.get('MAX_USER_ID'):
+        return {'user_id': os.environ['MAX_USER_ID'].strip()}
+    if os.environ.get('MAX_CHAT_ID'):
+        return {'chat_id': os.environ['MAX_CHAT_ID'].strip()}
+    target = _autodetect_target(token)
+    if target:
+        return target
     raise RuntimeError(
         'Не нашёл адресата. Напишите боту /start в Max и перезапустите, '
         'либо задайте MAX_USER_ID (для личных сообщений) или MAX_CHAT_ID '
@@ -421,12 +426,15 @@ def send_to_max(token, target, file_path, caption):
         'text': caption,
         'attachments': [{'type': 'video', 'payload': {'token': video_token}}],
     }
-    # Если target = chat_id, но Max отвечает dialog.not.found — пробуем тот же id
-    # как user_id (частая причина: пользователь задал MAX_CHAT_ID, но в диалоге
-    # нужен user_id).
+    # Если заданный target не находит диалог — пробуем тот же id как user_id,
+    # а последним шансом запрашиваем апдейты и берём реального собеседника
+    # (частая ошибка: в MAX_CHAT_ID записан id самого бота).
     targets_to_try = [target]
     if 'chat_id' in target:
         targets_to_try.append({'user_id': target['chat_id']})
+    detected = _autodetect_target(token)
+    if detected and detected not in targets_to_try:
+        targets_to_try.append(detected)
 
     last_err = None
     for t in targets_to_try:
