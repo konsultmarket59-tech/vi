@@ -332,9 +332,18 @@ def _decode_json(resp, label):
         )
 
 
+def _extract_token_from_url(url):
+    # TamTam/Max upload URLs часто включают token как query-параметр.
+    from urllib.parse import urlparse, parse_qs
+    q = parse_qs(urlparse(url).query)
+    for key in ('token', 'upload_token', 'video_token', 'uploadKey'):
+        if key in q and q[key]:
+            return q[key][0]
+    return None
+
+
 def send_to_max(token, chat_id, file_path, caption):
-    # Step 1: запросить upload_url. У Max /uploads принимает как POST, так и GET —
-    # пробуем оба, на случай если эндпоинт вернёт 405 на POST.
+    # Step 1: запрашиваем upload endpoint.
     up = requests.post(
         f'{MAX_API_BASE}/uploads',
         params={'access_token': token, 'type': 'video'},
@@ -351,11 +360,20 @@ def send_to_max(token, chat_id, file_path, caption):
             f'uploads {up.status_code}: {(up.text or "")[:500]}'
         )
     up_json = _decode_json(up, 'uploads')
+    print(f'  uploads response keys: {list(up_json.keys())}')
     upload_url = up_json.get('url')
     if not upload_url:
         raise RuntimeError(f'uploads: в ответе нет url: {up_json}')
 
-    # Step 2: залить файл.
+    # Токен может быть сразу в ответе первого шага ИЛИ зашит в query upload-URL.
+    preset_token = (
+        up_json.get('token')
+        or up_json.get('video_token')
+        or _extract_token_from_url(upload_url)
+    )
+
+    # Step 2: льём файл. Upload-сервер Max отвечает либо JSON с token,
+    # либо OK-стилевым `<retval>1</retval>` — тогда токен берём из шага 1.
     with open(file_path, 'rb') as fh:
         files = {'data': (Path(file_path).name, fh, 'video/mp4')}
         up_resp = requests.post(upload_url, files=files, timeout=600)
@@ -363,25 +381,40 @@ def send_to_max(token, chat_id, file_path, caption):
         raise RuntimeError(
             f'upload {up_resp.status_code}: {(up_resp.text or "")[:500]}'
         )
-    up_data = _decode_json(up_resp, 'upload')
-    video_token = (
-        up_data.get('token')
-        or (up_data.get('video') or {}).get('token')
-        or (up_data.get('videos') or {}).get('token')
-    )
-    if not video_token:
-        raise RuntimeError(f'upload: нет token в ответе: {up_data}')
 
-    # Max обрабатывает видео асинхронно — подождём, пока attachment станет
-    # доступным.
-    time.sleep(3)
+    video_token = None
+    try:
+        up_data = up_resp.json()
+        video_token = (
+            up_data.get('token')
+            or (up_data.get('video') or {}).get('token')
+            or (up_data.get('videos') or {}).get('token')
+        )
+    except ValueError:
+        body_text = (up_resp.text or '').strip()
+        if '<retval>1</retval>' not in body_text:
+            raise RuntimeError(
+                f'upload: неожиданный ответ (status={up_resp.status_code}): '
+                f'{body_text[:500]!r}'
+            )
+
+    if not video_token:
+        video_token = preset_token
+    if not video_token:
+        raise RuntimeError(
+            f'upload: не смогли получить token. uploads keys={list(up_json.keys())}, '
+            f'upload body={(up_resp.text or "")[:300]!r}'
+        )
+
+    # Max обрабатывает видео асинхронно — подождём, пока attachment будет готов.
+    time.sleep(5)
 
     body = {
         'text': caption,
         'attachments': [{'type': 'video', 'payload': {'token': video_token}}],
     }
     last_err = None
-    for attempt in range(5):
+    for attempt in range(6):
         msg_resp = requests.post(
             f'{MAX_API_BASE}/messages',
             params={'access_token': token, 'chat_id': chat_id},
@@ -391,11 +424,11 @@ def send_to_max(token, chat_id, file_path, caption):
         if msg_resp.status_code < 400:
             return _decode_json(msg_resp, 'messages')
         last_err = f'{msg_resp.status_code}: {(msg_resp.text or "")[:500]}'
-        if 'not.ready' in last_err or msg_resp.status_code in (400, 409):
+        if 'not.ready' in last_err or 'processing' in last_err or msg_resp.status_code in (400, 409):
             time.sleep(5 * (attempt + 1))
             continue
         raise RuntimeError(f'messages {last_err}')
-    raise RuntimeError(f'Max отверг сообщение после 5 попыток: {last_err}')
+    raise RuntimeError(f'Max отверг сообщение после 6 попыток: {last_err}')
 
 
 # --- Orchestration --------------------------------------------------------
