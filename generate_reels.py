@@ -6,7 +6,7 @@ Daily:
      (Russian entrepreneurs, 25-55, men & women).
   2. For each hook, a vertical luxury-lifestyle clip is downloaded from Pexels.
   3. FFmpeg composes a 1080x1920 MP4 with brand colors and fonts.
-  4. The reel is uploaded to the target Google Drive folder.
+  4. The reel is sent to the user via a Max messenger bot.
 """
 
 import datetime
@@ -21,15 +21,10 @@ from pathlib import Path
 
 import requests
 from openai import OpenAI
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 
 # --- Configuration --------------------------------------------------------
 
-DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
-
-DEFAULT_DRIVE_FOLDER_ID = '1H8Dj1u_KJcWucWanUgQeG0QSoR4q_rIh'
+MAX_API_BASE = 'https://botapi.max.ru'
 
 REELS_MIN = 5
 REELS_MAX = 6
@@ -97,13 +92,6 @@ def find_font(candidates):
 def ffmpeg_escape_path(path):
     # Windows-style colons must be escaped in filter paths.
     return path.replace('\\', '/').replace(':', r'\:')
-
-
-def get_google_credentials():
-    raw = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON_REELS') \
-        or os.environ['GOOGLE_SERVICE_ACCOUNT_JSON']
-    info = json.loads(raw)
-    return service_account.Credentials.from_service_account_info(info, scopes=DRIVE_SCOPES)
 
 
 # --- Step 1: hook generation ---------------------------------------------
@@ -307,19 +295,79 @@ def compose_reel(src_video, dest_video, hook, headline_font, accent_font):
         subprocess.run(cmd, check=True, timeout=180)
 
 
-# --- Step 4: upload to Drive ---------------------------------------------
+# --- Step 4: send to Max bot ---------------------------------------------
 
-def upload_to_drive(drive, folder_id, file_path, name, description):
-    metadata = {
-        'name': name,
-        'parents': [folder_id],
-        'description': description,
+def resolve_max_chat_id(token):
+    chat_id = os.environ.get('MAX_CHAT_ID')
+    if chat_id:
+        return chat_id.strip()
+
+    resp = requests.get(
+        f'{MAX_API_BASE}/updates',
+        params={'access_token': token, 'limit': 100},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    updates = resp.json().get('updates', [])
+    for upd in updates:
+        msg = upd.get('message') or {}
+        recipient = msg.get('recipient') or {}
+        cid = recipient.get('chat_id')
+        if cid:
+            return str(cid)
+    raise RuntimeError(
+        'Не нашёл chat_id. Напишите боту /start в Max и перезапустите, '
+        'либо задайте MAX_CHAT_ID в секретах.'
+    )
+
+
+def send_to_max(token, chat_id, file_path, caption):
+    up = requests.post(
+        f'{MAX_API_BASE}/uploads',
+        params={'access_token': token, 'type': 'video'},
+        timeout=30,
+    )
+    up.raise_for_status()
+    upload_url = up.json()['url']
+
+    with open(file_path, 'rb') as fh:
+        files = {'data': (Path(file_path).name, fh, 'video/mp4')}
+        up_resp = requests.post(upload_url, files=files, timeout=600)
+    up_resp.raise_for_status()
+    up_data = up_resp.json()
+    video_token = (
+        up_data.get('token')
+        or (up_data.get('video') or {}).get('token')
+        or (up_data.get('videos') or {}).get('token')
+    )
+    if not video_token:
+        raise RuntimeError(f'В ответе на загрузку нет token: {up_data}')
+
+    # Max обрабатывает видео асинхронно — подождём немного, чтобы attachment
+    # успел стать доступным.
+    time.sleep(3)
+
+    body = {
+        'text': caption,
+        'attachments': [{'type': 'video', 'payload': {'token': video_token}}],
     }
-    media = MediaFileUpload(str(file_path), mimetype='video/mp4', resumable=True)
-    created = drive.files().create(
-        body=metadata, media_body=media, fields='id, webViewLink'
-    ).execute()
-    return created.get('webViewLink')
+    last_err = None
+    for attempt in range(5):
+        msg_resp = requests.post(
+            f'{MAX_API_BASE}/messages',
+            params={'access_token': token, 'chat_id': chat_id},
+            json=body,
+            timeout=60,
+        )
+        if msg_resp.status_code < 400:
+            return msg_resp.json()
+        last_err = msg_resp.text
+        # attachment.not.ready — типичный ответ, пока Max переваривает видео.
+        if 'not.ready' in last_err or msg_resp.status_code in (400, 409):
+            time.sleep(5 * (attempt + 1))
+            continue
+        msg_resp.raise_for_status()
+    raise RuntimeError(f'Max отверг сообщение после 5 попыток: {last_err}')
 
 
 # --- Orchestration --------------------------------------------------------
@@ -331,7 +379,7 @@ def safe_filename(text):
 
 def main():
     pexels_key = os.environ['PEXELS_API_KEY']
-    folder_id = os.environ.get('GOOGLE_DRIVE_REELS_FOLDER_ID', DEFAULT_DRIVE_FOLDER_ID)
+    max_token = os.environ['MAX_BOT_TOKEN']
 
     headline_font = find_font(HEADLINE_FONT_CANDIDATES)
     accent_font = find_font(ACCENT_FONT_CANDIDATES)
@@ -341,8 +389,9 @@ def main():
         api_key=os.environ['LLM_API_KEY'],
         base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
     )
-    creds = get_google_credentials()
-    drive = build('drive', 'v3', credentials=creds)
+
+    chat_id = resolve_max_chat_id(max_token)
+    print(f'Max chat_id: {chat_id}')
 
     n = random.randint(REELS_MIN, REELS_MAX)
     print(f'Generating {n} hooks…')
@@ -359,7 +408,6 @@ def main():
         try:
             video_id, video_url = fetch_pexels_video(hook['search_query'], pexels_key, used_pexels_ids)
             if not video_id:
-                # Fallback query if specific one returned nothing new.
                 fallback = random.choice(LUXURY_QUERIES)
                 print(f'  no match for "{hook["search_query"]}", retrying with "{fallback}"')
                 video_id, video_url = fetch_pexels_video(fallback, pexels_key, used_pexels_ids)
@@ -375,15 +423,14 @@ def main():
             out_path = work_dir / out_name
             compose_reel(raw_path, out_path, hook, headline_font, accent_font)
 
-            description = (
+            caption = (
+                f"#{idx} · {today}\n"
                 f"Триггер: {hook['trigger']}\n"
-                f"Заголовок: {hook['headline']}\n"
-                f"Акцент: {hook['accent']}\n"
-                f"CTA: {hook['cta']}\n"
-                f"Stock query: {hook['search_query']}"
+                f"{hook['headline']} · {hook['accent']}\n"
+                f"CTA: {hook['cta']}"
             )
-            link = upload_to_drive(drive, folder_id, out_path, out_name, description)
-            print(f'  uploaded → {link}')
+            send_to_max(max_token, chat_id, out_path, caption)
+            print('  sent to Max ✓')
             successes += 1
 
             raw_path.unlink(missing_ok=True)
@@ -392,10 +439,9 @@ def main():
             print(f'  failed: {exc}')
             continue
 
-        # Be polite to Pexels.
         time.sleep(1)
 
-    print(f'\nDone. {successes}/{len(hooks)} reels uploaded to folder {folder_id}.')
+    print(f'\nDone. {successes}/{len(hooks)} reels sent to Max chat {chat_id}.')
     if successes == 0:
         raise SystemExit('No reels produced.')
 
