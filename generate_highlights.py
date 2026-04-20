@@ -2,7 +2,7 @@
 Highlight reel generator — pole sport & aerial gymnastics.
 
 Pipeline:
-  1. List source videos from a public Yandex.Disk folder.
+  1. List source videos from a Yandex.Disk folder (private or public).
   2. Download each video.
   3. Sample up to 20 frames evenly across each video.
   4. Send thumbnails to Claude Vision; score 0–10 with the eye of a
@@ -13,9 +13,12 @@ Pipeline:
      (1080×1920) to a private Yandex.Disk output folder.
 
 Required env vars:
-  YANDEX_DISK_TOKEN              — OAuth token (write access to output folder)
+  YANDEX_DISK_TOKEN              — OAuth token (read source + write output)
   ANTHROPIC_API_KEY              — for Claude Vision frame scoring
-  YANDEX_DISK_HIGHLIGHTS_SOURCE  — public share URL of source video folder
+  YANDEX_DISK_HIGHLIGHTS_SOURCE  — folder path on your disk, e.g. "Videos/Source"
+                                    OR a public /d/ share URL
+                                    (note: /a/ album links are NOT supported by
+                                     the Yandex public API — use a folder path instead)
   YANDEX_DISK_HIGHLIGHTS_OUTPUT  — private folder path for output (default: Highlights)
 
 Optional env vars:
@@ -44,10 +47,7 @@ import requests
 
 YADISK_API = 'https://cloud-api.yandex.net/v1/disk'
 
-DEFAULT_SOURCE_URL = os.environ.get(
-    'YANDEX_DISK_HIGHLIGHTS_SOURCE',
-    'https://disk.yandex.ru/a/uqDM_LpjutI2yA',
-)
+DEFAULT_SOURCE = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE', '')
 DEFAULT_OUTPUT_FOLDER = os.environ.get('YANDEX_DISK_HIGHLIGHTS_OUTPUT', 'Highlights')
 
 CLIP_DURATION   = float(os.environ.get('HIGHLIGHT_CLIP_DURATION', '5'))
@@ -120,6 +120,63 @@ def download_public_file(public_url: str, file_path: str, dest: Path) -> None:
         with open(dest, 'wb') as fh:
             for chunk in r.iter_content(chunk_size=256 * 1024):
                 fh.write(chunk)
+
+
+# ---------------------------------------------------------------------------
+# Yandex.Disk — private source (OAuth token required)
+# ---------------------------------------------------------------------------
+
+def list_private_videos(token: str, folder_path: str) -> list[dict]:
+    """Return [{name, path}, ...] for video files in a private YaDisk folder."""
+    resp = requests.get(
+        f'{YADISK_API}/resources',
+        params={
+            'path': _disk_path_raw(folder_path),
+            'limit': 100,
+            'fields': '_embedded.items.name,_embedded.items.path,'
+                      '_embedded.items.media_type,_embedded.items.type',
+        },
+        headers={'Authorization': f'OAuth {token}'},
+        timeout=30,
+    )
+    if resp.status_code == 404:
+        raise RuntimeError(
+            f'Folder not found on Yandex.Disk: {folder_path!r}\n'
+            'Set YANDEX_DISK_HIGHLIGHTS_SOURCE to the folder path on your disk, '
+            'e.g. "Видео/Исходники".'
+        )
+    resp.raise_for_status()
+    items = resp.json().get('_embedded', {}).get('items', [])
+    return [
+        {'name': item['name'], 'path': item['path']}
+        for item in items
+        if item.get('type') == 'file'
+        and Path(item['name']).suffix.lower() in VIDEO_EXTENSIONS
+    ]
+
+
+def download_private_file(token: str, remote_path: str, dest: Path) -> None:
+    info = requests.get(
+        f'{YADISK_API}/resources/download',
+        params={'path': remote_path},
+        headers={'Authorization': f'OAuth {token}'},
+        timeout=30,
+    )
+    info.raise_for_status()
+    href = info.json()['href']
+    with requests.get(href, stream=True, timeout=600) as r:
+        r.raise_for_status()
+        with open(dest, 'wb') as fh:
+            for chunk in r.iter_content(chunk_size=256 * 1024):
+                fh.write(chunk)
+
+
+def _disk_path_raw(path: str) -> str:
+    """Return path as-is if it already looks absolute, else prepend /."""
+    p = path.strip()
+    if p.startswith('/'):
+        return p
+    return f'/{p}' if p else '/'
 
 
 # ---------------------------------------------------------------------------
@@ -442,14 +499,33 @@ def add_music(video: Path, output: Path, duration: float) -> None:
 def main() -> None:
     yadisk_token   = os.environ['YANDEX_DISK_TOKEN']
     anthropic_key  = os.environ['ANTHROPIC_API_KEY']
-    source_url     = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE') or DEFAULT_SOURCE_URL
+    source         = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE') or DEFAULT_SOURCE
     output_dir     = os.environ.get('YANDEX_DISK_HIGHLIGHTS_OUTPUT') or DEFAULT_OUTPUT_FOLDER
+
+    if not source:
+        raise SystemExit(
+            'YANDEX_DISK_HIGHLIGHTS_SOURCE is not set.\n'
+            'Set it to the folder path on your Yandex.Disk, e.g. "Видео/Исходники".\n'
+            '(Note: /a/ album links are not supported — use the folder path instead.)'
+        )
 
     if output_dir.startswith('http'):
         raise SystemExit(
             f'YANDEX_DISK_HIGHLIGHTS_OUTPUT looks like a URL: {output_dir!r}\n'
             'Set it to a folder path, e.g. "Highlights".'
         )
+
+    # Detect source type: public /d/ URL vs private folder path
+    use_public = source.startswith('http') and '/d/' in source
+
+    if source.startswith('http') and not use_public:
+        print(
+            f'WARNING: {source!r} looks like a Yandex.Disk album (/a/) link.\n'
+            'Album links are not supported by the public API.\n'
+            'Set YANDEX_DISK_HIGHLIGHTS_SOURCE to the folder path on your disk instead,\n'
+            'e.g. "Видео/Исходники".\n'
+        )
+        raise SystemExit('Unsupported source URL format.')
 
     claude = anthropic.Anthropic(api_key=anthropic_key)
 
@@ -463,10 +539,14 @@ def main() -> None:
     print(f'Output folder: {remote_dir}')
 
     # List source videos
-    print(f'\nListing source videos: {source_url}')
-    videos = list_public_videos(source_url)
+    print(f'\nListing source videos: {source}')
+    if use_public:
+        videos = list_public_videos(source)
+    else:
+        videos = list_private_videos(yadisk_token, source)
+
     if not videos:
-        raise SystemExit(f'No video files found at {source_url}')
+        raise SystemExit(f'No video files found at {source!r}')
     print(f'Found {len(videos)} video(s): {[v["name"] for v in videos]}')
 
     clips_per_video = max(1, min(3, math.ceil(clips_needed / len(videos))))
@@ -484,7 +564,10 @@ def main() -> None:
         raw = work_dir / f'raw_{vid_idx}_{vname}'
         try:
             print('  Downloading…')
-            download_public_file(source_url, video_info['path'], raw)
+            if use_public:
+                download_public_file(source, video_info['path'], raw)
+            else:
+                download_private_file(yadisk_token, video_info['path'], raw)
         except Exception as exc:
             print(f'  Download failed: {exc} — skipping')
             continue

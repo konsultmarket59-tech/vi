@@ -25,8 +25,12 @@ jobs:
 
       - name: Generate highlight reels
         env:
+          # Required secrets:
           YANDEX_DISK_TOKEN:              ${{ secrets.YANDEX_DISK_TOKEN }}
           ANTHROPIC_API_KEY:              ${{ secrets.ANTHROPIC_API_KEY }}
+          # YANDEX_DISK_HIGHLIGHTS_SOURCE — folder path on your disk, e.g. "Видео/Исходники"
+          # (do NOT use /a/ album links — use the folder path directly)
           YANDEX_DISK_HIGHLIGHTS_SOURCE:  ${{ secrets.YANDEX_DISK_HIGHLIGHTS_SOURCE }}
+          # YANDEX_DISK_HIGHLIGHTS_OUTPUT — output folder path, e.g. "Highlights"
           YANDEX_DISK_HIGHLIGHTS_OUTPUT:  ${{ secrets.YANDEX_DISK_HIGHLIGHTS_OUTPUT }}
         run: python generate_highlights.py
