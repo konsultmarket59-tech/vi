@@ -1,0 +1,32 @@
+name: Highlights — лучшие моменты (пилон/воздушная гимнастика)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-highlights:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Generate highlight reels
+        env:
+          YANDEX_DISK_TOKEN:              ${{ secrets.YANDEX_DISK_TOKEN }}
+          ANTHROPIC_API_KEY:              ${{ secrets.ANTHROPIC_API_KEY }}
+          YANDEX_DISK_HIGHLIGHTS_SOURCE:  ${{ secrets.YANDEX_DISK_HIGHLIGHTS_SOURCE }}
+          YANDEX_DISK_HIGHLIGHTS_OUTPUT:  ${{ secrets.YANDEX_DISK_HIGHLIGHTS_OUTPUT }}
+        run: python generate_highlights.py
