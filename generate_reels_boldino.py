@@ -442,11 +442,16 @@ def _ya_headers(token: str) -> dict:
     return {'Authorization': f'OAuth {token}'}
 
 
+def _disk_path(path: str) -> str:
+    """Normalise to an absolute Yandex.Disk path (must start with /)."""
+    p = path.strip('/')
+    return f'/{p}' if p else '/'
+
+
 def ensure_yadisk_folder(token: str, path: str) -> None:
     parts = [p for p in path.strip('/').split('/') if p]
-    cur = ''
-    for part in parts:
-        cur = f'{cur}/{part}' if cur else part
+    for i in range(1, len(parts) + 1):
+        cur = '/' + '/'.join(parts[:i])
         r = requests.put(
             f'{YADISK_API}/resources',
             params={'path': cur},
@@ -458,6 +463,7 @@ def ensure_yadisk_folder(token: str, path: str) -> None:
 
 
 def upload_to_yadisk(token: str, file_path: Path, remote_path: str) -> str | None:
+    remote_path = _disk_path(remote_path)
     info = requests.get(
         f'{YADISK_API}/resources/upload',
         params={'path': remote_path, 'overwrite': 'true'},
@@ -497,21 +503,29 @@ def upload_to_yadisk(token: str, file_path: Path, remote_path: str) -> str | Non
 
 def main() -> None:
     yadisk_token = os.environ['YANDEX_DISK_TOKEN']
-    source_url   = os.environ.get('YANDEX_DISK_BOLDINO_SOURCE', BOLDINO_SOURCE_URL)
-    output_dir   = os.environ.get('YANDEX_DISK_BOLDINO_OUTPUT', BOLDINO_OUTPUT_FOLDER)
+    # Use `or` so that an empty-string secret (GitHub Actions sets unset secrets
+    # to "") still falls back to the hardcoded default.
+    source_url = os.environ.get('YANDEX_DISK_BOLDINO_SOURCE') or BOLDINO_SOURCE_URL
+    output_dir = os.environ.get('YANDEX_DISK_BOLDINO_OUTPUT') or 'Boldino/Reels'
+
+    if output_dir.startswith('http'):
+        raise SystemExit(
+            f'YANDEX_DISK_BOLDINO_OUTPUT looks like a URL: {output_dir!r}\n'
+            'Set it to a folder path, e.g. "Boldino/Reels".'
+        )
 
     font = find_font(HEADLINE_FONT_CANDIDATES)
     print(f'Font: {font}')
 
     llm = OpenAI(
         api_key=os.environ['LLM_API_KEY'],
-        base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
+        base_url=os.environ.get('LLM_BASE_URL') or 'https://polza.ai/api/v1',
     )
 
     today      = datetime.date.today().isoformat()
-    remote_dir = f'{output_dir}/{today}'
+    remote_dir = _disk_path(f'{output_dir.strip("/")}/{today}')
     ensure_yadisk_folder(yadisk_token, remote_dir)
-    print(f'Output folder: /{remote_dir}')
+    print(f'Output folder: {remote_dir}')
 
     print(f'Listing source videos from: {source_url}')
     videos = list_public_videos(source_url)
@@ -543,7 +557,7 @@ def main() -> None:
             print('  Composing…')
             compose_reel(raw, out_path, hook, font)
 
-            remote_path = f'{remote_dir}/{out_name}'
+            remote_path = f'{remote_dir}/{out_name}'  # remote_dir already starts with /
             url = upload_to_yadisk(yadisk_token, out_path, remote_path)
             print(f'  Uploaded ✓  {url}')
             links.append((hook['headline'], url))
