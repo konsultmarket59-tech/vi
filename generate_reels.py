@@ -2,15 +2,15 @@
 Marketing-agency reels generator.
 
 Daily:
-  1. Claude generates 5-6 hooks based on triggers of the target audience
-     (Russian entrepreneurs, 25-55, men & women).
+  1. Script picks 5-6 user-approved hooks from hooks.txt at random,
+     skipping ones already used (tracked on Yandex.Disk).
   2. For each hook, a vertical luxury-lifestyle clip is downloaded from Pexels.
   3. FFmpeg composes a 1080x1920 MP4 with brand colors and fonts.
   4. The reel is uploaded to Yandex.Disk and a public link is returned.
 """
 
 import datetime
-import json
+import hashlib
 import os
 import random
 import re
@@ -20,7 +20,6 @@ import time
 from pathlib import Path
 
 import requests
-from openai import OpenAI
 
 # --- Configuration --------------------------------------------------------
 
@@ -72,6 +71,26 @@ HEADLINE_FONT_CANDIDATES = [
     'BebasNeue.ttf',
 ]
 
+# Hook pool — user-curated, one hook per line, UTF-8.
+HOOKS_FILE = Path(__file__).parent / 'hooks.txt'
+USED_HOOKS_REMOTE = f'{YADISK_FOLDER}/_used_hooks.txt'
+
+# Non-promotional closing lines — random per reel.
+ALLOWED_CTAS = [
+    'Это лечится',
+    'Или нет',
+    'Честно ответь',
+    'Решай сам',
+    'Давно пора',
+    'Слабо признать',
+    'Факт',
+    'Тебе решать',
+    'Пока не поздно',
+    'Подумай',
+    'Или как',
+    'Вопрос',
+]
+
 
 # --- Helpers --------------------------------------------------------------
 
@@ -91,84 +110,116 @@ def ffmpeg_escape_path(path):
     return path.replace('\\', '/').replace(':', r'\:')
 
 
-# --- Step 1: hook generation ---------------------------------------------
+# --- Step 1: hook pool ---------------------------------------------------
 
-HOOK_PROMPT = """Ты — креативный директор маркетингового агентства. Твоё агентство решает задачи \
-клиентов через SMM, vibe coding, брендинг, продуктовый маркетинг.
-
-Целевая аудитория:
-• предприниматели в России, 25–55 лет, мужчины и женщины
-• у них есть триггеры четырёх типов:
-  1. бизнес-триггеры: выгорание, слабый маркетинг, устаревший бренд, низкие продажи, \
-     отсутствие системы, застой, невидимость на фоне конкурентов, кассовые разрывы
-  2. триггеры руководителя: одиночество наверху, страх потерять команду, недоверие к найму, \
-     усталость от ручного управления, синдром самозванца
-  3. возрастные и гендерные триггеры: 25–35 «нужно успеть», 35–45 «второе дыхание», \
-     45–55 «оставить наследие»; у женщин — баланс семья/карьера, видимость, экспертность; \
-     у мужчин — статус, масштаб, признание
-  4. триггеры недооценённости и соцсетей: демпинг собственных услуг, «стесняюсь поднять цену», \
-     работа за лайки вместо денег, соцсети как витрина без выручки, \
-     непонимание, сколько реально можно зарабатывать с текущей аудитории, \
-     «другие с меньшим охватом делают х5 к моей выручке», ощущение «я достоин большего, \
-     но не знаю, как это превратить в деньги»
-
-Сгенерируй РОВНО {n} разных хуков для вертикальных рилзов. Каждый хук должен:
-• БИТЬ БОЛЬНО по конкретному триггеру — вскрывать боль, которую человек прячет
-• быть максимально коротким и острым (3–6 слов в headline)
-• использовать провокацию, противопоставление, жёсткий диагноз или неожиданный разворот
-• вызывать реакцию «это про меня» или «да как он посмел» — зритель не должен остаться равнодушным
-• избегать банальностей типа «успех рядом», «начни сегодня», «ты сможешь» — только хирургический удар
-• НЕ обещать конкретные суммы выручки, проценты роста, «+500к за месяц» и т.п. \
-  (это будет подпадать под маркировку рекламы) — работать с чувством, а не с цифрой
-
-ВАЖНО про поле "cta":
-• это НЕ призыв к действию — никаких «купи», «закажи», «напиши», «оставь заявку», \
-  «переходи», «подписывайся», «получи», «запишись», «узнай подробнее», «жми»
-• пиши провокационную финальную фразу 2-4 слова: констатация, вопрос, приговор, вызов
-• примеры допустимого: «Это лечится», «Или нет», «Честно ответь», «Решай сам», \
-  «Давно пора», «Слабо признать», «Факт», «Тебе решать», «Пока не поздно»
-
-Верни СТРОГО JSON-массив без пояснений, формат:
-[
-  {{
-    "trigger": "категория триггера одним предложением",
-    "headline": "ГЛАВНАЯ ФРАЗА КАПСОМ 3-6 СЛОВ",
-    "accent": "акцентное слово 1-2 слова",
-    "cta": "финальная фраза 2-4 слова без прямого призыва",
-    "search_query": "english search query for luxury stock video, 2-4 words"
-  }}
-]
-
-Примеры search_query: "luxury penthouse sunset", "supercar driving", "private jet", \
-"yacht ocean", "rolex watch". Только латиница, только люкс-тематика.
-"""
+def _hook_key(text):
+    """Stable fingerprint of a hook — whitespace/case-insensitive."""
+    norm = re.sub(r'\s+', ' ', text).strip().lower()
+    return hashlib.sha1(norm.encode('utf-8')).hexdigest()[:16]
 
 
-def generate_hooks(client, n):
-    model = os.environ.get('LLM_MODEL', 'anthropic/claude-sonnet-4.6')
-    resp = client.chat.completions.create(
-        model=model,
-        max_tokens=2048,
-        messages=[{'role': 'user', 'content': HOOK_PROMPT.format(n=n)}],
+def load_hooks_pool():
+    """Returns (dedup list of hooks, dict key->hook) from hooks.txt."""
+    if not HOOKS_FILE.exists():
+        raise FileNotFoundError(
+            f'{HOOKS_FILE} не найден. Положи в корень репозитория файл hooks.txt '
+            'с одобренными хуками — по одному на строку.'
+        )
+    raw = HOOKS_FILE.read_text(encoding='utf-8').splitlines()
+    seen = set()
+    pool = []
+    keymap = {}
+    for line in raw:
+        text = line.strip()
+        if not text or text.startswith('#'):
+            continue
+        key = _hook_key(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        pool.append(text)
+        keymap[key] = text
+    if not pool:
+        raise ValueError(f'{HOOKS_FILE} пустой — добавь хотя бы один хук.')
+    return pool, keymap
+
+
+def download_used_hooks(token):
+    """Returns set of used-hook keys stored on Yandex.Disk (empty if missing)."""
+    info = requests.get(
+        f'{YADISK_API}/resources/download',
+        params={'path': USED_HOOKS_REMOTE},
+        headers=_ya_headers(token),
+        timeout=30,
     )
-    text = (resp.choices[0].message.content or '').strip()
+    if info.status_code == 404:
+        return set()
+    if info.status_code >= 400:
+        print(f'  used-hooks download-url {info.status_code}: {info.text[:200]}')
+        return set()
+    href = info.json().get('href')
+    if not href:
+        return set()
+    data = requests.get(href, timeout=30)
+    if data.status_code >= 400:
+        return set()
+    used = set()
+    for line in data.text.splitlines():
+        line = line.strip()
+        if line and not line.startswith('#'):
+            used.add(line.split('\t', 1)[0])
+    return used
 
-    # Strip ```json fences if the model added them.
-    match = re.search(r'\[.*\]', text, re.DOTALL)
-    if not match:
-        raise ValueError(f'Claude did not return a JSON array:\n{text}')
-    hooks = json.loads(match.group(0))
 
-    cleaned = []
-    for h in hooks:
-        cleaned.append({
-            'trigger': h.get('trigger', '').strip(),
-            'headline': h.get('headline', '').strip().upper(),
-            'accent': h.get('accent', '').strip(),
-            'cta': h.get('cta', '').strip(),
-            'search_query': h.get('search_query', '').strip() or random.choice(LUXURY_QUERIES),
+def upload_used_hooks(token, used_keys):
+    """Overwrites the used-hooks state file on Yandex.Disk."""
+    body = '\n'.join(sorted(used_keys)) + '\n'
+    info = requests.get(
+        f'{YADISK_API}/resources/upload',
+        params={'path': USED_HOOKS_REMOTE, 'overwrite': 'true'},
+        headers=_ya_headers(token),
+        timeout=30,
+    )
+    if info.status_code >= 400:
+        print(f'  used-hooks upload-url {info.status_code}: {info.text[:200]}')
+        return
+    href = info.json().get('href')
+    if not href:
+        return
+    put = requests.put(href, data=body.encode('utf-8'), timeout=30)
+    if put.status_code >= 400:
+        print(f'  used-hooks PUT {put.status_code}: {put.text[:200]}')
+
+
+def pick_hooks(pool, keymap, used_keys, n):
+    """Pick n hooks from the pool, skipping already-used ones.
+
+    When the user adds new hooks to hooks.txt, stale entries in used_keys
+    (keys no longer present in the pool) are cleaned up. When the pool is
+    exhausted, the used set resets so rotation can continue.
+    """
+    pool_keys = set(keymap.keys())
+    # Drop entries the user removed from hooks.txt.
+    used_keys &= pool_keys
+
+    available = [k for k in pool_keys if k not in used_keys]
+    if len(available) < n:
+        print(f'  пул почти исчерпан ({len(available)} свободных из {len(pool_keys)}) — '
+              f'сбрасываю историю использования.')
+        used_keys.clear()
+        available = list(pool_keys)
+
+    picked_keys = random.sample(available, n)
+    hooks = []
+    for key in picked_keys:
+        headline = keymap[key]
+        hooks.append({
+            'key': key,
+            'headline': headline,
+            'cta': random.choice(ALLOWED_CTAS),
+            'search_query': random.choice(LUXURY_QUERIES),
         })
-    return cleaned
+    return hooks
 
 
 # --- Step 2: stock video --------------------------------------------------
@@ -221,20 +272,31 @@ def pick_music_track():
     return random.choice(tracks) if tracks else None
 
 
-def wrap_headline(text, max_chars_per_line=14):
+def wrap_headline(text, max_chars_per_line=22, max_lines=5):
+    """Greedy word-wrap. Long words that don't fit still go on their own line."""
     words = text.split()
     lines, current = [], ''
     for word in words:
         candidate = f'{current} {word}'.strip()
-        if len(candidate) <= max_chars_per_line:
+        if len(candidate) <= max_chars_per_line or not current:
             current = candidate
         else:
-            if current:
-                lines.append(current)
+            lines.append(current)
             current = word
     if current:
         lines.append(current)
-    return lines[:3]  # cap at 3 lines
+    return lines[:max_lines]
+
+
+def pick_headline_fontsize(n_lines):
+    """Shrink the headline so it still fits when the phrase is long."""
+    if n_lines <= 2:
+        return 108
+    if n_lines == 3:
+        return 92
+    if n_lines == 4:
+        return 78
+    return 66
 
 
 def compose_reel(src_video, dest_video, hook, headline_font):
@@ -267,15 +329,17 @@ def compose_reel(src_video, dest_video, hook, headline_font):
         filters.append('drawbox=x=0:y=0:w=iw:h=ih:color=black@0.10:t=fill')
 
         # Headline lines, each on its own pink pill, centered in upper third.
-        headline_font_size = 120
-        line_gap = headline_font_size + 70
-        start_y = int(OUTPUT_H * 0.14)
+        headline_font_size = pick_headline_fontsize(len(headline_lines))
+        pill_padding = max(20, headline_font_size // 4)
+        line_gap = headline_font_size + pill_padding * 2 + 10
+        block_height = line_gap * len(headline_lines)
+        start_y = max(int(OUTPUT_H * 0.12), (OUTPUT_H - block_height) // 2 - int(OUTPUT_H * 0.15))
         for i, hf in enumerate(headline_files):
             path = ffmpeg_escape_path(str(hf))
             filters.append(
                 f"drawtext=fontfile='{headline_font_esc}':textfile='{path}':"
                 f'fontsize={headline_font_size}:fontcolor={COLOR_WHITE}:'
-                f'box=1:boxcolor={COLOR_PINK}:boxborderw=30:'
+                f'box=1:boxcolor={COLOR_PINK}:boxborderw={pill_padding}:'
                 f'x=(w-text_w)/2:y={start_y + i * line_gap}'
             )
 
@@ -577,28 +641,30 @@ def main():
     headline_font = find_font(HEADLINE_FONT_CANDIDATES)
     print(f'Font: headline={headline_font}')
 
-    llm = OpenAI(
-        api_key=os.environ['LLM_API_KEY'],
-        base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
-    )
+    pool, keymap = load_hooks_pool()
+    print(f'Hooks pool: {len(pool)} одобренных хуков в {HOOKS_FILE.name}')
 
     today = datetime.date.today().isoformat()
     remote_dir = f'{YADISK_FOLDER}/{today}'
     ensure_yadisk_folder(yadisk_token, remote_dir)
     print(f'Yandex.Disk folder: /{remote_dir}')
 
+    used_keys = download_used_hooks(yadisk_token)
+    print(f'Уже использовано ранее: {len(used_keys)}')
+
     n = random.randint(REELS_MIN, REELS_MAX)
-    print(f'Generating {n} hooks…')
-    hooks = generate_hooks(llm, n)
+    n = min(n, len(pool))
+    hooks = pick_hooks(pool, keymap, used_keys, n)
+    print(f'Выбрано {len(hooks)} хуков на сегодня.')
 
     work_dir = Path(tempfile.mkdtemp(prefix='reels_'))
     used_pexels_ids = set()
     successes = 0
     links = []
+    newly_used = set()
 
     for idx, hook in enumerate(hooks, start=1):
-        print(f"\n[{idx}/{len(hooks)}] {hook['trigger']}")
-        print(f"  headline='{hook['headline']}' accent='{hook['accent']}'")
+        print(f"\n[{idx}/{len(hooks)}] {hook['headline']}")
         try:
             video_id, video_url = fetch_pexels_video(hook['search_query'], pexels_key, used_pexels_ids)
             if not video_id:
@@ -622,6 +688,7 @@ def main():
             print(f'  uploaded ✓ {url}')
             links.append((hook['headline'], url))
             successes += 1
+            newly_used.add(hook['key'])
 
             raw_path.unlink(missing_ok=True)
             out_path.unlink(missing_ok=True)
@@ -630,6 +697,11 @@ def main():
             continue
 
         time.sleep(1)
+
+    if newly_used:
+        updated = used_keys | newly_used
+        upload_used_hooks(yadisk_token, updated)
+        print(f'\nИстория использования обновлена: всего {len(updated)} из {len(pool)}.')
 
     print(f'\nDone. {successes}/{len(hooks)} reels uploaded to /{remote_dir}.')
     for headline, url in links:
