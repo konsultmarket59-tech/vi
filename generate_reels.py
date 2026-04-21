@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 import requests
+from openai import OpenAI
 
 # --- Configuration --------------------------------------------------------
 
@@ -192,34 +193,119 @@ def upload_used_hooks(token, used_keys):
 
 
 def pick_hooks(pool, keymap, used_keys, n):
-    """Pick n hooks from the pool, skipping already-used ones.
+    """Pick up to n hooks from the pool, skipping already-used ones.
 
-    When the user adds new hooks to hooks.txt, stale entries in used_keys
-    (keys no longer present in the pool) are cleaned up. When the pool is
-    exhausted, the used set resets so rotation can continue.
+    Stale entries in used_keys (no longer in the pool) are cleaned up.
+    If the pool cannot cover n, returns whatever it can — the caller is
+    expected to top up with LLM-generated hooks.
     """
     pool_keys = set(keymap.keys())
-    # Drop entries the user removed from hooks.txt.
     used_keys &= pool_keys
 
     available = [k for k in pool_keys if k not in used_keys]
-    if len(available) < n:
-        print(f'  пул почти исчерпан ({len(available)} свободных из {len(pool_keys)}) — '
-              f'сбрасываю историю использования.')
-        used_keys.clear()
-        available = list(pool_keys)
+    take = min(n, len(available))
+    picked_keys = random.sample(available, take) if take else []
 
-    picked_keys = random.sample(available, n)
     hooks = []
     for key in picked_keys:
-        headline = keymap[key]
         hooks.append({
             'key': key,
-            'headline': headline,
+            'source': 'pool',
+            'headline': keymap[key],
             'cta': random.choice(ALLOWED_CTAS),
             'search_query': random.choice(LUXURY_QUERIES),
         })
     return hooks
+
+
+# --- Step 1b: LLM fallback (consultant-style) ----------------------------
+
+LLM_HOOK_PROMPT = """Ты — стратегический маркетолог уровня топ-консалтинга (McKinsey / BCG), \
+работающий с предпринимателями и собственниками бизнеса.
+Твоя задача — писать короткие маркетинговые хуки, которые создают ощущение \
+интеллектуального превосходства, системного мышления и более высокого уровня понимания рынка.
+
+Сгенерируй {n} коротких хуков (каждый 8–12 слов) на тему маркетинга, брендинга, \
+SMM, контентных воронок и восприятия бренда.
+
+Требования к стилю:
+— премиальный, интеллектуальный тон
+— без агрессии, давления, манипуляций и «инфоцыганского» стиля
+— без прямых обвинений («вы делаете плохо»)
+— формулируй как наблюдения, закономерности, принципы
+— каждый хук звучит как инсайт или переосмысление
+— используй контрасты: «не…, а…», «не потому что…, а потому что…»
+— создавай эффект разницы уровней мышления
+— акцент на: восприятии, доверии, смыслах, системности, принятии решений клиентом
+
+Нельзя:
+— банальные фразы («контент — это важно»)
+— кликбейт и желтизна
+— сленг, разговорный стиль
+— клише инфобизнеса
+— прямые продажи
+
+Цель:
+— предприниматель чувствует разницу в уровне мышления
+— узнаёт себя без прямого давления
+— думает «я делаю не так глубоко»
+— хочет углубиться в маркетинг системно
+
+Формат ответа:
+— ровно {n} хуков, каждый с новой строки
+— без нумерации, без пояснений, без кавычек, без markdown
+
+Пример стиля:
+Сильные бренды не продают — их выбирают без убеждения
+Цена — это следствие восприятия, а не характеристика продукта
+Маркетинг работает, когда снижает неопределённость выбора клиента
+"""
+
+
+def generate_llm_hooks(n):
+    """Generates n consultant-style hooks via Polza.ai. Returns a list of headline strings."""
+    if not os.environ.get('LLM_API_KEY'):
+        raise RuntimeError('LLM_API_KEY не задан — LLM-фолбэк недоступен.')
+    client = OpenAI(
+        api_key=os.environ['LLM_API_KEY'],
+        base_url=os.environ.get('LLM_BASE_URL', 'https://polza.ai/api/v1'),
+    )
+    model = os.environ.get('LLM_MODEL', 'anthropic/claude-sonnet-4.6')
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=2048,
+        messages=[{'role': 'user', 'content': LLM_HOOK_PROMPT.format(n=n)}],
+    )
+    text = (resp.choices[0].message.content or '').strip()
+    lines = []
+    for raw in text.splitlines():
+        s = raw.strip().lstrip('0123456789.)-—• ').strip('"“”«»').strip()
+        if s and len(s.split()) >= 4:
+            lines.append(s)
+    if not lines:
+        raise ValueError(f'LLM вернул пустой список хуков:\n{text}')
+    random.shuffle(lines)
+    return lines[:n]
+
+
+def build_llm_hooks(n, used_keys):
+    """Asks the LLM for hooks and returns reel-ready dicts, skipping ones already used."""
+    raw_hooks = generate_llm_hooks(max(n + 3, 8))
+    fresh = []
+    for text in raw_hooks:
+        key = _hook_key(text)
+        if key in used_keys or any(h['key'] == key for h in fresh):
+            continue
+        fresh.append({
+            'key': key,
+            'source': 'llm',
+            'headline': text,
+            'cta': random.choice(ALLOWED_CTAS),
+            'search_query': random.choice(LUXURY_QUERIES),
+        })
+        if len(fresh) >= n:
+            break
+    return fresh
 
 
 # --- Step 2: stock video --------------------------------------------------
@@ -272,7 +358,7 @@ def pick_music_track():
     return random.choice(tracks) if tracks else None
 
 
-def wrap_headline(text, max_chars_per_line=22, max_lines=5):
+def wrap_headline(text, max_chars_per_line=20, max_lines=6):
     """Greedy word-wrap. Long words that don't fit still go on their own line."""
     words = text.split()
     lines, current = [], ''
@@ -288,15 +374,17 @@ def wrap_headline(text, max_chars_per_line=22, max_lines=5):
     return lines[:max_lines]
 
 
-def pick_headline_fontsize(n_lines):
-    """Shrink the headline so it still fits when the phrase is long."""
-    if n_lines <= 2:
-        return 108
-    if n_lines == 3:
-        return 92
-    if n_lines == 4:
-        return 78
-    return 66
+def pick_headline_fontsize(lines):
+    """Pick the largest size that keeps every line within ~980 px of frame width.
+
+    Cyrillic in Oswald/Bebas Neue runs ~0.50 × fontsize per char. We leave
+    ~50 px padding on each side of the frame (1080 - 100 = 980 usable).
+    """
+    longest = max((len(l) for l in lines), default=1)
+    n_lines = len(lines)
+    size_by_lines = {1: 110, 2: 98, 3: 84, 4: 72, 5: 62}.get(n_lines, 56)
+    size_by_width = int(980 / max(longest, 1) / 0.52)
+    return max(44, min(size_by_lines, size_by_width))
 
 
 def compose_reel(src_video, dest_video, hook, headline_font):
@@ -329,7 +417,7 @@ def compose_reel(src_video, dest_video, hook, headline_font):
         filters.append('drawbox=x=0:y=0:w=iw:h=ih:color=black@0.10:t=fill')
 
         # Headline lines, each on its own pink pill, centered in upper third.
-        headline_font_size = pick_headline_fontsize(len(headline_lines))
+        headline_font_size = pick_headline_fontsize(headline_lines)
         pill_padding = max(20, headline_font_size // 4)
         line_gap = headline_font_size + pill_padding * 2 + 10
         block_height = line_gap * len(headline_lines)
@@ -653,9 +741,26 @@ def main():
     print(f'Уже использовано ранее: {len(used_keys)}')
 
     n = random.randint(REELS_MIN, REELS_MAX)
-    n = min(n, len(pool))
     hooks = pick_hooks(pool, keymap, used_keys, n)
-    print(f'Выбрано {len(hooks)} хуков на сегодня.')
+    print(f'Из пула взято {len(hooks)} хуков '
+          f'(свободных в hooks.txt: {len(pool) - (len(used_keys & set(keymap.keys())))}).')
+
+    shortfall = n - len(hooks)
+    if shortfall > 0:
+        print(f'Пул исчерпан — добираю {shortfall} хуков через LLM '
+              f'(консалтинговый стиль).')
+        try:
+            llm_hooks = build_llm_hooks(shortfall, used_keys)
+            hooks.extend(llm_hooks)
+            print(f'LLM вернул {len(llm_hooks)} новых хуков.')
+        except Exception as exc:
+            print(f'LLM-фолбэк не сработал: {exc}')
+
+    if not hooks:
+        raise SystemExit('Нет хуков для работы — пул пуст и LLM недоступен.')
+
+    random.shuffle(hooks)
+    print(f'Всего на сегодня: {len(hooks)} хуков.')
 
     work_dir = Path(tempfile.mkdtemp(prefix='reels_'))
     used_pexels_ids = set()
