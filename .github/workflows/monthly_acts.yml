@@ -1,0 +1,121 @@
+name: Ежемесячные акты и ОРД
+
+on:
+  schedule:
+    # 1-е число каждого месяца в 07:00 UTC = 10:00 МСК
+    - cron: '0 7 1 * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Период YYYY-MM (по умолчанию — прошлый месяц)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Пробный запуск (не записывать файлы)'
+        type: boolean
+        required: false
+        default: false
+      generate_acts:
+        description: 'Генерировать акты'
+        type: boolean
+        required: false
+        default: true
+      generate_ord:
+        description: 'Генерировать ОРД-шаблон'
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить LibreOffice
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libreoffice libreoffice-l10n-ru
+
+      - name: Установить Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Установить зависимости
+        run: pip install -r requirements.txt
+
+      - name: Определить период
+        id: period
+        run: |
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            echo "month=${{ github.event.inputs.month }}" >> $GITHUB_OUTPUT
+          else
+            # Прошлый месяц
+            echo "month=$(date -d 'last month' '+%Y-%m')" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Генерация документов
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_ACCOUNTING_FOLDER: ${{ secrets.YANDEX_DISK_ACCOUNTING_FOLDER }}
+          YANDEX_DISK_STATS_FOLDER: ${{ secrets.YANDEX_DISK_STATS_FOLDER }}
+          VK_ORD_API_TOKEN: ${{ secrets.VK_ORD_API_TOKEN }}
+        run: |
+          ARGS="--month=${{ steps.period.outputs.month }}"
+
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          if [ "${{ github.event.inputs.generate_acts }}" != "false" ]; then
+            ARGS="$ARGS --generate"
+          fi
+
+          if [ "${{ github.event.inputs.generate_ord }}" != "false" ]; then
+            ARGS="$ARGS --ord"
+          fi
+
+          python accounting/run_accounting.py $ARGS 2>&1 | tee /tmp/acts_output.txt
+
+      - name: Создать GitHub Issue с результатами
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: actions/github-script@v7
+        env:
+          PERIOD: ${{ steps.period.outputs.month }}
+          ACCOUNTING_FOLDER: ${{ secrets.YANDEX_DISK_ACCOUNTING_FOLDER }}
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/acts_output.txt', 'utf8');
+            const period = process.env.PERIOD;
+            const folder = process.env.ACCOUNTING_FOLDER || 'Бухгалтерия';
+
+            const body = `## Акты за ${period} готовы к проверке
+
+            ### Что было сделано
+            \`\`\`
+            ${output}
+            \`\`\`
+
+            ### Чеклист проверки
+            - [ ] Открыть PDF-акты на Яндекс.Диске в папке \`${folder}/\`
+            - [ ] Проверить суммы и список публикаций
+            - [ ] Проверить реквизиты сторон
+            - [ ] Проверить ERID в ОРД-шаблоне (если применимо)
+            - [ ] Скорректировать счётчики актов в \`accounting/config/clients.json\` после подписания
+
+            ### После проверки
+            Закройте этот Issue, когда документы проверены и отправлены клиентам.
+
+            ---
+            *Создано автоматически — [Бухгалтер-делопроизводитель](https://github.com/${{ github.repository }}/tree/claude/accounting-contracts-WXuji/accounting)*`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📄 Акты за ${period} — требуется проверка`,
+              body: body,
+              labels: ['accounting', 'needs-review'],
+            });
