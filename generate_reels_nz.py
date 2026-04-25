@@ -192,6 +192,15 @@ NZ_PROMPT = """\
 • Конкретика вместо общих слов
 • Первое слово — не название бренда
 
+ЯЗЫК — ЖИВОЙ, ЧЕЛОВЕЧЕСКИЙ (критически важно):
+• Пиши как говорит живой человек, а не как написано в техническом описании
+• ЗАПРЕЩЕНО механическое описание: «помещается», «есть место для», «площадь позволяет
+  разместить», «вмещает», «предусмотрено пространство» — это язык каталога, не людей
+• Вместо «собака помещается» → «Макс наконец-то выдохнет»
+• Вместо «есть место для кабинета» → «Закроешь дверь — и никто не мешает»
+• Вместо «площадь позволяет» → «Дети разбегутся по комнатам»
+• Проверяй каждую фразу: если её мог написать алгоритм или риелтор из 2005 года — переделай
+
 Верни СТРОГО JSON-массив из РОВНО {n} элементов, без пояснений:
 [
   {{
@@ -316,7 +325,6 @@ def compose_reel(
     dest: Path,
     scenario: dict,
     font: str,
-    plan_img: Path | None,
 ) -> None:
     w, h = get_video_dimensions(src)
     is_horizontal = w > h
@@ -326,20 +334,15 @@ def compose_reel(
 
     # Determine FFmpeg input indices (video is always [0])
     next_idx = 1
-    music_idx = plan_idx = None
+    music_idx = None
     if music:
         music_idx = next_idx
         next_idx += 1
-    if plan_img:
-        plan_idx = next_idx
-        next_idx += 1
 
-    font_esc   = ffmpeg_escape(font)
-    font_size  = 70
-    line_h     = font_size + 28                  # vertical gap between wrapped lines
-    text_y0    = int(OUTPUT_H * 0.27)            # top of text area (≈516 px from top)
-    plan_w     = 260                             # floor-plan image width (px)
-    plan_alpha = 0.82                            # floor-plan opacity
+    font_esc  = ffmpeg_escape(font)
+    font_size = 70
+    line_h    = font_size + 28        # vertical gap between wrapped lines
+    text_y0   = int(OUTPUT_H * 0.27) # top of text area (~516 px from top)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -384,19 +387,7 @@ def compose_reel(
         fc.append('[base]drawbox=x=0:y=0:w=iw:h=ih:color=black@0.12:t=fill[dark]')
         cur = '[dark]'
 
-        # 3. Floor-plan overlay — bottom-right corner, semi-transparent
-        if plan_idx is not None:
-            fc.append(
-                f'[{plan_idx}:v]'
-                f'scale={plan_w}:-1,'
-                f'format=rgba,'
-                f'colorchannelmixer=aa={plan_alpha}'
-                f'[plan]'
-            )
-            fc.append(f'{cur}[plan]overlay=W-w-30:H-h-120[after_plan]')
-            cur = '[after_plan]'
-
-        # 4. Helper: append drawtext filters for one timed text block
+        # 3. Helper: append drawtext filters for one timed text block
         def add_text_block(
             text_files: list[Path],
             t_start: float,
@@ -453,10 +444,6 @@ def compose_reel(
             offset = random.uniform(5, 25)
             cmd += ['-ss', f'{offset:.2f}', '-t', str(CLIP_DURATION_SEC),
                     '-i', str(music)]
-        if plan_img and plan_idx is not None:
-            # -loop 1 turns the still image into an infinite stream so the
-            # overlay filter never terminates the pipeline early.
-            cmd += ['-loop', '1', '-t', str(CLIP_DURATION_SEC), '-i', str(plan_img)]
 
         cmd += [
             '-t', str(CLIP_DURATION_SEC),
@@ -577,11 +564,6 @@ def main() -> None:
     print(f'Found {len(videos)} video(s)')
     random.shuffle(videos)
 
-    # Floor plans (100/85/60 m² only)
-    print(f'Listing floor plans: {plans_url}')
-    plans = list_floor_plans(plans_url)
-    print(f'Found {len(plans)} matching plan(s): {[p["name"] for p in plans]}')
-
     n = random.randint(REELS_MIN, REELS_MAX)
     n = min(n, len(videos))
     print(f'Generating {n} scenarios…')
@@ -601,22 +583,10 @@ def main() -> None:
             print('  Downloading video…')
             download_public_file(source_url, video_info['path'], raw)
 
-            # Download floor plan
-            plan_img: Path | None = None
-            if plans:
-                plan_info = random.choice(plans)
-                plan_img  = work_dir / f'plan_{idx}{Path(plan_info["name"]).suffix}'
-                print(f'  Downloading plan: {plan_info["name"]}…')
-                try:
-                    download_public_file(plans_url, plan_info['path'], plan_img)
-                except Exception as exc:
-                    print(f'  Plan download failed ({exc}), skipping overlay')
-                    plan_img = None
-
             out_name = f'{today}_{idx:02d}_{safe_filename(sc["hook"])}.mp4'
             out_path = work_dir / out_name
             print('  Composing…')
-            compose_reel(raw, out_path, sc, font, plan_img)
+            compose_reel(raw, out_path, sc, font)
 
             remote_path = f'{remote_dir}/{out_name}'
             url = upload_to_yadisk(yadisk_token, out_path, remote_path)
@@ -626,8 +596,6 @@ def main() -> None:
 
             raw.unlink(missing_ok=True)
             out_path.unlink(missing_ok=True)
-            if plan_img:
-                plan_img.unlink(missing_ok=True)
 
         except Exception as exc:
             print(f'  FAILED: {exc}')
