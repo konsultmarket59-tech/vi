@@ -64,8 +64,8 @@ FADE_DUR = 0.5  # fade-in / fade-out duration
 COLOR_BRAND = '0x19317B'
 COLOR_TEXT  = '0xFFFFFF'
 
-# Only these floor-plan sizes are used
-PLAN_SIZES = ('100', '85', '60')
+# Exactly these filenames are accepted as floor plans
+ALLOWED_PLAN_FILES = {'100.png', '60.png', '85.png'}
 
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
@@ -264,7 +264,7 @@ def list_floor_plans(plans_url: str) -> list[dict]:
     except Exception as exc:
         print(f'  Warning: could not list floor plans: {exc}')
         return []
-    return [f for f in all_files if any(s in f['name'] for s in PLAN_SIZES)]
+    return [f for f in all_files if f['name'] in ALLOWED_PLAN_FILES]
 
 
 def download_public_file(public_url: str, file_path: str, dest: Path) -> None:
@@ -443,7 +443,10 @@ def compose_reel(
 
         cmd = [
             'ffmpeg', '-y',
-            '-ss', '0', '-t', str(CLIP_DURATION_SEC),
+            # -stream_loop -1 loops the source video infinitely so clips shorter
+            # than CLIP_DURATION_SEC are extended; -t caps the read at 12 s.
+            '-stream_loop', '-1',
+            '-t', str(CLIP_DURATION_SEC),
             '-i', str(src),
         ]
         if music and music_idx is not None:
@@ -451,7 +454,9 @@ def compose_reel(
             cmd += ['-ss', f'{offset:.2f}', '-t', str(CLIP_DURATION_SEC),
                     '-i', str(music)]
         if plan_img and plan_idx is not None:
-            cmd += ['-i', str(plan_img)]
+            # -loop 1 turns the still image into an infinite stream so the
+            # overlay filter never terminates the pipeline early.
+            cmd += ['-loop', '1', '-t', str(CLIP_DURATION_SEC), '-i', str(plan_img)]
 
         cmd += [
             '-t', str(CLIP_DURATION_SEC),
