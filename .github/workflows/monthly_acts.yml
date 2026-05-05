@@ -1,4 +1,4 @@
-name: Ежемесячные акты и ОРД
+name: Ежемесячные акты
 
 on:
   schedule:
@@ -15,16 +15,6 @@ on:
         type: boolean
         required: false
         default: false
-      generate_acts:
-        description: 'Генерировать акты'
-        type: boolean
-        required: false
-        default: true
-      generate_ord:
-        description: 'Генерировать ОРД-шаблон'
-        type: boolean
-        required: false
-        default: true
 
 jobs:
   generate:
@@ -35,7 +25,7 @@ jobs:
       - name: Установить LibreOffice
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libreoffice libreoffice-l10n-ru
+          sudo apt-get install -y libreoffice libreoffice-l10n-ru --no-install-recommends
 
       - name: Установить Python 3.11
         uses: actions/setup-python@v5
@@ -52,31 +42,19 @@ jobs:
           if [ -n "${{ github.event.inputs.month }}" ]; then
             echo "month=${{ github.event.inputs.month }}" >> $GITHUB_OUTPUT
           else
-            # Прошлый месяц
             echo "month=$(date -d 'last month' '+%Y-%m')" >> $GITHUB_OUTPUT
           fi
 
-      - name: Генерация документов
+      - name: Генерация актов
         env:
           YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
           YANDEX_DISK_ACCOUNTING_FOLDER: ${{ secrets.YANDEX_DISK_ACCOUNTING_FOLDER }}
-          YANDEX_DISK_STATS_FOLDER: ${{ secrets.YANDEX_DISK_STATS_FOLDER }}
-          VK_ORD_API_TOKEN: ${{ secrets.VK_ORD_API_TOKEN }}
+          YANDEX_DISK_STATS_PUBLIC_KEY: ${{ secrets.YANDEX_DISK_STATS_PUBLIC_KEY }}
         run: |
-          ARGS="--month=${{ steps.period.outputs.month }}"
-
+          ARGS="--month=${{ steps.period.outputs.month }} --generate"
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
           fi
-
-          if [ "${{ github.event.inputs.generate_acts }}" != "false" ]; then
-            ARGS="$ARGS --generate"
-          fi
-
-          if [ "${{ github.event.inputs.generate_ord }}" != "false" ]; then
-            ARGS="$ARGS --ord"
-          fi
-
           python accounting/run_accounting.py $ARGS 2>&1 | tee /tmp/acts_output.txt
 
       - name: Создать GitHub Issue с результатами
@@ -94,28 +72,22 @@ jobs:
 
             const body = `## Акты за ${period} готовы к проверке
 
-            ### Что было сделано
             \`\`\`
             ${output}
             \`\`\`
 
-            ### Чеклист проверки
+            ### Чеклист
             - [ ] Открыть PDF-акты на Яндекс.Диске в папке \`${folder}/\`
             - [ ] Проверить суммы и список публикаций
             - [ ] Проверить реквизиты сторон
-            - [ ] Проверить ERID в ОРД-шаблоне (если применимо)
-            - [ ] Скорректировать счётчики актов в \`accounting/config/clients.json\` после подписания
+            - [ ] Обновить \`act_counters\` в \`accounting/config/clients.json\` после подписания
 
-            ### После проверки
-            Закройте этот Issue, когда документы проверены и отправлены клиентам.
-
-            ---
-            *Создано автоматически — [Бухгалтер-делопроизводитель](https://github.com/${{ github.repository }}/tree/claude/accounting-contracts-WXuji/accounting)*`;
+            Закройте Issue после проверки.`;
 
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `📄 Акты за ${period} — требуется проверка`,
               body: body,
-              labels: ['accounting', 'needs-review'],
+              labels: [],
             });

@@ -94,6 +94,51 @@ def download_excel_from_yadisk(token, remote_path):
     return data.content
 
 
+def download_excel_from_public_yadisk(public_key, file_path=None):
+    """Скачивает Excel из публичной папки/файла. public_key — URL вида disk.yandex.ru/d/..."""
+    params = {'public_key': public_key}
+    if file_path:
+        params['path'] = file_path
+    r = requests.get(f'{YADISK_API}/public/resources/download', params=params, timeout=30)
+    if r.status_code == 404:
+        raise FileNotFoundError(f'Публичный файл не найден: {public_key}')
+    r.raise_for_status()
+    data = requests.get(r.json()['href'], timeout=120)
+    data.raise_for_status()
+    return data.content
+
+
+def list_public_yadisk_folder(public_key):
+    """Возвращает список файлов в публичной папке."""
+    r = requests.get(
+        f'{YADISK_API}/public/resources',
+        params={'public_key': public_key, 'limit': 100,
+                'fields': '_embedded.items.name,_embedded.items.type,_embedded.items.path'},
+        timeout=30,
+    )
+    if r.status_code == 404:
+        return []
+    r.raise_for_status()
+    return r.json().get('_embedded', {}).get('items', [])
+
+
+def find_stats_excel_in_public_folder(public_key, period_str=None):
+    """Ищет Excel-файл статистики в публичной папке."""
+    items = list_public_yadisk_folder(public_key)
+    # Сначала ищем по периоду (YYYY-MM) в имени
+    if period_str:
+        for item in items:
+            name = item.get('name', '').lower()
+            if item.get('type') == 'file' and period_str in name and name.endswith(('.xlsx', '.xls')):
+                return item.get('path') or item['name']
+    # Затем любой Excel
+    for item in items:
+        name = item.get('name', '').lower()
+        if item.get('type') == 'file' and name.endswith(('.xlsx', '.xls')):
+            return item.get('path') or item['name']
+    return None
+
+
 def list_yadisk_folder(token, path):
     """Возвращает список файлов в папке."""
     r = requests.get(
@@ -572,14 +617,15 @@ def _last_day_of_month(year, month):
 # Основная функция
 # ---------------------------------------------------------------------------
 
-def run(period_year, period_month, token, accounting_folder, stats_excel_path, dry_run=False):
+def run(period_year, period_month, token, accounting_folder,
+        stats_excel_path=None, excel_bytes=None, dry_run=False):
     cfg = load_config()
     period_str = f'{period_year}-{period_month:02d}'
     print(f'\n=== Генерация актов за {period_str} ===')
 
-    # Скачиваем Excel
-    print(f'Скачиваем данные: {stats_excel_path}')
-    excel_bytes = download_excel_from_yadisk(token, stats_excel_path)
+    if excel_bytes is None:
+        print(f'Скачиваем данные: {stats_excel_path}')
+        excel_bytes = download_excel_from_yadisk(token, stats_excel_path)
     wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
 
     smm_rows = parse_smm_sheet(wb)
