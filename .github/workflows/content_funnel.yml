@@ -1,0 +1,41 @@
+name: Генерация контентной воронки
+
+on:
+  workflow_dispatch:
+    inputs:
+      process_all:
+        description: 'Обработать все темы из плана (true) или только первую незавершённую (false)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      content_plan_path:
+        description: 'Путь к файлу контент-плана на Яндекс.Диске (например: disk:/Контент-план/май-2026.xlsx)'
+        required: false
+        default: ''
+
+jobs:
+  generate-funnel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate content funnel
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          CONTENT_PLAN_PATH: ${{ github.event.inputs.content_plan_path || secrets.CONTENT_PLAN_PATH }}
+          PROCESS_ALL: ${{ github.event.inputs.process_all || 'false' }}
+        run: python generate_funnel.py
