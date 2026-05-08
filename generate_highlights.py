@@ -2,28 +2,30 @@
 Highlight reel generator — pole sport & aerial gymnastics.
 
 Pipeline:
-  1. List source videos from a Yandex.Disk folder (private or public).
-  2. Download each video.
-  3. Sample up to 20 frames evenly across each video.
-  4. Send thumbnails to Claude Vision; score 0–10 with the eye of a
-     professional pole/aerial editor (peak tricks, dynamic poses, clean action).
-  5. Select the best segments (default: 6 × 5 s = 30 s total).
-  6. Extract each segment in both target formats using blur-background resize.
-  7. Concatenate + add music → upload widescreen (1920×1080) and stories
-     (1080×1920) to a private Yandex.Disk output folder.
+  1. Pick a random music track; detect its BPM with librosa.
+  2. Derive clip_duration = BEATS_PER_CLIP beats (default: 4 beats ≈ 2 s at 120 BPM).
+  3. List and download ALL source videos from a Yandex.Disk folder.
+  4. For each video, sample up to 20 frames and score them with Claude Vision
+     (professional pole/aerial editor eye: 0–10).
+  5. Pool ALL scored candidates from ALL videos; randomly sample from the top half
+     → different clips on every run.
+  6. Extract chosen clips in both formats (blur-background resize):
+       wide:    1920 × 1080
+       stories: 1080 × 1920
+  7. Concatenate + mix selected music track.
+  8. Upload both files with a timestamp name (no overwrite of previous results)
+     into the output folder on Yandex.Disk.
 
 Required env vars:
   YANDEX_DISK_TOKEN              — OAuth token (read source + write output)
   ANTHROPIC_API_KEY              — for Claude Vision frame scoring
-  YANDEX_DISK_HIGHLIGHTS_SOURCE  — folder path on your disk, e.g. "Videos/Source"
+  YANDEX_DISK_HIGHLIGHTS_SOURCE  — folder path on your disk, e.g. "Видео/Исходники"
                                     OR a public /d/ share URL
-                                    (note: /a/ album links are NOT supported by
-                                     the Yandex public API — use a folder path instead)
-  YANDEX_DISK_HIGHLIGHTS_OUTPUT  — private folder path for output (default: Highlights)
+  YANDEX_DISK_HIGHLIGHTS_OUTPUT  — output folder path (default: Highlights)
 
 Optional env vars:
-  HIGHLIGHT_CLIP_DURATION        — seconds per extracted clip (default: 5)
   HIGHLIGHT_TARGET_DURATION      — total output duration in seconds (default: 30)
+  HIGHLIGHT_BEATS_PER_CLIP       — video cuts every N beats (default: 4)
 """
 
 import base64
@@ -33,6 +35,7 @@ import math
 import os
 import random
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -47,14 +50,16 @@ import requests
 
 YADISK_API = 'https://cloud-api.yandex.net/v1/disk'
 
-DEFAULT_SOURCE = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE', '')
+DEFAULT_SOURCE        = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE', '')
 DEFAULT_OUTPUT_FOLDER = os.environ.get('YANDEX_DISK_HIGHLIGHTS_OUTPUT', 'Highlights')
 
-CLIP_DURATION   = float(os.environ.get('HIGHLIGHT_CLIP_DURATION', '5'))
-TARGET_DURATION = float(os.environ.get('HIGHLIGHT_TARGET_DURATION', '30'))
+TARGET_DURATION  = float(os.environ.get('HIGHLIGHT_TARGET_DURATION', '30'))
+BEATS_PER_CLIP   = int(os.environ.get('HIGHLIGHT_BEATS_PER_CLIP', '4'))
+FALLBACK_BPM     = 120.0          # used when librosa is unavailable
+MAX_CLIPS_FROM_ONE_VIDEO = 3      # diversity cap per source video
 
-WIDE_W,   WIDE_H   = 1920, 1080
-STORY_W,  STORY_H  = 1080, 1920
+WIDE_W,  WIDE_H  = 1920, 1080
+STORY_W, STORY_H = 1080, 1920
 
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
 MUSIC_EXTENSIONS = ('.mp3', '.m4a', '.wav', '.ogg', '.aac')
@@ -63,12 +68,8 @@ MAX_FRAMES_PER_VIDEO = 20
 CLAUDE_MODEL = 'claude-opus-4-7'
 
 # ---------------------------------------------------------------------------
-# Utilities (shared with generate_reels_boldino.py pattern)
+# Music helpers
 # ---------------------------------------------------------------------------
-
-def ffmpeg_escape(path: str) -> str:
-    return path.replace('\\', '/').replace(':', r'\:')
-
 
 def pick_music_track() -> Path | None:
     music_dir = Path(__file__).parent / 'music'
@@ -79,17 +80,77 @@ def pick_music_track() -> Path | None:
     return random.choice(tracks) if tracks else None
 
 
+def detect_bpm(music_path: Path) -> float:
+    """Return BPM of the track. Uses librosa if available, else 120 BPM fallback."""
+    try:
+        import librosa  # optional heavy dep
+        import numpy as np
+        y, sr = librosa.load(str(music_path), mono=True, duration=60.0)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        bpm = float(np.atleast_1d(tempo)[0])
+        # Normalise to 60–200 BPM
+        while bpm > 200:
+            bpm /= 2
+        while bpm < 60:
+            bpm *= 2
+        return bpm
+    except Exception as exc:
+        print(f'  BPM detection failed ({exc}), using {FALLBACK_BPM} BPM')
+        return FALLBACK_BPM
+
+
+def clip_duration_from_bpm(bpm: float, beats_per_clip: int) -> float:
+    return (60.0 / bpm) * beats_per_clip
+
+
+def add_music_track(
+    video: Path,
+    output: Path,
+    music: Path,
+    music_offset: float,
+    duration: float,
+) -> None:
+    """Overlay music on a silent video with fade-in/out."""
+    fade_out_start = max(0.0, duration - 0.8)
+    cmd = [
+        'ffmpeg', '-y',
+        '-i', str(video),
+        '-ss', f'{music_offset:.2f}', '-t', f'{duration + 2:.2f}',
+        '-i', str(music),
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-af', (
+            f'afade=t=in:st=0:d=0.4,'
+            f'afade=t=out:st={fade_out_start:.2f}:d=0.8,'
+            'volume=0.9'
+        ),
+        '-c:v', 'copy',
+        '-c:a', 'aac', '-b:a', '128k',
+        '-shortest',
+        str(output),
+    ]
+    subprocess.run(cmd, check=True, timeout=300)
+
+
 # ---------------------------------------------------------------------------
-# Yandex.Disk — public source
+# Yandex.Disk — source (public /d/ or private via token)
 # ---------------------------------------------------------------------------
 
+def _ya_headers(token: str) -> dict:
+    return {'Authorization': f'OAuth {token}'}
+
+
+def _norm_path(path: str) -> str:
+    p = path.strip('/')
+    return f'/{p}' if p else '/'
+
+
 def list_public_videos(public_url: str) -> list[dict]:
-    """Return [{name, path}, ...] for video files in a public YaDisk folder."""
     resp = requests.get(
         f'{YADISK_API}/public/resources',
         params={
             'public_key': public_url,
-            'limit': 100,
+            'limit': 200,
             'fields': '_embedded.items.name,_embedded.items.path,'
                       '_embedded.items.media_type,_embedded.items.type',
         },
@@ -107,36 +168,16 @@ def list_public_videos(public_url: str) -> list[dict]:
     ]
 
 
-def download_public_file(public_url: str, file_path: str, dest: Path) -> None:
-    info = requests.get(
-        f'{YADISK_API}/public/resources/download',
-        params={'public_key': public_url, 'path': file_path},
-        timeout=30,
-    )
-    info.raise_for_status()
-    href = info.json()['href']
-    with requests.get(href, stream=True, timeout=600) as r:
-        r.raise_for_status()
-        with open(dest, 'wb') as fh:
-            for chunk in r.iter_content(chunk_size=256 * 1024):
-                fh.write(chunk)
-
-
-# ---------------------------------------------------------------------------
-# Yandex.Disk — private source (OAuth token required)
-# ---------------------------------------------------------------------------
-
 def list_private_videos(token: str, folder_path: str) -> list[dict]:
-    """Return [{name, path}, ...] for video files in a private YaDisk folder."""
     resp = requests.get(
         f'{YADISK_API}/resources',
         params={
-            'path': _disk_path_raw(folder_path),
-            'limit': 100,
+            'path': _norm_path(folder_path),
+            'limit': 200,
             'fields': '_embedded.items.name,_embedded.items.path,'
                       '_embedded.items.media_type,_embedded.items.type',
         },
-        headers={'Authorization': f'OAuth {token}'},
+        headers=_ya_headers(token),
         timeout=30,
     )
     if resp.status_code == 404:
@@ -155,15 +196,28 @@ def list_private_videos(token: str, folder_path: str) -> list[dict]:
     ]
 
 
+def download_public_file(public_url: str, file_path: str, dest: Path) -> None:
+    info = requests.get(
+        f'{YADISK_API}/public/resources/download',
+        params={'public_key': public_url, 'path': file_path},
+        timeout=30,
+    )
+    info.raise_for_status()
+    _stream_download(info.json()['href'], dest)
+
+
 def download_private_file(token: str, remote_path: str, dest: Path) -> None:
     info = requests.get(
         f'{YADISK_API}/resources/download',
         params={'path': remote_path},
-        headers={'Authorization': f'OAuth {token}'},
+        headers=_ya_headers(token),
         timeout=30,
     )
     info.raise_for_status()
-    href = info.json()['href']
+    _stream_download(info.json()['href'], dest)
+
+
+def _stream_download(href: str, dest: Path) -> None:
     with requests.get(href, stream=True, timeout=600) as r:
         r.raise_for_status()
         with open(dest, 'wb') as fh:
@@ -171,26 +225,9 @@ def download_private_file(token: str, remote_path: str, dest: Path) -> None:
                 fh.write(chunk)
 
 
-def _disk_path_raw(path: str) -> str:
-    """Return path as-is if it already looks absolute, else prepend /."""
-    p = path.strip()
-    if p.startswith('/'):
-        return p
-    return f'/{p}' if p else '/'
-
-
 # ---------------------------------------------------------------------------
-# Yandex.Disk — private output
+# Yandex.Disk — output (private, always via token)
 # ---------------------------------------------------------------------------
-
-def _ya_headers(token: str) -> dict:
-    return {'Authorization': f'OAuth {token}'}
-
-
-def _disk_path(path: str) -> str:
-    p = path.strip('/')
-    return f'/{p}' if p else '/'
-
 
 def ensure_yadisk_folder(token: str, path: str) -> None:
     parts = [p for p in path.strip('/').split('/') if p]
@@ -207,7 +244,7 @@ def ensure_yadisk_folder(token: str, path: str) -> None:
 
 
 def upload_to_yadisk(token: str, file_path: Path, remote_path: str) -> str | None:
-    remote_path = _disk_path(remote_path)
+    remote_path = _norm_path(remote_path)
     info = requests.get(
         f'{YADISK_API}/resources/upload',
         params={'path': remote_path, 'overwrite': 'true'},
@@ -246,41 +283,21 @@ def get_video_duration(path: Path) -> float:
     cmd = [
         'ffprobe', '-v', 'error',
         '-show_entries', 'format=duration',
-        '-of', 'json',
-        str(path),
+        '-of', 'json', str(path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     return float(json.loads(result.stdout)['format']['duration'])
 
 
-def get_video_dimensions(path: Path) -> tuple[int, int]:
-    cmd = [
-        'ffprobe', '-v', 'error',
-        '-select_streams', 'v:0',
-        '-show_entries', 'stream=width,height:stream_tags=rotate',
-        '-of', 'json',
-        str(path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    data = json.loads(result.stdout)
-    stream = (data.get('streams') or [{}])[0]
-    w, h = int(stream['width']), int(stream['height'])
-    rotate = int((stream.get('tags') or {}).get('rotate', 0))
-    if rotate in (90, 270):
-        w, h = h, w
-    return w, h
-
-
 def sample_timestamps(duration: float, max_frames: int = MAX_FRAMES_PER_VIDEO) -> list[float]:
-    """Evenly spaced frame timestamps, capped at max_frames."""
+    """Evenly spaced timestamps, 1 frame per ~5 s, capped at max_frames."""
     n = min(max_frames, max(1, int(duration / 5)))
     interval = duration / n
-    # Take frame from the middle of each interval; avoid the very last second
     return [min(interval * i + interval / 2, duration - 0.5) for i in range(n)]
 
 
 def extract_thumbnail(path: Path, timestamp: float) -> bytes:
-    """Extract a single frame as JPEG bytes (320×180) for Claude Vision."""
+    """Return a 320×180 JPEG as bytes for Claude Vision."""
     cmd = [
         'ffmpeg', '-y',
         '-ss', f'{timestamp:.3f}',
@@ -288,8 +305,7 @@ def extract_thumbnail(path: Path, timestamp: float) -> bytes:
         '-frames:v', '1',
         '-vf', 'scale=320:180:force_original_aspect_ratio=decrease,'
                'pad=320:180:(ow-iw)/2:(oh-ih)/2:black',
-        '-f', 'image2', '-vcodec', 'mjpeg',
-        'pipe:1',
+        '-f', 'image2', '-vcodec', 'mjpeg', 'pipe:1',
     ]
     result = subprocess.run(cmd, capture_output=True, timeout=30)
     return result.stdout
@@ -304,12 +320,7 @@ def score_frames_with_claude(
     frames: list[tuple[float, bytes]],
     video_name: str,
 ) -> list[tuple[float, float]]:
-    """
-    Send thumbnails to Claude Vision and return [(timestamp, score), ...].
-    Score 0–10: 10 = peak trick / dynamic pose / great action,
-                0 = static / transition / uninteresting.
-    Falls back to equal scores on any failure.
-    """
+    """Return [(timestamp, score 0-10), ...]. Fallback = equal scores on error."""
     if not frames:
         return []
 
@@ -320,16 +331,16 @@ def score_frames_with_claude(
                 'Ты — профессиональный видеомонтажёр, специалист по пилонному '
                 'спорту и воздушной гимнастике.\n'
                 f'Перед тобой {len(frames)} кадров из видео «{video_name}».\n'
-                'Оцени каждый кадр по шкале 0–10 для включения в хайлайт-ролик:\n'
+                'Оцени каждый кадр по шкале 0–10 для хайлайт-ролика:\n'
                 '10 = пиковый момент трюка, красивая поза, динамичное движение;\n'
                 '5  = рядовой момент выступления;\n'
                 '0  = переход, статика, неинтересный план.\n\n'
                 'Учитывай:\n'
-                '• Вершина трюка или элемента (split, inverted, флаг и т.п.) — высокий балл\n'
+                '• Вершина трюка (split, inverted, флаг и т.п.) — высокий балл\n'
                 '• Динамика движения, размах — высокий балл\n'
                 '• Выразительная поза, красивая линия тела — высокий балл\n'
                 '• Взгляд в камеру, уверенность — бонус\n'
-                '• Размытый переход, вход/выход из трюка, незаконченное движение — низкий балл\n\n'
+                '• Переход, вход/выход из трюка, незаконченное движение — низкий балл\n\n'
                 'Ответь СТРОГО JSON-массивом без пояснений:\n'
                 '[{"index": 0, "score": 8.5}, {"index": 1, "score": 3.0}, ...]'
             ),
@@ -339,7 +350,7 @@ def score_frames_with_claude(
     for i, (ts, jpeg_bytes) in enumerate(frames):
         if not jpeg_bytes:
             continue
-        content.append({'type': 'text', 'text': f'Кадр {i} (время {ts:.1f} с):'})
+        content.append({'type': 'text', 'text': f'Кадр {i} ({ts:.1f} с):'})
         content.append({
             'type': 'image',
             'source': {
@@ -359,9 +370,9 @@ def score_frames_with_claude(
         match = re.search(r'\[.*\]', raw, re.DOTALL)
         if not match:
             raise ValueError(f'No JSON array in response: {raw[:200]}')
-        scores = json.loads(match.group(0))
+        scores_list = json.loads(match.group(0))
         result = []
-        for item in scores:
+        for item in scores_list:
             idx = int(item['index'])
             if 0 <= idx < len(frames):
                 result.append((frames[idx][0], float(item['score'])))
@@ -372,30 +383,39 @@ def score_frames_with_claude(
 
 
 # ---------------------------------------------------------------------------
-# Segment selection
+# Candidate pool + diversity-aware selection
 # ---------------------------------------------------------------------------
 
-def select_best_segments(
-    scored: list[tuple[float, float]],
+def select_from_pool(
+    pool: list[tuple[Path, float, float]],   # (raw_path, start_time, score)
     clip_dur: float,
-    n: int,
-) -> list[float]:
+    clips_needed: int,
+    max_per_video: int,
+) -> list[tuple[Path, float]]:
     """
-    Return up to n start-times for the best non-overlapping segments,
-    sorted chronologically.
+    Select up to clips_needed non-overlapping clips from the pool.
+    Pool is already shuffled (randomness) but weighted towards higher scores.
+    Ensures at most max_per_video clips come from any single source file.
     """
-    if not scored:
-        return []
-    sorted_by_score = sorted(scored, key=lambda x: x[1], reverse=True)
-    selected: list[float] = []
-    for ts, _score in sorted_by_score:
-        if len(selected) >= n:
+    selected: list[tuple[Path, float]] = []
+    per_video: dict[str, int] = {}
+
+    for raw, start, _score in pool:
+        if len(selected) >= clips_needed:
             break
-        # Ensure no overlap with already-selected segments
-        overlap = any(abs(ts - s) < clip_dur for s in selected)
+        vid_key = str(raw)
+        if per_video.get(vid_key, 0) >= max_per_video:
+            continue
+        # No temporal overlap with already chosen clips from the same file
+        overlap = any(
+            str(raw) == str(s_raw) and abs(start - s_start) < clip_dur
+            for s_raw, s_start in selected
+        )
         if not overlap:
-            selected.append(ts)
-    return sorted(selected)
+            selected.append((raw, start))
+            per_video[vid_key] = per_video.get(vid_key, 0) + 1
+
+    return selected
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +423,7 @@ def select_best_segments(
 # ---------------------------------------------------------------------------
 
 def build_resize_filter(target_w: int, target_h: int) -> tuple[str, str]:
-    """Universal blur-background filter_complex for any input aspect ratio."""
+    """Blur-background resize filter_complex, works for any input aspect ratio."""
     fc = (
         f'[0:v]fps=25,split=2[bg_raw][fg_raw];'
         f'[bg_raw]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,'
@@ -416,46 +436,33 @@ def build_resize_filter(target_w: int, target_h: int) -> tuple[str, str]:
 
 
 def extract_clip(
-    src: Path,
-    start: float,
-    duration: float,
-    dest: Path,
-    target_w: int,
-    target_h: int,
+    src: Path, start: float, duration: float,
+    dest: Path, target_w: int, target_h: int,
 ) -> None:
     fc, map_tag = build_resize_filter(target_w, target_h)
     cmd = [
         'ffmpeg', '-y',
         '-ss', f'{start:.3f}', '-t', f'{duration:.3f}',
         '-i', str(src),
-        '-filter_complex', fc,
-        '-map', map_tag,
+        '-filter_complex', fc, '-map', map_tag,
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-        '-pix_fmt', 'yuv420p',
-        '-movflags', '+faststart',
-        '-an',
-        str(dest),
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+        '-an', str(dest),
     ]
     subprocess.run(cmd, check=True, timeout=120)
 
 
 def concat_clips(clip_paths: list[Path], output: Path) -> None:
-    with tempfile.NamedTemporaryFile(
-        mode='w', suffix='.txt', delete=False, prefix='concat_'
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         list_path = f.name
         for p in clip_paths:
             f.write(f"file '{p.resolve()}'\n")
     try:
-        cmd = [
-            'ffmpeg', '-y',
-            '-f', 'concat', '-safe', '0',
-            '-i', list_path,
-            '-c', 'copy',
-            '-movflags', '+faststart',
-            str(output),
-        ]
-        subprocess.run(cmd, check=True, timeout=300)
+        subprocess.run(
+            ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+             '-i', list_path, '-c', 'copy', '-movflags', '+faststart', str(output)],
+            check=True, timeout=300,
+        )
     finally:
         try:
             os.unlink(list_path)
@@ -463,105 +470,78 @@ def concat_clips(clip_paths: list[Path], output: Path) -> None:
             pass
 
 
-def add_music(video: Path, output: Path, duration: float) -> None:
-    """Mix in a random music track with fade-in/out. Copies video if no track."""
-    music = pick_music_track()
-    if not music:
-        import shutil
-        shutil.copy(video, output)
-        return
-    offset = random.uniform(5, 25)
-    fade_out_start = max(0.0, duration - 0.5)
-    cmd = [
-        'ffmpeg', '-y',
-        '-i', str(video),
-        '-ss', f'{offset:.2f}', '-t', f'{duration:.2f}',
-        '-i', str(music),
-        '-map', '0:v:0',
-        '-map', '1:a:0',
-        '-af', (
-            f'afade=t=in:st=0:d=0.4,'
-            f'afade=t=out:st={fade_out_start:.2f}:d=0.5,'
-            'volume=0.9'
-        ),
-        '-c:v', 'copy',
-        '-c:a', 'aac', '-b:a', '128k',
-        '-shortest',
-        str(output),
-    ]
-    subprocess.run(cmd, check=True, timeout=300)
-
-
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    yadisk_token   = os.environ['YANDEX_DISK_TOKEN']
-    anthropic_key  = os.environ['ANTHROPIC_API_KEY']
-    source         = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE') or DEFAULT_SOURCE
-    output_dir     = os.environ.get('YANDEX_DISK_HIGHLIGHTS_OUTPUT') or DEFAULT_OUTPUT_FOLDER
+    yadisk_token  = os.environ['YANDEX_DISK_TOKEN']
+    anthropic_key = os.environ['ANTHROPIC_API_KEY']
+    source        = os.environ.get('YANDEX_DISK_HIGHLIGHTS_SOURCE') or DEFAULT_SOURCE
+    output_dir    = os.environ.get('YANDEX_DISK_HIGHLIGHTS_OUTPUT') or DEFAULT_OUTPUT_FOLDER
 
     if not source:
         raise SystemExit(
             'YANDEX_DISK_HIGHLIGHTS_SOURCE is not set.\n'
-            'Set it to the folder path on your Yandex.Disk, e.g. "Видео/Исходники".\n'
-            '(Note: /a/ album links are not supported — use the folder path instead.)'
+            'Set it to the folder path on your Yandex.Disk, e.g. "Видео/Исходники".'
         )
-
     if output_dir.startswith('http'):
         raise SystemExit(
             f'YANDEX_DISK_HIGHLIGHTS_OUTPUT looks like a URL: {output_dir!r}\n'
             'Set it to a folder path, e.g. "Highlights".'
         )
 
-    # Detect source type: public /d/ URL vs private folder path
     use_public = source.startswith('http') and '/d/' in source
-
     if source.startswith('http') and not use_public:
-        print(
-            f'WARNING: {source!r} looks like a Yandex.Disk album (/a/) link.\n'
-            'Album links are not supported by the public API.\n'
-            'Set YANDEX_DISK_HIGHLIGHTS_SOURCE to the folder path on your disk instead,\n'
-            'e.g. "Видео/Исходники".\n'
+        raise SystemExit(
+            f'{source!r} looks like a Yandex.Disk album (/a/) link — '
+            'not supported by the public API.\n'
+            'Set YANDEX_DISK_HIGHLIGHTS_SOURCE to the folder path on your disk, '
+            'e.g. "Видео/Исходники".'
         )
-        raise SystemExit('Unsupported source URL format.')
 
-    claude = anthropic.Anthropic(api_key=anthropic_key)
+    # ── 1. Music first ──────────────────────────────────────────────────────
+    music = pick_music_track()
+    if not music:
+        raise SystemExit('No music files found in the music/ folder.')
+    print(f'Music: {music.name}')
 
-    clips_needed = math.ceil(TARGET_DURATION / CLIP_DURATION)
-    print(f'Target: {TARGET_DURATION:.0f}s  |  clip={CLIP_DURATION:.0f}s  |  clips needed={clips_needed}')
+    music_offset = random.uniform(5, 30)
+    bpm = detect_bpm(music)
+    clip_duration = clip_duration_from_bpm(bpm, BEATS_PER_CLIP)
+    clips_needed = max(1, math.ceil(TARGET_DURATION / clip_duration))
 
-    # Output folder on YaDisk
-    today = datetime.date.today().isoformat()
-    remote_dir = _disk_path(f'{output_dir.strip("/")}/{today}')
+    print(
+        f'BPM: {bpm:.1f}  |  {BEATS_PER_CLIP} beats/clip = {clip_duration:.2f} s/clip  '
+        f'|  clips needed: {clips_needed}  |  music offset: {music_offset:.1f} s'
+    )
+
+    # ── 2. Output folder (flat, no date subfolder) ───────────────────────────
+    remote_dir = _norm_path(output_dir)
     ensure_yadisk_folder(yadisk_token, remote_dir)
     print(f'Output folder: {remote_dir}')
 
-    # List source videos
+    # ── 3. List source videos ─────────────────────────────────────────────────
     print(f'\nListing source videos: {source}')
-    if use_public:
-        videos = list_public_videos(source)
-    else:
-        videos = list_private_videos(yadisk_token, source)
-
+    videos = list_public_videos(source) if use_public else list_private_videos(yadisk_token, source)
     if not videos:
         raise SystemExit(f'No video files found at {source!r}')
     print(f'Found {len(videos)} video(s): {[v["name"] for v in videos]}')
 
-    clips_per_video = max(1, min(3, math.ceil(clips_needed / len(videos))))
-    print(f'Clips per video: {clips_per_video}')
+    claude    = anthropic.Anthropic(api_key=anthropic_key)
+    work_dir  = Path(tempfile.mkdtemp(prefix='highlights_'))
 
-    work_dir = Path(tempfile.mkdtemp(prefix='highlights_'))
-    wide_clips:    list[Path] = []
-    stories_clips: list[Path] = []
+    # ── 4. Phase A: download all + score all (keep raw files on disk) ─────────
+    # raw_files: [(video_info, raw_path, duration), ...]
+    raw_files: list[tuple[dict, Path, float]] = []
+    # global_pool: [(raw_path, clip_start, score), ...]
+    global_pool: list[tuple[Path, float, float]] = []
 
     for vid_idx, video_info in enumerate(videos, start=1):
         vname = video_info['name']
         print(f'\n[{vid_idx}/{len(videos)}] {vname}')
 
-        # Download
-        raw = work_dir / f'raw_{vid_idx}_{vname}'
+        raw = work_dir / f'raw_{vid_idx:02d}_{vname}'
         try:
             print('  Downloading…')
             if use_public:
@@ -572,10 +552,9 @@ def main() -> None:
             print(f'  Download failed: {exc} — skipping')
             continue
 
-        # Duration & frame sampling
         try:
             duration = get_video_duration(raw)
-            print(f'  Duration: {duration:.1f}s')
+            print(f'  Duration: {duration:.1f} s')
         except Exception as exc:
             print(f'  Duration probe failed: {exc} — skipping')
             raw.unlink(missing_ok=True)
@@ -584,13 +563,12 @@ def main() -> None:
         timestamps = sample_timestamps(duration)
         print(f'  Sampling {len(timestamps)} frames for Claude Vision…')
 
-        frames: list[tuple[float, bytes]] = []
-        for ts in timestamps:
-            thumb = extract_thumbnail(raw, ts)
-            if thumb:
-                frames.append((ts, thumb))
+        frames: list[tuple[float, bytes]] = [
+            (ts, thumb)
+            for ts in timestamps
+            if (thumb := extract_thumbnail(raw, ts))
+        ]
 
-        # Claude Vision scoring
         if frames:
             print(f'  Scoring {len(frames)} frames with Claude…')
             scored = score_frames_with_claude(claude, frames, vname)
@@ -598,52 +576,78 @@ def main() -> None:
             print('  No thumbnails extracted, using equal scores')
             scored = [(ts, 5.0) for ts in timestamps]
 
-        # Select best segments
-        best_starts = select_best_segments(scored, CLIP_DURATION, clips_per_video)
-        print(f'  Selected {len(best_starts)} segment(s): {[f"{t:.1f}s" for t in best_starts]}')
+        # Convert scored timestamps → candidate segments
+        for ts, score in scored:
+            clip_start = max(0.0, ts - clip_duration / 2)
+            clip_start = min(clip_start, max(0.0, duration - clip_duration))
+            global_pool.append((raw, clip_start, score))
 
-        # Extract clips in both formats
-        for seg_idx, start in enumerate(best_starts):
-            clip_start = max(0.0, start - CLIP_DURATION / 2)
-            clip_start = min(clip_start, max(0.0, duration - CLIP_DURATION))
+        raw_files.append((video_info, raw, duration))
+        time.sleep(0.5)
 
-            wide_dest    = work_dir / f'wide_{vid_idx}_{seg_idx}.mp4'
-            stories_dest = work_dir / f'stories_{vid_idx}_{seg_idx}.mp4'
-            try:
-                extract_clip(raw, clip_start, CLIP_DURATION, wide_dest,    WIDE_W,  WIDE_H)
-                extract_clip(raw, clip_start, CLIP_DURATION, stories_dest, STORY_W, STORY_H)
-                wide_clips.append(wide_dest)
-                stories_clips.append(stories_dest)
-                print(f'    Clip {seg_idx+1}: {clip_start:.1f}s → {clip_start+CLIP_DURATION:.1f}s ✓')
-            except Exception as exc:
-                print(f'    Clip {seg_idx+1} extraction failed: {exc}')
+    if not global_pool:
+        raise SystemExit('No candidates collected. Check source videos and logs.')
 
+    print(f'\nTotal candidates from all videos: {len(global_pool)}')
+
+    # ── 5. Phase B: random selection from top half of pool ───────────────────
+    global_pool.sort(key=lambda x: x[2], reverse=True)
+    top_half = global_pool[: max(clips_needed, len(global_pool) // 2)]
+    random.shuffle(top_half)          # randomise within the quality tier
+
+    max_per_video = max(1, min(MAX_CLIPS_FROM_ONE_VIDEO,
+                               math.ceil(clips_needed / max(1, len(raw_files)))))
+    selected = select_from_pool(top_half, clip_duration, clips_needed, max_per_video)
+
+    if not selected:
+        raise SystemExit('Could not select any clips. Check logs.')
+
+    print(f'Selected {len(selected)} clip(s) (target: {clips_needed}):')
+    for raw, start in selected:
+        print(f'  {raw.name}  {start:.1f} s → {start + clip_duration:.1f} s')
+
+    # ── 6. Phase C: extract clips in both formats ─────────────────────────────
+    wide_clips:    list[Path] = []
+    stories_clips: list[Path] = []
+
+    for seg_idx, (raw, clip_start) in enumerate(selected):
+        wide_dest    = work_dir / f'wide_{seg_idx:03d}.mp4'
+        stories_dest = work_dir / f'stories_{seg_idx:03d}.mp4'
+        try:
+            extract_clip(raw, clip_start, clip_duration, wide_dest,    WIDE_W,  WIDE_H)
+            extract_clip(raw, clip_start, clip_duration, stories_dest, STORY_W, STORY_H)
+            wide_clips.append(wide_dest)
+            stories_clips.append(stories_dest)
+        except Exception as exc:
+            print(f'  Clip {seg_idx} extraction failed: {exc}')
+
+    # Clean up raw source files (no longer needed)
+    for _, raw, _ in raw_files:
         raw.unlink(missing_ok=True)
-        time.sleep(1)
 
     if not wide_clips:
-        raise SystemExit('No clips extracted. Check source videos and logs.')
+        raise SystemExit('No clips extracted. Check FFmpeg logs above.')
 
-    # Trim to target count
-    wide_clips    = wide_clips[:clips_needed]
-    stories_clips = stories_clips[:clips_needed]
-    actual_duration = len(wide_clips) * CLIP_DURATION
-    print(f'\nAssembling {len(wide_clips)} clips ({actual_duration:.0f}s total)…')
+    actual_duration = len(wide_clips) * clip_duration
+    print(f'\nAssembling {len(wide_clips)} clips ({actual_duration:.1f} s)…')
 
-    # Concatenate
+    # ── 7. Concatenate ────────────────────────────────────────────────────────
     wide_concat    = work_dir / 'wide_concat.mp4'
     stories_concat = work_dir / 'stories_concat.mp4'
     concat_clips(wide_clips,    wide_concat)
     concat_clips(stories_clips, stories_concat)
 
-    # Add music
-    wide_final    = work_dir / f'{today}_highlights_wide.mp4'
-    stories_final = work_dir / f'{today}_highlights_stories.mp4'
-    print('Adding music…')
-    add_music(wide_concat,    wide_final,    actual_duration)
-    add_music(stories_concat, stories_final, actual_duration)
+    # ── 8. Mix music (same track + same offset → both files stay in sync) ─────
+    now          = datetime.datetime.now()
+    stamp        = now.strftime('%Y-%m-%d_%H%M')
+    wide_final    = work_dir / f'{stamp}_highlights_wide.mp4'
+    stories_final = work_dir / f'{stamp}_highlights_stories.mp4'
 
-    # Upload
+    print(f'Adding music ({music.name}, offset {music_offset:.1f} s)…')
+    add_music_track(wide_concat,    wide_final,    music, music_offset, actual_duration)
+    add_music_track(stories_concat, stories_final, music, music_offset, actual_duration)
+
+    # ── 9. Upload (no overwrite: unique timestamp in name) ────────────────────
     print('Uploading…')
     wide_url = upload_to_yadisk(
         yadisk_token, wide_final,
@@ -654,7 +658,7 @@ def main() -> None:
         f'{remote_dir}/{stories_final.name}',
     )
 
-    print(f'\nDone!')
+    print(f'\nDone!  BPM={bpm:.0f}, clip={clip_duration:.2f}s, music={music.name}')
     print(f'  Widescreen : {wide_url}')
     print(f'  Stories    : {stories_url}')
 
