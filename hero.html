@@ -104,6 +104,8 @@
   }
   .dyn-hero .dyn-btn{
     --dyn-bg:var(--dyn-pink);--dyn-fg:#fff;
+    display:inline-flex;align-items:center;justify-content:center;
+    text-decoration:none;
     appearance:none;border:2.5px solid var(--dyn-ink);background:var(--dyn-bg);color:var(--dyn-fg);
     font-family:"Manrope",sans-serif;font-weight:700;font-size:17px;
     padding:16px 30px;border-radius:6px;cursor:pointer;
@@ -251,8 +253,8 @@
     </div>
 
     <div class="dyn-cta-row">
-      <button class="dyn-btn" type="button" onclick="window.location.hash='popup:myform'">Получить воронку</button>
-      <button class="dyn-btn dyn-cyan" type="button" onclick="window.location.hash='popup:myform'">Узнать подробнее</button>
+      <a class="dyn-btn" href="#popup:myform">Получить воронку</a>
+      <a class="dyn-btn dyn-cyan" href="#popup:myform">Узнать подробнее</a>
     </div>
 
     <div class="dyn-cards-area">
