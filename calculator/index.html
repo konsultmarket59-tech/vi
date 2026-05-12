@@ -1,0 +1,2098 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Калькулятор стоимости строительства — ИндивиДом</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root {
+  --primary: #1a3a5c;
+  --primary-light: #2355a0;
+  --accent: #e8a020;
+  --accent-light: #f5c060;
+  --bg: #f4f6fa;
+  --card: #ffffff;
+  --border: #d8dde8;
+  --text: #1a2236;
+  --text-muted: #6b7a99;
+  --success: #27ae60;
+  --error: #c0392b;
+  --radius: 12px;
+  --shadow: 0 4px 20px rgba(26,58,92,0.10);
+  --shadow-hover: 0 8px 32px rgba(26,58,92,0.18);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+.calc-wrapper {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+.calc-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.calc-header .logo-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.calc-header .logo-icon {
+  width: 48px; height: 48px;
+  background: var(--primary);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.calc-header .logo-icon svg { width: 28px; height: 28px; fill: none; stroke: #fff; stroke-width: 2; }
+.calc-header h1 { font-size: 1.8rem; font-weight: 700; color: var(--primary); line-height: 1.2; }
+.calc-header p { color: var(--text-muted); font-size: 0.97rem; margin-top: 6px; }
+
+/* Progress */
+.progress-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px 20px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+  gap: 4px;
+  overflow-x: auto;
+}
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 60px;
+}
+.step-circle {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem; font-weight: 700;
+  transition: all 0.25s;
+  position: relative;
+}
+.step-item.active .step-circle { background: var(--primary); color: #fff; }
+.step-item.done .step-circle { background: var(--success); color: #fff; }
+.step-label { font-size: 0.72rem; color: var(--text-muted); text-align: center; white-space: nowrap; }
+.step-item.active .step-label { color: var(--primary); font-weight: 600; }
+.step-connector { flex: 1; height: 2px; background: var(--border); min-width: 8px; }
+.step-connector.done { background: var(--success); }
+
+/* Card */
+.calc-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 32px;
+  margin-bottom: 20px;
+}
+.calc-card h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.calc-card h2 .step-num {
+  width: 32px; height: 32px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
+}
+.calc-card .subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 24px;
+  margin-left: 42px;
+}
+
+/* Form grid */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group.full { grid-column: 1 / -1; }
+.form-group label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.form-group label span { font-weight: 400; color: var(--text-muted); }
+.form-group input, .form-group select, .form-group textarea {
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--text);
+  background: #fff;
+  transition: border-color 0.2s;
+  outline: none;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  border-color: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(35,85,160,0.08);
+}
+.form-group input.invalid { border-color: var(--error); }
+
+/* Radio cards */
+.radio-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 2px;
+}
+.radio-card {
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  background: #fff;
+}
+.radio-card:hover { border-color: var(--primary-light); box-shadow: var(--shadow-hover); }
+.radio-card.selected { border-color: var(--primary); background: #f0f4fc; }
+.radio-card input { display: none; }
+.radio-card .rc-icon { font-size: 1.6rem; margin-bottom: 6px; }
+.radio-card .rc-title { font-size: 0.88rem; font-weight: 700; color: var(--text); }
+.radio-card .rc-desc { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+.radio-card.selected .rc-title { color: var(--primary); }
+
+/* Toggle checkboxes */
+.toggle-group { display: flex; flex-direction: column; gap: 10px; }
+.toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.toggle-item:hover { border-color: var(--primary-light); }
+.toggle-item.checked { border-color: var(--primary); background: #f0f4fc; }
+.toggle-item input { display: none; }
+.toggle-box {
+  width: 22px; height: 22px;
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.toggle-item.checked .toggle-box { background: var(--primary); border-color: var(--primary); }
+.toggle-box svg { display: none; width: 14px; height: 14px; stroke: #fff; stroke-width: 3; }
+.toggle-item.checked .toggle-box svg { display: block; }
+.toggle-info .ti-title { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+.toggle-info .ti-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+.toggle-price { margin-left: auto; font-size: 0.88rem; font-weight: 700; color: var(--primary); white-space: nowrap; }
+
+/* Slider */
+.slider-group { display: flex; flex-direction: column; gap: 6px; }
+.slider-row { display: flex; align-items: center; gap: 12px; }
+.slider-row input[type=range] {
+  flex: 1; height: 6px; cursor: pointer;
+  accent-color: var(--primary);
+}
+.slider-val {
+  width: 48px; text-align: center;
+  font-weight: 700; color: var(--primary);
+  font-size: 1rem;
+  background: #f0f4fc;
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+/* Upload zone */
+.upload-zone {
+  border: 2.5px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #fafbfd;
+  position: relative;
+}
+.upload-zone:hover { border-color: var(--primary-light); background: #f0f4fc; }
+.upload-zone.dragover { border-color: var(--primary); background: #e8f0fc; }
+.upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-icon { font-size: 2.5rem; margin-bottom: 10px; }
+.upload-text { font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+.upload-sub { font-size: 0.82rem; color: var(--text-muted); }
+.upload-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  background: #f0f4fc;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.upload-preview .file-icon { font-size: 1.4rem; }
+.upload-preview .file-name { font-size: 0.88rem; font-weight: 600; color: var(--primary); flex: 1; }
+.upload-preview .file-remove { cursor: pointer; color: var(--error); font-size: 1.1rem; }
+
+/* Live estimate box */
+.estimate-box {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  color: #fff;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-hover);
+}
+.estimate-box .est-label { font-size: 0.85rem; opacity: 0.8; margin-bottom: 4px; }
+.estimate-box .est-total {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.estimate-box .est-sub { font-size: 0.82rem; opacity: 0.7; }
+.estimate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+.estimate-item {
+  background: rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.estimate-item .ei-label { font-size: 0.75rem; opacity: 0.75; }
+.estimate-item .ei-val { font-size: 1.05rem; font-weight: 700; }
+
+/* Stage breakdown */
+.stages-list { display: flex; flex-direction: column; gap: 10px; margin: 20px 0; }
+.stage-item {
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  cursor: pointer;
+  user-select: none;
+  background: #fff;
+  transition: background 0.15s;
+}
+.stage-header:hover { background: #fafbfd; }
+.stage-num {
+  width: 28px; height: 28px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; font-weight: 800;
+  flex-shrink: 0;
+}
+.stage-name { flex: 1; font-weight: 600; font-size: 0.97rem; }
+.stage-cost { font-weight: 800; color: var(--primary); font-size: 1.0rem; }
+.stage-pct { font-size: 0.78rem; color: var(--text-muted); margin-left: 8px; }
+.stage-chevron {
+  width: 18px; height: 18px; color: var(--text-muted);
+  transition: transform 0.25s;
+}
+.stage-item.open .stage-chevron { transform: rotate(180deg); }
+.stage-body {
+  display: none;
+  border-top: 1px solid var(--border);
+  background: #fafbfd;
+  padding: 16px 18px;
+}
+.stage-item.open .stage-body { display: block; }
+.sub-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.sub-table th {
+  text-align: left; color: var(--text-muted); font-weight: 600;
+  padding: 4px 8px; border-bottom: 1px solid var(--border);
+}
+.sub-table td { padding: 7px 8px; border-bottom: 1px solid #eef0f5; }
+.sub-table tr:last-child td { border-bottom: none; }
+.sub-table .mat { color: var(--primary-light); }
+.sub-table .wrk { color: #7c4dba; }
+.sub-table .tot { font-weight: 700; }
+.sub-table .sub-total td { background: #f0f4fc; font-weight: 700; }
+
+/* Buttons */
+.btn-row {
+  display: flex; gap: 12px; justify-content: flex-end;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-light); box-shadow: var(--shadow-hover); }
+.btn-accent { background: var(--accent); color: var(--primary); }
+.btn-accent:hover { background: var(--accent-light); box-shadow: var(--shadow-hover); }
+.btn-outline {
+  background: #fff;
+  color: var(--primary);
+  border: 2px solid var(--primary);
+}
+.btn-outline:hover { background: #f0f4fc; }
+.btn-ghost { background: var(--bg); color: var(--text-muted); }
+.btn-ghost:hover { background: var(--border); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-large { padding: 14px 32px; font-size: 1.05rem; }
+.btn svg { vertical-align: middle; margin-right: 6px; }
+
+/* Info note */
+.info-note {
+  background: #fffbea;
+  border: 1.5px solid #f0c040;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 0.86rem;
+  color: #7a5a00;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+/* Payment schedule */
+.payment-schedule { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+.pay-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f8f9fc;
+  border-radius: 8px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--primary);
+}
+.pay-item:nth-child(2) { border-left-color: var(--primary-light); }
+.pay-item:nth-child(3) { border-left-color: var(--accent); }
+.pay-item:nth-child(4) { border-left-color: #27ae60; }
+.pay-item:nth-child(5) { border-left-color: #9b59b6; }
+.pay-num { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); width: 80px; flex-shrink: 0; }
+.pay-desc { flex: 1; font-size: 0.9rem; font-weight: 600; }
+.pay-amt { font-size: 1rem; font-weight: 800; color: var(--primary); }
+
+/* Result section */
+#step-result { display: none; }
+.result-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .calc-card { padding: 20px 16px; }
+  .form-grid, .form-grid.cols-3 { grid-template-columns: 1fr; }
+  .estimate-grid { grid-template-columns: 1fr; }
+  .progress-bar { padding: 10px; gap: 2px; }
+  .step-label { font-size: 0.65rem; }
+  .radio-cards { grid-template-columns: 1fr 1fr; }
+}
+
+/* Spinner */
+.spinner {
+  display: none;
+  width: 20px; height: 20px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Section divider */
+.section-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 20px 0;
+}
+</style>
+</head>
+<body>
+<div class="calc-wrapper">
+
+  <!-- Header -->
+  <div class="calc-header">
+    <div class="logo-block">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+      <h1>Калькулятор стоимости строительства</h1>
+    </div>
+    <p>Предварительный расчёт стоимости строительства жилого дома по этапам работ</p>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="progress-bar" id="progressBar">
+    <div class="step-item active" data-step="1" onclick="goStep(1)">
+      <div class="step-circle">1</div>
+      <div class="step-label">Объект</div>
+    </div>
+    <div class="step-connector" id="con-1-2"></div>
+    <div class="step-item" data-step="2" onclick="goStep(2)">
+      <div class="step-circle">2</div>
+      <div class="step-label">Фундамент</div>
+    </div>
+    <div class="step-connector" id="con-2-3"></div>
+    <div class="step-item" data-step="3" onclick="goStep(3)">
+      <div class="step-circle">3</div>
+      <div class="step-label">Стены</div>
+    </div>
+    <div class="step-connector" id="con-3-4"></div>
+    <div class="step-item" data-step="4" onclick="goStep(4)">
+      <div class="step-circle">4</div>
+      <div class="step-label">Перекрытия</div>
+    </div>
+    <div class="step-connector" id="con-4-5"></div>
+    <div class="step-item" data-step="5" onclick="goStep(5)">
+      <div class="step-circle">5</div>
+      <div class="step-label">Кровля</div>
+    </div>
+    <div class="step-connector" id="con-5-6"></div>
+    <div class="step-item" data-step="6" onclick="goStep(6)">
+      <div class="step-circle">6</div>
+      <div class="step-label">Доп. работы</div>
+    </div>
+    <div class="step-connector" id="con-6-7"></div>
+    <div class="step-item" data-step="7" onclick="goStep(7)">
+      <div class="step-circle">7</div>
+      <div class="step-label">Результат</div>
+    </div>
+  </div>
+
+  <!-- STEP 1: Object parameters -->
+  <div id="step-1" class="step-page">
+    <div class="calc-card">
+      <h2><span class="step-num">1</span>Параметры объекта</h2>
+      <p class="subtitle">Введите основные характеристики строящегося дома</p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Имя / Название объекта</label>
+          <input type="text" id="obj-name" placeholder="Жилой дом, г. Пермь" value="Жилой дом">
+        </div>
+        <div class="form-group">
+          <label>Адрес строительства <span>(для отчёта)</span></label>
+          <input type="text" id="obj-address" placeholder="г. Пермь, ул. ..." value="">
+        </div>
+        <div class="form-group">
+          <label>Площадь застройки (пятно) <span>м²</span></label>
+          <input type="number" id="footprint" min="40" max="2000" value="150" oninput="onInputChange()">
+        </div>
+        <div class="form-group">
+          <label>Общая площадь дома <span>м²</span></label>
+          <input type="number" id="total-area" min="30" max="5000" value="120" oninput="onInputChange()">
+        </div>
+        <div class="form-group">
+          <label>Количество этажей</label>
+          <select id="floors" onchange="onInputChange()">
+            <option value="1">1 этаж</option>
+            <option value="2">2 этажа</option>
+            <option value="3">3 этажа</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Высота этажа <span>м</span></label>
+          <input type="number" id="floor-height" min="2.5" max="4.5" step="0.1" value="2.8" oninput="onInputChange()">
+        </div>
+        <div class="form-group">
+          <label>Снеговой район</label>
+          <select id="snow-region" onchange="onInputChange()">
+            <option value="1">I район</option>
+            <option value="2">II район</option>
+            <option value="3">III район</option>
+            <option value="4">IV район</option>
+            <option value="5" selected>V район (Пермь)</option>
+            <option value="6">VI район</option>
+            <option value="7">VII район</option>
+            <option value="8">VIII район</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Глубина промерзания грунта <span>м</span></label>
+          <input type="number" id="frost-depth" min="0.5" max="3.5" step="0.1" value="1.9" oninput="onInputChange()">
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <h2 style="font-size:1rem; margin-bottom:12px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle; margin-right:8px; color: var(--primary)"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Загрузить эскизный проект
+      </h2>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="projectFile" accept=".pdf,.jpg,.jpeg,.png,.dwg" onchange="handleFileUpload(this)">
+        <div class="upload-icon">📐</div>
+        <div class="upload-text">Перетащите файл сюда или нажмите для выбора</div>
+        <div class="upload-sub">Поддерживаются: PDF, JPG, PNG — до 20 МБ</div>
+      </div>
+      <div id="uploadPreview" style="display:none" class="upload-preview">
+        <span class="file-icon">📄</span>
+        <span class="file-name" id="uploadFileName"></span>
+        <span class="file-remove" onclick="removeFile()">✕</span>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="nextStep()">Далее: Фундамент →</button>
+    </div>
+  </div>
+
+  <!-- STEP 2: Foundation -->
+  <div id="step-2" class="step-page" style="display:none">
+    <div class="calc-card">
+      <h2><span class="step-num">2</span>Фундамент</h2>
+      <p class="subtitle">Выберите тип фундамента в соответствии с грунтовыми условиями</p>
+      <div class="form-group full">
+        <label>Тип фундамента</label>
+        <div class="radio-cards" id="foundation-cards">
+          <label class="radio-card selected" onclick="selectRadio('foundation', 'piles_strip', this)">
+            <input type="radio" name="foundation" value="piles_strip" checked>
+            <div class="rc-icon">🪨</div>
+            <div class="rc-title">Буронабивные сваи + ростверк</div>
+            <div class="rc-desc">Рекомендован для пучинистых грунтов Пермского края</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('foundation', 'strip', this)">
+            <input type="radio" name="foundation" value="strip">
+            <div class="rc-icon">🔲</div>
+            <div class="rc-title">Ленточный монолитный</div>
+            <div class="rc-desc">Для стабильных непучинистых грунтов</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('foundation', 'monolith_slab', this)">
+            <input type="radio" name="foundation" value="monolith_slab">
+            <div class="rc-icon">⬛</div>
+            <div class="rc-title">Монолитная плита</div>
+            <div class="rc-desc">Универсальный вариант, высокая несущая способность</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('foundation', 'screw_piles', this)">
+            <input type="radio" name="foundation" value="screw_piles">
+            <div class="rc-icon">🔩</div>
+            <div class="rc-title">Свайно-винтовой</div>
+            <div class="rc-desc">Быстрый монтаж, для лёгких конструкций</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('foundation', 'blocks', this)">
+            <input type="radio" name="foundation" value="blocks">
+            <div class="rc-icon">🧱</div>
+            <div class="rc-title">Сборный ленточный (ФБС)</div>
+            <div class="rc-desc">Блоки ФБС с бетонной подготовкой</div>
+          </label>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Материал гидроизоляции фундамента</label>
+          <select id="waterproof-material" onchange="onInputChange()">
+            <option value="bitumen">Битумная обмазка + рубероид (стандарт)</option>
+            <option value="polymer">Полимерная мембрана (усиленная)</option>
+            <option value="penetrating">Проникающая гидроизоляция</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Утепление фундамента</label>
+          <select id="foundation-insulation" onchange="onInputChange()">
+            <option value="none">Без утепления</option>
+            <option value="xps_50" selected>ЭППС 50 мм (стандарт)</option>
+            <option value="xps_100">ЭППС 100 мм (усиленное)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Тип перекрытия на уровне цоколя</label>
+          <select id="base-slab" onchange="onInputChange()">
+            <option value="none">Не требуется (свайный, без цоколя)</option>
+            <option value="concrete_plates" selected>ЖБ пустотные плиты ПК/ПБ</option>
+            <option value="monolith">Монолитное перекрытие</option>
+            <option value="wood">Деревянные балки с утеплением</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Кирпичный цоколь</label>
+          <select id="brick-basement" onchange="onInputChange()">
+            <option value="none">Без кирпичного цоколя</option>
+            <option value="yes_300">Кирпич, высота 300 мм</option>
+            <option value="yes_600">Кирпич, высота 600 мм</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="prevStep()">← Назад</button>
+      <button class="btn btn-primary" onclick="nextStep()">Далее: Стены →</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: Walls -->
+  <div id="step-3" class="step-page" style="display:none">
+    <div class="calc-card">
+      <h2><span class="step-num">3</span>Несущие стены и перегородки</h2>
+      <p class="subtitle">Выберите материалы несущих стен и внутренних перегородок</p>
+      <div class="form-group full">
+        <label>Материал несущих внешних стен</label>
+        <div class="radio-cards" id="wall-cards">
+          <label class="radio-card selected" onclick="selectRadio('wall-material', 'gb_d400_400', this)">
+            <input type="radio" name="wall-material" value="gb_d400_400" checked>
+            <div class="rc-icon">🟦</div>
+            <div class="rc-title">Газобетон D400, 400 мм</div>
+            <div class="rc-desc">Теплит, Твинблок. Оптимальное соотношение цена/качество</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('wall-material', 'gb_d500_300', this)">
+            <input type="radio" name="wall-material" value="gb_d500_300">
+            <div class="rc-icon">🟦</div>
+            <div class="rc-title">Газобетон D500, 300 мм</div>
+            <div class="rc-desc">С усиленным утеплением фасада</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('wall-material', 'brick_510', this)">
+            <input type="radio" name="wall-material" value="brick_510">
+            <div class="rc-icon">🟥</div>
+            <div class="rc-title">Кирпич 510 мм (2 кирпича)</div>
+            <div class="rc-desc">Рядовой/полнотелый, высокая прочность</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('wall-material', 'brick_380', this)">
+            <input type="radio" name="wall-material" value="brick_380">
+            <div class="rc-icon">🟥</div>
+            <div class="rc-title">Кирпич 380 мм (1,5 кирпича)</div>
+            <div class="rc-desc">С утеплением фасада</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('wall-material', 'log_240', this)">
+            <input type="radio" name="wall-material" value="log_240">
+            <div class="rc-icon">🪵</div>
+            <div class="rc-title">Оцилиндрованный брус 240 мм</div>
+            <div class="rc-desc">Экологично, быстрый монтаж</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('wall-material', 'sip', this)">
+            <input type="radio" name="wall-material" value="sip">
+            <div class="rc-icon">🟩</div>
+            <div class="rc-title">SIP-панели</div>
+            <div class="rc-desc">Высокая скорость монтажа, энергоэффективность</div>
+          </label>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Материал внутренних перегородок</label>
+          <select id="partition-material" onchange="onInputChange()">
+            <option value="brick_120" selected>Кирпич, 120 мм (1/2 кирпича)</option>
+            <option value="gb_100">Газобетон, 100 мм</option>
+            <option value="gypsum">Гипсокартон на металлическом каркасе</option>
+            <option value="wood">Деревянные перегородки</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Утепление фасада</label>
+          <select id="facade-insulation" onchange="onInputChange()">
+            <option value="none">Без дополнительного утепления</option>
+            <option value="mineral_50" selected>Базальтовые плиты 50 мм</option>
+            <option value="mineral_100">Базальтовые плиты 100 мм</option>
+            <option value="xps_50">ЭППС 50 мм</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Отделка фасада</label>
+          <select id="facade-cladding" onchange="onInputChange()">
+            <option value="fiber_cement" selected>Фиброцементные панели</option>
+            <option value="facing_brick">Облицовочный кирпич</option>
+            <option value="ventilated">Вентилируемый фасад (металл/HPL)</option>
+            <option value="plaster">Штукатурный фасад</option>
+            <option value="siding">Виниловый сайдинг</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Армирующие пояса (монолитные)</label>
+          <select id="reinforcing-belts" onchange="onInputChange()">
+            <option value="full" selected>Полный комплект по всем перекрытиям</option>
+            <option value="partial">Только под перекрытия</option>
+            <option value="none">Без армирующих поясов</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="prevStep()">← Назад</button>
+      <button class="btn btn-primary" onclick="nextStep()">Далее: Перекрытия →</button>
+    </div>
+  </div>
+
+  <!-- STEP 4: Slabs -->
+  <div id="step-4" class="step-page" style="display:none">
+    <div class="calc-card">
+      <h2><span class="step-num">4</span>Перекрытия</h2>
+      <p class="subtitle">Выберите тип перекрытий между этажами и чердачного перекрытия</p>
+      <div class="form-group full" id="inter-slab-group">
+        <label>Перекрытие межэтажное <span>(при 2+ этажах)</span></label>
+        <div class="radio-cards" id="inter-slab-cards">
+          <label class="radio-card selected" onclick="selectRadio('inter-slab', 'concrete_plates', this)">
+            <input type="radio" name="inter-slab" value="concrete_plates" checked>
+            <div class="rc-icon">⬛</div>
+            <div class="rc-title">ЖБ пустотные плиты ПК/ПБ</div>
+            <div class="rc-desc">Высокая прочность, стандартное решение</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('inter-slab', 'monolith', this)">
+            <input type="radio" name="inter-slab" value="monolith">
+            <div class="rc-icon">⬜</div>
+            <div class="rc-title">Монолитное перекрытие</div>
+            <div class="rc-desc">Для нестандартных планировок</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('inter-slab', 'wood', this)">
+            <input type="radio" name="inter-slab" value="wood">
+            <div class="rc-icon">🪵</div>
+            <div class="rc-title">Деревянные балки</div>
+            <div class="rc-desc">Для деревянных конструкций</div>
+          </label>
+        </div>
+      </div>
+      <div class="section-divider"></div>
+      <div class="form-group full">
+        <label>Чердачное перекрытие</label>
+        <div class="radio-cards" id="attic-slab-cards">
+          <label class="radio-card selected" onclick="selectRadio('attic-slab', 'concrete_plates', this)">
+            <input type="radio" name="attic-slab" value="concrete_plates" checked>
+            <div class="rc-icon">⬛</div>
+            <div class="rc-title">ЖБ пустотные плиты</div>
+            <div class="rc-desc">С утеплением базальтовой ватой 200 мм</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('attic-slab', 'monolith', this)">
+            <input type="radio" name="attic-slab" value="monolith">
+            <div class="rc-icon">⬜</div>
+            <div class="rc-title">Монолитное</div>
+            <div class="rc-desc">Монолитное перекрытие чердака</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('attic-slab', 'wood', this)">
+            <input type="radio" name="attic-slab" value="wood">
+            <div class="rc-icon">🪵</div>
+            <div class="rc-title">Деревянные балки</div>
+            <div class="rc-desc">Балочное перекрытие с утеплением</div>
+          </label>
+        </div>
+      </div>
+      <div class="section-divider"></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Утепление перекрытий</label>
+          <select id="slab-insulation" onchange="onInputChange()">
+            <option value="xps_100">ЭППС 100 мм (цокольное)</option>
+            <option value="mineral_200" selected>Базальт 200 мм (чердачное)</option>
+            <option value="xps_200">ЭППС 200 мм (усиленное)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Термоизоляция по периметру опирания</label>
+          <select id="perimeter-insulation" onchange="onInputChange()">
+            <option value="yes" selected>Да (коэффициент теплозащиты)</option>
+            <option value="no">Нет</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="prevStep()">← Назад</button>
+      <button class="btn btn-primary" onclick="nextStep()">Далее: Кровля →</button>
+    </div>
+  </div>
+
+  <!-- STEP 5: Roof -->
+  <div id="step-5" class="step-page" style="display:none">
+    <div class="calc-card">
+      <h2><span class="step-num">5</span>Кровля</h2>
+      <p class="subtitle">Выберите конструкцию и покрытие кровли</p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Тип кровли</label>
+          <select id="roof-type" onchange="onInputChange()">
+            <option value="gable" selected>Двускатная (стандарт)</option>
+            <option value="hip">Четырёхскатная (вальмовая)</option>
+            <option value="mansard">Мансардная</option>
+            <option value="flat">Плоская</option>
+            <option value="complex">Сложная конфигурация</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Угол наклона кровли <span>(°)</span></label>
+          <div class="slider-group">
+            <div class="slider-row">
+              <input type="range" id="roof-pitch" min="5" max="50" step="1" value="27"
+                     oninput="document.getElementById('pitch-val').textContent = this.value + '°'; onInputChange()">
+              <div class="slider-val" id="pitch-val">27°</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group full" style="margin-top: 16px;">
+        <label>Кровельное покрытие</label>
+        <div class="radio-cards" id="roof-covering-cards">
+          <label class="radio-card selected" onclick="selectRadio('roof-covering', 'metal_tile', this)">
+            <input type="radio" name="roof-covering" value="metal_tile" checked>
+            <div class="rc-icon">🏠</div>
+            <div class="rc-title">Металлочерепица</div>
+            <div class="rc-desc">Металл Профиль, ПЭ-01. Оптимальный выбор</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('roof-covering', 'profnastil', this)">
+            <input type="radio" name="roof-covering" value="profnastil">
+            <div class="rc-icon">🏗️</div>
+            <div class="rc-title">Профнастил</div>
+            <div class="rc-desc">Экономичный вариант для хозблоков</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('roof-covering', 'flexible', this)">
+            <input type="radio" name="roof-covering" value="flexible">
+            <div class="rc-icon">🟫</div>
+            <div class="rc-title">Гибкая черепица</div>
+            <div class="rc-desc">Tegola, Shinglas. Тихая кровля, сложные формы</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('roof-covering', 'seam', this)">
+            <input type="radio" name="roof-covering" value="seam">
+            <div class="rc-icon">⬛</div>
+            <div class="rc-title">Фальцевая кровля</div>
+            <div class="rc-desc">Цинк, медь, алюций. Долговечность 50+ лет</div>
+          </label>
+          <label class="radio-card" onclick="selectRadio('roof-covering', 'ceramic', this)">
+            <input type="radio" name="roof-covering" value="ceramic">
+            <div class="rc-icon">🍂</div>
+            <div class="rc-title">Керамическая черепица</div>
+            <div class="rc-desc">Braas, Creaton. Премиум качество</div>
+          </label>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Утепление кровли (мансарда)</label>
+          <select id="roof-insulation" onchange="onInputChange()">
+            <option value="none" selected>Холодный чердак (без утепления)</option>
+            <option value="mineral_200">Базальтовые плиты 200 мм (мансарда)</option>
+            <option value="xps_150">ЭППС 150 мм</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Водосточная система</label>
+          <select id="drainage" onchange="onInputChange()">
+            <option value="plastic">Пластиковая (AquaSystem, ПП)</option>
+            <option value="metal" selected>Металлическая (AquaSystem Комфорт)</option>
+            <option value="copper">Медная (премиум)</option>
+            <option value="none">Без водостоков</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Снегозадержатели</label>
+          <select id="snow-guard" onchange="onInputChange()">
+            <option value="yes" selected>Да, трубчатые снегозадержатели</option>
+            <option value="no">Нет</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Отделка свесов кровли</label>
+          <select id="eaves" onchange="onInputChange()">
+            <option value="soffit" selected>Пластиковые софиты (Grand Line)</option>
+            <option value="board">Доска (обрезная, пропитка)</option>
+            <option value="fiber">Фиброцементные панели</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="prevStep()">← Назад</button>
+      <button class="btn btn-primary" onclick="nextStep()">Далее: Доп. работы →</button>
+    </div>
+  </div>
+
+  <!-- STEP 6: Additional -->
+  <div id="step-6" class="step-page" style="display:none">
+    <div class="calc-card">
+      <h2><span class="step-num">6</span>Дополнительные работы</h2>
+      <p class="subtitle">Выберите необходимые инженерные и подготовительные работы</p>
+      <div class="toggle-group">
+        <label class="toggle-item" id="tgl-driveway" onclick="toggleItem('driveway', this)">
+          <input type="checkbox" id="cb-driveway">
+          <div class="toggle-box">
+            <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="toggle-info">
+            <div class="ti-title">🚗 Организация проезда на участок</div>
+            <div class="ti-desc">Устройство въездной трубы, отсыпка щебнем, услуги трактора</div>
+          </div>
+          <div class="toggle-price">+67 410 ₽</div>
+        </label>
+        <label class="toggle-item" id="tgl-well" onclick="toggleItem('well', this)">
+          <input type="checkbox" id="cb-well">
+          <div class="toggle-box">
+            <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="toggle-info">
+            <div class="ti-title">💧 Водоразборная скважина</div>
+            <div class="ti-desc">Бурение скважины до 40 м, обсадная труба ДУ127, насос, монтаж</div>
+          </div>
+          <div class="toggle-price">+80 160 ₽</div>
+        </label>
+        <label class="toggle-item" id="tgl-water-well" onclick="toggleItem('water-well', this)">
+          <input type="checkbox" id="cb-water-well">
+          <div class="toggle-box">
+            <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="toggle-info">
+            <div class="ti-title">🔵 Колодец водораспределения</div>
+            <div class="ti-desc">КС-1.0, труба ПНД 32мм, прокладка с утеплением и греющим кабелем</div>
+          </div>
+          <div class="toggle-price">+56 200 ₽</div>
+        </label>
+        <label class="toggle-item" id="tgl-septic" onclick="toggleItem('septic', this)">
+          <input type="checkbox" id="cb-septic">
+          <div class="toggle-box">
+            <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="toggle-info">
+            <div class="ti-title">🔄 Система канализации — септик</div>
+            <div class="ti-desc">Система из 2-х колодцев КС-1.5, гидроизоляция, дренаж</div>
+          </div>
+          <div class="toggle-price">+98 530 ₽</div>
+        </label>
+        <label class="toggle-item checked" id="tgl-supervision" onclick="toggleItem('supervision', this)">
+          <input type="checkbox" id="cb-supervision" checked>
+          <div class="toggle-box">
+            <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="toggle-info">
+            <div class="ti-title">👷 Технический надзор и геодезический контроль</div>
+            <div class="ti-desc">Инженерно-геодезический и технический контроль на всех этапах</div>
+          </div>
+          <div class="toggle-price">+50 000 ₽</div>
+        </label>
+        <label class="toggle-item" id="tgl-bungalow" onclick="toggleItem('bungalow', this)">
+          <input type="checkbox" id="cb-bungalow">
+          <div class="toggle-box">
+            <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="toggle-info">
+            <div class="ti-title">🏠 Бытовой городок для рабочих</div>
+            <div class="ti-desc">Бытовка, санузел, подключение электричества, доставка/вывоз</div>
+          </div>
+          <div class="toggle-price">+25 000 ₽</div>
+        </label>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="prevStep()">← Назад</button>
+      <button class="btn btn-accent btn-large" onclick="calcAndShowResult()">
+        🧮 Рассчитать стоимость
+      </button>
+    </div>
+  </div>
+
+  <!-- STEP 7: Result -->
+  <div id="step-7" class="step-page" style="display:none">
+    <!-- Live estimate box -->
+    <div class="estimate-box" id="estimateBox">
+      <div class="est-label">Предварительная стоимость строительства «под крышу»</div>
+      <div class="est-total" id="est-total">0 ₽</div>
+      <div class="est-sub" id="est-sub">включает материалы с доставкой и строительно-монтажные работы</div>
+      <div class="estimate-grid" id="estimate-grid">
+        <div class="estimate-item">
+          <div class="ei-label">Материалы</div>
+          <div class="ei-val" id="est-materials">0 ₽</div>
+        </div>
+        <div class="estimate-item">
+          <div class="ei-label">Работы</div>
+          <div class="ei-val" id="est-works">0 ₽</div>
+        </div>
+        <div class="estimate-item">
+          <div class="ei-label">Стоимость / м² (общ. пл.)</div>
+          <div class="ei-val" id="est-per-sqm">0 ₽/м²</div>
+        </div>
+        <div class="estimate-item">
+          <div class="ei-label">Площадь кровли</div>
+          <div class="ei-val" id="est-roof-area">0 м²</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage breakdown -->
+    <div class="calc-card">
+      <h2><span class="step-num">📋</span>Детализация по этапам строительства</h2>
+      <p class="subtitle">Стоимость включает материалы с доставкой и разгрузкой, услуги спецтехники и строительно-монтажные работы</p>
+      <div class="stages-list" id="stages-list"></div>
+    </div>
+
+    <!-- Payment schedule -->
+    <div class="calc-card">
+      <h2><span class="step-num">💳</span>График платежей</h2>
+      <p class="subtitle">Оплата производится по этапам возведения дома</p>
+      <div class="payment-schedule" id="payment-schedule"></div>
+      <div class="info-note" style="margin-top:16px;">
+        ⚠️ Предварительный расчёт составлен на основании площадей и выбранных конструктивных решений. Точная стоимость определяется после разработки рабочей документации (АР+КР). Возможна корректировка объёмов по факту выполнения работ.
+      </div>
+    </div>
+
+    <!-- Conditions -->
+    <div class="calc-card">
+      <h2 style="font-size:1rem;">📋 Условия и сроки</h2>
+      <div class="form-grid">
+        <div style="padding: 12px; background: #f8f9fc; border-radius: 8px;">
+          <div style="font-weight:700; color:var(--primary); margin-bottom:4px;">⏱ Срок строительства</div>
+          <div style="font-size:0.9rem; color:var(--text-muted);" id="construction-time">5–6 месяцев</div>
+        </div>
+        <div style="padding: 12px; background: #f8f9fc; border-radius: 8px;">
+          <div style="font-weight:700; color:var(--primary); margin-bottom:4px;">📦 В стоимость включено</div>
+          <div style="font-size:0.9rem; color:var(--text-muted);">Материалы с доставкой, разгрузкой, строительно-монтажные работы согласно ГОСТам и СНиПам РФ</div>
+        </div>
+        <div style="padding: 12px; background: #f8f9fc; border-radius: 8px;">
+          <div style="font-weight:700; color:var(--primary); margin-bottom:4px;">📝 Контракт</div>
+          <div style="font-size:0.9rem; color:var(--text-muted);">Договор подряда с фиксированными этапами и стоимостью работ</div>
+        </div>
+        <div style="padding: 12px; background: #f8f9fc; border-radius: 8px;">
+          <div style="font-weight:700; color:var(--primary); margin-bottom:4px;">🏆 Гарантия</div>
+          <div style="font-size:0.9rem; color:var(--text-muted);">Гарантийный срок на выполненные работы — 3 года</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="result-actions">
+      <button class="btn btn-ghost" onclick="prevStep()">← Изменить параметры</button>
+      <button class="btn btn-outline" onclick="generatePDF()" id="pdf-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Скачать PDF-отчёт
+        <span class="spinner" id="pdf-spinner"></span>
+      </button>
+      <button class="btn btn-primary btn-large" onclick="startOver()">
+        Новый расчёт
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// =================== STATE ===================
+let currentStep = 1;
+const totalSteps = 7;
+let uploadedFile = null;
+let uploadedFileData = null;
+
+// =================== RATES (from Excel analysis) ===================
+const RATES = {
+  // Per m² of building footprint (площадь застройки)
+  foundation: {
+    // Sub-stages breakdown (percentages of total foundation cost)
+    preparation:    0.200,  // Геодезия, основание, опалубка, арм. каркас
+    piles:          0.214,  // Буронабивные сваи
+    strip:          0.460,  // Ростверк/лента
+    waterproofing:  0.061,  // Гидроизоляция и утепление
+    supervision:    0.064,  // Технадзор и логистика
+    // Materials/labor split
+    matRatio: 0.603,
+    workRatio: 0.397,
+    // Base cost per m² footprint
+    base: 4512,
+    types: {
+      piles_strip:    1.00,
+      strip:          0.82,
+      monolith_slab:  1.22,
+      screw_piles:    0.62,
+      blocks:         0.78,
+    },
+    waterproofMod: { bitumen: 1.0, polymer: 1.12, penetrating: 1.08 },
+    insulationMod: { none: 0.85, xps_50: 1.0, xps_100: 1.10 },
+  },
+  // Per m² of footprint
+  baseSlab: {
+    base: 1700,
+    matRatio: 0.65,
+    workRatio: 0.35,
+    types: {
+      none: 0,
+      concrete_plates: 1.0,
+      monolith: 1.20,
+      wood: 0.72,
+    },
+    brickBasementMod: { none: 1.0, yes_300: 1.08, yes_600: 1.15 },
+  },
+  // Per m² of total area (all floors together)
+  walls: {
+    // Sub-stages (percentages of total wall cost)
+    extWalls:     0.037,  // Несущие стены внешние (ГБ)
+    intWalls:     0.335,  // Несущие стены внутренние
+    lintels:      0.080,  // Монолитные перемычки
+    partitions:   0.195,  // Перегородки
+    armBelts:     0.292,  // Армирующие пояса
+    cladding:     0.046,  // Облицовка / утепление
+    supervision:  0.025,  // Технадзор
+    matRatio: 0.566,
+    workRatio: 0.434,
+    base: 17023,
+    materials: {
+      gb_d400_400: 1.00,
+      gb_d500_300: 0.88,
+      brick_510:   1.42,
+      brick_380:   1.18,
+      log_240:     0.87,
+      sip:         0.72,
+    },
+    partitionMod: {
+      brick_120: 1.0,
+      gb_100:    0.94,
+      gypsum:    0.88,
+      wood:      0.85,
+    },
+    insulationMod: {
+      none:        0.93,
+      mineral_50:  1.0,
+      mineral_100: 1.06,
+      xps_50:      0.97,
+    },
+    claddingMod: {
+      fiber_cement:  1.0,
+      facing_brick:  1.12,
+      ventilated:    1.08,
+      plaster:       0.92,
+      siding:        0.88,
+    },
+    beltsMod: {
+      full:    1.0,
+      partial: 0.88,
+      none:    0.72,
+    },
+  },
+  // Per m² of footprint (inter-floor slab)
+  interSlab: {
+    base: 1820,
+    matRatio: 0.62,
+    workRatio: 0.38,
+    types: {
+      concrete_plates: 1.0,
+      monolith: 1.22,
+      wood: 0.70,
+    },
+  },
+  // Per m² of footprint (attic slab)
+  atticSlab: {
+    base: 1650,
+    matRatio: 0.62,
+    workRatio: 0.38,
+    types: {
+      concrete_plates: 1.0,
+      monolith: 1.22,
+      wood: 0.70,
+    },
+  },
+  // Per m² of roof area
+  roof: {
+    truss:      1214,  // стропильная система
+    waterproof:   69,  // гидроизоляция + обрешетка
+    matRatioTruss:  0.576,
+    workRatioTruss: 0.424,
+    covering: {
+      metal_tile:  1439,
+      profnastil:  1269,
+      flexible:    1614,
+      seam:        1730,
+      ceramic:     2158,
+    },
+    matRatioCovering: 0.553,
+    workRatioCovering: 0.447,
+    typeMod: {
+      gable:   1.00,
+      hip:     1.15,
+      mansard: 1.22,
+      flat:    0.70,
+      complex: 1.35,
+    },
+    insulationMod: {
+      none:        1.0,
+      mineral_200: 1.12,
+      xps_150:     1.09,
+    },
+    drainageMod: {
+      plastic: 1.0,
+      metal:   1.04,
+      copper:  1.12,
+      none:    0.96,
+    },
+    // pitch => area factor: roof_area = footprint * pitchFactor
+    pitchFactor(deg) {
+      const d = Number(deg);
+      if (d <= 5)  return 1.05;
+      if (d <= 10) return 1.10;
+      if (d <= 15) return 1.18;
+      if (d <= 20) return 1.28;
+      if (d <= 25) return 1.38;
+      if (d <= 30) return 1.52;
+      if (d <= 35) return 1.65;
+      if (d <= 40) return 1.72;
+      return 1.80;
+    }
+  },
+  additional: {
+    driveway:    { cost: 67410,  matRatio: 0.84, workRatio: 0.16 },
+    well:        { cost: 80160,  matRatio: 0.94, workRatio: 0.06 },
+    waterWell:   { cost: 56200,  matRatio: 0.67, workRatio: 0.33 },
+    septic:      { cost: 98530,  matRatio: 0.67, workRatio: 0.33 },
+    supervision: { cost: 50000,  matRatio: 0.0,  workRatio: 1.0  },
+    bungalow:    { cost: 25000,  matRatio: 0.56, workRatio: 0.44 },
+  },
+};
+
+// =================== CALCULATION ===================
+function getVal(id) { return document.getElementById(id); }
+function getRadio(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : null;
+}
+function isChecked(id) {
+  const el = document.getElementById(id);
+  return el ? el.checked : false;
+}
+
+function calculate() {
+  const footprint  = parseFloat(getVal('footprint').value) || 150;
+  const totalArea  = parseFloat(getVal('total-area').value) || 120;
+  const floors     = parseInt(getVal('floors').value) || 1;
+  const roofPitch  = parseInt(getVal('roof-pitch').value) || 27;
+
+  const foundationType  = getRadio('foundation') || 'piles_strip';
+  const waterproofMat   = getVal('waterproof-material').value;
+  const foundIns        = getVal('foundation-insulation').value;
+  const baseSlabType    = getVal('base-slab').value;
+  const brickBase       = getVal('brick-basement').value;
+
+  const wallMaterial    = getRadio('wall-material') || 'gb_d400_400';
+  const partitionMat    = getVal('partition-material').value;
+  const facadeIns       = getVal('facade-insulation').value;
+  const facadeCladding  = getVal('facade-cladding').value;
+  const armBelts        = getVal('reinforcing-belts').value;
+
+  const interSlabType   = getRadio('inter-slab') || 'concrete_plates';
+  const atticSlabType   = getRadio('attic-slab') || 'concrete_plates';
+
+  const roofType        = getVal('roof-type').value;
+  const roofCovering    = getRadio('roof-covering') || 'metal_tile';
+  const roofInsulation  = getVal('roof-insulation').value;
+  const drainage        = getVal('drainage').value;
+
+  const hasDriveway    = isChecked('cb-driveway');
+  const hasWell        = isChecked('cb-well');
+  const hasWaterWell   = isChecked('cb-water-well');
+  const hasSeptic      = isChecked('cb-septic');
+  const hasSupervision = isChecked('cb-supervision');
+  const hasBungalow    = isChecked('cb-bungalow');
+
+  // Derived values
+  const roofPitchFactor = RATES.roof.pitchFactor(roofPitch);
+  const roofArea = footprint * roofPitchFactor * RATES.roof.typeMod[roofType];
+
+  // === STAGE 1: FOUNDATION ===
+  const R_f = RATES.foundation;
+  let foundBase = footprint * R_f.base
+    * R_f.types[foundationType]
+    * R_f.waterproofMod[waterproofMat]
+    * R_f.insulationMod[foundIns];
+
+  const foundStages = {
+    preparation:   foundBase * R_f.preparation,
+    piles:         foundBase * R_f.piles,
+    strip:         foundBase * R_f.strip,
+    waterproofing: foundBase * R_f.waterproofing,
+    supervision:   foundBase * R_f.supervision,
+  };
+  const foundTotal = foundBase;
+  const foundMat  = foundTotal * R_f.matRatio;
+  const foundWork = foundTotal * R_f.workRatio;
+
+  // === STAGE 2: BASE SLAB ===
+  const R_bs = RATES.baseSlab;
+  const baseSlabTotal = footprint * R_bs.base
+    * R_bs.types[baseSlabType]
+    * R_bs.brickBasementMod[brickBase];
+  const baseSlabMat  = baseSlabTotal * R_bs.matRatio;
+  const baseSlabWork = baseSlabTotal * R_bs.workRatio;
+
+  // === STAGE 3: WALLS (all floors) ===
+  const R_w = RATES.walls;
+  let wallBase = totalArea * R_w.base
+    * R_w.materials[wallMaterial]
+    * R_w.partitionMod[partitionMat]
+    * R_w.insulationMod[facadeIns]
+    * R_w.claddingMod[facadeCladding]
+    * R_w.beltsMod[armBelts];
+
+  const wallStages = {
+    extWalls:    wallBase * R_w.extWalls,
+    intWalls:    wallBase * R_w.intWalls,
+    lintels:     wallBase * R_w.lintels,
+    partitions:  wallBase * R_w.partitions,
+    armBelts:    wallBase * R_w.armBelts,
+    cladding:    wallBase * R_w.cladding,
+    supervision: wallBase * R_w.supervision,
+  };
+  const wallTotal = wallBase;
+  const wallMat   = wallTotal * R_w.matRatio;
+  const wallWork  = wallTotal * R_w.workRatio;
+
+  // === STAGE 4: INTER-FLOOR SLAB (if 2+ floors) ===
+  const R_is = RATES.interSlab;
+  const interSlabCount = Math.max(0, floors - 1);
+  const interSlabTotal = footprint * R_is.base * R_is.types[interSlabType] * interSlabCount;
+  const interSlabMat   = interSlabTotal * R_is.matRatio;
+  const interSlabWork  = interSlabTotal * R_is.workRatio;
+
+  // === STAGE 5: ATTIC SLAB ===
+  const R_as = RATES.atticSlab;
+  const atticSlabTotal = footprint * R_as.base * R_as.types[atticSlabType];
+  const atticSlabMat   = atticSlabTotal * R_as.matRatio;
+  const atticSlabWork  = atticSlabTotal * R_as.workRatio;
+
+  // === STAGE 6: ROOF ===
+  const R_r = RATES.roof;
+  const trussBase    = roofArea * (R_r.truss + R_r.waterproof);
+  const coveringBase = roofArea * (R_r.covering[roofCovering] || R_r.covering.metal_tile);
+  const roofIns      = R_r.insulationMod[roofInsulation];
+  const roofDrain    = R_r.drainageMod[drainage];
+  const roofTotal = (trussBase * roofIns + coveringBase) * roofDrain;
+  const trussMat   = trussBase * roofIns * R_r.matRatioTruss;
+  const trussWork  = trussBase * roofIns * R_r.workRatioTruss;
+  const coverMat   = coveringBase * roofDrain * R_r.matRatioCovering;
+  const coverWork  = coveringBase * roofDrain * R_r.workRatioCovering;
+  const roofMat    = trussMat + coverMat;
+  const roofWork   = trussWork + coverWork;
+
+  // === ADDITIONAL ===
+  const addItems = [];
+  function addItem(key, label, subLabel) {
+    const isActive = {
+      driveway: hasDriveway, well: hasWell, waterWell: hasWaterWell,
+      septic: hasSeptic, supervision: hasSupervision, bungalow: hasBungalow,
+    }[key];
+    if (!isActive) return;
+    const r = RATES.additional[key];
+    addItems.push({
+      name: label, desc: subLabel,
+      total: r.cost, mat: r.cost * r.matRatio, work: r.cost * r.workRatio,
+    });
+  }
+  addItem('driveway',    'Организация проезда на участок', 'Труба, щебень, трактор-экскаватор');
+  addItem('well',        'Водоразборная скважина', 'Бурение, обсадка ДУ127, насос, монтаж');
+  addItem('waterWell',   'Колодец водораспределения', 'КС-1.0, труба ПНД, греющий кабель');
+  addItem('septic',      'Система канализации — септик', 'Колодцы КС-1.5, гидроизоляция, дренаж');
+  addItem('supervision', 'Технический и геодезический надзор', 'Контроль на всех этапах строительства');
+  addItem('bungalow',    'Бытовой городок для рабочих', 'Бытовка, санузел, подключение э/энергии');
+
+  const addTotal = addItems.reduce((s, i) => s + i.total, 0);
+  const addMat   = addItems.reduce((s, i) => s + i.mat, 0);
+  const addWork  = addItems.reduce((s, i) => s + i.work, 0);
+
+  // === TOTALS ===
+  const totalCost = foundTotal + baseSlabTotal + wallTotal + interSlabTotal + atticSlabTotal + roofTotal + addTotal;
+  const totalMat  = foundMat  + baseSlabMat  + wallMat  + interSlabMat  + atticSlabMat  + roofMat  + addMat;
+  const totalWork = foundWork + baseSlabWork + wallWork + interSlabWork + atticSlabWork + roofWork + addWork;
+
+  const stages = [];
+
+  stages.push({
+    num: 1,
+    name: 'Фундамент',
+    total: foundTotal, mat: foundMat, work: foundWork,
+    sub: [
+      { name: 'Подготовительные работы (геодезия, основание, опалубка, арматурный каркас)', mat: foundStages.preparation * R_f.matRatio, work: foundStages.preparation * R_f.workRatio, total: foundStages.preparation },
+      { name: 'Сваи (бурение, устройство арм. каркаса, бетонирование)', mat: foundStages.piles * R_f.matRatio, work: foundStages.piles * R_f.workRatio, total: foundStages.piles },
+      { name: 'Ростверк / лента фундамента (опалубка, арматура, бетонирование, уход за бетоном)', mat: foundStages.strip * R_f.matRatio, work: foundStages.strip * R_f.workRatio, total: foundStages.strip },
+      { name: 'Вертикальная гидроизоляция и утепление фундамента', mat: foundStages.waterproofing * R_f.matRatio, work: foundStages.waterproofing * R_f.workRatio, total: foundStages.waterproofing },
+      { name: 'Технический надзор и организация строительства', mat: 0, work: foundStages.supervision, total: foundStages.supervision },
+    ]
+  });
+
+  if (baseSlabTotal > 0) {
+    stages.push({
+      num: 2,
+      name: 'Перекрытие цокольное',
+      total: baseSlabTotal, mat: baseSlabMat, work: baseSlabWork,
+      sub: [
+        { name: 'ЖБ плиты перекрытия / монолитный участок (доставка, разгрузка краном, монтаж)', mat: baseSlabMat * 0.75, work: baseSlabWork * 0.75, total: baseSlabTotal * 0.75 },
+        { name: 'Термоизоляция по периметру опирания, анкеровка, омоноличивание швов', mat: baseSlabMat * 0.25, work: baseSlabWork * 0.25, total: baseSlabTotal * 0.25 },
+      ]
+    });
+  }
+
+  stages.push({
+    num: baseSlabTotal > 0 ? 3 : 2,
+    name: 'Несущие стены и перегородки' + (floors > 1 ? ` (${floors} этажа)` : ''),
+    total: wallTotal, mat: wallMat, work: wallWork,
+    sub: [
+      { name: 'Несущие внешние стены (кладка, крепёж, перемычки)', mat: (wallStages.extWalls + wallStages.lintels) * R_w.matRatio, work: (wallStages.extWalls + wallStages.lintels) * R_w.workRatio, total: wallStages.extWalls + wallStages.lintels },
+      { name: 'Несущие внутренние стены (кладка, перемычки)', mat: wallStages.intWalls * R_w.matRatio, work: wallStages.intWalls * R_w.workRatio, total: wallStages.intWalls },
+      { name: 'Перегородки (кладка, крепёж)', mat: wallStages.partitions * R_w.matRatio, work: wallStages.partitions * R_w.workRatio, total: wallStages.partitions },
+      { name: 'Армирующие и опорные монолитные пояса (арматура, опалубка, бетонирование)', mat: wallStages.armBelts * R_w.matRatio, work: wallStages.armBelts * R_w.workRatio, total: wallStages.armBelts },
+      { name: 'Утепление и облицовка фасада (вентилируемый фасад)', mat: wallStages.cladding * R_w.matRatio, work: wallStages.cladding * R_w.workRatio, total: wallStages.cladding },
+      { name: 'Технический надзор и организация', mat: 0, work: wallStages.supervision, total: wallStages.supervision },
+    ]
+  });
+
+  if (interSlabTotal > 0) {
+    stages.push({
+      num: stages.length + 1,
+      name: `Перекрытие межэтажное (${interSlabCount} шт.)`,
+      total: interSlabTotal, mat: interSlabMat, work: interSlabWork,
+      sub: [
+        { name: 'ЖБ плиты перекрытия ПК/ПБ (доставка, разгрузка, монтаж краном)', mat: interSlabMat * 0.72, work: interSlabWork * 0.72, total: interSlabTotal * 0.72 },
+        { name: 'Термоизоляция, анкеровка, омоноличивание швов, монолитные участки', mat: interSlabMat * 0.28, work: interSlabWork * 0.28, total: interSlabTotal * 0.28 },
+      ]
+    });
+  }
+
+  stages.push({
+    num: stages.length + 1,
+    name: 'Чердачное перекрытие',
+    total: atticSlabTotal, mat: atticSlabMat, work: atticSlabWork,
+    sub: [
+      { name: 'ЖБ плиты перекрытия / деревянные балки (монтаж)', mat: atticSlabMat * 0.70, work: atticSlabWork * 0.70, total: atticSlabTotal * 0.70 },
+      { name: 'Термоизоляция, пароизоляция, анкеровка', mat: atticSlabMat * 0.30, work: atticSlabWork * 0.30, total: atticSlabTotal * 0.30 },
+    ]
+  });
+
+  stages.push({
+    num: stages.length + 1,
+    name: 'Кровля',
+    total: roofTotal, mat: roofMat, work: roofWork,
+    sub: [
+      { name: 'Стропильная система (мауэрлат, конёк, стропила, огне/биозащита, крепёж)', mat: trussMat * 0.78, work: trussWork * 0.78, total: trussBase * roofIns * 0.78 },
+      { name: 'Гидроизоляция, обрешётка и контробрешётка', mat: trussMat * 0.22, work: trussWork * 0.22, total: trussBase * roofIns * 0.22 },
+      { name: `Кровельное покрытие (${getRoofCoveringName(roofCovering)}) с доп. элементами`, mat: coverMat, work: coverWork, total: coveringBase * roofDrain },
+    ]
+  });
+
+  if (addItems.length > 0) {
+    stages.push({
+      num: stages.length + 1,
+      name: 'Дополнительные работы',
+      total: addTotal, mat: addMat, work: addWork,
+      sub: addItems.map(i => ({ name: i.name + ' — ' + i.desc, mat: i.mat, work: i.work, total: i.total }))
+    });
+  }
+
+  // Payment schedule: spread across stages
+  const mainStages = stages.filter(s => s.num <= (addItems.length > 0 ? stages.length - 1 : stages.length));
+  const payments = buildPaymentSchedule(stages, floors);
+
+  return {
+    totalCost, totalMat, totalWork,
+    totalArea, footprint,
+    roofArea,
+    stages, payments,
+    floors,
+  };
+}
+
+function getRoofCoveringName(key) {
+  const names = { metal_tile: 'металлочерепица', profnastil: 'профнастил', flexible: 'гибкая черепица', seam: 'фальцевая кровля', ceramic: 'керамическая черепица' };
+  return names[key] || key;
+}
+
+function buildPaymentSchedule(stages, floors) {
+  const payments = [];
+  stages.forEach((s, i) => {
+    if (s.total <= 0) return;
+    // For foundation and walls, split into 2 payments
+    if (s.name.startsWith('Фундамент')) {
+      payments.push({ label: 'Платёж 1', stage: 'Фундамент — подготовка и материалы', amount: s.mat * 0.65 + s.work * 0.3 });
+      payments.push({ label: 'Платёж 2', stage: 'Фундамент — бетонирование и гидроизоляция', amount: s.mat * 0.35 + s.work * 0.7 });
+    } else if (s.name.includes('Перекрытие цок')) {
+      payments.push({ label: 'Платёж 3', stage: s.name, amount: s.total });
+    } else if (s.name.includes('стены') || s.name.includes('Стены')) {
+      payments.push({ label: 'Платёж 4', stage: s.name + ' — материалы и работы', amount: s.mat * 0.6 + s.work * 0.4 });
+      payments.push({ label: 'Платёж 5', stage: s.name + ' — завершение', amount: s.mat * 0.4 + s.work * 0.6 });
+    } else if (s.name.includes('Кровля')) {
+      payments.push({ label: 'Платёж последний', stage: 'Кровля — стропила, покрытие', amount: s.total });
+    } else {
+      payments.push({ label: `Платёж`, stage: s.name, amount: s.total });
+    }
+  });
+  // Renumber
+  let pNum = 1;
+  return payments.map(p => ({ ...p, label: `Платёж №${pNum++}` }));
+}
+
+// =================== UI ===================
+function fmt(n) {
+  return Math.round(n).toLocaleString('ru-RU') + ' ₽';
+}
+function fmtN(n) { return Math.round(n).toLocaleString('ru-RU'); }
+
+function onInputChange() {
+  // Live update would be here if needed
+}
+
+function selectRadio(name, val, el) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+    r.closest('.radio-card')?.classList.remove('selected');
+  });
+  el.classList.add('selected');
+  el.querySelector('input').checked = true;
+  onInputChange();
+}
+
+function toggleItem(key, el) {
+  const cb = el.querySelector('input[type=checkbox]');
+  cb.checked = !cb.checked;
+  el.classList.toggle('checked', cb.checked);
+  onInputChange();
+}
+
+function goStep(n) {
+  if (n < 1 || n > totalSteps) return;
+  // Show/hide pages
+  for (let i = 1; i <= totalSteps; i++) {
+    const page = document.getElementById(`step-${i}`);
+    if (page) page.style.display = i === n ? 'block' : 'none';
+  }
+  // Update progress bar
+  document.querySelectorAll('.step-item').forEach(item => {
+    const s = parseInt(item.dataset.step);
+    item.classList.remove('active', 'done');
+    if (s === n) item.classList.add('active');
+    else if (s < n) item.classList.add('done');
+  });
+  // Update connectors
+  for (let i = 1; i < totalSteps; i++) {
+    const con = document.getElementById(`con-${i}-${i+1}`);
+    if (con) con.classList.toggle('done', i < n);
+  }
+  // Update inter-floor slab visibility
+  if (n === 4) {
+    const floors = parseInt(document.getElementById('floors').value) || 1;
+    const g = document.getElementById('inter-slab-group');
+    if (g) g.style.opacity = floors > 1 ? '1' : '0.4';
+  }
+  currentStep = n;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function nextStep() {
+  if (currentStep < totalSteps) {
+    goStep(currentStep + 1);
+  }
+}
+function prevStep() {
+  if (currentStep > 1) {
+    if (currentStep === 7) goStep(6);
+    else goStep(currentStep - 1);
+  }
+}
+
+function calcAndShowResult() {
+  goStep(7);
+  renderResult();
+}
+
+function renderResult() {
+  const res = calculate();
+
+  // Update estimate box
+  document.getElementById('est-total').textContent = fmt(res.totalCost);
+  document.getElementById('est-materials').textContent = fmt(res.totalMat);
+  document.getElementById('est-works').textContent = fmt(res.totalWork);
+  document.getElementById('est-per-sqm').textContent = fmtN(Math.round(res.totalCost / res.totalArea)) + ' ₽/м²';
+  document.getElementById('est-roof-area').textContent = fmtN(Math.round(res.roofArea)) + ' м²';
+
+  // Update construction time
+  const time = res.floors === 1 ? '5–6 месяцев' : res.floors === 2 ? '7–9 месяцев' : '10–14 месяцев';
+  document.getElementById('construction-time').textContent = time;
+
+  // Render stages
+  const sl = document.getElementById('stages-list');
+  sl.innerHTML = '';
+  const totalForPct = res.totalCost;
+  res.stages.forEach((stage, idx) => {
+    if (stage.total <= 0) return;
+    const pct = Math.round(stage.total / totalForPct * 100);
+    const div = document.createElement('div');
+    div.className = 'stage-item';
+    div.innerHTML = `
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('open')">
+        <div class="stage-num">${stage.num}</div>
+        <div class="stage-name">${stage.name}</div>
+        <div class="stage-cost">${fmt(stage.total)}</div>
+        <div class="stage-pct">${pct}%</div>
+        <svg class="stage-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="stage-body">
+        <table class="sub-table">
+          <thead>
+            <tr>
+              <th>Наименование работ</th>
+              <th style="width:120px;text-align:right;">Материалы</th>
+              <th style="width:120px;text-align:right;">Работы</th>
+              <th style="width:120px;text-align:right;">Итого</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${stage.sub.map(s => `
+              <tr>
+                <td>${s.name}</td>
+                <td class="mat" style="text-align:right;">${s.mat > 0 ? fmtN(Math.round(s.mat)) : '—'}</td>
+                <td class="wrk" style="text-align:right;">${s.work > 0 ? fmtN(Math.round(s.work)) : '—'}</td>
+                <td class="tot" style="text-align:right;">${fmtN(Math.round(s.total))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr class="sub-total">
+              <td><strong>ИТОГО по этапу</strong></td>
+              <td style="text-align:right;"><strong>${fmtN(Math.round(stage.mat))}</strong></td>
+              <td style="text-align:right;"><strong>${fmtN(Math.round(stage.work))}</strong></td>
+              <td style="text-align:right;"><strong>${fmtN(Math.round(stage.total))}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+    sl.appendChild(div);
+  });
+
+  // Render payment schedule
+  const ps = document.getElementById('payment-schedule');
+  ps.innerHTML = '';
+  res.payments.forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'pay-item';
+    div.innerHTML = `
+      <div class="pay-num">${p.label}</div>
+      <div class="pay-desc">${p.stage}</div>
+      <div class="pay-amt">${fmt(p.amount)}</div>
+    `;
+    ps.appendChild(div);
+  });
+}
+
+// =================== FILE UPLOAD ===================
+function handleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  uploadedFile = file;
+  document.getElementById('uploadFileName').textContent = file.name + ' (' + Math.round(file.size/1024) + ' КБ)';
+  document.getElementById('uploadPreview').style.display = 'flex';
+  // Read file for PDF embedding
+  const reader = new FileReader();
+  reader.onload = e => { uploadedFileData = e.target.result; };
+  reader.readAsDataURL(file);
+}
+
+function removeFile() {
+  uploadedFile = null;
+  uploadedFileData = null;
+  document.getElementById('projectFile').value = '';
+  document.getElementById('uploadPreview').style.display = 'none';
+}
+
+// Drag and drop
+const uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    document.getElementById('projectFile').files = files;
+    handleFileUpload(document.getElementById('projectFile'));
+  }
+});
+
+// =================== PDF GENERATION ===================
+async function generatePDF() {
+  const btn = document.getElementById('pdf-btn');
+  const spinner = document.getElementById('pdf-spinner');
+  btn.disabled = true;
+  spinner.style.display = 'inline-block';
+
+  await new Promise(r => setTimeout(r, 100));
+
+  try {
+    const res = calculate();
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const objName = document.getElementById('obj-name').value || 'Жилой дом';
+    const objAddr = document.getElementById('obj-address').value || '';
+    const footprint = parseFloat(document.getElementById('footprint').value) || 150;
+    const totalArea = parseFloat(document.getElementById('total-area').value) || 120;
+    const floors = parseInt(document.getElementById('floors').value) || 1;
+
+    // Colors
+    const cPrimary = [26, 58, 92];
+    const cAccent  = [232, 160, 32];
+    const cGray    = [107, 122, 153];
+    const cLight   = [244, 246, 250];
+
+    const W = 210;
+    const H = 297;
+    const ml = 15; // margin left
+    const mr = 15; // margin right
+    const contentW = W - ml - mr;
+    let y = 0;
+
+    function addPage() {
+      doc.addPage();
+      y = 15;
+      // Page header
+      doc.setFillColor(...cPrimary);
+      doc.rect(0, 0, W, 10, 'F');
+      doc.setFontSize(7);
+      doc.setTextColor(255, 255, 255);
+      doc.text('СК «ИндивиДом» — Предварительный расчёт стоимости строительства', ml, 6.5);
+      doc.text(`стр. ${doc.internal.getNumberOfPages()}`, W - mr, 6.5, { align: 'right' });
+      y = 18;
+    }
+
+    function checkPageBreak(needed) {
+      if (y + needed > H - 20) { addPage(); }
+    }
+
+    // ===== COVER PAGE =====
+    // Header bar
+    doc.setFillColor(...cPrimary);
+    doc.rect(0, 0, W, 55, 'F');
+
+    // Logo area (house icon text)
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont(undefined, 'bold');
+    doc.text('СК «ИндивиДом»', ml, 22);
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.text('г. Пермь, ул. Связистов, 24 • +7 (342) 204-24-40 • sk-individom.ru', ml, 31);
+
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text('ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ', ml, 43);
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.text('стоимости строительства жилого дома «под крышу»', ml, 50);
+
+    y = 70;
+
+    // Object info box
+    doc.setFillColor(...cLight);
+    doc.roundedRect(ml, y, contentW, 52, 3, 3, 'F');
+    doc.setTextColor(...cPrimary);
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'bold');
+    doc.text('📋 Параметры объекта', ml + 5, y + 9);
+
+    const params = [
+      ['Объект:', objName],
+      ['Адрес:', objAddr || 'не указан'],
+      ['Площадь застройки:', footprint + ' м²'],
+      ['Общая площадь дома:', totalArea + ' м²'],
+      ['Количество этажей:', floors + (floors === 1 ? ' этаж' : floors < 5 ? ' этажа' : ' этажей')],
+      ['Площадь кровли:', Math.round(res.roofArea) + ' м²'],
+    ];
+    doc.setFontSize(9.5);
+    params.forEach((p, i) => {
+      const row = Math.floor(i / 2);
+      const col = i % 2;
+      const x = ml + 5 + col * (contentW / 2);
+      const yy = y + 17 + row * 11;
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(...cGray);
+      doc.text(p[0], x, yy);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(...cPrimary);
+      doc.text(p[1], x + 50, yy);
+    });
+
+    y += 60;
+
+    // Total cost highlight
+    doc.setFillColor(...cPrimary);
+    doc.roundedRect(ml, y, contentW, 36, 3, 3, 'F');
+    doc.setTextColor(200, 210, 230);
+    doc.setFontSize(9);
+    doc.text('ИТОГОВАЯ СТОИМОСТЬ СТРОИТЕЛЬСТВА «ПОД КРЫШУ»', ml + contentW/2, y + 9, { align: 'center' });
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(26);
+    doc.setFont(undefined, 'bold');
+    doc.text(fmt(res.totalCost), ml + contentW/2, y + 24, { align: 'center' });
+
+    y += 44;
+
+    // Materials / Works breakdown
+    const halfW = (contentW - 6) / 2;
+    doc.setFillColor(240, 244, 252);
+    doc.roundedRect(ml, y, halfW, 22, 2, 2, 'F');
+    doc.setFillColor(245, 240, 252);
+    doc.roundedRect(ml + halfW + 6, y, halfW, 22, 2, 2, 'F');
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(...cGray);
+    doc.text('Материалы с доставкой', ml + halfW/2, y + 7, { align: 'center' });
+    doc.text('Строительно-монтажные работы', ml + halfW + 6 + halfW/2, y + 7, { align: 'center' });
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...cPrimary);
+    doc.text(fmt(res.totalMat), ml + halfW/2, y + 17, { align: 'center' });
+    doc.setTextColor(124, 77, 186);
+    doc.text(fmt(res.totalWork), ml + halfW + 6 + halfW/2, y + 17, { align: 'center' });
+
+    y += 30;
+
+    // Per sqm
+    doc.setFontSize(8.5);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(...cGray);
+    doc.text(`Стоимость 1 м² общей площади: ${fmtN(Math.round(res.totalCost / res.totalArea))} ₽/м²  •  Срок строительства: ${res.floors === 1 ? '5–6' : res.floors === 2 ? '7–9' : '10–14'} месяцев`, ml + contentW/2, y, { align: 'center' });
+
+    y += 15;
+
+    // Key parameters summary
+    doc.setFillColor(...cLight);
+    doc.roundedRect(ml, y, contentW, 8, 1, 1, 'F');
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...cPrimary);
+    const wallName = { gb_d400_400: 'Газобетон D400 400мм', gb_d500_300: 'Газобетон D500 300мм', brick_510: 'Кирпич 510мм', brick_380: 'Кирпич 380мм', log_240: 'Брус 240мм', sip: 'SIP-панели' };
+    const foundName = { piles_strip: 'Сваи + ростверк', strip: 'Ленточный', monolith_slab: 'Монолитная плита', screw_piles: 'Свайно-винтовой', blocks: 'Сборный ленточный' };
+    const coverName = { metal_tile: 'Металлочерепица', profnastil: 'Профнастил', flexible: 'Гибкая черепица', seam: 'Фальцевая', ceramic: 'Керамика' };
+    const wm = getRadio('wall-material') || 'gb_d400_400';
+    const fm = getRadio('foundation') || 'piles_strip';
+    const rm = getRadio('roof-covering') || 'metal_tile';
+    doc.text(`Фундамент: ${foundName[fm]}  •  Стены: ${wallName[wm]}  •  Кровля: ${coverName[rm]}  •  Уклон кровли: ${document.getElementById('roof-pitch').value}°`, ml + contentW/2, y + 5.5, { align: 'center' });
+
+    y += 18;
+
+    // Date
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(...cGray);
+    const dateStr = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+    doc.text(`Дата составления: ${dateStr}`, ml, y);
+    doc.text(`Действителен в течение 30 дней`, W - mr, y, { align: 'right' });
+
+    // ===== PAGE 2+: STAGE BREAKDOWN =====
+    addPage();
+
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(...cPrimary);
+    doc.text('ДЕТАЛИЗАЦИЯ ПО ЭТАПАМ СТРОИТЕЛЬСТВА', ml, y);
+    y += 8;
+
+    res.stages.forEach(stage => {
+      if (stage.total <= 0) return;
+      checkPageBreak(30);
+
+      // Stage header
+      doc.setFillColor(...cPrimary);
+      doc.roundedRect(ml, y, contentW, 9, 2, 2, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'bold');
+      doc.text(`ЭТАП ${stage.num}: ${stage.name.toUpperCase()}`, ml + 4, y + 6);
+      doc.text(fmt(stage.total), W - mr - 2, y + 6, { align: 'right' });
+      y += 12;
+
+      // Sub-table
+      doc.autoTable({
+        startY: y,
+        margin: { left: ml, right: mr },
+        head: [['Наименование работ', 'Материалы, ₽', 'Работы, ₽', 'Итого, ₽']],
+        body: [
+          ...stage.sub.map(s => [
+            s.name,
+            s.mat > 0 ? fmtN(Math.round(s.mat)) : '—',
+            s.work > 0 ? fmtN(Math.round(s.work)) : '—',
+            fmtN(Math.round(s.total)),
+          ]),
+          [
+            { content: 'ИТОГО по этапу', styles: { fontStyle: 'bold', fillColor: cLight } },
+            { content: fmtN(Math.round(stage.mat)), styles: { fontStyle: 'bold', fillColor: cLight, textColor: [35, 85, 160] } },
+            { content: fmtN(Math.round(stage.work)), styles: { fontStyle: 'bold', fillColor: cLight, textColor: [124, 77, 186] } },
+            { content: fmtN(Math.round(stage.total)), styles: { fontStyle: 'bold', fillColor: cLight } },
+          ]
+        ],
+        styles: { fontSize: 8, cellPadding: 3 },
+        headStyles: { fillColor: [35, 85, 160], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        columnStyles: {
+          0: { cellWidth: 'auto' },
+          1: { halign: 'right', cellWidth: 35 },
+          2: { halign: 'right', cellWidth: 35 },
+          3: { halign: 'right', cellWidth: 35 },
+        },
+        alternateRowStyles: { fillColor: [248, 249, 252] },
+      });
+
+      y = doc.lastAutoTable.finalY + 8;
+    });
+
+    // ===== TOTALS TABLE =====
+    checkPageBreak(50);
+    doc.setFillColor(...cAccent);
+    doc.roundedRect(ml, y, contentW, 9, 2, 2, 'F');
+    doc.setTextColor(26, 58, 92);
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.text('ИТОГО ПОЛНАЯ СТОИМОСТЬ СТРОИТЕЛЬСТВА', ml + 4, y + 6);
+    doc.text(fmt(res.totalCost), W - mr - 2, y + 6, { align: 'right' });
+    y += 12;
+
+    doc.autoTable({
+      startY: y,
+      margin: { left: ml, right: mr },
+      body: [
+        ['Материалы с доставкой и разгрузкой, услуги спецтехники', fmtN(Math.round(res.totalMat)) + ' ₽'],
+        ['Строительно-монтажные работы', fmtN(Math.round(res.totalWork)) + ' ₽'],
+        ['ИТОГО', fmtN(Math.round(res.totalCost)) + ' ₽'],
+      ],
+      styles: { fontSize: 9 },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { halign: 'right', cellWidth: 50, fontStyle: 'bold' },
+      },
+      bodyStyles: { fillColor: [244, 246, 250] },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ===== PAYMENT SCHEDULE =====
+    checkPageBreak(60);
+    doc.setFillColor(...cPrimary);
+    doc.roundedRect(ml, y, contentW, 9, 2, 2, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.text('ГРАФИК ПЛАТЕЖЕЙ', ml + 4, y + 6);
+    y += 12;
+
+    doc.autoTable({
+      startY: y,
+      margin: { left: ml, right: mr },
+      head: [['Платёж', 'Этап строительства', 'Сумма, ₽']],
+      body: res.payments.map(p => [p.label, p.stage, fmtN(Math.round(p.amount)) + ' ₽']),
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: cPrimary, textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 28, fontStyle: 'bold' },
+        1: { cellWidth: 'auto' },
+        2: { halign: 'right', cellWidth: 40, fontStyle: 'bold' },
+      },
+      alternateRowStyles: { fillColor: [248, 249, 252] },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+
+    // ===== NOTES =====
+    checkPageBreak(50);
+    doc.setFillColor(255, 251, 234);
+    doc.roundedRect(ml, y, contentW, 38, 2, 2, 'F');
+    doc.setDrawColor(240, 192, 64);
+    doc.roundedRect(ml, y, contentW, 38, 2, 2, 'S');
+    doc.setTextColor(122, 90, 0);
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'bold');
+    doc.text('Важные примечания:', ml + 4, y + 7);
+    doc.setFont(undefined, 'normal');
+    const notes = [
+      '* Предварительный расчёт включает стоимость материалов и работ для возведения дома «под крышу» согласно ГОСТам и СНиПам РФ.',
+      '* Точная стоимость строительства определяется после разработки рабочей документации (АР+КР).',
+      '* Возможна корректировка объёмов работ и материалов по факту выполнения (геология, рельеф, погодные условия).',
+      '* Стоимость внутренней отделки, инженерных коммуникаций в доме и благоустройства территории в расчёт не включена.',
+      '* Условия оплаты: по этапам возведения дома согласно графику платежей.',
+    ];
+    notes.forEach((n, i) => doc.text(n, ml + 4, y + 13 + i * 5.5, { maxWidth: contentW - 8 }));
+    y += 44;
+
+    // ===== SIGNATURE =====
+    checkPageBreak(30);
+    doc.setTextColor(...cGray);
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.text('Технический директор СК «ИндивиДом»:', ml, y + 10);
+    doc.text('Тихонов Г.Н.', ml + 90, y + 10);
+    doc.setDrawColor(...cGray);
+    doc.line(ml + 70, y + 11, ml + 88, y + 11);
+    doc.text('_____________________', ml + 70, y + 10);
+
+    doc.text(`Дата: ${dateStr}`, W - mr, y + 10, { align: 'right' });
+
+    // ===== OPTIONAL: Add uploaded project image if it's an image =====
+    if (uploadedFileData && uploadedFile && /\.(jpg|jpeg|png)$/i.test(uploadedFile.name)) {
+      doc.addPage();
+      y = 15;
+      doc.setFillColor(...cPrimary);
+      doc.rect(0, 0, W, 10, 'F');
+      doc.setFontSize(7);
+      doc.setTextColor(255, 255, 255);
+      doc.text('Приложение: Эскизный проект', ml, 6.5);
+
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(...cPrimary);
+      doc.text('ПРИЛОЖЕНИЕ: ЭСКИЗНЫЙ ПРОЕКТ', ml, 25);
+      doc.setFontSize(8);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(...cGray);
+      doc.text(uploadedFile.name, ml, 31);
+      try {
+        const format = /\.png$/i.test(uploadedFile.name) ? 'PNG' : 'JPEG';
+        doc.addImage(uploadedFileData, format, ml, 38, contentW, Math.min(contentW * 0.75, 180));
+      } catch (e) {
+        doc.text('(не удалось встроить изображение проекта)', ml, 50);
+      }
+    }
+
+    // Save
+    const fileName = `Расчет_${(objName || 'Дом').replace(/\s+/g, '_')}_${new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')}.pdf`;
+    doc.save(fileName);
+  } catch (err) {
+    console.error('PDF error:', err);
+    alert('Ошибка при генерации PDF: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    spinner.style.display = 'none';
+  }
+}
+
+function startOver() {
+  goStep(1);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Initial state
+goStep(1);
+</script>
+</body>
+</html>
