@@ -1,0 +1,788 @@
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  ИНСТРУКЦИЯ ПО ВСТРОЙКЕ В TILDA                             ║
+  ║  1. В Tilda добавьте блок: + → HTML (блок T123 или T-code) ║
+  ║  2. Вставьте ВСЁ содержимое ЭТОГО файла в поле кода        ║
+  ║  3. Нажмите «Сохранить» и опубликуйте страницу              ║
+  ╚══════════════════════════════════════════════════════════════╝
+-->
+<div id="cc-root" style="font-family:'Segoe UI',system-ui,sans-serif;max-width:960px;margin:0 auto;padding:8px 4px 40px;">
+<!-- прогресс-бар -->
+<div id="cc-progress" style="display:flex;align-items:center;background:#fff;border-radius:12px;padding:10px 16px;margin-bottom:18px;box-shadow:0 2px 12px rgba(26,58,92,.1);gap:4px;overflow-x:auto;"></div>
+<!-- страницы шагов -->
+<div id="cc-pages"></div>
+</div>
+
+<style>
+#cc-root *{box-sizing:border-box;margin:0;padding:0}
+#cc-root{color:#1a2236;background:#f4f6fa;border-radius:16px;padding:16px 8px 32px}
+.cc-card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(26,58,92,.1);padding:24px;margin-bottom:16px}
+.cc-card h2{font-size:1.1rem;font-weight:700;color:#1a3a5c;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.cc-card h2 .sn{width:28px;height:28px;background:#1a3a5c;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:800;flex-shrink:0}
+.cc-card .cc-sub{color:#6b7a99;font-size:.85rem;margin-bottom:18px;margin-left:36px}
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:580px){.cc-grid{grid-template-columns:1fr}}
+.cc-full{grid-column:1/-1}
+.cc-fg{display:flex;flex-direction:column;gap:5px}
+.cc-fg label{font-size:.84rem;font-weight:600;color:#1a2236}
+.cc-fg input,.cc-fg select{border:1.5px solid #d8dde8;border-radius:8px;padding:9px 12px;font-size:.9rem;color:#1a2236;background:#fff;outline:none;font-family:inherit}
+.cc-fg input:focus,.cc-fg select:focus{border-color:#2355a0;box-shadow:0 0 0 3px rgba(35,85,160,.08)}
+/* radio cards */
+.cc-rcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.cc-rcard{border:2px solid #d8dde8;border-radius:10px;padding:12px 10px;cursor:pointer;text-align:center;background:#fff;transition:border-color .2s,background .2s}
+.cc-rcard:hover{border-color:#2355a0}
+.cc-rcard.sel{border-color:#1a3a5c;background:#f0f4fc}
+.cc-rcard input{display:none}
+.cc-rcard .ri{font-size:1.4rem;margin-bottom:5px}
+.cc-rcard .rt{font-size:.82rem;font-weight:700;color:#1a2236}
+.cc-rcard.sel .rt{color:#1a3a5c}
+.cc-rcard .rd{font-size:.72rem;color:#6b7a99;margin-top:2px;line-height:1.3}
+/* toggles */
+.cc-toggle{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid #d8dde8;border-radius:8px;cursor:pointer;transition:all .2s;margin-bottom:8px}
+.cc-toggle:hover{border-color:#2355a0}
+.cc-toggle.chk{border-color:#1a3a5c;background:#f0f4fc}
+.cc-toggle input{display:none}
+.cc-tbox{width:20px;height:20px;border:2px solid #d8dde8;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.cc-toggle.chk .cc-tbox{background:#1a3a5c;border-color:#1a3a5c}
+.cc-tbox-check{display:none;width:12px;height:12px;stroke:#fff;stroke-width:3;fill:none}
+.cc-toggle.chk .cc-tbox-check{display:block}
+.cc-ti-title{font-size:.88rem;font-weight:600}
+.cc-ti-desc{font-size:.76rem;color:#6b7a99;margin-top:1px}
+.cc-tprice{margin-left:auto;font-size:.84rem;font-weight:700;color:#1a3a5c;white-space:nowrap}
+/* slider */
+.cc-slrow{display:flex;align-items:center;gap:10px;margin-top:4px}
+.cc-slrow input[type=range]{flex:1;height:5px;cursor:pointer;accent-color:#1a3a5c}
+.cc-slval{width:44px;text-align:center;font-weight:700;color:#1a3a5c;background:#f0f4fc;border-radius:6px;padding:3px 4px;font-size:.9rem}
+/* upload */
+.cc-upload{border:2.5px dashed #d8dde8;border-radius:10px;padding:30px 16px;text-align:center;cursor:pointer;background:#fafbfd;position:relative;transition:all .2s}
+.cc-upload:hover{border-color:#2355a0;background:#f0f4fc}
+.cc-upload input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.cc-uprev{display:flex;align-items:center;gap:8px;margin-top:10px;background:#f0f4fc;border-radius:8px;padding:8px 12px}
+.cc-uprev .uname{flex:1;font-size:.85rem;font-weight:600;color:#1a3a5c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* divider */
+.cc-div{height:1px;background:#d8dde8;margin:16px 0}
+/* buttons */
+.cc-btnrow{display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.cc-btn{padding:10px 20px;border-radius:8px;font-size:.9rem;font-weight:700;cursor:pointer;border:none;font-family:inherit;transition:all .2s}
+.cc-btn-primary{background:#1a3a5c;color:#fff}
+.cc-btn-primary:hover{background:#2355a0}
+.cc-btn-accent{background:#e8a020;color:#1a3a5c}
+.cc-btn-accent:hover{background:#f5c060}
+.cc-btn-ghost{background:#f0f4fc;color:#6b7a99}
+.cc-btn-ghost:hover{background:#d8dde8}
+.cc-btn-outline{background:#fff;color:#1a3a5c;border:2px solid #1a3a5c}
+.cc-btn-outline:hover{background:#f0f4fc}
+.cc-btn:disabled{opacity:.5;cursor:not-allowed}
+/* estimate box */
+.cc-est{background:linear-gradient(135deg,#1a3a5c 0%,#2355a0 100%);border-radius:12px;padding:20px 24px;color:#fff;margin-bottom:16px;box-shadow:0 4px 20px rgba(26,58,92,.25)}
+.cc-est-lbl{font-size:.8rem;opacity:.75;margin-bottom:2px}
+.cc-est-total{font-size:1.9rem;font-weight:800;letter-spacing:-1px;line-height:1}
+.cc-est-sub{font-size:.76rem;opacity:.65;margin-bottom:12px}
+.cc-est-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:480px){.cc-est-grid{grid-template-columns:1fr}}
+.cc-est-item{background:rgba(255,255,255,.12);border-radius:8px;padding:8px 12px}
+.cc-est-item .eil{font-size:.72rem;opacity:.72}
+.cc-est-item .eiv{font-size:.95rem;font-weight:700}
+/* stages */
+.cc-stage{border:1.5px solid #d8dde8;border-radius:10px;overflow:hidden;margin-bottom:8px}
+.cc-stage-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;background:#fff;user-select:none}
+.cc-stage-hdr:hover{background:#fafbfd}
+.cc-snum{width:26px;height:26px;background:#1a3a5c;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:800;flex-shrink:0}
+.cc-sname{flex:1;font-weight:600;font-size:.9rem}
+.cc-scost{font-weight:800;color:#1a3a5c;font-size:.95rem}
+.cc-spct{font-size:.73rem;color:#6b7a99;margin-left:6px}
+.cc-schev{width:16px;height:16px;transition:transform .25s;stroke:#6b7a99;fill:none;stroke-width:2.5}
+.cc-stage.open .cc-schev{transform:rotate(180deg)}
+.cc-stage-body{display:none;border-top:1px solid #d8dde8;background:#fafbfd;padding:12px 14px}
+.cc-stage.open .cc-stage-body{display:block}
+.cc-tbl{width:100%;border-collapse:collapse;font-size:.8rem}
+.cc-tbl th{text-align:left;color:#6b7a99;font-weight:600;padding:3px 6px;border-bottom:1px solid #d8dde8}
+.cc-tbl td{padding:6px 6px;border-bottom:1px solid #eef0f5}
+.cc-tbl tr:last-child td{border-bottom:none}
+.cc-tbl .tc-mat{color:#2355a0}
+.cc-tbl .tc-wrk{color:#7c4dba}
+.cc-tbl .tc-tot{font-weight:700}
+.cc-tbl tfoot tr td{background:#f0f4fc;font-weight:700}
+/* payments */
+.cc-pay{display:flex;align-items:center;gap:10px;background:#f8f9fc;border-radius:8px;padding:10px 14px;border-left:4px solid #1a3a5c;margin-bottom:7px}
+.cc-pay:nth-child(2){border-left-color:#2355a0}
+.cc-pay:nth-child(3){border-left-color:#e8a020}
+.cc-pay:nth-child(4){border-left-color:#27ae60}
+.cc-pay:nth-child(5){border-left-color:#9b59b6}
+.cc-pnum{font-size:.75rem;font-weight:700;color:#6b7a99;width:75px;flex-shrink:0}
+.cc-pdesc{flex:1;font-size:.86rem;font-weight:600}
+.cc-pamt{font-size:.95rem;font-weight:800;color:#1a3a5c;white-space:nowrap}
+/* info note */
+.cc-note{background:#fffbea;border:1.5px solid #f0c040;border-radius:8px;padding:10px 14px;font-size:.8rem;color:#7a5a00;margin-top:12px}
+/* progress */
+.cc-pitem{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:52px;cursor:pointer}
+.cc-pcirc{width:28px;height:28px;border-radius:50%;background:#d8dde8;color:#6b7a99;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:700;transition:all .2s}
+.cc-pitem.active .cc-pcirc{background:#1a3a5c;color:#fff}
+.cc-pitem.done .cc-pcirc{background:#27ae60;color:#fff}
+.cc-plbl{font-size:.65rem;color:#6b7a99;text-align:center;white-space:nowrap}
+.cc-pitem.active .cc-plbl{color:#1a3a5c;font-weight:600}
+.cc-pcon{flex:1;height:2px;background:#d8dde8;min-width:6px}
+.cc-pcon.done{background:#27ae60}
+</style>
+
+<script>
+(function(){
+// ── dynamic load jsPDF ──────────────────────────────────────────
+function loadScript(src,cb){var s=document.createElement('script');s.src=src;s.onload=cb;document.head.appendChild(s);}
+loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',function(){
+loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js',function(){});
+});
+
+// ── RATES ───────────────────────────────────────────────────────
+var R={
+  found:{base:4512,prep:.200,piles:.214,strip:.460,wp:.061,sup:.064,matR:.603,workR:.397,
+    types:{piles_strip:1.00,strip:.82,monolith_slab:1.22,screw_piles:.62,blocks:.78},
+    wpMod:{bitumen:1.0,polymer:1.12,penetrating:1.08},
+    insMod:{none:.85,xps_50:1.0,xps_100:1.10}},
+  baseSlab:{base:1700,matR:.65,workR:.35,
+    types:{none:0,concrete_plates:1.0,monolith:1.20,wood:.72},
+    bkMod:{none:1.0,yes_300:1.08,yes_600:1.15}},
+  walls:{base:17023,extW:.037,intW:.335,lin:.080,part:.195,arm:.292,clad:.046,sup:.025,matR:.566,workR:.434,
+    mats:{gb_d400_400:1.00,gb_d500_300:.88,brick_510:1.42,brick_380:1.18,log_240:.87,sip:.72},
+    partM:{brick_120:1.0,gb_100:.94,gypsum:.88,wood:.85},
+    insM:{none:.93,mineral_50:1.0,mineral_100:1.06,xps_50:.97},
+    cladM:{fiber_cement:1.0,facing_brick:1.12,ventilated:1.08,plaster:.92,siding:.88},
+    beltM:{full:1.0,partial:.88,none:.72}},
+  interSlab:{base:1820,matR:.62,workR:.38,types:{concrete_plates:1.0,monolith:1.22,wood:.70}},
+  atticSlab:{base:1650,matR:.62,workR:.38,types:{concrete_plates:1.0,monolith:1.22,wood:.70}},
+  roof:{truss:1214,wp:69,matRT:.576,workRT:.424,matRC:.553,workRC:.447,
+    cov:{metal_tile:1439,profnastil:1269,flexible:1614,seam:1730,ceramic:2158},
+    typM:{gable:1.00,hip:1.15,mansard:1.22,flat:.70,complex:1.35},
+    insM:{none:1.0,mineral_200:1.12,xps_150:1.09},
+    drainM:{plastic:1.0,metal:1.04,copper:1.12,none:.96},
+    pitch:function(d){d=+d;if(d<=5)return 1.05;if(d<=10)return 1.10;if(d<=15)return 1.18;if(d<=20)return 1.28;if(d<=25)return 1.38;if(d<=30)return 1.52;if(d<=35)return 1.65;if(d<=40)return 1.72;return 1.80;}},
+  add:{
+    driveway:{cost:67410,mR:.84,wR:.16},
+    well:{cost:80160,mR:.94,wR:.06},
+    waterWell:{cost:56200,mR:.67,wR:.33},
+    septic:{cost:98530,mR:.67,wR:.33},
+    supervision:{cost:50000,mR:0,wR:1},
+    bungalow:{cost:25000,mR:.56,wR:.44}}
+};
+
+// ── STATE ───────────────────────────────────────────────────────
+var S={step:1,file:null,fileData:null};
+
+// ── HELPERS ─────────────────────────────────────────────────────
+var $ = function(id){return document.getElementById(id);};
+function fmt(n){return Math.round(n).toLocaleString('ru-RU')+' ₽';}
+function fmtN(n){return Math.round(n).toLocaleString('ru-RU');}
+function gv(id){var e=$(id);return e?e.value:'';}
+function radio(nm){var e=document.querySelector('#cc-root input[name="'+nm+'"]:checked');return e?e.value:null;}
+function chk(id){var e=$(id);return e&&e.checked;}
+
+// ── HTML BUILDERS ────────────────────────────────────────────────
+function rcards(nm,opts){
+  var h='<div class="cc-rcards">';
+  opts.forEach(function(o,i){
+    h+='<label class="cc-rcard'+(i===0?' sel':'')+'" onclick="ccSelR(\''+nm+'\',\''+o.v+'\',this)">'+
+      '<input type="radio" name="'+nm+'" value="'+o.v+'"'+(i===0?' checked':'')+'>'+
+      '<div class="ri">'+o.icon+'</div>'+
+      '<div class="rt">'+o.t+'</div>'+
+      (o.d?'<div class="rd">'+o.d+'</div>':'')+
+      '</label>';
+  });
+  return h+'</div>';
+}
+function tgl(id,title,desc,price,checked){
+  var c=checked?'chk':'';
+  return '<label class="cc-toggle '+c+'" id="tgl-'+id+'" onclick="ccTgl(\''+id+'\',this)">'+
+    '<input type="checkbox" id="cb-'+id+'"'+(checked?' checked':'')+'>'+
+    '<div class="cc-tbox"><svg class="cc-tbox-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>'+
+    '<div><div class="cc-ti-title">'+title+'</div><div class="cc-ti-desc">'+desc+'</div></div>'+
+    '<div class="cc-tprice">'+price+'</div></label>';
+}
+function fg(label,inp){return '<div class="cc-fg"><label>'+label+'</label>'+inp+'</div>';}
+function sel(id,opts,onch){
+  var h='<select id="'+id+'"'+(onch?' onchange="'+onch+'"':'')+' style="width:100%">';
+  opts.forEach(function(o){h+='<option value="'+o.v+'"'+(o.sel?' selected':'')+'>'+o.t+'</option>';});
+  return h+'</select>';
+}
+
+// ── PAGES ────────────────────────────────────────────────────────
+function page1(){
+  return '<div class="cc-card">'+
+    '<h2><span class="sn">1</span>Параметры объекта</h2>'+
+    '<p class="cc-sub">Основные характеристики строящегося дома</p>'+
+    '<div class="cc-grid">'+
+      fg('Название объекта','<input type="text" id="obj-name" value="Жилой дом" style="width:100%">')+
+      fg('Адрес строительства','<input type="text" id="obj-address" placeholder="г. Пермь, ул. ..." style="width:100%">')+
+      fg('Площадь застройки (пятно), м²','<input type="number" id="footprint" min="40" max="2000" value="150" style="width:100%">')+
+      fg('Общая площадь дома, м²','<input type="number" id="total-area" min="30" max="5000" value="120" style="width:100%">')+
+      fg('Количество этажей',sel('floors',[{v:'1',t:'1 этаж',sel:true},{v:'2',t:'2 этажа'},{v:'3',t:'3 этажа'}]))+
+      fg('Высота этажа, м','<input type="number" id="floor-height" min="2.5" max="4.5" step="0.1" value="2.8" style="width:100%">')+
+      fg('Снеговой район',sel('snow-region',[{v:'1',t:'I'},{v:'2',t:'II'},{v:'3',t:'III'},{v:'4',t:'IV'},{v:'5',t:'V (Пермь)',sel:true},{v:'6',t:'VI'},{v:'7',t:'VII'},{v:'8',t:'VIII'}]))+
+      fg('Глубина промерзания грунта, м','<input type="number" id="frost-depth" min="0.5" max="3.5" step="0.1" value="1.9" style="width:100%">') +
+    '</div>'+
+    '<div class="cc-div"></div>'+
+    '<div class="cc-fg"><label>📐 Загрузить эскизный проект (PDF, JPG, PNG)</label>'+
+    '<div class="cc-upload" id="cc-upz"><input type="file" id="cc-file" accept=".pdf,.jpg,.jpeg,.png" onchange="ccUpload(this)">'+
+    '<div style="font-size:1.8rem;margin-bottom:6px">📂</div>'+
+    '<div style="font-weight:600;color:#1a3a5c">Перетащите файл или нажмите для выбора</div>'+
+    '<div style="font-size:.78rem;color:#6b7a99;margin-top:4px">PDF, JPG, PNG — до 20 МБ</div></div>'+
+    '<div class="cc-uprev" id="cc-uprev" style="display:none">'+
+    '<span style="font-size:1.2rem">📄</span>'+
+    '<span class="uname" id="cc-upname"></span>'+
+    '<span style="cursor:pointer;color:#c0392b" onclick="ccRemFile()">✕</span></div></div>'+
+    '</div>'+
+    '<div class="cc-btnrow"><button class="cc-btn cc-btn-primary" onclick="ccNext()">Далее: Фундамент →</button></div>';
+}
+
+function page2(){
+  return '<div class="cc-card">'+
+    '<h2><span class="sn">2</span>Фундамент</h2>'+
+    '<p class="cc-sub">Тип фундамента в соответствии с грунтовыми условиями участка</p>'+
+    '<div class="cc-fg cc-full">'+rcards('foundation',[
+      {v:'piles_strip',icon:'🪨',t:'Буронабивные сваи + ростверк',d:'Рекомендован для пучинистых грунтов Пермского края'},
+      {v:'strip',icon:'🔲',t:'Ленточный монолитный',d:'Для стабильных непучинистых грунтов'},
+      {v:'monolith_slab',icon:'⬛',t:'Монолитная плита',d:'Универсальный, высокая несущая способность'},
+      {v:'screw_piles',icon:'🔩',t:'Свайно-винтовой',d:'Быстрый монтаж, для лёгких конструкций'},
+      {v:'blocks',icon:'🧱',t:'Сборный ленточный (ФБС)',d:'Блоки ФБС с бетонной подготовкой'}
+    ])+'</div>'+
+    '<div class="cc-div"></div>'+
+    '<div class="cc-grid">'+
+      fg('Гидроизоляция фундамента',sel('waterproof-mat',[{v:'bitumen',t:'Битумная обмазка + рубероид',sel:true},{v:'polymer',t:'Полимерная мембрана'},{v:'penetrating',t:'Проникающая гидроизоляция'}]))+
+      fg('Утепление фундамента',sel('found-ins',[{v:'none',t:'Без утепления'},{v:'xps_50',t:'ЭППС 50 мм (стандарт)',sel:true},{v:'xps_100',t:'ЭППС 100 мм'}]))+
+      fg('Перекрытие цокольное',sel('base-slab',[{v:'none',t:'Не требуется (свайный)'},{v:'concrete_plates',t:'ЖБ пустотные плиты ПК/ПБ',sel:true},{v:'monolith',t:'Монолитное'},{v:'wood',t:'Деревянные балки'}]))+
+      fg('Кирпичный цоколь',sel('brick-base',[{v:'none',t:'Без кирпичного цоколя',sel:true},{v:'yes_300',t:'Кирпич, высота 300 мм'},{v:'yes_600',t:'Кирпич, высота 600 мм'}]))+
+    '</div></div>'+
+    '<div class="cc-btnrow">'+
+    '<button class="cc-btn cc-btn-ghost" onclick="ccPrev()">← Назад</button>'+
+    '<button class="cc-btn cc-btn-primary" onclick="ccNext()">Далее: Стены →</button></div>';
+}
+
+function page3(){
+  return '<div class="cc-card">'+
+    '<h2><span class="sn">3</span>Несущие стены и перегородки</h2>'+
+    '<p class="cc-sub">Материалы несущих стен и внутренних перегородок</p>'+
+    '<div class="cc-fg cc-full">'+rcards('wall-mat',[
+      {v:'gb_d400_400',icon:'🟦',t:'Газобетон D400, 400 мм',d:'Теплит, Твинблок — оптимально'},
+      {v:'gb_d500_300',icon:'🟦',t:'Газобетон D500, 300 мм',d:'С усиленным утеплением фасада'},
+      {v:'brick_510',icon:'🟥',t:'Кирпич 510 мм (2 кирпича)',d:'Высокая прочность'},
+      {v:'brick_380',icon:'🟥',t:'Кирпич 380 мм (1,5 кирпича)',d:'С утеплением фасада'},
+      {v:'log_240',icon:'🪵',t:'Оцилиндрованный брус 240 мм',d:'Экологично, быстрый монтаж'},
+      {v:'sip',icon:'🟩',t:'SIP-панели',d:'Высокая скорость, энергоэффективность'}
+    ])+'</div>'+
+    '<div class="cc-div"></div>'+
+    '<div class="cc-grid">'+
+      fg('Перегородки',sel('part-mat',[{v:'brick_120',t:'Кирпич 120 мм',sel:true},{v:'gb_100',t:'Газобетон 100 мм'},{v:'gypsum',t:'Гипсокартон на каркасе'},{v:'wood',t:'Деревянные'}]))+
+      fg('Утепление фасада',sel('facade-ins',[{v:'none',t:'Без утепления'},{v:'mineral_50',t:'Базальт 50 мм',sel:true},{v:'mineral_100',t:'Базальт 100 мм'},{v:'xps_50',t:'ЭППС 50 мм'}]))+
+      fg('Облицовка фасада',sel('facade-clad',[{v:'fiber_cement',t:'Фиброцементные панели',sel:true},{v:'facing_brick',t:'Облицовочный кирпич'},{v:'ventilated',t:'Вентфасад (металл/HPL)'},{v:'plaster',t:'Штукатурный фасад'},{v:'siding',t:'Виниловый сайдинг'}]))+
+      fg('Армирующие пояса',sel('arm-belts',[{v:'full',t:'Полный комплект',sel:true},{v:'partial',t:'Только под перекрытия'},{v:'none',t:'Без армирующих поясов'}]))+
+    '</div></div>'+
+    '<div class="cc-btnrow">'+
+    '<button class="cc-btn cc-btn-ghost" onclick="ccPrev()">← Назад</button>'+
+    '<button class="cc-btn cc-btn-primary" onclick="ccNext()">Далее: Перекрытия →</button></div>';
+}
+
+function page4(){
+  return '<div class="cc-card">'+
+    '<h2><span class="sn">4</span>Перекрытия</h2>'+
+    '<p class="cc-sub">Тип конструкции межэтажного и чердачного перекрытия</p>'+
+    '<div style="margin-bottom:4px;font-size:.85rem;font-weight:600;color:#1a2236">Перекрытие межэтажное <span style="font-weight:400;color:#6b7a99">(при 2+ этажах)</span></div>'+
+    rcards('inter-slab',[
+      {v:'concrete_plates',icon:'⬛',t:'ЖБ пустотные плиты ПК/ПБ',d:'Высокая прочность, стандарт'},
+      {v:'monolith',icon:'⬜',t:'Монолитное',d:'Для нестандартных планировок'},
+      {v:'wood',icon:'🪵',t:'Деревянные балки',d:'Для деревянных конструкций'}
+    ])+
+    '<div class="cc-div"></div>'+
+    '<div style="margin-bottom:4px;font-size:.85rem;font-weight:600;color:#1a2236">Чердачное перекрытие</div>'+
+    rcards('attic-slab',[
+      {v:'concrete_plates',icon:'⬛',t:'ЖБ пустотные плиты',d:'С утеплением 200 мм'},
+      {v:'monolith',icon:'⬜',t:'Монолитное',d:'Монолитное чердачное'},
+      {v:'wood',icon:'🪵',t:'Деревянные балки',d:'Балочное с утеплением'}
+    ])+
+    '</div>'+
+    '<div class="cc-btnrow">'+
+    '<button class="cc-btn cc-btn-ghost" onclick="ccPrev()">← Назад</button>'+
+    '<button class="cc-btn cc-btn-primary" onclick="ccNext()">Далее: Кровля →</button></div>';
+}
+
+function page5(){
+  return '<div class="cc-card">'+
+    '<h2><span class="sn">5</span>Кровля</h2>'+
+    '<p class="cc-sub">Конструкция и покрытие кровли</p>'+
+    '<div class="cc-grid">'+
+      fg('Тип кровли',sel('roof-type',[{v:'gable',t:'Двускатная (стандарт)',sel:true},{v:'hip',t:'Четырёхскатная (вальмовая)'},{v:'mansard',t:'Мансардная'},{v:'flat',t:'Плоская'},{v:'complex',t:'Сложная конфигурация'}]))+
+      '<div class="cc-fg"><label>Угол наклона кровли, °</label>'+
+      '<div class="cc-slrow"><input type="range" id="roof-pitch" min="5" max="50" step="1" value="27" oninput="document.getElementById(\'pv\').textContent=this.value+\'°\'">'+
+      '<div class="cc-slval" id="pv">27°</div></div></div>'+
+    '</div>'+
+    '<div style="margin:12px 0 4px;font-size:.85rem;font-weight:600;color:#1a2236">Кровельное покрытие</div>'+
+    rcards('roof-cov',[
+      {v:'metal_tile',icon:'🏠',t:'Металлочерепица',d:'Металл Профиль — оптимально'},
+      {v:'profnastil',icon:'🏗️',t:'Профнастил',d:'Экономичный вариант'},
+      {v:'flexible',icon:'🟫',t:'Гибкая черепица',d:'Tegola, Shinglas — тихая кровля'},
+      {v:'seam',icon:'⬛',t:'Фальцевая кровля',d:'Долговечность 50+ лет'},
+      {v:'ceramic',icon:'🍂',t:'Керамическая черепица',d:'Braas — премиум'}
+    ])+
+    '<div class="cc-div"></div>'+
+    '<div class="cc-grid">'+
+      fg('Утепление кровли',sel('roof-ins',[{v:'none',t:'Холодный чердак',sel:true},{v:'mineral_200',t:'Базальт 200 мм (мансарда)'},{v:'xps_150',t:'ЭППС 150 мм'}]))+
+      fg('Водосточная система',sel('drainage',[{v:'plastic',t:'Пластиковая'},{v:'metal',t:'Металлическая',sel:true},{v:'copper',t:'Медная (премиум)'},{v:'none',t:'Без водостоков'}]))+
+    '</div></div>'+
+    '<div class="cc-btnrow">'+
+    '<button class="cc-btn cc-btn-ghost" onclick="ccPrev()">← Назад</button>'+
+    '<button class="cc-btn cc-btn-primary" onclick="ccNext()">Далее: Доп. работы →</button></div>';
+}
+
+function page6(){
+  return '<div class="cc-card">'+
+    '<h2><span class="sn">6</span>Дополнительные работы</h2>'+
+    '<p class="cc-sub">Выберите необходимые инженерные и подготовительные работы</p>'+
+    tgl('driveway','🚗 Организация проезда на участок','Труба, щебень, услуги трактора-экскаватора','+67 410 ₽',false)+
+    tgl('well','💧 Водоразборная скважина','Бурение до 40 м, обсадная труба ДУ127, насос, монтаж','+80 160 ₽',false)+
+    tgl('water-well','🔵 Колодец водораспределения','КС-1.0, труба ПНД, греющий кабель, прокладка','+56 200 ₽',false)+
+    tgl('septic','🔄 Система канализации — септик','Колодцы КС-1.5, гидроизоляция, дренаж','+98 530 ₽',false)+
+    tgl('supervision','👷 Технический и геодезический надзор','Инженерный контроль на всех этапах строительства','+50 000 ₽',true)+
+    tgl('bungalow','🏠 Бытовой городок для рабочих','Бытовка, санузел, подключение электроэнергии','+25 000 ₽',false)+
+    '</div>'+
+    '<div class="cc-btnrow">'+
+    '<button class="cc-btn cc-btn-ghost" onclick="ccPrev()">← Назад</button>'+
+    '<button class="cc-btn cc-btn-accent" onclick="ccCalc()" style="font-size:1rem;padding:12px 24px">🧮 Рассчитать стоимость</button></div>';
+}
+
+function page7(res){
+  var stagesHTML='';
+  res.stages.forEach(function(st){
+    if(st.total<=0)return;
+    var pct=Math.round(st.total/res.total*100);
+    var rows=st.sub.map(function(s){
+      return '<tr><td>'+s.name+'</td>'+
+        '<td class="tc-mat" style="text-align:right">'+(s.mat>0?fmtN(Math.round(s.mat)):'—')+'</td>'+
+        '<td class="tc-wrk" style="text-align:right">'+(s.work>0?fmtN(Math.round(s.work)):'—')+'</td>'+
+        '<td class="tc-tot" style="text-align:right">'+fmtN(Math.round(s.total))+'</td></tr>';
+    }).join('');
+    stagesHTML+='<div class="cc-stage" onclick="this.classList.toggle(\'open\')">'+
+      '<div class="cc-stage-hdr">'+
+      '<div class="cc-snum">'+st.num+'</div>'+
+      '<div class="cc-sname">'+st.name+'</div>'+
+      '<div class="cc-scost">'+fmt(st.total)+'</div>'+
+      '<div class="cc-spct">'+pct+'%</div>'+
+      '<svg class="cc-schev" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>'+
+      '</div>'+
+      '<div class="cc-stage-body">'+
+      '<table class="cc-tbl">'+
+      '<thead><tr><th>Наименование работ</th><th style="text-align:right;width:100px">Материалы</th><th style="text-align:right;width:100px">Работы</th><th style="text-align:right;width:100px">Итого</th></tr></thead>'+
+      '<tbody>'+rows+'</tbody>'+
+      '<tfoot><tr><td><b>ИТОГО по этапу</b></td>'+
+      '<td style="text-align:right;color:#2355a0"><b>'+fmtN(Math.round(st.mat))+'</b></td>'+
+      '<td style="text-align:right;color:#7c4dba"><b>'+fmtN(Math.round(st.work))+'</b></td>'+
+      '<td style="text-align:right"><b>'+fmtN(Math.round(st.total))+'</b></td></tr></tfoot>'+
+      '</table></div></div>';
+  });
+
+  var payHTML=res.pays.map(function(p){
+    return '<div class="cc-pay"><div class="cc-pnum">'+p.label+'</div><div class="cc-pdesc">'+p.stage+'</div><div class="cc-pamt">'+fmt(p.amount)+'</div></div>';
+  }).join('');
+
+  var timeStr=res.floors===1?'5–6 месяцев':res.floors===2?'7–9 месяцев':'10–14 месяцев';
+
+  return '<div class="cc-est">'+
+    '<div class="cc-est-lbl">Предварительная стоимость строительства «под крышу»</div>'+
+    '<div class="cc-est-total">'+fmt(res.total)+'</div>'+
+    '<div class="cc-est-sub">включает материалы с доставкой и строительно-монтажные работы</div>'+
+    '<div class="cc-est-grid">'+
+      '<div class="cc-est-item"><div class="eil">Материалы</div><div class="eiv">'+fmt(res.mat)+'</div></div>'+
+      '<div class="cc-est-item"><div class="eil">Работы</div><div class="eiv">'+fmt(res.work)+'</div></div>'+
+      '<div class="cc-est-item"><div class="eil">Стоимость / м² общей пл.</div><div class="eiv">'+fmtN(Math.round(res.total/res.totalArea))+' ₽/м²</div></div>'+
+      '<div class="cc-est-item"><div class="eil">Срок строительства</div><div class="eiv">'+timeStr+'</div></div>'+
+    '</div></div>'+
+    '<div class="cc-card">'+
+    '<h2 style="margin-bottom:12px">📋 Детализация по этапам</h2>'+
+    stagesHTML+'</div>'+
+    '<div class="cc-card">'+
+    '<h2 style="margin-bottom:12px">💳 График платежей</h2>'+
+    payHTML+
+    '<div class="cc-note">⚠️ Предварительный расчёт составлен на основании площадей и конструктивных решений. Точная стоимость определяется после разработки АР+КР. Возможна корректировка объёмов по факту выполнения работ.</div>'+
+    '</div>'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px">'+
+    '<button class="cc-btn cc-btn-ghost" onclick="ccPrev()">← Изменить параметры</button>'+
+    '<button class="cc-btn cc-btn-outline" onclick="ccPDF()" id="cc-pdfbtn">📄 Скачать PDF-отчёт</button>'+
+    '<button class="cc-btn cc-btn-primary" onclick="ccReset()">Новый расчёт</button>'+
+    '</div>';
+}
+
+// ── PROGRESS ─────────────────────────────────────────────────────
+var LABELS=['Объект','Фундамент','Стены','Перекрытия','Кровля','Доп.','Результат'];
+function renderProgress(){
+  var h='';
+  for(var i=1;i<=7;i++){
+    var cls=S.step===i?'active':S.step>i?'done':'';
+    h+='<div class="cc-pitem '+cls+'" onclick="ccGo('+i+')">'+
+      '<div class="cc-pcirc">'+(S.step>i?'✓':i)+'</div>'+
+      '<div class="cc-plbl">'+LABELS[i-1]+'</div></div>';
+    if(i<7)h+='<div class="cc-pcon'+(S.step>i?' done':'')+'"></div>';
+  }
+  $('cc-progress').innerHTML=h;
+}
+
+// ── NAVIGATION ───────────────────────────────────────────────────
+var PAGES=[null,page1,page2,page3,page4,page5,page6,null];
+function ccGo(n){
+  if(n<1||n>7)return;
+  S.step=n;
+  renderProgress();
+  if(n===7){ccCalc();return;}
+  $('cc-pages').innerHTML=PAGES[n]();
+  // restore upload state
+  if(n===1&&S.file){
+    var r=$('cc-uprev');var nm=$('cc-upname');
+    if(r&&nm){nm.textContent=S.file.name;r.style.display='flex';}
+  }
+  $('cc-root').scrollIntoView({behavior:'smooth',block:'start'});
+}
+window.ccNext=function(){ccGo(S.step+1);};
+window.ccPrev=function(){ccGo(S.step-1);};
+window.ccReset=function(){ccGo(1);};
+
+// ── RADIO & TOGGLE ────────────────────────────────────────────────
+window.ccSelR=function(nm,val,el){
+  document.querySelectorAll('#cc-root input[name="'+nm+'"]').forEach(function(r){
+    var p=r.closest('.cc-rcard');if(p)p.classList.remove('sel');
+  });
+  el.classList.add('sel');
+  el.querySelector('input').checked=true;
+};
+window.ccTgl=function(key,el){
+  var cb=el.querySelector('input');cb.checked=!cb.checked;
+  el.classList.toggle('chk',cb.checked);
+};
+
+// ── FILE UPLOAD ───────────────────────────────────────────────────
+window.ccUpload=function(inp){
+  var f=inp.files[0];if(!f)return;
+  S.file=f;
+  $('cc-upname').textContent=f.name+' ('+Math.round(f.size/1024)+' КБ)';
+  $('cc-uprev').style.display='flex';
+  var rd=new FileReader();
+  rd.onload=function(e){S.fileData=e.target.result;};
+  rd.readAsDataURL(f);
+};
+window.ccRemFile=function(){
+  S.file=null;S.fileData=null;
+  var fi=$('cc-file');if(fi)fi.value='';
+  var r=$('cc-uprev');if(r)r.style.display='none';
+};
+
+// ── CALCULATION ───────────────────────────────────────────────────
+window.ccCalc=function(){
+  var fp   =parseFloat(gv('footprint'))||150;
+  var ta   =parseFloat(gv('total-area'))||120;
+  var fl   =parseInt(gv('floors'))||1;
+  var pitch=parseInt((document.getElementById('roof-pitch')||{value:27}).value)||27;
+
+  var fType=radio('foundation')||'piles_strip';
+  var wpMat=gv('waterproof-mat')||'bitumen';
+  var fIns =gv('found-ins')||'xps_50';
+  var bSlab=gv('base-slab')||'concrete_plates';
+  var bkBase=gv('brick-base')||'none';
+
+  var wMat=radio('wall-mat')||'gb_d400_400';
+  var pMat=gv('part-mat')||'brick_120';
+  var fIns2=gv('facade-ins')||'mineral_50';
+  var fCld=gv('facade-clad')||'fiber_cement';
+  var armB=gv('arm-belts')||'full';
+
+  var iSlab=radio('inter-slab')||'concrete_plates';
+  var aSlab=radio('attic-slab')||'concrete_plates';
+
+  var rType=gv('roof-type')||'gable';
+  var rCov=radio('roof-cov')||'metal_tile';
+  var rIns=gv('roof-ins')||'none';
+  var drain=gv('drainage')||'metal';
+
+  var hDrv=chk('cb-driveway'),hWell=chk('cb-well'),hWW=chk('cb-water-well');
+  var hSep=chk('cb-septic'),hSup=chk('cb-supervision'),hBng=chk('cb-bungalow');
+
+  // roof area
+  var rA=fp*R.roof.pitch(pitch)*(R.roof.typM[rType]||1.0);
+
+  // === foundation ===
+  var fBase=fp*R.found.base*(R.found.types[fType]||1)*(R.found.wpMod[wpMat]||1)*(R.found.insMod[fIns]||1);
+  var fSubs={prep:fBase*R.found.prep,piles:fBase*R.found.piles,strip:fBase*R.found.strip,wp:fBase*R.found.wp,sup:fBase*R.found.sup};
+  var fMat=fBase*R.found.matR,fWork=fBase*R.found.workR;
+
+  // === base slab ===
+  var bsTotal=fp*R.baseSlab.base*(R.baseSlab.types[bSlab]||0)*(R.baseSlab.bkMod[bkBase]||1);
+  var bsMat=bsTotal*R.baseSlab.matR,bsWork=bsTotal*R.baseSlab.workR;
+
+  // === walls ===
+  var wBase=ta*R.walls.base*(R.walls.mats[wMat]||1)*(R.walls.partM[pMat]||1)*(R.walls.insM[fIns2]||1)*(R.walls.cladM[fCld]||1)*(R.walls.beltM[armB]||1);
+  var wSubs={ext:wBase*R.walls.extW,int:wBase*R.walls.intW,lin:wBase*R.walls.lin,part:wBase*R.walls.part,arm:wBase*R.walls.arm,clad:wBase*R.walls.clad,sup:wBase*R.walls.sup};
+  var wMat2=wBase*R.walls.matR,wWork=wBase*R.walls.workR;
+
+  // === inter slab ===
+  var isCnt=Math.max(0,fl-1);
+  var isTotal=fp*R.interSlab.base*(R.interSlab.types[iSlab]||1)*isCnt;
+  var isMat=isTotal*R.interSlab.matR,isWork=isTotal*R.interSlab.workR;
+
+  // === attic slab ===
+  var asTotal=fp*R.atticSlab.base*(R.atticSlab.types[aSlab]||1);
+  var asMat=asTotal*R.atticSlab.matR,asWork=asTotal*R.atticSlab.workR;
+
+  // === roof ===
+  var trussBase=rA*(R.roof.truss+R.roof.wp)*(R.roof.insM[rIns]||1);
+  var covBase=rA*(R.roof.cov[rCov]||R.roof.cov.metal_tile)*(R.roof.drainM[drain]||1);
+  var roofTotal=trussBase+covBase;
+  var roofMat=trussBase*R.roof.matRT+covBase*R.roof.matRC;
+  var roofWork=trussBase*R.roof.workRT+covBase*R.roof.workRC;
+
+  // === additional ===
+  var addItems=[];
+  function mayAdd(key,name,desc){
+    var active={driveway:hDrv,well:hWell,waterWell:hWW,septic:hSep,supervision:hSup,bungalow:hBng}[key];
+    if(!active)return;
+    var r=R.add[key];
+    addItems.push({name:name,desc:desc,total:r.cost,mat:r.cost*r.mR,work:r.cost*r.wR});
+  }
+  mayAdd('driveway','Организация проезда на участок','Труба, щебень, трактор-экскаватор');
+  mayAdd('well','Водоразборная скважина','Бурение, обсадка ДУ127, насос, монтаж');
+  mayAdd('waterWell','Колодец водораспределения','КС-1.0, труба ПНД, греющий кабель');
+  mayAdd('septic','Система канализации — септик','Колодцы КС-1.5, гидроизоляция, дренаж');
+  mayAdd('supervision','Технический и геодезический надзор','Контроль на всех этапах');
+  mayAdd('bungalow','Бытовой городок для рабочих','Бытовка, санузел, электроэнергия');
+  var addTotal=addItems.reduce(function(s,i){return s+i.total;},0);
+  var addMat=addItems.reduce(function(s,i){return s+i.mat;},0);
+  var addWork=addItems.reduce(function(s,i){return s+i.work;},0);
+
+  var total=fBase+bsTotal+wBase+isTotal+asTotal+roofTotal+addTotal;
+  var mat=fMat+bsMat+wMat2+isMat+asMat+roofMat+addMat;
+  var work=fWork+bsWork+wWork+isWork+asWork+roofWork+addWork;
+
+  // build stages
+  var stages=[];
+  var sn=1;
+  stages.push({num:sn++,name:'Фундамент',total:fBase,mat:fMat,work:fWork,sub:[
+    {name:'Подготовительные работы (геодезия, основание, опалубка, арматурный каркас)',mat:fSubs.prep*R.found.matR,work:fSubs.prep*R.found.workR,total:fSubs.prep},
+    {name:'Буронабивные сваи (бурение, арматурный каркас, бетонирование)',mat:fSubs.piles*R.found.matR,work:fSubs.piles*R.found.workR,total:fSubs.piles},
+    {name:'Ростверк / лента фундамента (опалубка, арматура, бетонирование)',mat:fSubs.strip*R.found.matR,work:fSubs.strip*R.found.workR,total:fSubs.strip},
+    {name:'Вертикальная гидроизоляция и утепление фундамента',mat:fSubs.wp*R.found.matR,work:fSubs.wp*R.found.workR,total:fSubs.wp},
+    {name:'Технический надзор и организация строительства',mat:0,work:fSubs.sup,total:fSubs.sup}
+  ]});
+  if(bsTotal>0)stages.push({num:sn++,name:'Перекрытие цокольное',total:bsTotal,mat:bsMat,work:bsWork,sub:[
+    {name:'Плиты перекрытия ЖБ / монолит (доставка, разгрузка, монтаж краном)',mat:bsMat*.75,work:bsWork*.75,total:bsTotal*.75},
+    {name:'Термоизоляция, анкеровка перекрытий, омоноличивание швов',mat:bsMat*.25,work:bsWork*.25,total:bsTotal*.25}
+  ]});
+  stages.push({num:sn++,name:'Несущие стены и перегородки'+(fl>1?' ('+fl+' эт.)':''),total:wBase,mat:wMat2,work:wWork,sub:[
+    {name:'Несущие внешние стены (кладка, крепёж, перемычки)',mat:(wSubs.ext+wSubs.lin)*R.walls.matR,work:(wSubs.ext+wSubs.lin)*R.walls.workR,total:wSubs.ext+wSubs.lin},
+    {name:'Несущие внутренние стены (кладка, перемычки)',mat:wSubs.int*R.walls.matR,work:wSubs.int*R.walls.workR,total:wSubs.int},
+    {name:'Перегородки (кладка, крепёж)',mat:wSubs.part*R.walls.matR,work:wSubs.part*R.walls.workR,total:wSubs.part},
+    {name:'Армирующие и опорные монолитные пояса (арматура, опалубка, бетонирование)',mat:wSubs.arm*R.walls.matR,work:wSubs.arm*R.walls.workR,total:wSubs.arm},
+    {name:'Утепление и облицовка фасада',mat:wSubs.clad*R.walls.matR,work:wSubs.clad*R.walls.workR,total:wSubs.clad},
+    {name:'Технический надзор и организация',mat:0,work:wSubs.sup,total:wSubs.sup}
+  ]});
+  if(isTotal>0)stages.push({num:sn++,name:'Перекрытие межэтажное ('+isCnt+' шт.)',total:isTotal,mat:isMat,work:isWork,sub:[
+    {name:'ЖБ плиты перекрытия ПК/ПБ (доставка, разгрузка, монтаж краном)',mat:isMat*.72,work:isWork*.72,total:isTotal*.72},
+    {name:'Термоизоляция, анкеровка, омоноличивание швов, монолитные участки',mat:isMat*.28,work:isWork*.28,total:isTotal*.28}
+  ]});
+  stages.push({num:sn++,name:'Чердачное перекрытие',total:asTotal,mat:asMat,work:asWork,sub:[
+    {name:'Плиты перекрытия / деревянные балки (монтаж)',mat:asMat*.70,work:asWork*.70,total:asTotal*.70},
+    {name:'Термоизоляция, пароизоляция, анкеровка',mat:asMat*.30,work:asWork*.30,total:asTotal*.30}
+  ]});
+  var tM=trussBase*R.roof.matRT,tW=trussBase*R.roof.workRT,cM=covBase*R.roof.matRC,cW=covBase*R.roof.workRC;
+  var covNames={metal_tile:'металлочерепица',profnastil:'профнастил',flexible:'гибкая черепица',seam:'фальцевая кровля',ceramic:'керамическая черепица'};
+  stages.push({num:sn++,name:'Кровля',total:roofTotal,mat:roofMat,work:roofWork,sub:[
+    {name:'Стропильная система (мауэрлат, конёк, стропила, огне/биозащита)',mat:tM*.78,work:tW*.78,total:trussBase*.78},
+    {name:'Гидроизоляция, обрешётка и контробрешётка',mat:tM*.22,work:tW*.22,total:trussBase*.22},
+    {name:'Кровельное покрытие — '+(covNames[rCov]||rCov)+', с доп. элементами',mat:cM,work:cW,total:covBase}
+  ]});
+  if(addTotal>0)stages.push({num:sn++,name:'Дополнительные работы',total:addTotal,mat:addMat,work:addWork,sub:addItems.map(function(i){return{name:i.name+' — '+i.desc,mat:i.mat,work:i.work,total:i.total};})});
+
+  // payments
+  var pays=[];var pn=1;
+  stages.forEach(function(st){
+    if(st.total<=0)return;
+    if(st.name.startsWith('Фундамент')){
+      pays.push({label:'Платёж №'+pn++,stage:'Фундамент — заказ материалов, подготовка',amount:st.mat*.65+st.work*.3});
+      pays.push({label:'Платёж №'+pn++,stage:'Фундамент — бетонирование и гидроизоляция',amount:st.mat*.35+st.work*.7});
+    } else if(st.name.includes('стены')||st.name.includes('Стены')){
+      pays.push({label:'Платёж №'+pn++,stage:st.name+' — материалы, 1-я половина',amount:st.mat*.55+st.work*.35});
+      pays.push({label:'Платёж №'+pn++,stage:st.name+' — завершение',amount:st.mat*.45+st.work*.65});
+    } else {
+      pays.push({label:'Платёж №'+pn++,stage:st.name,amount:st.total});
+    }
+  });
+
+  S.lastRes={total:total,mat:mat,work:work,totalArea:ta,roofArea:rA,floors:fl,stages:stages,pays:pays};
+
+  S.step=7;
+  renderProgress();
+  $('cc-pages').innerHTML=page7(S.lastRes);
+  $('cc-root').scrollIntoView({behavior:'smooth',block:'start'});
+};
+
+// ── PDF ──────────────────────────────────────────────────────────
+window.ccPDF=function(){
+  if(!window.jspdf){alert('PDF-генератор ещё загружается, попробуйте через несколько секунд.');return;}
+  var btn=$('cc-pdfbtn');if(btn)btn.disabled=true;
+  setTimeout(function(){
+    try{
+      var res=S.lastRes;
+      var jsPDF=window.jspdf.jsPDF;
+      var doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+      var W=210,ml=15,mr=15,cW=W-ml-mr;
+      var y=0;
+      var cP=[26,58,92],cA=[232,160,32],cG=[107,122,153],cL=[244,246,250];
+
+      function newPage(){
+        doc.addPage();y=15;
+        doc.setFillColor.apply(doc,cP);doc.rect(0,0,W,10,'F');
+        doc.setFontSize(7);doc.setTextColor(255,255,255);
+        doc.text('СК «ИндивиДом» — Предварительный расчёт стоимости строительства',ml,6.5);
+        doc.text('стр.'+doc.internal.getNumberOfPages(),W-mr,6.5,{align:'right'});
+        y=18;
+      }
+      function chk2(n){if(y+n>277)newPage();}
+
+      var oName=gv('obj-name')||'Жилой дом';
+      var oAddr=gv('obj-address')||'';
+      var fp=parseFloat(gv('footprint'))||150;
+      var ta=parseFloat(gv('total-area'))||120;
+      var fl=parseInt(gv('floors'))||1;
+
+      // Cover
+      doc.setFillColor.apply(doc,cP);doc.rect(0,0,W,55,'F');
+      doc.setTextColor(255,255,255);
+      doc.setFontSize(20);doc.setFont(undefined,'bold');
+      doc.text('СК «ИндивиДом»',ml,21);
+      doc.setFontSize(9);doc.setFont(undefined,'normal');
+      doc.text('г. Пермь, ул. Связистов, 24  •  +7 (342) 204-24-40  •  sk-individom.ru',ml,29);
+      doc.setFontSize(15);doc.setFont(undefined,'bold');
+      doc.text('ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ',ml,41);
+      doc.setFontSize(10);doc.setFont(undefined,'normal');
+      doc.text('стоимости строительства жилого дома «под крышу»',ml,49);
+      y=68;
+
+      // Object info
+      doc.setFillColor.apply(doc,cL);doc.roundedRect(ml,y,cW,52,3,3,'F');
+      doc.setTextColor.apply(doc,cP);doc.setFontSize(11);doc.setFont(undefined,'bold');
+      doc.text('Параметры объекта',ml+5,y+9);
+      var prms=[['Объект:',oName],['Адрес:',oAddr||'не указан'],['Площадь застройки:',fp+' м²'],['Общая площадь:',ta+' м²'],['Этажность:',fl+(fl===1?' этаж':fl<5?' этажа':' этажей')],['Площадь кровли:',Math.round(res.roofArea)+' м²']];
+      doc.setFontSize(9);
+      prms.forEach(function(p,i){var row=Math.floor(i/2),col=i%2;var x=ml+5+col*(cW/2);var yy=y+17+row*11;doc.setFont(undefined,'bold');doc.setTextColor.apply(doc,cG);doc.text(p[0],x,yy);doc.setFont(undefined,'normal');doc.setTextColor.apply(doc,cP);doc.text(p[1],x+50,yy);});
+      y+=58;
+
+      // Total
+      doc.setFillColor.apply(doc,cP);doc.roundedRect(ml,y,cW,34,3,3,'F');
+      doc.setTextColor(200,210,230);doc.setFontSize(8);doc.setFont(undefined,'normal');
+      doc.text('ИТОГОВАЯ СТОИМОСТЬ СТРОИТЕЛЬСТВА «ПОД КРЫШУ»',ml+cW/2,y+8,{align:'center'});
+      doc.setTextColor(255,255,255);doc.setFontSize(24);doc.setFont(undefined,'bold');
+      doc.text(fmt(res.total),ml+cW/2,y+23,{align:'center'});
+      y+=40;
+
+      // Mat/Work split
+      var hw=(cW-6)/2;
+      doc.setFillColor(240,244,252);doc.roundedRect(ml,y,hw,20,2,2,'F');
+      doc.setFillColor(245,240,252);doc.roundedRect(ml+hw+6,y,hw,20,2,2,'F');
+      doc.setFontSize(7);doc.setFont(undefined,'normal');doc.setTextColor.apply(doc,cG);
+      doc.text('Материалы с доставкой',ml+hw/2,y+6,{align:'center'});
+      doc.text('Строительно-монтажные работы',ml+hw+6+hw/2,y+6,{align:'center'});
+      doc.setFontSize(10);doc.setFont(undefined,'bold');
+      doc.setTextColor.apply(doc,cP);doc.text(fmt(res.mat),ml+hw/2,y+15,{align:'center'});
+      doc.setTextColor(124,77,186);doc.text(fmt(res.work),ml+hw+6+hw/2,y+15,{align:'center'});
+      y+=26;
+
+      doc.setFontSize(7.5);doc.setFont(undefined,'normal');doc.setTextColor.apply(doc,cG);
+      doc.text('Стоимость 1 м² общей площади: '+fmtN(Math.round(res.total/res.totalArea))+' ₽/м²',ml+cW/2,y,{align:'center'});
+      y+=18;
+
+      // Page 2: stages
+      newPage();
+      doc.setFontSize(13);doc.setFont(undefined,'bold');doc.setTextColor.apply(doc,cP);
+      doc.text('ДЕТАЛИЗАЦИЯ ПО ЭТАПАМ СТРОИТЕЛЬСТВА',ml,y);y+=8;
+
+      res.stages.forEach(function(st){
+        if(st.total<=0)return;
+        chk2(28);
+        doc.setFillColor.apply(doc,cP);doc.roundedRect(ml,y,cW,8,2,2,'F');
+        doc.setTextColor(255,255,255);doc.setFontSize(8);doc.setFont(undefined,'bold');
+        doc.text('ЭТАП '+st.num+': '+st.name.toUpperCase(),ml+3,y+5.5);
+        doc.text(fmt(st.total),W-mr-2,y+5.5,{align:'right'});
+        y+=10;
+        doc.autoTable({startY:y,margin:{left:ml,right:mr},
+          head:[['Наименование работ','Материалы, ₽','Работы, ₽','Итого, ₽']],
+          body:[].concat(st.sub.map(function(s){return[s.name,s.mat>0?fmtN(Math.round(s.mat)):'—',s.work>0?fmtN(Math.round(s.work)):'—',fmtN(Math.round(s.total))];}),
+            [[{content:'ИТОГО по этапу',styles:{fontStyle:'bold',fillColor:cL}},{content:fmtN(Math.round(st.mat)),styles:{fontStyle:'bold',fillColor:cL,textColor:[35,85,160]}},{content:fmtN(Math.round(st.work)),styles:{fontStyle:'bold',fillColor:cL,textColor:[124,77,186]}},{content:fmtN(Math.round(st.total)),styles:{fontStyle:'bold',fillColor:cL}}]]),
+          styles:{fontSize:7.5,cellPadding:2.5},
+          headStyles:{fillColor:[35,85,160],textColor:255,fontStyle:'bold',fontSize:7.5},
+          columnStyles:{0:{cellWidth:'auto'},1:{halign:'right',cellWidth:32},2:{halign:'right',cellWidth:32},3:{halign:'right',cellWidth:32}},
+          alternateRowStyles:{fillColor:[248,249,252]}});
+        y=doc.lastAutoTable.finalY+7;
+      });
+
+      // Totals
+      chk2(40);
+      doc.setFillColor.apply(doc,cA);doc.roundedRect(ml,y,cW,8,2,2,'F');
+      doc.setTextColor.apply(doc,cP);doc.setFontSize(9);doc.setFont(undefined,'bold');
+      doc.text('ИТОГО ПОЛНАЯ СТОИМОСТЬ СТРОИТЕЛЬСТВА',ml+3,y+5.5);
+      doc.text(fmt(res.total),W-mr-2,y+5.5,{align:'right'});
+      y+=10;
+      doc.autoTable({startY:y,margin:{left:ml,right:mr},
+        body:[['Материалы с доставкой и разгрузкой, услуги спецтехники',fmtN(Math.round(res.mat))+' ₽'],['Строительно-монтажные работы',fmtN(Math.round(res.work))+' ₽'],['ИТОГО',fmtN(Math.round(res.total))+' ₽']],
+        styles:{fontSize:8.5},columnStyles:{0:{cellWidth:'auto'},1:{halign:'right',cellWidth:48,fontStyle:'bold'}},bodyStyles:{fillColor:cL}});
+      y=doc.lastAutoTable.finalY+10;
+
+      // Payments
+      chk2(55);
+      doc.setFillColor.apply(doc,cP);doc.roundedRect(ml,y,cW,8,2,2,'F');
+      doc.setTextColor(255,255,255);doc.setFontSize(9);doc.setFont(undefined,'bold');
+      doc.text('ГРАФИК ПЛАТЕЖЕЙ',ml+3,y+5.5);y+=10;
+      doc.autoTable({startY:y,margin:{left:ml,right:mr},
+        head:[['Платёж','Этап строительства','Сумма, ₽']],
+        body:res.pays.map(function(p){return[p.label,p.stage,fmtN(Math.round(p.amount))+' ₽'];}),
+        styles:{fontSize:7.5,cellPadding:2.5},headStyles:{fillColor:cP,textColor:255,fontStyle:'bold'},
+        columnStyles:{0:{cellWidth:26,fontStyle:'bold'},1:{cellWidth:'auto'},2:{halign:'right',cellWidth:38,fontStyle:'bold'}},
+        alternateRowStyles:{fillColor:[248,249,252]}});
+      y=doc.lastAutoTable.finalY+8;
+
+      // Notes
+      chk2(44);
+      doc.setFillColor(255,251,234);doc.roundedRect(ml,y,cW,36,2,2,'F');
+      doc.setDrawColor(240,192,64);doc.roundedRect(ml,y,cW,36,2,2,'S');
+      doc.setTextColor(122,90,0);doc.setFontSize(7.5);doc.setFont(undefined,'bold');
+      doc.text('Важные примечания:',ml+4,y+6);doc.setFont(undefined,'normal');
+      var notes=['* Предварительный расчёт — стоимость возведения дома «под крышу» по ГОСТам и СНиПам РФ.',
+        '* Точная стоимость определяется после разработки рабочей документации (АР+КР).',
+        '* Возможна корректировка объёмов по факту (геология, рельеф, погода).',
+        '* Стоимость внутренней отделки и инженерных систем в доме не включена.',
+        '* Срок строительства: '+(res.floors===1?'5–6':res.floors===2?'7–9':'10–14')+' месяцев.'];
+      notes.forEach(function(n,i){doc.text(n,ml+4,y+12+i*5,{maxWidth:cW-8});});
+      y+=42;
+
+      // Signature
+      chk2(25);
+      doc.setTextColor.apply(doc,cG);doc.setFontSize(7.5);doc.setFont(undefined,'normal');
+      var dt=new Date().toLocaleDateString('ru-RU',{day:'2-digit',month:'long',year:'numeric'});
+      doc.text('Технический директор СК «ИндивиДом»: ___________________  Тихонов Г.Н.',ml,y+8);
+      doc.text('Дата: '+dt,W-mr,y+8,{align:'right'});
+
+      // Embed project image if uploaded
+      if(S.fileData&&S.file&&/\.(jpg|jpeg|png)$/i.test(S.file.name)){
+        doc.addPage();y=20;
+        doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor.apply(doc,cP);
+        doc.text('ПРИЛОЖЕНИЕ: ЭСКИЗНЫЙ ПРОЕКТ',ml,y);y+=10;
+        try{
+          var fmt2=/\.png$/i.test(S.file.name)?'PNG':'JPEG';
+          doc.addImage(S.fileData,fmt2,ml,y,cW,Math.min(cW*.75,175));
+        }catch(e){doc.text('(не удалось встроить изображение)',ml,y+10);}
+      }
+
+      var fname='Расчет_'+(oName||'Дом').replace(/\s+/g,'_')+'_'+new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')+'.pdf';
+      doc.save(fname);
+    }catch(e){console.error(e);alert('Ошибка PDF: '+e.message);}
+    var btn2=$('cc-pdfbtn');if(btn2)btn2.disabled=false;
+  },150);
+};
+
+// ── INIT ─────────────────────────────────────────────────────────
+renderProgress();
+$('cc-pages').innerHTML=page1();
+
+})();
+</script>
