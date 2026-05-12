@@ -9,6 +9,8 @@
 <div id="cc-root" style="font-family:'Segoe UI',system-ui,sans-serif;max-width:960px;margin:0 auto;padding:8px 4px 40px;">
 <!-- прогресс-бар -->
 <div id="cc-progress" style="display:flex;align-items:center;background:#fff;border-radius:12px;padding:10px 16px;margin-bottom:18px;box-shadow:0 2px 12px rgba(26,58,92,.1);gap:4px;overflow-x:auto;"></div>
+<!-- статус цен -->
+<div style="text-align:right;margin-bottom:6px;font-size:.72rem;color:#6b7a99"><span id="cc-price-status">⏳ Загрузка актуальных цен…</span></div>
 <!-- страницы шагов -->
 <div id="cc-pages"></div>
 </div>
@@ -133,17 +135,17 @@ loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
 loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js',function(){});
 });
 
-// ── RATES ───────────────────────────────────────────────────────
+// ── RATES (fallback defaults — overwritten by prices.json fetch) ─
 var R={
   found:{base:4512,prep:.200,piles:.214,strip:.460,wp:.061,sup:.064,matR:.603,workR:.397,
-    types:{piles_strip:1.00,strip:.82,monolith_slab:1.22,screw_piles:.62,blocks:.78},
+    types:{piles_strip:1.00,strip:.82,monolith_slab:1.22},
     wpMod:{bitumen:1.0,polymer:1.12,penetrating:1.08},
     insMod:{none:.85,xps_50:1.0,xps_100:1.10}},
   baseSlab:{base:1700,matR:.65,workR:.35,
     types:{none:0,concrete_plates:1.0,monolith:1.20,wood:.72},
     bkMod:{none:1.0,yes_300:1.08,yes_600:1.15}},
   walls:{base:17023,extW:.037,intW:.335,lin:.080,part:.195,arm:.292,clad:.046,sup:.025,matR:.566,workR:.434,
-    mats:{gb_d400_400:1.00,gb_d500_300:.88,brick_510:1.42,brick_380:1.18,log_240:.87,sip:.72},
+    mats:{gb_d400_400:1.00,gb_d500_300:.88,brick_510:1.42,brick_380:1.18},
     partM:{brick_120:1.0,gb_100:.94,gypsum:.88,wood:.85},
     insM:{none:.93,mineral_50:1.0,mineral_100:1.06,xps_50:.97},
     cladM:{fiber_cement:1.0,facing_brick:1.12,ventilated:1.08,plaster:.92,siding:.88},
@@ -164,6 +166,55 @@ var R={
     supervision:{cost:50000,mR:0,wR:1},
     bungalow:{cost:25000,mR:.56,wR:.44}}
 };
+
+// ── APPLY PRICES FROM prices.json ──────────────────────────────
+function applyPrices(p){
+  if(p.foundation){
+    var fb=p.foundation.piles_strip;
+    if(fb){R.found.base=fb.rate;R.found.matR=fb.matR;R.found.workR=fb.workR;}
+    if(p.foundation.strip)        R.found.types.strip        =p.foundation.strip.rate/R.found.base;
+    if(p.foundation.monolith_slab)R.found.types.monolith_slab=p.foundation.monolith_slab.rate/R.found.base;
+  }
+  if(p.walls){
+    var wb=p.walls.gb_d400_400;
+    if(wb){R.walls.base=wb.rate;R.walls.matR=wb.matR;R.walls.workR=wb.workR;}
+    if(p.walls.gb_d500_300)R.walls.mats.gb_d500_300=p.walls.gb_d500_300.rate/R.walls.base;
+    if(p.walls.brick_510)  R.walls.mats.brick_510  =p.walls.brick_510.rate/R.walls.base;
+    if(p.walls.brick_380)  R.walls.mats.brick_380  =p.walls.brick_380.rate/R.walls.base;
+  }
+  if(p.roof){
+    var origTotal=R.roof.truss+R.roof.wp+R.roof.cov.metal_tile;
+    var newMT=p.roof.metal_tile?p.roof.metal_tile.rate:origTotal;
+    var scale=newMT/origTotal;
+    R.roof.truss*=scale;R.roof.wp*=scale;
+    var trussWp=R.roof.truss+R.roof.wp;
+    var keys=['metal_tile','profnastil','flexible','seam','ceramic'];
+    keys.forEach(function(k){if(p.roof[k])R.roof.cov[k]=p.roof[k].rate-trussWp;});
+    if(p.roof.metal_tile){R.roof.matRC=p.roof.metal_tile.matR;R.roof.workRC=p.roof.metal_tile.workR;}
+  }
+  if(p.slabs){
+    if(p.slabs.inter_concrete){R.interSlab.base=p.slabs.inter_concrete.rate;R.interSlab.matR=p.slabs.inter_concrete.matR;R.interSlab.workR=p.slabs.inter_concrete.workR;}
+    if(p.slabs.attic_concrete){R.atticSlab.base=p.slabs.attic_concrete.rate;R.atticSlab.matR=p.slabs.attic_concrete.matR;R.atticSlab.workR=p.slabs.attic_concrete.workR;}
+  }
+  if(p.additional){
+    var amap={driveway:'driveway',well:'well',water_well:'waterWell',septic:'septic',supervision:'supervision',bungalow:'bungalow'};
+    Object.keys(amap).forEach(function(k){var rk=amap[k];if(p.additional[k]&&R.add[rk]){R.add[rk].cost=p.additional[k].cost;R.add[rk].mR=p.additional[k].matR;R.add[rk].wR=p.additional[k].workR;}});
+  }
+  var pInd=document.getElementById('cc-price-status');
+  if(pInd){pInd.textContent='✓ Цены обновлены';pInd.style.color='#27ae60';}
+}
+
+// ── FETCH LIVE PRICES ───────────────────────────────────────────
+(function fetchPrices(){
+  var url='https://raw.githubusercontent.com/konsultmarket59-tech/vi/main/calculator/prices.json';
+  fetch(url+'?_='+Date.now())
+    .then(function(r){return r.ok?r.json():Promise.reject(r.status);})
+    .then(function(data){applyPrices(data);})
+    .catch(function(){
+      var pInd=document.getElementById('cc-price-status');
+      if(pInd){pInd.textContent='⚠ Используются базовые цены';pInd.style.color='#e8a020';}
+    });
+})();
 
 // ── STATE ───────────────────────────────────────────────────────
 var S={step:1,file:null,fileData:null};
@@ -240,9 +291,7 @@ function page2(){
     '<div class="cc-fg cc-full">'+rcards('foundation',[
       {v:'piles_strip',icon:'🪨',t:'Буронабивные сваи + ростверк',d:'Рекомендован для пучинистых грунтов Пермского края'},
       {v:'strip',icon:'🔲',t:'Ленточный монолитный',d:'Для стабильных непучинистых грунтов'},
-      {v:'monolith_slab',icon:'⬛',t:'Монолитная плита',d:'Универсальный, высокая несущая способность'},
-      {v:'screw_piles',icon:'🔩',t:'Свайно-винтовой',d:'Быстрый монтаж, для лёгких конструкций'},
-      {v:'blocks',icon:'🧱',t:'Сборный ленточный (ФБС)',d:'Блоки ФБС с бетонной подготовкой'}
+      {v:'monolith_slab',icon:'⬛',t:'Монолитная плита',d:'Универсальный, высокая несущая способность'}
     ])+'</div>'+
     '<div class="cc-div"></div>'+
     '<div class="cc-grid">'+
@@ -264,9 +313,7 @@ function page3(){
       {v:'gb_d400_400',icon:'🟦',t:'Газобетон D400, 400 мм',d:'Теплит, Твинблок — оптимально'},
       {v:'gb_d500_300',icon:'🟦',t:'Газобетон D500, 300 мм',d:'С усиленным утеплением фасада'},
       {v:'brick_510',icon:'🟥',t:'Кирпич 510 мм (2 кирпича)',d:'Высокая прочность'},
-      {v:'brick_380',icon:'🟥',t:'Кирпич 380 мм (1,5 кирпича)',d:'С утеплением фасада'},
-      {v:'log_240',icon:'🪵',t:'Оцилиндрованный брус 240 мм',d:'Экологично, быстрый монтаж'},
-      {v:'sip',icon:'🟩',t:'SIP-панели',d:'Высокая скорость, энергоэффективность'}
+      {v:'brick_380',icon:'🟥',t:'Кирпич 380 мм (1,5 кирпича)',d:'С утеплением фасада'}
     ])+'</div>'+
     '<div class="cc-div"></div>'+
     '<div class="cc-grid">'+

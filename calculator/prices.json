@@ -1,0 +1,190 @@
+{
+  "foundation": {
+    "piles_strip": {
+      "rate": 4512,
+      "matR": 0.603,
+      "workR": 0.397
+    },
+    "strip": {
+      "rate": 3700,
+      "matR": 0.58,
+      "workR": 0.42
+    },
+    "monolith_slab": {
+      "rate": 5504,
+      "matR": 0.62,
+      "workR": 0.38
+    }
+  },
+  "walls": {
+    "gb_d400_400": {
+      "rate": 17023,
+      "matR": 0.566,
+      "workR": 0.434
+    },
+    "gb_d500_300": {
+      "rate": 14980,
+      "matR": 0.55,
+      "workR": 0.45
+    },
+    "brick_510": {
+      "rate": 24173,
+      "matR": 0.6,
+      "workR": 0.4
+    },
+    "brick_380": {
+      "rate": 20087,
+      "matR": 0.58,
+      "workR": 0.42
+    }
+  },
+  "roof": {
+    "metal_tile": {
+      "rate": 2722,
+      "matR": 0.553,
+      "workR": 0.447
+    },
+    "profnastil": {
+      "rate": 2552,
+      "matR": 0.53,
+      "workR": 0.47
+    },
+    "flexible": {
+      "rate": 2897,
+      "matR": 0.57,
+      "workR": 0.43
+    },
+    "seam": {
+      "rate": 3013,
+      "matR": 0.56,
+      "workR": 0.44
+    },
+    "ceramic": {
+      "rate": 3441,
+      "matR": 0.6,
+      "workR": 0.4
+    }
+  },
+  "slabs": {
+    "base_concrete_plates": {
+      "rate": 1700,
+      "matR": 0.65,
+      "workR": 0.35
+    },
+    "base_monolith": {
+      "rate": 2040,
+      "matR": 0.65,
+      "workR": 0.35
+    },
+    "base_wood": {
+      "rate": 1224,
+      "matR": 0.62,
+      "workR": 0.38
+    },
+    "inter_concrete_plates": {
+      "rate": 1820,
+      "matR": 0.62,
+      "workR": 0.38
+    },
+    "inter_monolith": {
+      "rate": 2220,
+      "matR": 0.62,
+      "workR": 0.38
+    },
+    "inter_wood": {
+      "rate": 1274,
+      "matR": 0.62,
+      "workR": 0.38
+    },
+    "attic_concrete_plates": {
+      "rate": 1650,
+      "matR": 0.62,
+      "workR": 0.38
+    },
+    "attic_monolith": {
+      "rate": 2013,
+      "matR": 0.62,
+      "workR": 0.38
+    },
+    "attic_wood": {
+      "rate": 1155,
+      "matR": 0.62,
+      "workR": 0.38
+    }
+  },
+  "additional": {
+    "driveway": {
+      "cost": 67410,
+      "matR": 0.84,
+      "workR": 0.16
+    },
+    "well": {
+      "cost": 80160,
+      "matR": 0.94,
+      "workR": 0.06
+    },
+    "water_well": {
+      "cost": 56200,
+      "matR": 0.67,
+      "workR": 0.33
+    },
+    "septic": {
+      "cost": 98530,
+      "matR": 0.67,
+      "workR": 0.33
+    },
+    "supervision": {
+      "cost": 50000,
+      "matR": 0.0,
+      "workR": 1.0
+    },
+    "bungalow": {
+      "cost": 25000,
+      "matR": 0.56,
+      "workR": 0.44
+    }
+  },
+  "modifiers": {
+    "wp_bitumen": 1.0,
+    "wp_polymer": 1.12,
+    "wp_penetrating": 1.08,
+    "fi_none": 0.85,
+    "fi_xps_50": 1.0,
+    "fi_xps_100": 1.1,
+    "bk_none": 1.0,
+    "bk_300": 1.08,
+    "bk_600": 1.15,
+    "pm_brick_120": 1.0,
+    "pm_gb_100": 0.94,
+    "pm_gypsum": 0.88,
+    "wi_none": 0.93,
+    "wi_mineral_50": 1.0,
+    "wi_mineral_100": 1.06,
+    "wi_xps_50": 0.97,
+    "cl_fiber_cement": 1.0,
+    "cl_facing_brick": 1.12,
+    "cl_ventilated": 1.08,
+    "cl_plaster": 0.92,
+    "cl_siding": 0.88,
+    "ab_full": 1.0,
+    "ab_partial": 0.88,
+    "ab_none": 0.72,
+    "rt_gable": 1.0,
+    "rt_hip": 1.15,
+    "rt_mansard": 1.22,
+    "rt_flat": 0.7,
+    "rt_complex": 1.35,
+    "ri_none": 1.0,
+    "ri_mineral_200": 1.12,
+    "ri_xps_150": 1.09,
+    "dr_plastic": 1.0,
+    "dr_metal": 1.04,
+    "dr_copper": 1.12,
+    "dr_none": 0.96
+  },
+  "_meta": {
+    "updated_at": "2026-05-12T08:13:39.350935Z",
+    "source": "calculator/цены-материалов.xlsx (base rates from СК ИндивиДом)",
+    "version": "1.0"
+  }
+}

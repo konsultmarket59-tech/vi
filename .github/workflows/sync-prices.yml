@@ -1,0 +1,41 @@
+name: Sync prices from Yandex.Disk
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC daily (06:00 MSK)
+  workflow_dispatch:       # manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install openpyxl
+        run: pip install openpyxl -q
+
+      - name: Download xlsx and update prices.json
+        env:
+          YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_DISK_CALC_FOLDER: ${{ vars.YANDEX_DISK_CALC_FOLDER || 'Калькулятор_ИндивиДом' }}
+        run: python3 calculator/sync_prices.py
+
+      - name: Commit updated prices.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add calculator/prices.json
+          if git diff --cached --quiet; then
+            echo "prices.json не изменился — коммит не нужен"
+          else
+            git commit -m "chore: sync prices.json from Yandex.Disk [skip ci]"
+            git push
+          fi
