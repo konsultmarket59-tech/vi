@@ -76,22 +76,6 @@ HEADLINE_FONT_CANDIDATES = [
 HOOKS_FILE = Path(__file__).parent / 'hooks.txt'
 USED_HOOKS_REMOTE = f'{YADISK_FOLDER}/_used_hooks.txt'
 
-# Non-promotional closing lines — random per reel.
-ALLOWED_CTAS = [
-    'Это лечится',
-    'Или нет',
-    'Честно ответь',
-    'Решай сам',
-    'Давно пора',
-    'Слабо признать',
-    'Факт',
-    'Тебе решать',
-    'Пока не поздно',
-    'Подумай',
-    'Или как',
-    'Вопрос',
-]
-
 
 # --- Helpers --------------------------------------------------------------
 
@@ -212,7 +196,6 @@ def pick_hooks(pool, keymap, used_keys, n):
             'key': key,
             'source': 'pool',
             'headline': keymap[key],
-            'cta': random.choice(ALLOWED_CTAS),
             'search_query': random.choice(LUXURY_QUERIES),
         })
     return hooks
@@ -300,7 +283,6 @@ def build_llm_hooks(n, used_keys):
             'key': key,
             'source': 'llm',
             'headline': text,
-            'cta': random.choice(ALLOWED_CTAS),
             'search_query': random.choice(LUXURY_QUERIES),
         })
         if len(fresh) >= n:
@@ -398,9 +380,6 @@ def compose_reel(src_video, dest_video, hook, headline_font):
             p.write_text(line, encoding='utf-8')
             headline_files.append(p)
 
-        cta_file = tmp / 'cta.txt'
-        cta_file.write_text(hook['cta'], encoding='utf-8')
-
         headline_font_esc = ffmpeg_escape_path(headline_font)
 
         filters = [
@@ -430,15 +409,6 @@ def compose_reel(src_video, dest_video, hook, headline_font):
                 f'box=1:boxcolor={COLOR_PINK}:boxborderw={pill_padding}:'
                 f'x=(w-text_w)/2:y={start_y + i * line_gap}'
             )
-
-        # CTA in a cyan pill near the bottom: dark text on filled box.
-        cta_path = ffmpeg_escape_path(str(cta_file))
-        filters.append(
-            f"drawtext=fontfile='{headline_font_esc}':textfile='{cta_path}':"
-            f'fontsize=80:fontcolor={COLOR_DARK}:'
-            f'box=1:boxcolor={COLOR_CYAN}:boxborderw=40:'
-            f'x=(w-text_w)/2:y=h*0.83'
-        )
 
         filter_chain = ','.join(filters)
 
