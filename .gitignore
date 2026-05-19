@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+cold_leads/cold_leads.db
+cold_leads/logs/
+cold_leads/proposals/
+cold_leads/messages/
+cold_leads/data/
+cold_leads/.env
