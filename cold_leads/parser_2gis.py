@@ -7,6 +7,12 @@ parser_2gis.py — Парсер каталога 2GIS для сбора бизн
 
 Извлекает: название, адрес, телефон, сайт, ссылки на VK/Telegram,
            рейтинг, количество отзывов.
+
+Публичный API:
+  parse_query(query, max_pages, api_key, save_to_db) -> List[Lead]
+  parse_all_categories(queries, max_pages_per_query, api_key) -> List[Lead]
+  parse_category(category, max_results, api_key) -> List[ParsedCompany]  # обёртка для main.py
+  ParsedCompany  — dataclass, совместимый с интерфейсом main.py
 """
 
 import logging
@@ -453,6 +459,83 @@ def parse_all_categories(
         len(all_leads),
     )
     return all_leads
+
+
+# ---------------------------------------------------------------------------
+# ParsedCompany — lightweight dataclass для main.py (совместимость)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParsedCompany:
+    """
+    Простой контейнер данных компании, возвращаемый parse_category().
+    Совместим с интерфейсом, ожидаемым main.py.
+    """
+    name: str
+    address: str
+    phone: str = ""
+    website: str = ""
+    vk_url: str = ""
+    telegram_url: str = ""
+    instagram_url: str = ""
+    category: str = ""
+    rating: float = 0.0
+    review_count: int = 0
+
+
+def _lead_to_parsed(lead: "Lead") -> ParsedCompany:
+    """Конвертирует Lead в ParsedCompany."""
+    return ParsedCompany(
+        name=lead.company_name,
+        address=lead.address,
+        phone=lead.phone,
+        website=lead.website,
+        vk_url=lead.vk_url,
+        telegram_url=lead.telegram_url,
+        instagram_url=getattr(lead, "instagram_url", ""),
+        category=lead.category,
+        rating=lead.rating,
+        review_count=lead.review_count,
+    )
+
+
+def parse_category(
+    category: str,
+    max_results: int = 30,
+    api_key: Optional[str] = None,
+) -> List[ParsedCompany]:
+    """
+    Парсит компании по категории из 2GIS и возвращает список ParsedCompany.
+    Обёртка над parse_query() для совместимости с main.py.
+
+    Args:
+        category:    Категория / поисковый запрос (например «медицина»).
+                     Если не содержит слово «Пермь» — добавляется автоматически.
+        max_results: Ограничение на кол-во результатов.
+        api_key:     2GIS API ключ (если None — берётся из config).
+
+    Returns:
+        Список ParsedCompany (не сохраняется в БД).
+    """
+    # Нормализуем запрос: добавляем город, если его нет
+    query = category.strip()
+    if "пермь" not in query.lower():
+        query = f"{query} Пермь"
+
+    # Определяем число страниц исходя из max_results
+    pages_needed = max(1, (max_results + TWOGIS_PAGE_SIZE - 1) // TWOGIS_PAGE_SIZE)
+
+    leads = parse_query(
+        query=query,
+        max_pages=pages_needed,
+        api_key=api_key,
+        save_to_db=False,
+    )
+
+    companies = [_lead_to_parsed(lead) for lead in leads]
+
+    # Ограничиваем результат
+    return companies[:max_results]
 
 
 # ---------------------------------------------------------------------------

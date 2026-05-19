@@ -21,8 +21,9 @@ from database import (
 )
 from parser_2gis import parse_category, ParsedCompany
 from social_checker import check_social_presence
-from qualifier import qualify_lead
+from qualifier import qualify_lead, QualificationResult
 from profiler import profile_lead
+import profiler as _profiler_mod
 from pdf_generator import generate_proposal
 from bitrix24_integration import create_lead as bitrix_create_lead, add_note, attach_file
 from message_generator import generate_message
@@ -190,19 +191,8 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
 
         try:
             # Шаг 3 — квалификация
-            qual = qualify_lead(
-                company_name=company.name,
-                category=category,
-                address=company.address,
-                rating=company.rating,
-                review_count=company.review_count,
-                phone=company.phone,
-                website=company.website,
-                vk_url=company.vk_url,
-                telegram_url=company.telegram_url,
-            )
-
             lead = _company_to_lead(company, category)
+            qual = qualify_lead(lead)
             lead.priority = qual.priority
             lead.pain_point = qual.pain_point
             lead.recommended_tariff = qual.recommended_tariff
@@ -246,16 +236,32 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
 
             # Шаг 5 — профилирование
             logger.info("  Шаг 5: Профилирование компании...")
+            # Конвертируем SocialReport и QualificationResult в форматы profiler
+            _sr = _profiler_mod.SocialReport(
+                vk_url=social.vk_url or "",
+                vk_last_post_days=social.last_post_days_ago if social.last_post_days_ago >= 0 else -1,
+                vk_posting_frequency=social.posting_frequency or "unknown",
+                telegram_url=social.telegram_url or "",
+                has_any_social=social.has_vk or social.has_telegram,
+                is_active=not social.is_inactive,
+                main_pain=qual.pain_point or "",
+            )
+            _qr = _profiler_mod.QualificationResult(
+                priority=qual.priority,
+                reasoning=qual.reasoning,
+                pain_point=qual.pain_point,
+                recommended_tariff=qual.recommended_tariff,
+            )
             profile = profile_lead(
                 company_name=company.name,
                 category=category,
                 address=company.address,
                 rating=company.rating,
                 review_count=company.review_count,
-                vk_url=company.vk_url,
-                pain_point=qual.pain_point,
-                recommended_tariff=qual.recommended_tariff,
-                social_report=social,
+                phone=company.phone,
+                website=company.website,
+                social_report=_sr,
+                qualification=_qr,
             )
             social_diagnosis = _build_social_diagnosis(company, social)
             roi = _estimate_roi(qual.recommended_tariff, profile.niche)
