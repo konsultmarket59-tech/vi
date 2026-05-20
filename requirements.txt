@@ -3,3 +3,5 @@ openai>=1.55.0
 google-auth>=2.35.0
 google-api-python-client>=2.150.0
 requests>=2.32.0
+fonttools>=4.0.0
+brotli>=1.0.0
