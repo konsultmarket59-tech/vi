@@ -26,7 +26,7 @@ jobs:
         env:
           AVITO_CLIENT_ID: ${{ secrets.AVITO_CLIENT_ID }}
           AVITO_CLIENT_SECRET: ${{ secrets.AVITO_CLIENT_SECRET }}
-          POLZA_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
