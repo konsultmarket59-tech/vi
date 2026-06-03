@@ -661,7 +661,7 @@ def main():
     docs_service = build('docs', 'v1', credentials=creds)
     drive_service = build('drive', 'v3', credentials=creds)
     claude = OpenAI(
-        api_key=os.environ['POLZA_API_KEY'],
+        api_key=os.environ['ANTHROPIC_API_KEY'],
         base_url='https://polza.ai/api/v1',
     )
 
