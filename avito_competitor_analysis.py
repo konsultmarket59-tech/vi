@@ -68,7 +68,7 @@ def avito_get_token(client_id: str, client_secret: str) -> str:
             'client_id': client_id,
             'client_secret': client_secret,
         },
-        timeout=15,
+        timeout=30,
     )
     resp.raise_for_status()
     return resp.json()['access_token']
@@ -83,7 +83,7 @@ def avito_fetch_own_listings(token: str) -> list[dict]:
             AVITO_ITEMS_URL,
             headers={'Authorization': f'Bearer {token}'},
             params={'per_page': 100, 'page': page, 'status': 'active'},
-            timeout=15,
+            timeout=30,
         )
         if resp.status_code != 200:
             break
@@ -189,16 +189,46 @@ def _parse_html_block(block: str) -> dict | None:
     }
 
 
+def _fetch_via_avito_api(category_url: str) -> list[dict]:
+    """
+    Попытка получить листинги через внутренний API Авито
+    (JSON-endpoint, который используют мобильные клиенты).
+    """
+    # Извлекаем locationId и categoryId из URL для API-запроса
+    api_endpoints = [
+        # Внутренний search API Авито
+        'https://www.avito.ru/api/11/items?key=af0deccbgcgidddjgnvljitrmkqnnyrx'
+        '&query=&locationId=637640&categoryId=24&params[201]=503&forceLocal=true'
+        '&withImagesOnly=0&page=1&per_page=50&sortId=104',
+        'https://www.avito.ru/api/11/items?key=af0deccbgcgidddjgnvljitrmkqnnyrx'
+        '&query=&locationId=637640&categoryId=4&forceLocal=true'
+        '&withImagesOnly=0&page=1&per_page=50&sortId=104',
+    ]
+    results = []
+    for endpoint in api_endpoints:
+        try:
+            resp = requests.get(endpoint, headers=HEADERS, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = _find_items_in_json(data)
+                results.extend(items)
+                time.sleep(1)
+        except Exception:
+            pass
+    return results
+
+
 def fetch_competitor_listings() -> list[dict]:
     """Получить объявления конкурентов с поисковых страниц Авито."""
     all_listings = []
     seen_ids = set()
 
+    # Попытка 1: HTML-страницы поиска
     for url in COMPETITOR_SEARCH_URLS:
-        for page in range(1, 3):  # первые 2 страницы = ~50 объявлений
+        for page in range(1, 3):
             try:
                 page_url = f'{url}&p={page}' if page > 1 else url
-                resp = requests.get(page_url, headers=HEADERS, timeout=20)
+                resp = requests.get(page_url, headers=HEADERS, timeout=25)
                 if resp.status_code != 200:
                     print(f'  [warn] {page_url} → HTTP {resp.status_code}')
                     break
@@ -212,17 +242,28 @@ def fetch_competitor_listings() -> list[dict]:
                 for item in new_items:
                     seen_ids.add(str(item.get('id', '')))
                 all_listings.extend(new_items)
-
-                time.sleep(2)  # пауза между запросами
+                print(f'  [ok] {page_url} → {len(new_items)} объявлений')
+                time.sleep(2)
 
             except requests.RequestException as e:
                 print(f'  [error] fetch {url} page {page}: {e}')
                 break
 
+    # Попытка 2: внутренний API Авито (если HTML дал 0)
+    if not all_listings:
+        print('  HTML-парсинг не дал результатов, пробуем внутренний API...')
+        api_items = _fetch_via_avito_api('')
+        for item in api_items:
+            iid = str(item.get('id', ''))
+            if iid and iid not in seen_ids:
+                seen_ids.add(iid)
+                all_listings.append(item)
+
     # Исключить наши собственные объявления
     all_listings = [
         i for i in all_listings
-        if i.get('seller', {}).get('id', '') != OUR_SELLER_ID
+        if str(i.get('seller', {}).get('id', '')) != OUR_SELLER_ID
+        and str(i.get('userId', '')) != OUR_SELLER_ID
     ]
     print(f'Найдено объявлений конкурентов: {len(all_listings)}')
     return all_listings
@@ -242,10 +283,18 @@ def extract_listing_features(claude: Anthropic, listings: list[dict], label: str
 
     for i in range(0, len(listings), batch_size):
         batch = listings[i:i + batch_size]
+        def _price_str(l: dict) -> str:
+            p = l.get('price')
+            if isinstance(p, dict):
+                return str(p.get('value', p.get('price', '')))
+            if p is not None:
+                return str(p)
+            return l.get('price_raw', '')
+
         items_text = '\n\n---\n\n'.join(
             f'ID: {l.get("id", "?")}\n'
             f'Заголовок: {l.get("title", "")}\n'
-            f'Цена: {l.get("price", {}).get("value", l.get("price_raw", ""))}\n'
+            f'Цена: {_price_str(l)}\n'
             f'Описание: {l.get("description", "")[:800]}'
             for l in batch
         )
@@ -638,8 +687,12 @@ def main():
 
     # 3. Структурированные данные через Claude
     print('Извлекаем характеристики объявлений...')
-    our_features = extract_listing_features(claude, our_raw, 'наши объявления')
-    competitor_features = extract_listing_features(claude, competitor_raw, 'конкуренты')
+    our_features = extract_listing_features(claude, our_raw, 'наши объявления') if our_raw else []
+    competitor_features = extract_listing_features(claude, competitor_raw, 'конкуренты') if competitor_raw else []
+
+    if not our_features and not competitor_features:
+        print('[warn] Нет данных ни по нашим, ни по конкурентам — отчёт будет содержать диагностику.')
+        our_features = [{'id': 'no_data', 'title': 'Данные не получены (API Авито недоступен из GitHub Actions)'}]
 
     # 4. История и новые факторы
     print('Загружаем историю...')
