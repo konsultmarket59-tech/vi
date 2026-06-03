@@ -10,7 +10,7 @@ import json
 import time
 import datetime
 import requests
-from anthropic import Anthropic
+from openai import OpenAI
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -270,7 +270,7 @@ def fetch_competitor_listings() -> list[dict]:
 
 
 # ── Извлечение структурированных данных через Claude ─────────────────────────
-def extract_listing_features(claude: Anthropic, listings: list[dict], label: str) -> list[dict]:
+def extract_listing_features(claude: OpenAI, listings: list[dict], label: str) -> list[dict]:
     """
     Отправить батч описаний в Claude — получить структурированные атрибуты
     (цена/м², назначение земли, электричество, прописка и т.д.)
@@ -336,12 +336,12 @@ def extract_listing_features(claude: Anthropic, listings: list[dict], label: str
 {items_text}"""
 
         try:
-            msg = claude.messages.create(
-                model='claude-opus-4-7',
+            msg = claude.chat.completions.create(
+                model='anthropic/claude-opus-4.8-fast',
                 max_tokens=4096,
                 messages=[{'role': 'user', 'content': prompt}],
             )
-            text = msg.content[0].text.strip()
+            text = msg.choices[0].message.content.strip()
             # Извлечь JSON массив
             json_m = re.search(r'\[.*\]', text, re.DOTALL)
             if json_m:
@@ -425,7 +425,7 @@ BOLDINO_CONTEXT = """
 
 
 def generate_analysis_report(
-    claude: Anthropic,
+    claude: OpenAI,
     our_features: list[dict],
     competitor_features: list[dict],
     new_factors: set,
@@ -512,12 +512,12 @@ def generate_analysis_report(
 Опирайся ТОЛЬКО на данные из объявлений — не домысливай.
 Пиши по-русски, конкретно, с цифрами."""
 
-    msg = claude.messages.create(
-        model='claude-opus-4-7',
+    msg = claude.chat.completions.create(
+        model='anthropic/claude-opus-4.8-fast',
         max_tokens=8192,
         messages=[{'role': 'user', 'content': prompt}],
     )
-    report_text = msg.content[0].text
+    report_text = msg.choices[0].message.content
 
     # Найти все упоминания [НОВОЕ] — для подсветки в Google Doc
     new_factor_phrases = re.findall(r'([^\n]*\[НОВОЕ\][^\n]*)', report_text)
@@ -660,7 +660,10 @@ def main():
     sheets_service = build('sheets', 'v4', credentials=creds)
     docs_service = build('docs', 'v1', credentials=creds)
     drive_service = build('drive', 'v3', credentials=creds)
-    claude = Anthropic()
+    claude = OpenAI(
+        api_key=os.environ['POLZA_API_KEY'],
+        base_url='https://polza.ai/api/v1',
+    )
 
     # 1. Наши объявления
     our_raw = []
