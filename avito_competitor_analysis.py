@@ -603,23 +603,29 @@ def create_report_doc(
     html_content = _markdown_to_html(report_text, new_factor_phrases)
     html_bytes = html_content.encode('utf-8')
 
-    file_metadata = {
-        'name': f'{title}.html',
-        'parents': [folder_id],
-        'mimeType': 'text/html',
-    }
+    # Шаг 1: создать файл без родительской папки
     media = MediaIoBaseUpload(
         io.BytesIO(html_bytes),
         mimetype='text/html',
         resumable=False,
     )
     file = drive_service.files().create(
-        body=file_metadata,
+        body={'name': f'{title}.html', 'mimeType': 'text/html'},
         media_body=media,
+        fields='id, parents',
+    ).execute()
+    file_id = file['id']
+
+    # Шаг 2: переместить в целевую папку (как в generate_post.py)
+    prev_parents = ','.join(file.get('parents', []))
+    drive_service.files().update(
+        fileId=file_id,
+        addParents=folder_id,
+        removeParents=prev_parents,
         fields='id, webViewLink',
     ).execute()
 
-    return file.get('webViewLink', f'https://drive.google.com/file/d/{file["id"]}/view')
+    return f'https://drive.google.com/file/d/{file_id}/view'
 
 
 # ── Определение новых факторов ────────────────────────────────────────────────
