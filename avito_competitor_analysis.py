@@ -525,7 +525,65 @@ def generate_analysis_report(
     return report_text, new_factor_phrases
 
 
-# ── Google Doc — создание с форматированием ──────────────────────────────────
+# ── Сохранение отчёта в Google Drive как HTML ────────────────────────────────
+def _markdown_to_html(text: str, new_factor_phrases: list[str]) -> str:
+    """Конвертировать Markdown-отчёт в HTML с жёлтой подсветкой новых факторов."""
+    lines = text.split('\n')
+    html_lines = []
+    for line in lines:
+        if line.startswith('# '):
+            line = f'<h1>{line[2:]}</h1>'
+        elif line.startswith('## '):
+            line = f'<h2>{line[3:]}</h2>'
+        elif line.startswith('### '):
+            line = f'<h3>{line[4:]}</h3>'
+        elif line.startswith('- ') or line.startswith('• '):
+            line = f'<li>{line[2:]}</li>'
+        elif line.startswith('| '):
+            # Markdown таблица → HTML
+            cells = [c.strip() for c in line.strip('|').split('|')]
+            if all(set(c.strip()) <= set('-: ') for c in cells):
+                continue  # разделитель таблицы
+            tag = 'th' if html_lines and '<th>' in html_lines[-1] or not any('<td>' in l for l in html_lines[-5:]) else 'td'
+            line = '<tr>' + ''.join(f'<{tag}>{c}</{tag}>' for c in cells) + '</tr>'
+        elif line.strip() == '':
+            line = '<br>'
+        else:
+            line = f'<p>{line}</p>'
+
+        # Жёлтая подсветка [НОВОЕ]
+        for phrase in new_factor_phrases:
+            if phrase and phrase in line:
+                line = line.replace(
+                    phrase,
+                    f'<span style="background-color:#fff176">{phrase}</span>',
+                    1,
+                )
+        html_lines.append(line)
+
+    body = '\n'.join(html_lines)
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ font-family: Arial, sans-serif; max-width: 1100px; margin: 40px auto; line-height: 1.6; }}
+  h1 {{ color: #1a237e; border-bottom: 2px solid #1a237e; padding-bottom: 6px; }}
+  h2 {{ color: #283593; margin-top: 28px; }}
+  h3 {{ color: #37474f; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 13px; }}
+  th, td {{ border: 1px solid #ccc; padding: 6px 10px; text-align: left; }}
+  th {{ background: #e8eaf6; font-weight: bold; }}
+  tr:nth-child(even) {{ background: #f5f5f5; }}
+  li {{ margin: 4px 0; }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""
+
+
 def create_report_doc(
     docs_service,
     drive_service,
@@ -534,95 +592,34 @@ def create_report_doc(
     report_text: str,
     new_factor_phrases: list[str],
 ) -> str:
-    """Создать Google Doc с отчётом. Новые факторы выделить жёлтым."""
+    """
+    Сохранить отчёт в Google Drive как HTML-файл.
+    Docs API не используется — только Drive API.
+    """
+    import io
+    from googleapiclient.http import MediaIoBaseUpload
+
     title = f'Авито-анализ {report_date}'
+    html_content = _markdown_to_html(report_text, new_factor_phrases)
+    html_bytes = html_content.encode('utf-8')
 
-    doc = docs_service.documents().create(body={'title': title}).execute()
-    doc_id = doc['documentId']
-
-    # Вставить текст
-    docs_service.documents().batchUpdate(
-        documentId=doc_id,
-        body={
-            'requests': [
-                {'insertText': {'location': {'index': 1}, 'text': report_text}}
-            ]
-        },
+    file_metadata = {
+        'name': f'{title}.html',
+        'parents': [folder_id],
+        'mimeType': 'text/html',
+    }
+    media = MediaIoBaseUpload(
+        io.BytesIO(html_bytes),
+        mimetype='text/html',
+        resumable=False,
+    )
+    file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id, webViewLink',
     ).execute()
 
-    # Применить форматирование заголовков и выделения
-    doc_content = docs_service.documents().get(documentId=doc_id).execute()
-    formatting_requests = _build_formatting_requests(doc_content, new_factor_phrases)
-
-    if formatting_requests:
-        docs_service.documents().batchUpdate(
-            documentId=doc_id,
-            body={'requests': formatting_requests},
-        ).execute()
-
-    # Переместить в папку
-    file_meta = drive_service.files().get(fileId=doc_id, fields='parents').execute()
-    prev_parents = ','.join(file_meta.get('parents', []))
-    drive_service.files().update(
-        fileId=doc_id,
-        addParents=folder_id,
-        removeParents=prev_parents,
-        fields='id, parents',
-    ).execute()
-
-    return f'https://docs.google.com/document/d/{doc_id}/edit'
-
-
-def _build_formatting_requests(doc_content: dict, new_factor_phrases: list[str]) -> list[dict]:
-    """Построить запросы форматирования для Google Docs API."""
-    requests_list = []
-    full_text = ''
-    for element in doc_content.get('body', {}).get('content', []):
-        para = element.get('paragraph', {})
-        for run in para.get('elements', []):
-            tc = run.get('textRun', {})
-            full_text += tc.get('content', '')
-
-    # Заголовки H1 (#)
-    for m in re.finditer(r'^# (.+)$', full_text, re.MULTILINE):
-        start = m.start() + 2  # skip '# '
-        end = m.end()
-        requests_list.append({
-            'updateParagraphStyle': {
-                'range': {'startIndex': m.start() + 1, 'endIndex': end + 1},
-                'paragraphStyle': {'namedStyleType': 'HEADING_1'},
-                'fields': 'namedStyleType',
-            }
-        })
-
-    # Заголовки H2 (##)
-    for m in re.finditer(r'^## (.+)$', full_text, re.MULTILINE):
-        start = m.start() + 3
-        requests_list.append({
-            'updateParagraphStyle': {
-                'range': {'startIndex': m.start() + 1, 'endIndex': m.end() + 1},
-                'paragraphStyle': {'namedStyleType': 'HEADING_2'},
-                'fields': 'namedStyleType',
-            }
-        })
-
-    # Жёлтый фон для новых факторов [НОВОЕ]
-    for phrase in new_factor_phrases:
-        idx = full_text.find(phrase)
-        if idx >= 0:
-            requests_list.append({
-                'updateTextStyle': {
-                    'range': {'startIndex': idx + 1, 'endIndex': idx + len(phrase) + 1},
-                    'textStyle': {
-                        'backgroundColor': {
-                            'color': {'rgbColor': {'red': 1.0, 'green': 0.95, 'blue': 0.0}}
-                        }
-                    },
-                    'fields': 'backgroundColor',
-                }
-            })
-
-    return requests_list
+    return file.get('webViewLink', f'https://drive.google.com/file/d/{file["id"]}/view')
 
 
 # ── Определение новых факторов ────────────────────────────────────────────────
@@ -658,7 +655,6 @@ def main():
 
     creds = get_google_credentials()
     sheets_service = build('sheets', 'v4', credentials=creds)
-    docs_service = build('docs', 'v1', credentials=creds)
     drive_service = build('drive', 'v3', credentials=creds)
     claude = OpenAI(
         api_key=os.environ['ANTHROPIC_API_KEY'],
@@ -714,7 +710,7 @@ def main():
     # 6. Google Doc
     print('Сохраняем отчёт в Google Drive...')
     doc_url = create_report_doc(
-        docs_service, drive_service, folder_id,
+        None, drive_service, folder_id,
         report_date, report_text, new_factor_phrases
     )
     print(f'Документ: {doc_url}')
