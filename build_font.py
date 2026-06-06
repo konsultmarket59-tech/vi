@@ -80,6 +80,14 @@ _CONTAINED_UPPER = frozenset({'Ф'})
 # Fixes the case where A.svg was uploaded meaning Cyrillic А.
 _LATIN_TO_CYR = {'A': 'А'}   # U+0041 → U+0410
 
+# Lowercase letters with a circular body + stem that protrudes above and below.
+# Values are (y_circle_outer_top, y_circle_outer_bottom) in SVG units —
+# the circle body is aligned to [0 … X_HEIGHT], stem protrudes slightly above,
+# descender below.  Update if the SVG changes.
+_ANCHORED_LOWER = {
+    'ф': (17.0, 97.0),   # outer circle bounds from ф.svg path analysis
+}
+
 _TOKEN_RE = re.compile(
     r'([MmLlHhVvCcSsQqTtAaZz])'
     r'|([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)'
@@ -118,6 +126,15 @@ def transform_paths(ds: list[str], vx: float, vy: float, vw: float, vh: float,
         advance = max(1, round(vw * scale))
         def ty(y: float) -> float:
             return CAP_HEIGHT - (y - vy) * scale
+    elif char in _ANCHORED_LOWER:
+        # Circle body aligned to [0 … X_HEIGHT]; stem protrudes slightly above,
+        # descender below (matches р depth at this scale).
+        y_top, y_bot = _ANCHORED_LOWER[char]
+        circle_h = y_bot - y_top
+        scale   = X_HEIGHT / circle_h if circle_h else scale
+        advance = max(1, round(vw * scale))
+        def ty(y: float) -> float:
+            return X_HEIGHT - (y - y_top) * scale
     elif char in _TOP_EXT:
         # Extension is ABOVE the body → anchor the SVG bottom at baseline (y=0)
         bottom = vy + vh
