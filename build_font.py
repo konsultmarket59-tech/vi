@@ -61,6 +61,15 @@ def collect_path_ds(elem: ET.Element) -> list[str]:
 # Path coordinate transformation  (SVG Y-down → font Y-up)
 # ---------------------------------------------------------------------------
 
+# Reference SVG heights (statistical mode across all glyphs)
+_REF_UPPER = 99.0   # most common uppercase glyph height in SVG units
+_REF_LOWER = 81.0   # most common lowercase glyph height in SVG units
+
+# Letters whose extra height sits ABOVE the body (breves, dots, tall stems).
+# They are bottom-aligned so the body stays at cap/x-height; the extension
+# protrudes upward above it.
+_TOP_EXT = frozenset({'Й', 'Ё', 'й', 'ё', 'б', 'ф'})
+
 _TOKEN_RE = re.compile(
     r'([MmLlHhVvCcSsQqTtAaZz])'
     r'|([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)'
@@ -72,20 +81,36 @@ def _tokenize(d: str):
         yield (True, cmd) if cmd else (False, float(num))
 
 
-def transform_paths(ds: list[str], vx: float, vy: float, vw: float, vh: float
-                    ) -> tuple[str, int]:
-    """Return (font_path_d, advance_width)."""
+def transform_paths(ds: list[str], vx: float, vy: float, vw: float, vh: float,
+                    char: str = '') -> tuple[str, int]:
+    """Return (font_path_d, advance_width).
+
+    All glyphs of the same case share the same scale factor so that body
+    heights are visually equal.  Descenders extend below the baseline;
+    ascenders extend above cap/x-height.
+    """
     if not ds or not vw or not vh:
         return '', 500
 
-    scale = EM / vh
+    is_lower = bool(char) and char.islower()
+    ref_h  = _REF_LOWER if is_lower else _REF_UPPER
+    target = X_HEIGHT   if is_lower else CAP_HEIGHT
+
+    scale   = target / ref_h
     advance = max(1, round(vw * scale))
 
     def tx(x: float) -> float:
         return (x - vx) * scale
 
-    def ty(y: float) -> float:
-        return ASCENT - (y - vy) * scale
+    if char in _TOP_EXT:
+        # Extension is ABOVE the body → anchor the SVG bottom at baseline (y=0)
+        bottom = vy + vh
+        def ty(y: float) -> float:
+            return (bottom - y) * scale
+    else:
+        # Normal letter OR descender → anchor the SVG top at cap/x-height
+        def ty(y: float) -> float:
+            return target - (y - vy) * scale
 
     all_out: list[str] = []
 
@@ -297,7 +322,7 @@ def main() -> None:
             print(f'  skip {path.name}: no <path> elements found')
             continue
 
-        d, advance = transform_paths(ds, vx, vy, vw, vh)
+        d, advance = transform_paths(ds, vx, vy, vw, vh, char)
         glyph_name = f'uni{ord(char):04X}' if len(char) == 1 else char
 
         glyphs.append({'unicode': char, 'name': glyph_name, 'd': d, 'advance': advance})
