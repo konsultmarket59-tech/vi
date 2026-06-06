@@ -68,7 +68,17 @@ _REF_LOWER = 81.0   # most common lowercase glyph height in SVG units
 # Letters whose extra height sits ABOVE the body (breves, dots, tall stems).
 # They are bottom-aligned so the body stays at cap/x-height; the extension
 # protrudes upward above it.
-_TOP_EXT = frozenset({'Й', 'Ё', 'й', 'ё', 'б', 'ф'})
+_TOP_EXT = frozenset({'Й', 'Ё', 'й', 'ё', 'б'})
+
+# Uppercase letters whose SVG contains NO descender/ascender extensions —
+# the entire glyph must fit within [baseline … CAP_HEIGHT].
+# We scale them individually (not by the shared ref_h) so nothing sticks out.
+_CONTAINED_UPPER = frozenset({'Ф'})
+
+# Latin uppercase letters that look identical to Cyrillic capitals and should
+# also be registered under the Cyrillic Unicode codepoint.
+# Fixes the case where A.svg was uploaded meaning Cyrillic А.
+_LATIN_TO_CYR = {'A': 'А'}   # U+0041 → U+0410
 
 _TOKEN_RE = re.compile(
     r'([MmLlHhVvCcSsQqTtAaZz])'
@@ -102,7 +112,13 @@ def transform_paths(ds: list[str], vx: float, vy: float, vw: float, vh: float,
     def tx(x: float) -> float:
         return (x - vx) * scale
 
-    if char in _TOP_EXT:
+    if char in _CONTAINED_UPPER:
+        # Entire glyph must fit within [0 … CAP_HEIGHT]: scale to vh, no extension.
+        scale   = CAP_HEIGHT / vh if vh else scale
+        advance = max(1, round(vw * scale))
+        def ty(y: float) -> float:
+            return CAP_HEIGHT - (y - vy) * scale
+    elif char in _TOP_EXT:
         # Extension is ABOVE the body → anchor the SVG bottom at baseline (y=0)
         bottom = vy + vh
         def ty(y: float) -> float:
@@ -327,6 +343,16 @@ def main() -> None:
 
         glyphs.append({'unicode': char, 'name': glyph_name, 'd': d, 'advance': advance})
         print(f'  ok   {path.name}  adv={advance}')
+
+    # Add Cyrillic equivalents for Latin lookalikes (e.g. A.svg → also Cyrillic А)
+    existing = {g['unicode'] for g in glyphs}
+    for g in list(glyphs):
+        cyr = _LATIN_TO_CYR.get(g['unicode'])
+        if cyr and cyr not in existing:
+            dup = dict(g, unicode=cyr, name=f'uni{ord(cyr):04X}')
+            glyphs.append(dup)
+            existing.add(cyr)
+            print(f'  dup  {g["unicode"]} → {cyr}  (Cyrillic U+{ord(cyr):04X})')
 
     if not glyphs:
         print('No glyphs built. Check your SVG files contain <path> elements.')
