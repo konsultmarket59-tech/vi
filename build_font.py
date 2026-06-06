@@ -278,7 +278,8 @@ def main() -> None:
 
     glyphs: list[dict] = []
     for path in svg_files:
-        char = path.stem
+        # strip GitHub's dedup suffix: "б (1)" → "б"
+        char = re.sub(r'\s*\(\d+\)\s*$', '', path.stem)
         if not char:
             continue
 
