@@ -136,6 +136,16 @@ def _ya_headers(token: str) -> dict:
     return {'Authorization': f'OAuth {token}'}
 
 
+def load_project_context() -> str:
+    """Read context/nz_project.md, stripping HTML comments so they don't reach the LLM."""
+    ctx = Path(__file__).parent / 'context' / 'nz_project.md'
+    if ctx.exists():
+        text = ctx.read_text(encoding='utf-8').strip()
+        text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL).strip()
+        return text
+    return ''
+
+
 # ---------------------------------------------------------------------------
 # Step 1 — scenario generation (ХУК → ОТВЕТ → РАЗРЫВ ШАБЛОНА)
 # ---------------------------------------------------------------------------
@@ -144,7 +154,7 @@ NZ_PROMPT = """\
 Ты — сценарист коротких вертикальных видео для девелоперской компании «Новая Земля».
 Компания продаёт земельные участки и готовые дома (60, 85, 100 м²) в современных
 загородных посёлках — комфорт городского уровня рядом с природой.
-
+{context_block}
 Целевые аудитории:
 • Молодые семьи, которым нужно жильё в связи с расширением семьи
 • Молодые семьи с детьми, заботящиеся о здоровом образе жизни
@@ -214,10 +224,18 @@ NZ_PROMPT = """\
 
 def generate_scenarios(client: OpenAI, n: int) -> list[dict]:
     model = os.environ.get('LLM_MODEL') or 'anthropic/claude-sonnet-4.6'
+    context = load_project_context()
+    context_block = (
+        f'\n\n────────────────────────────────────────────────\n'
+        f'КОНТЕКСТ ПРОЕКТА (используй при генерации)\n'
+        f'────────────────────────────────────────────────\n'
+        f'{context}\n\n'
+    ) if context else '\n'
+    prompt = NZ_PROMPT.format(n=n, context_block=context_block)
     resp = client.chat.completions.create(
         model=model,
         max_tokens=4096,
-        messages=[{'role': 'user', 'content': NZ_PROMPT.format(n=n)}],
+        messages=[{'role': 'user', 'content': prompt}],
     )
     raw = (resp.choices[0].message.content or '').strip()
     match = re.search(r'\[.*\]', raw, re.DOTALL)
