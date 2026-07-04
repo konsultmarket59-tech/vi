@@ -1,0 +1,71 @@
+name: Холодные лиды — автоматический поиск
+
+on:
+  schedule:
+    # 09:00 по Москве (UTC+3) = 06:00 UTC, по рабочим дням
+    - cron: '0 6 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Категория (например: общепит, красота, медицина, все)'
+        required: false
+        default: 'все'
+      max_leads:
+        description: 'Максимум лидов за запуск'
+        required: false
+        default: '10'
+      dry_run:
+        description: 'Тестовый режим (без записи в Битрикс24)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  find-leads:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r cold_leads/requirements.txt
+
+      - name: Run cold leads pipeline
+        working-directory: cold_leads
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BITRIX24_WEBHOOK_URL: ${{ secrets.BITRIX24_WEBHOOK_URL }}
+          VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
+        run: |
+          CATEGORY="${{ github.event.inputs.category || 'все' }}"
+          MAX_LEADS="${{ github.event.inputs.max_leads || '10' }}"
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+
+          ARGS="--category \"$CATEGORY\" --max-leads $MAX_LEADS"
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          eval python main.py $ARGS
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-leads-logs-${{ github.run_number }}
+          path: cold_leads/logs/
+          retention-days: 30
+
+      - name: Upload proposals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cold-leads-proposals-${{ github.run_number }}
+          path: cold_leads/proposals/
+          retention-days: 30
