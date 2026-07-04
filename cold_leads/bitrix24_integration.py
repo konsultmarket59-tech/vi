@@ -113,7 +113,28 @@ def create_lead(
     Returns:
         ID созданного лида или None при ошибке / отключённой интеграции
     """
-    comments_parts = []
+    # Блок контактов — все данные из 2GIS в одном месте
+    comments_parts = ["=== КОНТАКТЫ ИЗ 2GIS ==="]
+    if phone:
+        comments_parts.append(f"Телефон: {phone}")
+    if email:
+        comments_parts.append(f"E-mail: {email}")
+    if address:
+        comments_parts.append(f"Адрес: {address}")
+    if website:
+        comments_parts.append(f"Сайт: {website}")
+    if vk_url:
+        comments_parts.append(f"ВКонтакте: {vk_url}")
+    if telegram_url:
+        comments_parts.append(f"Telegram: {telegram_url}")
+    if instagram_url:
+        comments_parts.append(f"Instagram: {instagram_url}")
+    if rating:
+        comments_parts.append(f"Рейтинг 2GIS: {rating} ({review_count} отзывов)")
+
+    # Блок квалификации
+    comments_parts.append("")
+    comments_parts.append("=== КВАЛИФИКАЦИЯ ===")
     if pain_point:
         comments_parts.append(f"Боль клиента: {pain_point}")
     if recommended_tariff:
@@ -122,8 +143,6 @@ def create_lead(
         comments_parts.append(f"Обоснование: {reasoning}")
     if category:
         comments_parts.append(f"Ниша: {category}")
-    if rating:
-        comments_parts.append(f"Рейтинг 2GIS: {rating} ({review_count} отзывов)")
     comments_parts.append("Источник: автоматический парсер 2GIS (агентство Динамика)")
 
     fields = {
