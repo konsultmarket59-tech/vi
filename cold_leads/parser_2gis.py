@@ -93,12 +93,28 @@ _INSTA_PATTERN = re.compile(
 )
 
 
+def _contact_value(contact: Dict) -> str:
+    """
+    Извлекает значение контакта из 2GIS — API может хранить его
+    в разных полях в зависимости от типа и версии ответа.
+    """
+    return (
+        contact.get("value") or
+        contact.get("phone") or
+        contact.get("email") or
+        contact.get("text") or
+        ""
+    ).strip()
+
+
 def _extract_phone(contact_groups: List[Dict]) -> str:
     """Извлекает первый телефонный номер из contact_groups 2GIS."""
+    if not contact_groups:
+        logger.debug("contact_groups пуст — телефон не доступен")
     for group in contact_groups:
         for contact in group.get("contacts", []):
             if contact.get("type") == "phone":
-                value = contact.get("value", "").strip()
+                value = _contact_value(contact)
                 if value:
                     return value
     return ""
@@ -109,23 +125,33 @@ def _extract_email(contact_groups: List[Dict]) -> str:
     for group in contact_groups:
         for contact in group.get("contacts", []):
             if contact.get("type") == "email":
-                value = contact.get("value", "").strip()
+                value = _contact_value(contact)
                 if value:
                     return value
     return ""
 
 
+def _is_http_url(url: str) -> bool:
+    """Возвращает True только для настоящих http/https URL."""
+    return url.startswith(("http://", "https://"))
+
+
 def _link_to_url(link) -> str:
-    """Извлекает URL из элемента links — строка или dict."""
-    if isinstance(link, str):
-        return link.strip()
+    """Извлекает URL из элемента links — только настоящие http(s) ссылки."""
     if isinstance(link, dict):
-        return link.get("url", "").strip()
-    return ""
+        url = link.get("url", "").strip()
+    elif isinstance(link, str):
+        url = link.strip()
+    else:
+        return ""
+    return url if _is_http_url(url) else ""
 
 
 def _extract_website(links) -> str:
     """Извлекает URL сайта из поля links 2GIS."""
+    _SOCIAL_HOSTS = ("vk.com", "vkontakte.ru", "t.me", "telegram.me",
+                     "instagram.com", "facebook.com", "ok.ru", "youtube.com")
+    website_fallback = ""
     for link in links:
         if isinstance(link, dict):
             link_type = link.get("type", "")
@@ -133,16 +159,21 @@ def _extract_website(links) -> str:
         else:
             link_type = ""
             url = str(link).strip()
-        if not url:
+
+        # Игнорируем всё, что не является валидным HTTP(S) URL
+        if not _is_http_url(url):
             continue
+
         if link_type == "website":
             return url
-        # Fallback: любая ссылка, не являющаяся соцсетью
-        parsed = urlparse(url)
-        host = parsed.netloc.lower()
-        if not any(s in host for s in ("vk.com", "t.me", "instagram", "facebook", "ok.ru")):
-            return url
-    return ""
+
+        # Запоминаем первую несоциальную ссылку как запасной вариант
+        if not website_fallback:
+            host = urlparse(url).netloc.lower()
+            if not any(s in host for s in _SOCIAL_HOSTS):
+                website_fallback = url
+
+    return website_fallback
 
 
 def _extract_social_links(
@@ -155,7 +186,7 @@ def _extract_social_links(
     """
     socials = {"vk": "", "telegram": "", "instagram": ""}
 
-    # Собираем все URL в одном месте для поиска
+    # Собираем все валидные URL
     all_urls: List[str] = []
 
     for link in links:
@@ -166,9 +197,9 @@ def _extract_social_links(
     for group in contact_groups:
         for contact in group.get("contacts", []):
             contact_type = contact.get("type", "")
-            value = contact.get("value", "").strip()
-            if value:
-                if contact_type in ("social_media", "vkontakte", "vk"):
+            value = _contact_value(contact)
+            if value and _is_http_url(value):
+                if contact_type in ("social_media", "vkontakte", "vk", "website"):
                     all_urls.append(value)
                 elif contact_type in ("telegram",):
                     all_urls.append(value)
@@ -353,10 +384,22 @@ def _parse_item(item: Dict, source_query: str) -> Optional[Lead]:
     contact_groups = item.get("contact_groups", [])
     links = item.get("links", [])
 
+    logger.debug(
+        "2GIS контакты '%s': contact_groups=%s, links=%s",
+        name,
+        contact_groups,
+        links,
+    )
+
     phone = _extract_phone(contact_groups)
     email = _extract_email(contact_groups)
     website = _extract_website(links)
     socials = _extract_social_links(links, contact_groups)
+
+    logger.debug(
+        "Извлечено '%s': phone=%r email=%r site=%r vk=%r tg=%r",
+        name, phone, email, website, socials["vk"], socials["telegram"],
+    )
 
     lead = Lead(
         company_name=name,
