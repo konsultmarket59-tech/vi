@@ -11,6 +11,50 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Регистрация шрифтов с поддержкой кириллицы
+# ---------------------------------------------------------------------------
+
+_FONT_REGULAR = "Helvetica"
+_FONT_BOLD = "Helvetica-Bold"
+
+def _setup_cyrillic_fonts() -> tuple:
+    """Регистрирует DejaVu шрифты для поддержки кириллицы. Возвращает (regular, bold)."""
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+
+        candidates = [
+            # DejaVu (apt install fonts-dejavu-core)
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+            # Ubuntu fonts
+            ("/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+             "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf"),
+            # Liberation Sans
+            ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+            # FreeSans
+            ("/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+             "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"),
+        ]
+
+        for reg_path, bold_path in candidates:
+            if Path(reg_path).exists() and Path(bold_path).exists():
+                pdfmetrics.registerFont(TTFont("CyrillicRegular", reg_path))
+                pdfmetrics.registerFont(TTFont("CyrillicBold", bold_path))
+                logger.info("Шрифт с кириллицей зарегистрирован: %s", reg_path)
+                return "CyrillicRegular", "CyrillicBold"
+
+        logger.warning("Кириллический TTF-шрифт не найден, текст может отображаться некорректно")
+    except Exception as exc:
+        logger.warning("Ошибка регистрации шрифта: %s", exc)
+
+    return "Helvetica", "Helvetica-Bold"
+
+
+_FONT_REGULAR, _FONT_BOLD = _setup_cyrillic_fonts()
+
 PROPOSALS_DIR = Path(__file__).parent / "proposals"
 PROPOSALS_DIR.mkdir(exist_ok=True)
 
@@ -188,26 +232,26 @@ def generate_proposal(
         return ParagraphStyle(name, parent=styles[parent], **kwargs)
 
     style_h1 = make_style("H1", fontSize=24, leading=30, textColor=light_color,
-                           fontName="Helvetica-Bold", spaceAfter=6)
+                           fontName=_FONT_BOLD, spaceAfter=6)
     style_h2 = make_style("H2", fontSize=16, leading=22, textColor=primary_color,
-                           fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=6)
+                           fontName=_FONT_BOLD, spaceBefore=14, spaceAfter=6)
     style_h3 = make_style("H3", fontSize=13, leading=18, textColor=primary_color,
-                           fontName="Helvetica-Bold", spaceBefore=10, spaceAfter=4)
+                           fontName=_FONT_BOLD, spaceBefore=10, spaceAfter=4)
     style_body = make_style("Body", fontSize=11, leading=16, textColor=normal_color,
-                             fontName="Helvetica", spaceAfter=8)
+                             fontName=_FONT_REGULAR, spaceAfter=8)
     style_small = make_style("Small", fontSize=9, leading=13, textColor=normal_color,
-                              fontName="Helvetica")
+                              fontName=_FONT_REGULAR)
     style_header_sub = make_style("HeaderSub", fontSize=13, leading=18,
-                                   textColor=light_color, fontName="Helvetica")
+                                   textColor=light_color, fontName=_FONT_REGULAR)
     style_metric_val = make_style("MetricVal", fontSize=20, leading=24,
-                                   textColor=primary_color, fontName="Helvetica-Bold",
+                                   textColor=primary_color, fontName=_FONT_BOLD,
                                    alignment=TA_CENTER)
     style_metric_lbl = make_style("MetricLbl", fontSize=9, leading=12,
-                                   textColor=normal_color, fontName="Helvetica",
+                                   textColor=normal_color, fontName=_FONT_REGULAR,
                                    alignment=TA_CENTER)
     style_footer = make_style("Footer", fontSize=9, leading=13,
                                textColor=colors.Color(0.5, 0.5, 0.5),
-                               fontName="Helvetica", alignment=TA_CENTER)
+                               fontName=_FONT_REGULAR, alignment=TA_CENTER)
 
     # --- Документ ---
     doc = SimpleDocTemplate(
@@ -245,7 +289,7 @@ def generate_proposal(
         Paragraph(
             f"Дата: {date_str_ru}<br/>{AGENCY_URL}",
             make_style("HR", fontSize=10, leading=14, textColor=light_color,
-                       fontName="Helvetica", alignment=TA_RIGHT),
+                       fontName=_FONT_REGULAR, alignment=TA_RIGHT),
         ),
     ]]
 
@@ -312,14 +356,14 @@ def generate_proposal(
         [
             [Paragraph(f"<b>Тариф «{recommended_tariff}»</b>",
                        make_style("TariffH", fontSize=14, leading=18,
-                                  textColor=light_color, fontName="Helvetica-Bold")),
+                                  textColor=light_color, fontName=_FONT_BOLD)),
              Paragraph(tariff_info["price"],
                        make_style("TariffP", fontSize=14, leading=18,
-                                  textColor=light_color, fontName="Helvetica-Bold",
+                                  textColor=light_color, fontName=_FONT_BOLD,
                                   alignment=TA_RIGHT))],
             [Paragraph(tariff_info["min_contract"],
                        make_style("TariffS", fontSize=10, leading=14,
-                                  textColor=light_color, fontName="Helvetica")),
+                                  textColor=light_color, fontName=_FONT_REGULAR)),
              Paragraph("", style_small)],
         ],
         colWidths=[W * 0.6, W * 0.4],
@@ -433,8 +477,8 @@ def generate_proposal(
     ]
     contacts_table = Table(contacts_data, colWidths=[W * 0.25, W * 0.75])
     contacts_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+        ("FONTNAME", (0, 0), (0, -1), _FONT_BOLD),
+        ("FONTNAME", (1, 0), (1, -1), _FONT_REGULAR),
         ("FONTSIZE", (0, 0), (-1, -1), 10),
         ("LEADING", (0, 0), (-1, -1), 15),
         ("TEXTCOLOR", (0, 0), (0, -1), primary_color),
