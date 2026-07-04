@@ -26,7 +26,7 @@ from profiler import profile_lead
 import profiler as _profiler_mod
 from pdf_generator import generate_proposal
 from bitrix24_integration import create_lead as bitrix_create_lead, add_note, attach_file
-from message_generator import generate_message
+from message_generator import generate_message, generate_kp_intro
 
 # ---------------------------------------------------------------------------
 # Логирование
@@ -268,6 +268,13 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
 
             # Шаг 6 — генерация PDF-КП
             logger.info("  Шаг 6: Генерация PDF-КП...")
+            kp_intro = generate_kp_intro(
+                company_name=company.name,
+                niche=profile.niche,
+                pain_point=qual.pain_point,
+                recommended_tariff=qual.recommended_tariff,
+                social_diagnosis=social_diagnosis,
+            )
             pdf_path = generate_proposal(
                 company_name=company.name,
                 niche=profile.niche,
@@ -278,6 +285,7 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
                 contact_phone=company.phone,
                 vk_url=company.vk_url,
                 roi_estimate=roi,
+                intro_text=kp_intro,
             )
             if pdf_path:
                 stats["proposals_generated"] += 1

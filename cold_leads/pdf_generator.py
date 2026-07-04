@@ -196,6 +196,7 @@ def generate_proposal(
     vk_url: str = "",
     roi_estimate: Optional[dict] = None,
     output_path: Optional[str] = None,
+    intro_text: str = "",
 ) -> Optional[str]:
     """Генерирует PDF коммерческого предложения в фирменном стиле агентства."""
     if not _try_import_reportlab():
@@ -348,14 +349,25 @@ def generate_proposal(
 
     tags = NICHE_TAGS.get(niche.lower(), "ВКонтакте · Telegram · Посты · Контент")
     story.append(Paragraph(tags, sTags))
+    story.append(Spacer(1, 6))
 
-    if social_diagnosis:
-        story.append(Paragraph(social_diagnosis, sBody))
+    # ── Персональное вступление ────────────────────────────────────────────────
+    intro_source = intro_text or social_diagnosis or ""
+    if intro_source:
+        # Каждый абзац вступления — отдельный Paragraph
+        for para in intro_source.split("\n\n"):
+            para = para.strip()
+            if para:
+                # Последний абзац (переход к ценам) — курсив
+                if para == intro_source.split("\n\n")[-1].strip():
+                    story.append(Paragraph(para, sItalic))
+                else:
+                    story.append(Paragraph(para, sBody))
+        story.append(Spacer(1, 8))
 
     tariff_info = TARIFF_SERVICES.get(recommended_tariff, TARIFF_SERVICES["БАЗОВЫЙ"])
     months = tariff_info.get("months", 3)
     monthly = tariff_info.get("monthly", 43_600)
-    story.append(Paragraph(f"Минимальный контракт — {months} месяца.", sMinContract))
 
     # ── Секция-фабрика ────────────────────────────────────────────────────────
 
