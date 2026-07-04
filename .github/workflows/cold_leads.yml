@@ -40,6 +40,7 @@ jobs:
         working-directory: cold_leads
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TWOGIS_API_KEY: ${{ secrets.TWOGIS_API_KEY }}
           BITRIX24_WEBHOOK_URL: ${{ secrets.BITRIX24_WEBHOOK_URL }}
           VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
         run: |
