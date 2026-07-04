@@ -259,12 +259,27 @@ def _fetch_page(
     try:
         response = session.get(TWOGIS_API_BASE, params=params, timeout=15)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        # Логируем ответ если items пустой — помогает диагностировать проблемы с ключом
+        items = data.get("result", {}).get("items", [])
+        if not items:
+            meta = data.get("meta", {})
+            logger.warning(
+                "2GIS вернул 0 объектов (q=%r, page=%d). meta=%s",
+                query, page, meta,
+            )
+        return data
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response else "?"
         logger.warning("HTTP %s при запросе 2GIS (q=%r, page=%d)", status, query, page)
-        if status == 403:
-            logger.error("Ключ 2GIS заблокирован или исчерпан лимит запросов")
+        if status in (401, 403):
+            logger.error(
+                "Ключ 2GIS недействителен или исчерпан лимит. "
+                "Получите ключ на https://dev.2gis.com/ и добавьте "
+                "TWOGIS_API_KEY в GitHub Secrets."
+            )
+        if exc.response is not None:
+            logger.debug("Ответ 2GIS: %s", exc.response.text[:300])
         return None
     except requests.exceptions.Timeout:
         logger.warning("Таймаут при запросе 2GIS (q=%r, page=%d)", query, page)
