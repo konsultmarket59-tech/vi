@@ -104,11 +104,24 @@ def _extract_phone(contact_groups: List[Dict]) -> str:
     return ""
 
 
-def _extract_website(links: List[Dict]) -> str:
+def _link_to_url(link) -> str:
+    """Извлекает URL из элемента links — строка или dict."""
+    if isinstance(link, str):
+        return link.strip()
+    if isinstance(link, dict):
+        return link.get("url", "").strip()
+    return ""
+
+
+def _extract_website(links) -> str:
     """Извлекает URL сайта из поля links 2GIS."""
     for link in links:
-        link_type = link.get("type", "")
-        url = link.get("url", "").strip()
+        if isinstance(link, dict):
+            link_type = link.get("type", "")
+            url = link.get("url", "").strip()
+        else:
+            link_type = ""
+            url = str(link).strip()
         if not url:
             continue
         if link_type == "website":
@@ -122,7 +135,7 @@ def _extract_website(links: List[Dict]) -> str:
 
 
 def _extract_social_links(
-    links: List[Dict],
+    links,
     contact_groups: List[Dict],
 ) -> Dict[str, str]:
     """
@@ -135,7 +148,7 @@ def _extract_social_links(
     all_urls: List[str] = []
 
     for link in links:
-        url = link.get("url", "").strip()
+        url = _link_to_url(link)
         if url:
             all_urls.append(url)
 
