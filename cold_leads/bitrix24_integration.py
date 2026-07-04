@@ -93,8 +93,11 @@ def _api_call(method: str, params: dict, retries: int = MAX_RETRIES) -> Optional
 def create_lead(
     company_name: str,
     phone: str = "",
+    email: str = "",
     website: str = "",
     vk_url: str = "",
+    telegram_url: str = "",
+    instagram_url: str = "",
     category: str = "",
     priority: str = "",
     pain_point: str = "",
@@ -105,7 +108,7 @@ def create_lead(
     review_count: int = 0,
 ) -> Optional[int]:
     """
-    Создаёт лид в Битрикс24.
+    Создаёт лид в Битрикс24 с заполненными контактными полями.
 
     Returns:
         ID созданного лида или None при ошибке / отключённой интеграции
@@ -121,10 +124,6 @@ def create_lead(
         comments_parts.append(f"Ниша: {category}")
     if rating:
         comments_parts.append(f"Рейтинг 2GIS: {rating} ({review_count} отзывов)")
-    if vk_url:
-        comments_parts.append(f"ВКонтакте: {vk_url}")
-    if address:
-        comments_parts.append(f"Адрес: {address}")
     comments_parts.append("Источник: автоматический парсер 2GIS (агентство Динамика)")
 
     fields = {
@@ -139,10 +138,26 @@ def create_lead(
     if phone:
         fields["PHONE"] = [{"VALUE": phone, "VALUE_TYPE": "WORK"}]
 
-    if website:
-        fields["WEB"] = [{"VALUE": website, "VALUE_TYPE": "WORK"}]
+    if email:
+        fields["EMAIL"] = [{"VALUE": email, "VALUE_TYPE": "WORK"}]
 
-    # Приоритет → важность в Битрикс24 (HIGH → высокая, MEDIUM → средняя)
+    if address:
+        fields["ADDRESS"] = address
+
+    # Собираем все веб-ссылки и соцсети в поле WEB
+    web_fields = []
+    if website:
+        web_fields.append({"VALUE": website, "VALUE_TYPE": "WORK"})
+    if vk_url:
+        web_fields.append({"VALUE": vk_url, "VALUE_TYPE": "OTHER"})
+    if telegram_url:
+        web_fields.append({"VALUE": telegram_url, "VALUE_TYPE": "OTHER"})
+    if instagram_url:
+        web_fields.append({"VALUE": instagram_url, "VALUE_TYPE": "OTHER"})
+    if web_fields:
+        fields["WEB"] = web_fields
+
+    # Приоритет → важность в Битрикс24
     priority_map = {"HIGH": "HIGH", "MEDIUM": "MEDIUM", "LOW": "LOW"}
     if priority in priority_map:
         fields["PRIORITY"] = priority_map[priority]
@@ -237,26 +252,21 @@ def attach_file(lead_id: int, file_path: str) -> bool:
         logger.error("Ошибка чтения файла %s: %s", file_path, exc)
         return False
 
-    result = _api_call("crm.lead.update", {
-        "id": lead_id,
+    # Прикрепляем файл как вложение к записи в таймлайне
+    result = _api_call("crm.timeline.comment.add", {
         "fields": {
-            "UF_CRM_1_FILE": {
-                "fileData": [path.name, file_b64],
-            },
+            "ENTITY_ID": lead_id,
+            "ENTITY_TYPE": "lead",
+            "COMMENT": "PDF-коммерческое предложение",
+            "FILES": [[path.name, file_b64]],
         },
     })
 
     if result:
-        logger.info("Файл %s прикреплён к лиду %d", path.name, lead_id)
+        logger.info("PDF %s прикреплён к лиду %d через таймлайн", path.name, lead_id)
         return True
 
-    # Fallback: добавляем как диск-файл через crm.timeline.bindings (Битрикс24 не всегда
-    # поддерживает прямую загрузку через update — логируем ссылку в заметке)
-    add_note(lead_id, f"PDF-КП готов: {file_path}")
-    logger.warning(
-        "Не удалось прикрепить файл напрямую к лиду %d — добавлен путь в заметку",
-        lead_id,
-    )
+    logger.warning("Не удалось прикрепить PDF к лиду %d", lead_id)
     return False
 
 

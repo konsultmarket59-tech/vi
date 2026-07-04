@@ -33,6 +33,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install system fonts (Cyrillic support)
+        run: sudo apt-get install -y fonts-dejavu-core
+
       - name: Install dependencies
         run: pip install -r cold_leads/requirements.txt
 
