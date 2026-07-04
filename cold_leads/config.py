@@ -21,6 +21,9 @@ VK_ACCESS_TOKEN: str = os.environ.get("VK_ACCESS_TOKEN", "")
 # Bitrix24 webhook URL для передачи лидов в CRM
 BITRIX24_WEBHOOK_URL: str = os.environ.get("BITRIX24_WEBHOOK_URL", "")
 
+# Яндекс Диск — OAuth-токен для загрузки PDF-КП
+YANDEX_DISK_TOKEN: str = os.environ.get("YANDEX_DISK_TOKEN", "")
+
 
 # ---------------------------------------------------------------------------
 # Агентство
@@ -257,4 +260,6 @@ def validate_config() -> List[str]:
         warnings.append("VK_ACCESS_TOKEN не задан — проверка VK через API недоступна")
     if not BITRIX24_WEBHOOK_URL:
         warnings.append("BITRIX24_WEBHOOK_URL не задан — синхронизация с CRM отключена")
+    if not YANDEX_DISK_TOKEN:
+        warnings.append("YANDEX_DISK_TOKEN не задан — PDF-КП не будут загружаться на Яндекс Диск")
     return warnings

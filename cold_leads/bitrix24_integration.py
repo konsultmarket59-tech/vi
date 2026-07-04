@@ -5,7 +5,6 @@ bitrix24_integration.py — Интеграция с Битрикс24 через 
 Webhook URL берётся из переменной окружения BITRIX24_WEBHOOK_URL.
 """
 
-import base64
 import logging
 import os
 import time
@@ -250,42 +249,29 @@ def add_note(lead_id: int, note_text: str) -> bool:
 
 def attach_file(lead_id: int, file_path: str) -> bool:
     """
-    Прикрепляет файл (PDF-КП) к лиду в Битрикс24.
-
-    Args:
-        lead_id: ID лида
-        file_path: Путь к файлу на диске
+    Загружает PDF-КП на Яндекс Диск и добавляет публичную ссылку в комментарий лида.
 
     Returns:
-        True при успехе
+        True если ссылка добавлена в комментарий
     """
+    from yandex_disk import upload_pdf
+
     path = Path(file_path)
     if not path.exists():
         logger.error("Файл не найден: %s", file_path)
         return False
 
-    try:
-        file_content = path.read_bytes()
-        file_b64 = base64.b64encode(file_content).decode()
-    except OSError as exc:
-        logger.error("Ошибка чтения файла %s: %s", file_path, exc)
-        return False
+    public_url = upload_pdf(file_path)
 
-    # Прикрепляем файл как вложение к записи в таймлайне
-    result = _api_call("crm.timeline.comment.add", {
-        "fields": {
-            "ENTITY_ID": lead_id,
-            "ENTITY_TYPE": "lead",
-            "COMMENT": "PDF-коммерческое предложение",
-            "FILES": [[path.name, file_b64]],
-        },
-    })
-
-    if result:
-        logger.info("PDF %s прикреплён к лиду %d через таймлайн", path.name, lead_id)
+    if public_url:
+        note = f"PDF-КП: {path.stem}\nСкачать: {public_url}"
+        add_note(lead_id, note)
+        logger.info("Ссылка на PDF добавлена в комментарий лида %d: %s", lead_id, public_url)
         return True
 
-    logger.warning("Не удалось прикрепить PDF к лиду %d", lead_id)
+    # Фолбэк: просто отметим что КП сформирован
+    add_note(lead_id, f"PDF-КП сформирован: {path.name} (загрузка не удалась — проверьте YANDEX_DISK_TOKEN)")
+    logger.warning("Не удалось загрузить PDF на Яндекс Диск для лида %d", lead_id)
     return False
 
 
