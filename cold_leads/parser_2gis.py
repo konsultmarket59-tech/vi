@@ -246,14 +246,12 @@ def _fetch_page(
     """
     params = {
         "q": query,
-        "city_id": TWOGIS_CITY_ID,
         "type": "branch",
         "fields": TWOGIS_FIELDS,
         "page_size": TWOGIS_PAGE_SIZE,
         "page": page,
         "key": api_key,
         "locale": "ru_RU",
-        "region_id": "15",          # Пермский край
     }
 
     url = TWOGIS_API_BASE
