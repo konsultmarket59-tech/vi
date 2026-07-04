@@ -256,33 +256,44 @@ def _fetch_page(
         "region_id": "15",          # Пермский край
     }
 
+    url = TWOGIS_API_BASE
+    safe_params = {k: v for k, v in params.items() if k != "key"}
+    safe_params["key"] = f"{api_key[:6]}..." if api_key else "EMPTY"
+    logger.info("2GIS запрос: %s params=%s", url, safe_params)
+
     try:
-        response = session.get(TWOGIS_API_BASE, params=params, timeout=15)
+        response = session.get(url, params=params, timeout=15)
+        logger.info("2GIS ответ: HTTP %d, длина=%d", response.status_code, len(response.content))
         response.raise_for_status()
         data = response.json()
-        # Логируем ответ если items пустой — помогает диагностировать проблемы с ключом
         items = data.get("result", {}).get("items", [])
+        meta = data.get("meta", {})
+        logger.info("2GIS result: items=%d, meta=%s, top-keys=%s", len(items), meta, list(data.keys()))
         if not items:
-            meta = data.get("meta", {})
             logger.warning(
-                "2GIS вернул 0 объектов (q=%r, page=%d). meta=%s",
-                query, page, meta,
+                "2GIS вернул 0 объектов (q=%r, page=%d). meta=%s, full=%s",
+                query, page, meta, str(data)[:500],
             )
         return data
     except requests.exceptions.HTTPError as exc:
         status = exc.response.status_code if exc.response else "?"
-        logger.warning("HTTP %s при запросе 2GIS (q=%r, page=%d)", status, query, page)
+        body = exc.response.text[:500] if exc.response is not None else ""
+        logger.warning("HTTP %s при запросе 2GIS (q=%r, page=%d). body=%s", status, query, page, body)
         if status in (401, 403):
             logger.error(
                 "Ключ 2GIS недействителен или исчерпан лимит. "
                 "Получите ключ на https://dev.2gis.com/ и добавьте "
                 "TWOGIS_API_KEY в GitHub Secrets."
             )
-        if exc.response is not None:
-            logger.debug("Ответ 2GIS: %s", exc.response.text[:300])
         return None
     except requests.exceptions.Timeout:
         logger.warning("Таймаут при запросе 2GIS (q=%r, page=%d)", query, page)
+        return None
+    except requests.exceptions.ConnectionError as exc:
+        logger.warning("Ошибка соединения с 2GIS (q=%r): %s", query, exc)
+        return None
+    except Exception as exc:
+        logger.error("Неожиданная ошибка 2GIS (q=%r): %s: %s", query, type(exc).__name__, exc)
         return None
     except requests.exceptions.ConnectionError as exc:
         logger.warning("Ошибка соединения с 2GIS: %s", exc)
