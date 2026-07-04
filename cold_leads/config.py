@@ -13,6 +13,7 @@ from typing import List
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL: str = os.environ.get("ANTHROPIC_BASE_URL", "")
 TWOGIS_API_KEY: str = os.environ.get("TWOGIS_API_KEY", "")
 TWOGIS_DEMO_KEY: str = "demo"   # fallback demo-ключ 2GIS
 VK_ACCESS_TOKEN: str = os.environ.get("VK_ACCESS_TOKEN", "")

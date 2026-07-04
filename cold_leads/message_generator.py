@@ -158,7 +158,10 @@ def _generate_via_claude(
     )
 
     try:
-        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(
+            api_key=config.ANTHROPIC_API_KEY,
+            **({"base_url": config.ANTHROPIC_BASE_URL} if config.ANTHROPIC_BASE_URL else {}),
+        )
         time.sleep(config.CLAUDE_REQUEST_DELAY)
 
         response = client.messages.create(
