@@ -104,6 +104,17 @@ def _extract_phone(contact_groups: List[Dict]) -> str:
     return ""
 
 
+def _extract_email(contact_groups: List[Dict]) -> str:
+    """Извлекает первый email из contact_groups 2GIS."""
+    for group in contact_groups:
+        for contact in group.get("contacts", []):
+            if contact.get("type") == "email":
+                value = contact.get("value", "").strip()
+                if value:
+                    return value
+    return ""
+
+
 def _link_to_url(link) -> str:
     """Извлекает URL из элемента links — строка или dict."""
     if isinstance(link, str):
@@ -343,6 +354,7 @@ def _parse_item(item: Dict, source_query: str) -> Optional[Lead]:
     links = item.get("links", [])
 
     phone = _extract_phone(contact_groups)
+    email = _extract_email(contact_groups)
     website = _extract_website(links)
     socials = _extract_social_links(links, contact_groups)
 
@@ -359,6 +371,7 @@ def _parse_item(item: Dict, source_query: str) -> Optional[Lead]:
         review_count=review_count,
         source_query=source_query,
     )
+    lead.email = email  # type: ignore[attr-defined]
 
     return lead
 
@@ -511,6 +524,7 @@ class ParsedCompany:
     name: str
     address: str
     phone: str = ""
+    email: str = ""
     website: str = ""
     vk_url: str = ""
     telegram_url: str = ""
@@ -526,6 +540,7 @@ def _lead_to_parsed(lead: "Lead") -> ParsedCompany:
         name=lead.company_name,
         address=lead.address,
         phone=lead.phone,
+        email=getattr(lead, "email", ""),
         website=lead.website,
         vk_url=lead.vk_url,
         telegram_url=lead.telegram_url,
