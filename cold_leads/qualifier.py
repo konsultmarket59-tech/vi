@@ -332,7 +332,10 @@ def qualify_lead(
         return _rule_based_qualify(lead)
 
     if client is None:
-        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        client = anthropic.Anthropic(
+            api_key=config.ANTHROPIC_API_KEY,
+            **({"base_url": config.ANTHROPIC_BASE_URL} if config.ANTHROPIC_BASE_URL else {}),
+        )
 
     user_message = _build_user_message(lead, social)
     start_time = time.time()

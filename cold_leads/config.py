@@ -13,6 +13,7 @@ from typing import List
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL: str = os.environ.get("ANTHROPIC_BASE_URL", "")
 TWOGIS_API_KEY: str = os.environ.get("TWOGIS_API_KEY", "")
 TWOGIS_DEMO_KEY: str = "demo"   # fallback demo-ключ 2GIS
 VK_ACCESS_TOKEN: str = os.environ.get("VK_ACCESS_TOKEN", "")
@@ -219,7 +220,7 @@ RETRY_BACKOFF = 1.5  # множитель backoff для urllib3
 
 # Используем claude-sonnet-4-6 (как просил пользователь — claude-sonnet-4-5 / 3.5)
 # Обновлено до актуального ID согласно текущим моделям
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8-20251101")
 CLAUDE_MAX_TOKENS = 1024
 
 
