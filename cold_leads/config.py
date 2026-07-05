@@ -24,11 +24,12 @@ BITRIX24_WEBHOOK_URL: str = os.environ.get("BITRIX24_WEBHOOK_URL", "")
 # Яндекс Диск — OAuth-токен для загрузки PDF-КП
 YANDEX_DISK_TOKEN: str = os.environ.get("YANDEX_DISK_TOKEN", "")
 
-# Яндекс Maps Search API — для парсинга и обогащения контактов
-# Бесплатный ключ: developer.tech.yandex.ru → Search API (1000 запросов/сутки)
-YANDEX_MAPS_API_KEY: str = os.environ.get("YANDEX_MAPS_API_KEY", "")
+# Google Places API (New) — для парсинга и обогащения контактов
+# Бесплатный уровень: $200/мес кредит (~6000 запросов/мес)
+# Ключ: console.cloud.google.com → Enable "Places API (New)" → API Keys
+GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
-# Источник данных: "2gis" | "yandex" | "both" (2GIS + Яндекс для обогащения телефонов)
+# Источник данных: "2gis" | "google" | "both" (2GIS + Google для обогащения телефонов/сайтов)
 PARSER_SOURCE: str = os.environ.get("PARSER_SOURCE", "both")
 
 
@@ -269,9 +270,9 @@ def validate_config() -> List[str]:
         warnings.append("BITRIX24_WEBHOOK_URL не задан — синхронизация с CRM отключена")
     if not YANDEX_DISK_TOKEN:
         warnings.append("YANDEX_DISK_TOKEN не задан — PDF-КП не будут загружаться на Яндекс Диск")
-    if not YANDEX_MAPS_API_KEY and PARSER_SOURCE in ("yandex", "both"):
+    if not GOOGLE_PLACES_API_KEY and PARSER_SOURCE in ("google", "both"):
         warnings.append(
-            "YANDEX_MAPS_API_KEY не задан — Яндекс Геопоиск недоступен "
-            "(получите ключ: developer.tech.yandex.ru → Search API)"
+            "GOOGLE_PLACES_API_KEY не задан — Google Places обогащение недоступно "
+            "(ключ: console.cloud.google.com → Places API (New))"
         )
     return warnings
