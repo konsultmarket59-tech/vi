@@ -384,11 +384,11 @@ def _parse_item(item: Dict, source_query: str) -> Optional[Lead]:
     contact_groups = item.get("contact_groups", [])
     links = item.get("links", [])
 
-    logger.debug(
-        "2GIS контакты '%s': contact_groups=%s, links=%s",
+    logger.info(
+        "2GIS сырые данные '%s': contact_groups=%s | links=%s",
         name,
-        contact_groups,
-        links,
+        contact_groups or "[]",
+        links or "[]",
     )
 
     phone = _extract_phone(contact_groups)
@@ -396,8 +396,8 @@ def _parse_item(item: Dict, source_query: str) -> Optional[Lead]:
     website = _extract_website(links)
     socials = _extract_social_links(links, contact_groups)
 
-    logger.debug(
-        "Извлечено '%s': phone=%r email=%r site=%r vk=%r tg=%r",
+    logger.info(
+        "2GIS извлечено '%s': phone=%r email=%r site=%r vk=%r tg=%r",
         name, phone, email, website, socials["vk"], socials["telegram"],
     )
 
