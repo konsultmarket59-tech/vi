@@ -22,6 +22,7 @@ from database import (
 )
 from parser_2gis import parse_category as parse_category_2gis, ParsedCompany
 import parser_google as _google_parser
+from enricher_free import enrich_batch as _enrich_free
 from config import PARSER_SOURCE, GOOGLE_PLACES_API_KEY
 from social_checker import check_social_presence
 from qualifier import qualify_lead, QualificationResult
@@ -200,6 +201,15 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
         logger.info("Шаг 1: Парсинг Google Places по категории «%s»...", category)
         companies = _google_parser.parse_category(category, max_results=actual_max * 3)
         logger.info("Получено %d компаний из Google Places", len(companies))
+
+    # Шаг 1в — OSM Overpass: бесплатное обогащение телефонами (без API-ключей)
+    # Запускается всегда когда есть компании без телефона
+    if companies:
+        before = sum(1 for c in companies if c.phone)
+        _enrich_free(companies, delay=1.5)
+        after = sum(1 for c in companies if c.phone)
+        if after > before:
+            logger.info("OSM обогащение: добавлено %d телефонов", after - before)
 
     stats["parsed"] = len(companies)
     logger.info("Итого компаний для обработки: %d (источник: %s)", len(companies), source)
