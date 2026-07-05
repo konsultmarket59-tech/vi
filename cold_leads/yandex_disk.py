@@ -87,15 +87,24 @@ def upload_pdf(file_path: str) -> Optional[str]:
             timeout=10,
         )
 
-        # Шаг 5: читаем публичную ссылку
-        info_resp = requests.get(
-            f"{_YADISK_API}/resources",
-            headers=hdrs,
-            params={"path": disk_path, "fields": "public_url"},
-            timeout=10,
-        )
-        info_resp.raise_for_status()
-        public_url = info_resp.json().get("public_url", "")
+        # Шаг 5: читаем публичную ссылку — до 3 попыток с паузой
+        # (после перезаписи файла public_url появляется не мгновенно)
+        import time as _time
+        public_url = ""
+        for attempt in range(3):
+            if attempt > 0:
+                _time.sleep(2)
+            info_resp = requests.get(
+                f"{_YADISK_API}/resources",
+                headers=hdrs,
+                params={"path": disk_path, "fields": "public_url,public_key"},
+                timeout=10,
+            )
+            info_resp.raise_for_status()
+            public_url = info_resp.json().get("public_url", "")
+            if public_url:
+                break
+            logger.debug("public_url ещё не готов (попытка %d/3)", attempt + 1)
 
         if public_url:
             logger.info("Публичная ссылка: %s", public_url)
