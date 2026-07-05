@@ -273,6 +273,17 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
             lead.has_vk = social.has_vk
             lead.has_telegram = social.has_telegram
 
+            # Обогащаем контакты компании данными из VK
+            if social.vk_url and not company.vk_url:
+                company.vk_url = social.vk_url
+                logger.info("  VK найден по имени: %s", social.vk_url)
+            if social.vk_phone and not company.phone:
+                company.phone = social.vk_phone
+                logger.info("  Телефон из VK: %s", social.vk_phone)
+            if social.vk_website and not company.website:
+                company.website = social.vk_website
+                logger.info("  Сайт из VK: %s", social.vk_website)
+
             # Шаг 5 — профилирование
             logger.info("  Шаг 5: Профилирование компании...")
             # Конвертируем SocialReport и QualificationResult в форматы profiler

@@ -31,6 +31,14 @@ from config import (
     RETRY_BACKOFF,
 )
 
+# ID города Пермь в VK (используется в groups.search)
+VK_PERM_CITY_ID = 119
+
+# Российский телефон — для поиска в описании VK-группы
+_PHONE_RE = re.compile(
+    r'(?:\+7|8)[\s\(\-]?\d{3}[\s\)\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}'
+)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -79,6 +87,10 @@ class SocialReport:
     # --- Присутствие ---
     has_vk: bool = False
     has_telegram: bool = False
+
+    # --- Контакты из VK (телефон, сайт из группы) ---
+    vk_phone: str = ""
+    vk_website: str = ""
 
     # --- VK детали ---
     vk_url: str = ""
@@ -239,6 +251,109 @@ def _get_vk_video_count_api(owner_id: int) -> int:
     if not response:
         return 0
     return response.get("count", 0) if isinstance(response, dict) else 0
+
+
+# ---------------------------------------------------------------------------
+# VK: поиск сообщества по имени компании + извлечение контактов
+# ---------------------------------------------------------------------------
+
+def search_vk_group(company_name: str) -> Optional[str]:
+    """
+    Ищет VK-сообщество по названию компании через groups.search.
+    Возвращает URL первого подходящего совпадения или None.
+    """
+    if not VK_ACCESS_TOKEN:
+        return None
+
+    # Добавляем "Пермь" чтобы сузить результаты
+    query = f"{company_name} Пермь"
+    response = _vk_api_call("groups.search", {
+        "q": query,
+        "count": 5,
+        "sort": 0,  # по релевантности
+    })
+    if not response:
+        return None
+
+    items = response.get("items", []) if isinstance(response, dict) else []
+    if not items:
+        return None
+
+    # Проверяем совпадение по значимым словам названия компании
+    name_words = [w.lower() for w in company_name.split() if len(w) > 3]
+
+    for group in items:
+        group_name = group.get("name", "").lower()
+        screen_name = group.get("screen_name", "")
+        if not screen_name:
+            continue
+
+        # Хотя бы одно значимое слово из названия компании должно быть в имени группы
+        if not name_words or any(w in group_name for w in name_words):
+            vk_url = f"https://vk.com/{screen_name}"
+            logger.info("VK найден по имени '%s': %s ('%s')", company_name, vk_url, group.get("name"))
+            return vk_url
+
+    logger.debug("VK не найден по имени '%s'", company_name)
+    return None
+
+
+def get_vk_contacts(slug: str) -> Dict[str, str]:
+    """
+    Получает контактные данные из VK-сообщества: телефон, сайт.
+
+    Проверяет (в порядке приоритета):
+      1. Поле phone группы
+      2. Список contacts (телефоны сотрудников/менеджеров)
+      3. Regex по тексту описания группы
+      4. Поле site группы
+    """
+    result = {"phone": "", "website": ""}
+    if not VK_ACCESS_TOKEN:
+        return result
+
+    response = _vk_api_call("groups.getById", {
+        "group_id": slug,
+        "fields": "description,site,contacts,phone",
+    })
+    if not response:
+        return result
+
+    groups = response if isinstance(response, list) else response.get("groups", [])
+    if not groups:
+        return result
+
+    group = groups[0]
+
+    # 1. Прямой телефон группы
+    phone = group.get("phone", "").strip()
+    if phone:
+        result["phone"] = phone
+
+    # 2. Контакты — список менеджеров с телефонами
+    if not result["phone"]:
+        for contact in group.get("contacts", []):
+            contact_phone = (contact.get("phone") or "").strip()
+            if contact_phone:
+                result["phone"] = contact_phone
+                break
+
+    # 3. Regex по описанию группы
+    if not result["phone"]:
+        description = group.get("description", "") or ""
+        m = _PHONE_RE.search(description)
+        if m:
+            result["phone"] = m.group(0).strip()
+
+    # 4. Сайт
+    site = (group.get("site") or "").strip()
+    if site and site.startswith(("http://", "https://")):
+        result["website"] = site
+
+    if result["phone"] or result["website"]:
+        logger.info("VK контакты из '%s': phone=%r site=%r", slug, result["phone"], result["website"])
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -534,9 +649,18 @@ def check_social_presence(
     now_ts = int(datetime.now(timezone.utc).timestamp())
 
     # --- ВКонтакте ---
-    if vk_url:
+    # Если URL не задан — ищем сообщество по названию компании через API
+    effective_vk_url = vk_url
+    if not effective_vk_url and company_name and VK_ACCESS_TOKEN:
+        logger.info("VK поиск по имени: '%s'", company_name)
+        found_url = search_vk_group(company_name)
+        if found_url:
+            effective_vk_url = found_url
+            report.vk_url = found_url
+
+    if effective_vk_url:
         try:
-            found, details = _check_vk(vk_url)
+            found, details = _check_vk(effective_vk_url)
             report.has_vk = found
 
             if found:
@@ -562,6 +686,13 @@ def check_social_presence(
                 )
                 report.posting_frequency = _classify_frequency(timestamps)
                 report.has_style_consistency = _has_style_consistency(timestamps)
+
+                # Извлекаем контактные данные из VK-сообщества
+                slug = details.get("slug", "")
+                if slug and VK_ACCESS_TOKEN:
+                    vk_contacts = get_vk_contacts(slug)
+                    report.vk_phone = vk_contacts.get("phone", "")
+                    report.vk_website = vk_contacts.get("website", "")
 
         except Exception as exc:
             msg = f"Ошибка проверки VK для '{company_name}': {exc}"
