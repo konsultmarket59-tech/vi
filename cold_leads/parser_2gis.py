@@ -149,6 +149,10 @@ def _link_to_url(link) -> str:
 
 def _extract_website(links) -> str:
     """Извлекает URL сайта из поля links 2GIS."""
+    # 2GIS v3 возвращает links как dict с навигационными данными (entrances, parking...)
+    # Внешние ссылки (сайт, соцсети) хранятся в contact_groups, не здесь
+    if isinstance(links, dict) or not links:
+        return ""
     _SOCIAL_HOSTS = ("vk.com", "vkontakte.ru", "t.me", "telegram.me",
                      "instagram.com", "facebook.com", "ok.ru", "youtube.com")
     website_fallback = ""
