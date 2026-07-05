@@ -48,6 +48,8 @@ jobs:
           BITRIX24_WEBHOOK_URL: ${{ secrets.BITRIX24_WEBHOOK_URL }}
           VK_ACCESS_TOKEN: ${{ secrets.VK_ACCESS_TOKEN }}
           YANDEX_DISK_TOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          YANDEX_MAPS_API_KEY: ${{ secrets.YANDEX_MAPS_API_KEY }}
+          PARSER_SOURCE: ${{ vars.PARSER_SOURCE || 'both' }}
         run: |
           CATEGORY="${{ github.event.inputs.category || 'все' }}"
           MAX_LEADS="${{ github.event.inputs.max_leads || '10' }}"

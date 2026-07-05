@@ -24,6 +24,13 @@ BITRIX24_WEBHOOK_URL: str = os.environ.get("BITRIX24_WEBHOOK_URL", "")
 # Яндекс Диск — OAuth-токен для загрузки PDF-КП
 YANDEX_DISK_TOKEN: str = os.environ.get("YANDEX_DISK_TOKEN", "")
 
+# Яндекс Maps Search API — для парсинга и обогащения контактов
+# Бесплатный ключ: developer.tech.yandex.ru → Search API (1000 запросов/сутки)
+YANDEX_MAPS_API_KEY: str = os.environ.get("YANDEX_MAPS_API_KEY", "")
+
+# Источник данных: "2gis" | "yandex" | "both" (2GIS + Яндекс для обогащения телефонов)
+PARSER_SOURCE: str = os.environ.get("PARSER_SOURCE", "both")
+
 
 # ---------------------------------------------------------------------------
 # Агентство
@@ -262,4 +269,9 @@ def validate_config() -> List[str]:
         warnings.append("BITRIX24_WEBHOOK_URL не задан — синхронизация с CRM отключена")
     if not YANDEX_DISK_TOKEN:
         warnings.append("YANDEX_DISK_TOKEN не задан — PDF-КП не будут загружаться на Яндекс Диск")
+    if not YANDEX_MAPS_API_KEY and PARSER_SOURCE in ("yandex", "both"):
+        warnings.append(
+            "YANDEX_MAPS_API_KEY не задан — Яндекс Геопоиск недоступен "
+            "(получите ключ: developer.tech.yandex.ru → Search API)"
+        )
     return warnings

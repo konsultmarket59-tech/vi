@@ -12,6 +12,7 @@ import logging
 import sys
 from datetime import datetime, date
 from pathlib import Path
+from typing import List
 
 import config
 from config import validate_config, TARGET_CATEGORIES, MAX_LEADS_PER_DAY
@@ -19,7 +20,9 @@ from database import (
     Lead, init_db, save_lead, leads_created_today, get_unprocessed_leads,
     update_lead_status, get_stats, lead_exists,
 )
-from parser_2gis import parse_category, ParsedCompany
+from parser_2gis import parse_category as parse_category_2gis, ParsedCompany
+import parser_yandex as _yandex_parser
+from config import PARSER_SOURCE, YANDEX_MAPS_API_KEY
 from social_checker import check_social_presence
 from qualifier import qualify_lead, QualificationResult
 from profiler import profile_lead
@@ -169,11 +172,35 @@ def process_category(category: str, max_leads: int, dry_run: bool = False) -> di
     remaining_today = MAX_LEADS_PER_DAY - today_count
     actual_max = min(max_leads, remaining_today)
 
-    # Шаг 1 — парсинг 2GIS
-    logger.info("Шаг 1: Парсинг 2GIS по категории «%s»...", category)
-    companies = parse_category(category, max_results=actual_max * 3)  # берём запас для фильтрации
+    # Шаг 1 — парсинг компаний
+    source = PARSER_SOURCE.lower()
+    companies: List[ParsedCompany] = []
+
+    if source in ("2gis", "both"):
+        logger.info("Шаг 1: Парсинг 2GIS по категории «%s»...", category)
+        companies = parse_category_2gis(category, max_results=actual_max * 3)
+        logger.info("Получено %d компаний из 2GIS", len(companies))
+
+        # Обогащение: если телефон пуст и есть Яндекс-ключ — запрашиваем через Яндекс
+        if source == "both" and YANDEX_MAPS_API_KEY:
+            no_phone = [c for c in companies if not c.phone]
+            if no_phone:
+                logger.info(
+                    "Шаг 1б: Яндекс-обогащение телефонов для %d компаний без контакта...",
+                    len(no_phone),
+                )
+                for company in no_phone:
+                    phone = _yandex_parser.enrich_phone(company.name)
+                    if phone:
+                        company.phone = phone
+
+    if source == "yandex" or (source == "both" and not companies):
+        logger.info("Шаг 1: Парсинг Яндекс Геопоиск по категории «%s»...", category)
+        companies = _yandex_parser.parse_category(category, max_results=actual_max * 3)
+        logger.info("Получено %d компаний из Яндекс", len(companies))
+
     stats["parsed"] = len(companies)
-    logger.info("Получено %d компаний из 2GIS", len(companies))
+    logger.info("Итого компаний для обработки: %d (источник: %s)", len(companies), source)
 
     processed = 0
 
