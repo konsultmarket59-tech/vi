@@ -33,6 +33,11 @@ DESCEND_ASCEND  = {'j'}
 BASE_U  = '/tmp/font_work/zips/f1a38bf8-___________________18/Uppercase'
 BASE_L  = '/tmp/font_work/zips/faff3d62-___________________19/Lowercase'
 BASE_N  = '/tmp/font_work/zips/f717a529-___________________20'
+BASE_S  = '/tmp/font_work/zips/zip22'
+
+MATH_AXIS   = X_HEIGHT // 2   # 250 — vertical centre for operators
+DOT_H       = 120             # period/dot target height (font units)
+QUOTE_H     = 150             # quotation-mark target height
 
 # Uppercase Latin.  name → (svg_filename, [unicode_codepoints])
 UPPERCASE = {
@@ -97,6 +102,59 @@ LOWERCASE = {
 # Digits  name → (svg_filename, [unicode_codepoints])
 DIGITS = {f'd{i}': (f'Numbers {i}.svg', [0x0030 + i]) for i in range(10)}
 
+# Symbols  name → (svg_filename, [unicode_codepoints], category)
+#
+# Categories:
+#   'tall'      scale=CAP_HEIGHT/h, baseline=svg_h   (top at cap-height, base at 0)
+#   'mathNNN'   scale=NNN/h, centered at MATH_AXIS   (e.g. 'math400')
+#   'dot'       scale=DOT_H/h, baseline=svg_h        (sits on baseline)
+#   'comma'     scale=DOT_H/34, baseline=34          (dot on baseline, tail descends)
+#   'colon'     scale=X_HEIGHT/h, baseline=svg_h     (spans baseline → x-height)
+#   'semi'      scale=X_HEIGHT/107, baseline=107     (colon part aligned, tail descends)
+#   'quote'     scale=QUOTE_H/h, top pinned at CAP_HEIGHT
+#   'under'     scale=DOT_H/h, baseline=0            (sits below baseline)
+SYMBOLS = {
+    # ── Tall (scale to cap height) ──────────────────────────────────────────
+    'sym_ampersand':     ('ampersand.svg',      [0x0026],        'tall'),
+    'sym_at':            ('at.svg',             [0x0040],        'tall'),
+    'sym_backslash':     ('backslash.svg',      [0x005C],        'tall'),
+    'sym_brace_close':   ('brace-close.svg',    [0x007D],        'tall'),
+    'sym_brace_open':    ('brace-open.svg',     [0x007B],        'tall'),
+    'sym_bracket_close': ('bracket-close.svg',  [0x005D],        'tall'),
+    'sym_bracket_open':  ('bracket-open.svg',   [0x005B],        'tall'),
+    'sym_exclamation':   ('exclamation.svg',    [0x0021],        'tall'),
+    'sym_paren_close':   ('paren-close.svg',    [0x0029],        'tall'),
+    'sym_paren_open':    ('paren-open.svg',     [0x0028],        'tall'),
+    'sym_percent':       ('percent.svg',        [0x0025],        'tall'),
+    'sym_question':      ('question.svg',       [0x003F],        'tall'),
+    'sym_ruble':         ('ruble.svg',          [0x20BD],        'tall'),
+    'sym_slash':         ('slash.svg',          [0x002F],        'tall'),
+    # ── Math operators (centred at MATH_AXIS=250) ────────────────────────────
+    'sym_plus':          ('plus.svg',           [0x002B],        'math400'),
+    'sym_multiply':      ('multiply.svg',       [0x00D7],        'math400'),
+    'sym_divide':        ('divide.svg',         [0x00F7],        'math400'),
+    'sym_gt':            ('greater-than.svg',   [0x003E],        'math400'),
+    'sym_lt':            ('less-than.svg',      [0x003C],        'math400'),
+    'sym_gte':           ('greater-or-eq.svg',  [0x2265],        'math400'),
+    'sym_lte':           ('less-or-eq.svg',     [0x2264],        'math400'),
+    'sym_approx':        ('approx.svg',         [0x2248],        'math300'),
+    'sym_equals':        ('equals.svg',         [0x003D],        'math200'),
+    'sym_guillemet_op':  ('guillemet-open.svg',  [0x00AB],       'math250'),
+    'sym_guillemet_cl':  ('guillemet-close.svg', [0x00BB],       'math250'),
+    'sym_tilde':         ('tilde.svg',          [0x007E],        'math150'),
+    'sym_hyphen':        ('hyphen.svg',         [0x002D],        'math80'),
+    'sym_dash':          ('dash.svg',           [0x2014, 0x2013],'math80'),  # em/en dash
+    # ── Punctuation ─────────────────────────────────────────────────────────
+    'sym_period':        ('period.svg',         [0x002E],        'dot'),
+    'sym_ellipsis':      ('ellipsis.svg',       [0x2026],        'dot'),
+    'sym_comma':         ('comma.svg',          [0x002C],        'comma'),
+    'sym_colon':         ('colon.svg',          [0x003A],        'colon'),
+    'sym_semicolon':     ('semicolon.svg',      [0x003B],        'semi'),
+    'sym_quote_open':    ('quote-open.svg',     [0x201C, 0x2018],'quote'),
+    'sym_quote_close':   ('quote-close.svg',    [0x201D, 0x2019],'quote'),
+    'sym_underscore':    ('underscore.svg',     [0x005F],        'under'),
+}
+
 # ── SVG helpers ───────────────────────────────────────────────────────────────
 
 def get_svg_dims(svg_file):
@@ -108,10 +166,27 @@ def get_svg_dims(svg_file):
         return float(parts[2]), float(parts[3])
     return float(root.get('width', 100)), float(root.get('height', 100))
 
+_CIRCLE_K = 0.5523  # cubic bezier approximation of arc: 4*(sqrt(2)-1)/3
+
+def _circle_to_path(cx, cy, r):
+    kr = _CIRCLE_K * r
+    return (f'M {cx-r} {cy} '
+            f'C {cx-r} {cy-kr} {cx-kr} {cy-r} {cx} {cy-r} '
+            f'C {cx+kr} {cy-r} {cx+r} {cy-kr} {cx+r} {cy} '
+            f'C {cx+r} {cy+kr} {cx+kr} {cy+r} {cx} {cy+r} '
+            f'C {cx-kr} {cy+r} {cx-r} {cy+kr} {cx-r} {cy} Z')
+
 def get_paths(svg_file):
     tree = ET.parse(svg_file)
     root = tree.getroot()
-    return [e.get('d', '') for e in root.iter() if e.get('d')]
+    paths = [e.get('d', '') for e in root.iter() if e.get('d')]
+    for e in root.iter():
+        tag = e.tag.split('}')[-1]  # strip XML namespace
+        if tag == 'circle':
+            paths.append(_circle_to_path(
+                float(e.get('cx', 0)), float(e.get('cy', 0)), float(e.get('r', 0))
+            ))
+    return paths
 
 # ── Glyph builder ─────────────────────────────────────────────────────────────
 
@@ -241,6 +316,57 @@ def main():
         scale = CAP_HEIGHT / svg_h
         baseline_y = svg_h
         glyph_name = f'digit{key[1]}'
+        add_glyph(font, glyph_name, svg_path, scale, baseline_y, codepoints)
+
+    # ── Symbols ───────────────────────────────────────────────────────────────
+    print("\n=== Symbols ===")
+    for glyph_name, (svg_fn, codepoints, cat) in SYMBOLS.items():
+        svg_path = os.path.join(BASE_S, svg_fn)
+        if not os.path.exists(svg_path):
+            print(f"  SKIP (not found): {svg_fn}")
+            continue
+        _, svg_h = get_svg_dims(svg_path)
+
+        if cat == 'tall':
+            scale      = CAP_HEIGHT / svg_h
+            baseline_y = svg_h
+
+        elif cat.startswith('math'):
+            target_h   = int(cat[4:])
+            scale      = target_h / svg_h
+            bottom     = MATH_AXIS - target_h / 2
+            baseline_y = svg_h + bottom / scale
+
+        elif cat == 'dot':
+            scale      = DOT_H / svg_h
+            baseline_y = svg_h
+
+        elif cat == 'comma':
+            # period dot = 34 px SVG; scale so dot = DOT_H; tail descends below baseline
+            scale      = DOT_H / 34.0
+            baseline_y = 34.0
+
+        elif cat == 'colon':
+            scale      = X_HEIGHT / svg_h
+            baseline_y = svg_h
+
+        elif cat == 'semi':
+            # same visual scale as colon (colon.svg height = 107); tail descends
+            scale      = X_HEIGHT / 107.0
+            baseline_y = 107.0
+
+        elif cat == 'quote':
+            scale      = QUOTE_H / svg_h
+            baseline_y = CAP_HEIGHT / scale   # top of quote pinned at cap height
+
+        elif cat == 'under':
+            scale      = DOT_H / svg_h
+            baseline_y = 0.0                  # glyph sits below baseline
+
+        else:
+            print(f"  UNKNOWN category '{cat}' for {glyph_name}, skipping")
+            continue
+
         add_glyph(font, glyph_name, svg_path, scale, baseline_y, codepoints)
 
     # ── Save ──────────────────────────────────────────────────────────────────
