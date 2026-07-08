@@ -1,0 +1,346 @@
+<!-- Подгрузка шрифтов (если в Тильде уже подключены — этот блок можно удалить) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@700;800;900&display=swap" rel="stylesheet">
+
+<style>
+  /* ====== SCOPED — все стили начинаются с .dyn-hero чтобы не конфликтовать с Тильдой ====== */
+  .dyn-hero{
+    --dyn-ink:#0b0b0f;
+    --dyn-paper:#ffffff;
+    --dyn-pink:#FE3268;
+    --dyn-pink-soft:#ffd6e5;
+    --dyn-cyan:#26d4ff;
+    --dyn-muted:#6b6b78;
+    --dyn-shadow: 6px 6px 0 var(--dyn-ink);
+
+    position:relative;
+    box-sizing:border-box;
+    width:100%;
+    overflow:hidden;
+    background:var(--dyn-paper);
+    color:var(--dyn-ink);
+    font-family:"Manrope",system-ui,-apple-system,sans-serif;
+    padding:64px 56px 96px;
+    min-height:880px;
+  }
+  .dyn-hero *,
+  .dyn-hero *::before,
+  .dyn-hero *::after{box-sizing:border-box}
+
+  /* Background blobs */
+  .dyn-hero .dyn-bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .dyn-hero .dyn-blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;mix-blend-mode:multiply;animation:dyn-float 14s ease-in-out infinite}
+  .dyn-hero .dyn-b1{width:520px;height:520px;left:-160px;bottom:-180px;background:radial-gradient(circle at 30% 30%, #b9ecff, #e6f8ff 60%, transparent 70%)}
+  .dyn-hero .dyn-b2{width:560px;height:560px;right:-160px;top:-180px;background:radial-gradient(circle at 60% 40%, #ffd6e5, #fff0f5 60%, transparent 70%);animation-delay:-6s}
+  .dyn-hero .dyn-b3{width:300px;height:300px;left:38%;top:60%;background:radial-gradient(circle at 50% 50%, #e9defc, #f4ecff 60%, transparent 70%);animation-delay:-3s;opacity:.5}
+  @keyframes dyn-float{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(20px,-30px) scale(1.05)}}
+
+  .dyn-hero .dyn-stage{position:relative;z-index:1;max-width:1280px;margin:0 auto}
+
+  /* Eyebrow */
+  .dyn-hero .dyn-eyebrow{
+    display:inline-flex;align-items:center;gap:10px;
+    font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--dyn-muted);
+    opacity:0;transform:translateY(8px);animation:dyn-rise .7s .1s ease forwards;
+  }
+  .dyn-hero .dyn-eyebrow .dyn-dot{width:8px;height:8px;border-radius:50%;background:var(--dyn-pink);box-shadow:0 0 0 4px var(--dyn-pink-soft)}
+
+  /* Title */
+  .dyn-hero h1.dyn-title{
+    font-family:"Unbounded","Manrope",sans-serif;
+    font-weight:900;
+    font-size:clamp(40px, 7.4vw, 116px);
+    line-height:.92;
+    letter-spacing:-.02em;
+    margin:18px 0 0;
+    text-transform:uppercase;
+    max-width:780px;
+    color:var(--dyn-ink);
+  }
+  .dyn-hero h1 .dyn-line{display:block;overflow:hidden}
+  .dyn-hero h1 .dyn-line span{display:inline-block;transform:translateY(110%);animation:dyn-slideUp .9s ease forwards}
+  .dyn-hero h1 .dyn-line:nth-child(1) span{animation-delay:.05s}
+  .dyn-hero h1 .dyn-line:nth-child(2) span{animation-delay:.18s}
+  .dyn-hero h1 .dyn-line:nth-child(3) span{animation-delay:.32s}
+  .dyn-hero h1 .dyn-pink{color:var(--dyn-pink);position:relative}
+  .dyn-hero h1 .dyn-pink::after{content:"?";color:var(--dyn-ink);margin-left:.05em}
+  @keyframes dyn-slideUp{to{transform:translateY(0)}}
+  @keyframes dyn-rise{to{opacity:1;transform:translateY(0)}}
+
+  /* Plane */
+  .dyn-hero .dyn-plane{
+    position:absolute;font-size:64px;left:46%;top:90px;
+    transform:rotate(-12deg);
+    animation:dyn-planeFloat 5s ease-in-out infinite;
+    filter:drop-shadow(0 8px 14px rgba(0,0,0,.12));
+    pointer-events:none;
+  }
+  @keyframes dyn-planeFloat{0%,100%{transform:translate(0,0) rotate(-12deg)}50%{transform:translate(14px,-14px) rotate(-8deg)}}
+
+  /* Sparkles */
+  .dyn-hero .dyn-spark{position:absolute;color:var(--dyn-ink);font-size:28px;animation:dyn-spin 6s linear infinite;pointer-events:none;opacity:.9}
+  .dyn-hero .dyn-s1{left:54%;top:36px;font-size:22px;color:var(--dyn-pink)}
+  .dyn-hero .dyn-s2{left:6%;top:46%;font-size:20px}
+  .dyn-hero .dyn-s3{right:18%;bottom:18%;font-size:18px;color:var(--dyn-pink)}
+  @keyframes dyn-spin{0%{transform:rotate(0) scale(1)}50%{transform:rotate(180deg) scale(1.15)}100%{transform:rotate(360deg) scale(1)}}
+
+  /* Body copy */
+  .dyn-hero .dyn-body{
+    margin-top:42px;max-width:620px;
+    font-size:17px;line-height:1.55;color:#23232b;
+    opacity:0;transform:translateY(10px);animation:dyn-rise .8s .55s ease forwards;
+    position:relative;z-index:2;
+  }
+  .dyn-hero .dyn-body p{margin:0 0 8px}
+  .dyn-hero .dyn-body .dyn-strong{font-weight:700;color:var(--dyn-ink);margin-top:18px}
+  .dyn-hero .dyn-body .dyn-strong .dyn-hl{color:var(--dyn-pink)}
+
+  /* CTA */
+  .dyn-hero .dyn-cta-row{
+    display:flex;gap:22px;flex-wrap:wrap;margin-top:38px;
+    opacity:0;transform:translateY(10px);animation:dyn-rise .8s .75s ease forwards;
+    position:relative;z-index:2;
+  }
+  .dyn-hero .dyn-btn{
+    --dyn-bg:var(--dyn-pink);--dyn-fg:#fff;
+    display:inline-flex;align-items:center;justify-content:center;
+    text-decoration:none;
+    appearance:none;border:2.5px solid var(--dyn-ink);background:var(--dyn-bg);color:var(--dyn-fg);
+    font-family:"Manrope",sans-serif;font-weight:700;font-size:17px;
+    padding:16px 30px;border-radius:6px;cursor:pointer;
+    box-shadow:var(--dyn-shadow);
+    transform:rotate(-1.5deg);
+    transition:transform .15s ease, box-shadow .15s ease;
+    letter-spacing:.01em;
+  }
+  .dyn-hero .dyn-btn.dyn-cyan{--dyn-bg:var(--dyn-cyan);--dyn-fg:var(--dyn-ink);transform:rotate(1.5deg)}
+  .dyn-hero .dyn-btn:hover{transform:rotate(0) translate(-2px,-2px);box-shadow:8px 8px 0 var(--dyn-ink)}
+  .dyn-hero .dyn-btn:active{transform:translate(3px,3px);box-shadow:2px 2px 0 var(--dyn-ink)}
+  .dyn-hero .dyn-btn,.dyn-hero .dyn-btn:visited,.dyn-hero .dyn-btn:hover,.dyn-hero .dyn-btn:active{color:#fff !important}
+  .dyn-hero .dyn-btn.dyn-cyan,.dyn-hero .dyn-btn.dyn-cyan:visited,.dyn-hero .dyn-btn.dyn-cyan:hover,.dyn-hero .dyn-btn.dyn-cyan:active{color:#0b0b0f !important}
+
+  /* Cards */
+  .dyn-hero .dyn-cards-area{
+    position:absolute;
+    right:40px;top:80px;
+    width:480px;height:520px;
+    z-index:5;
+  }
+  .dyn-hero .dyn-card{
+    position:absolute;
+    width:240px;height:300px;
+    border:2.5px solid var(--dyn-ink);border-radius:14px;
+    background:var(--dyn-paper);
+    box-shadow:8px 10px 0 var(--dyn-ink);
+    cursor:grab;
+    user-select:none;
+    transition:box-shadow .2s ease;
+    overflow:hidden;
+    will-change:transform;
+    opacity:0;animation:dyn-cardIn .8s ease forwards;
+  }
+  .dyn-hero .dyn-card.dyn-dragging{cursor:grabbing;box-shadow:14px 16px 0 var(--dyn-ink);transition:none}
+  .dyn-hero .dyn-card img{
+    display:block;width:100%;height:100%;object-fit:cover;
+    pointer-events:none;-webkit-user-drag:none;user-select:none;
+  }
+  .dyn-hero .dyn-c1{animation-delay:1.0s}
+  .dyn-hero .dyn-c2{animation-delay:1.15s}
+  .dyn-hero .dyn-c3{animation-delay:1.30s}
+  .dyn-hero .dyn-c4{animation-delay:1.45s}
+  @keyframes dyn-cardIn{
+    0%{opacity:0;transform:translate(0,30px) rotate(var(--dyn-rot,0deg)) scale(.9)}
+    100%{opacity:1;transform:translate(0,0) rotate(var(--dyn-rot,0deg)) scale(1)}
+  }
+  .dyn-hero .dyn-card:not(.dyn-moved):not(.dyn-dragging){
+    animation:dyn-cardIn .8s ease forwards, dyn-bob 5s ease-in-out infinite;
+  }
+  .dyn-hero .dyn-c2:not(.dyn-moved):not(.dyn-dragging){animation-delay:1.15s, 0s}
+  .dyn-hero .dyn-c3:not(.dyn-moved):not(.dyn-dragging){animation-delay:1.30s, .8s}
+  .dyn-hero .dyn-c4:not(.dyn-moved):not(.dyn-dragging){animation-delay:1.45s, 1.6s}
+  .dyn-hero .dyn-c1:not(.dyn-moved):not(.dyn-dragging){animation-delay:1.0s, 2.4s}
+  @keyframes dyn-bob{
+    0%,100%{transform:translate(0,0) rotate(var(--dyn-rot,0deg))}
+    50%{transform:translate(0,-6px) rotate(var(--dyn-rot,0deg))}
+  }
+
+  /* Diamonds */
+  .dyn-hero .dyn-diamond{width:14px;height:14px;background:var(--dyn-ink);transform:rotate(45deg);position:absolute}
+  .dyn-hero .dyn-d1{left:24px;top:48%;background:var(--dyn-cyan)}
+  .dyn-hero .dyn-d2{right:6%;bottom:14%}
+
+  /* ============== АДАПТАЦИЯ ============== */
+  @media (max-width:1440px){
+    .dyn-hero{padding:56px 40px 88px;min-height:820px}
+    .dyn-hero .dyn-cards-area{right:20px;width:440px;height:500px}
+    .dyn-hero .dyn-card{width:220px;height:275px}
+  }
+  @media (max-width:1200px){
+    .dyn-hero .dyn-cards-area{right:0;width:380px;height:460px}
+    .dyn-hero .dyn-card{width:200px;height:250px}
+    .dyn-hero .dyn-plane{left:auto;right:20px;top:30px;font-size:52px}
+  }
+  @media (max-width:1024px){
+    .dyn-hero{padding:48px 32px 80px;min-height:auto}
+    .dyn-hero .dyn-cards-area{position:relative;right:auto;top:auto;margin:56px auto 0;width:100%;max-width:520px;height:520px}
+    .dyn-hero .dyn-card{width:220px;height:275px}
+    .dyn-hero h1.dyn-title{font-size:clamp(40px, 9vw, 88px)}
+    .dyn-hero .dyn-d2{display:none}
+  }
+  @media (max-width:768px){
+    .dyn-hero{padding:40px 24px 64px}
+    .dyn-hero .dyn-cards-area{height:460px;max-width:440px}
+    .dyn-hero .dyn-card{width:190px;height:238px}
+    .dyn-hero h1.dyn-title{font-size:clamp(36px, 11vw, 72px)}
+    .dyn-hero .dyn-spark{font-size:16px !important}
+  }
+  @media (max-width:480px){
+    .dyn-hero{padding:32px 16px 56px}
+    .dyn-hero .dyn-plane{font-size:42px;right:8px;top:18px}
+    .dyn-hero .dyn-cards-area{
+      position:relative;display:flex;flex-direction:column;align-items:center;gap:22px;
+      width:100%;height:auto;margin-top:48px;
+    }
+    .dyn-hero .dyn-card{
+      position:relative;left:auto !important;top:auto !important;
+      width:100%;max-width:300px;height:auto;aspect-ratio:4/5;
+      transform:none !important;
+      animation:dyn-cardIn .8s ease forwards !important;
+      cursor:default;
+    }
+    .dyn-hero .dyn-card:not(.dyn-moved):not(.dyn-dragging){animation:dyn-cardIn .8s ease forwards !important}
+    .dyn-hero .dyn-c1,.dyn-hero .dyn-c2,.dyn-hero .dyn-c3,.dyn-hero .dyn-c4{
+      --dyn-rot:0deg !important;
+    }
+    .dyn-hero .dyn-btn{padding:14px 22px;font-size:15px}
+    .dyn-hero .dyn-cta-row{gap:14px}
+    .dyn-hero .dyn-body{font-size:15px}
+  }
+</style>
+
+<div class="dyn-hero">
+
+  <div class="dyn-bg" aria-hidden="true">
+    <div class="dyn-blob dyn-b1"></div>
+    <div class="dyn-blob dyn-b2"></div>
+    <div class="dyn-blob dyn-b3"></div>
+  </div>
+
+  <div class="dyn-stage">
+
+    <div class="dyn-eyebrow"><span class="dyn-dot"></span> Маркетинг в соцсетях</div>
+
+    <h1 class="dyn-title">
+      <span class="dyn-line"><span>Откуда</span></span>
+      <span class="dyn-line"><span>берутся</span></span>
+      <span class="dyn-line"><span class="dyn-pink">клиенты</span></span>
+    </h1>
+
+    <div class="dyn-plane" aria-hidden="true">✈️</div>
+
+    <span class="dyn-spark dyn-s1" aria-hidden="true">✦</span>
+    <span class="dyn-spark dyn-s2" aria-hidden="true">✦</span>
+    <span class="dyn-spark dyn-s3" aria-hidden="true">✦</span>
+
+    <div class="dyn-diamond dyn-d1" aria-hidden="true"></div>
+    <div class="dyn-diamond dyn-d2" aria-hidden="true"></div>
+
+    <div class="dyn-body">
+      <p>Каждый день, пока вас нет в ленте клиента, там есть кто-то другой.</p>
+      <p>Доверие — это не про симпатию. Это валюта, которой платят, когда приходит время выбирать. И она не появляется по щелчку — она накапливается день за днём, пост за постом, касание за касанием.</p>
+      <p>.</p>
+      <p class="dyn-strong">Пока ваши конкуренты пытаются купить доверие аудитории рекламой,</p>
+      <p class="dyn-strong">мы строим систему присутствия, в которой <span class="dyn-hl">доверие возникает само</span>.</p>
+    </div>
+
+    <div class="dyn-cta-row">
+      <a class="dyn-btn" href="#popup:myform">Получить воронку</a>
+      <a class="dyn-btn dyn-cyan" href="#popup:myform">Узнать подробнее</a>
+    </div>
+
+    <div class="dyn-cards-area">
+      <div class="dyn-card dyn-c1" style="--dyn-rot:-8deg;left:0;top:20px;z-index:1;transform:rotate(-8deg)">
+        <img src="assets/card-1.png" alt="01 / Аналитика">
+      </div>
+      <div class="dyn-card dyn-c2" style="--dyn-rot:4deg;left:90px;top:60px;z-index:2;transform:rotate(4deg)">
+        <img src="assets/card-2.png" alt="02 / Дизайн-система">
+      </div>
+      <div class="dyn-card dyn-c3" style="--dyn-rot:-3deg;left:180px;top:120px;z-index:3;transform:rotate(-3deg)">
+        <img src="assets/card-3.png" alt="03 / Разработка контента">
+      </div>
+      <div class="dyn-card dyn-c4" style="--dyn-rot:7deg;left:230px;top:200px;z-index:4;transform:rotate(7deg)">
+        <img src="assets/card-4.png" alt="04 / Канал">
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  var hero = document.querySelector('.dyn-hero:not([data-dyn-init])');
+  if(!hero) return;
+  hero.setAttribute('data-dyn-init','1');
+
+  var zCounter = 10;
+  var cards = hero.querySelectorAll('.dyn-card');
+
+  cards.forEach(function(card){
+    var isDown = false, startX, startY, originX, originY, dragRot = 0, lastX = 0, lastVX = 0;
+
+    function isMobileLayout(){
+      return window.matchMedia('(max-width:480px)').matches;
+    }
+
+    function onDown(e){
+      if(isMobileLayout()) return;
+      isDown = true;
+      var pt = e.touches ? e.touches[0] : e;
+      startX = pt.clientX; startY = pt.clientY;
+      var rect = card.getBoundingClientRect();
+      var parent = card.offsetParent.getBoundingClientRect();
+      originX = rect.left - parent.left;
+      originY = rect.top - parent.top;
+
+      card.classList.add('dyn-dragging','dyn-moved');
+      card.style.left = originX + 'px';
+      card.style.top  = originY + 'px';
+      var cs = getComputedStyle(card).getPropertyValue('--dyn-rot');
+      dragRot = parseFloat(cs) || 0;
+      card.style.transform = 'translate(0,0) rotate(' + dragRot + 'deg)';
+      card.style.zIndex = (++zCounter);
+      lastX = pt.clientX;
+      e.preventDefault();
+    }
+    function onMove(e){
+      if(!isDown) return;
+      var pt = e.touches ? e.touches[0] : e;
+      var dx = pt.clientX - startX;
+      var dy = pt.clientY - startY;
+      var vx = pt.clientX - lastX;
+      lastVX = lastVX * .7 + vx * .3;
+      lastX = pt.clientX;
+      var tilt = Math.max(-14, Math.min(14, lastVX * 1.2));
+      card.style.left = (originX + dx) + 'px';
+      card.style.top  = (originY + dy) + 'px';
+      card.style.transform = 'translate(0,0) rotate(' + (dragRot + tilt) + 'deg)';
+    }
+    function onUp(){
+      if(!isDown) return;
+      isDown = false;
+      card.classList.remove('dyn-dragging');
+      card.style.transition = 'transform .35s cubic-bezier(.2,.9,.3,1.4)';
+      card.style.transform = 'translate(0,0) rotate(' + dragRot + 'deg)';
+      setTimeout(function(){ card.style.transition = ''; }, 380);
+    }
+
+    card.addEventListener('mousedown', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    card.addEventListener('touchstart', onDown, {passive:false});
+    window.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('touchend', onUp);
+  });
+})();
+</script>
