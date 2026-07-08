@@ -29,6 +29,10 @@ DESCEND_XHEIGHT = {'g', 'p', 'q', 'y'}
 # 'j' has both ascender AND descender; baseline ≈ CAP_HEIGHT/SCALE_LOWER px from top
 DESCEND_ASCEND  = {'j'}
 
+# Lowercase letters with an ASCENDING stroke (scale each to cap height like uppercase,
+# so all ascender tops align at CAP_HEIGHT regardless of individual SVG heights).
+ASCEND_LOWER = {'b', 'd', 'f', 'h', 'i', 'k', 'l', 't'}
+
 # ── Character → SVG mapping ──────────────────────────────────────────────────
 BASE_U  = '/tmp/font_work/zips/f1a38bf8-___________________18/Uppercase'
 BASE_L  = '/tmp/font_work/zips/faff3d62-___________________19/Lowercase'
@@ -288,18 +292,28 @@ def main():
             continue
 
         _, svg_h = get_svg_dims(svg_path)
-        scale = SCALE_LOWER
 
-        if key in DESCEND_XHEIGHT:
-            # x-height top, descender bottom
-            # baseline is at x-height / scale from top = 81 px
+        if key in ASCEND_LOWER:
+            # Ascending stroke letters: scale each so the ascender top lands exactly at
+            # CAP_HEIGHT (like uppercase).  Baseline at the bottom of the SVG.
+            scale      = CAP_HEIGHT / svg_h
+            baseline_y = svg_h
+
+        elif key in DESCEND_XHEIGHT:
+            # Descender letters: top of x-height body at X_HEIGHT, tail below baseline.
+            # Baseline in SVG is at X_HEIGHT/SCALE_LOWER ≈ 81 px from the TOP.
+            scale      = SCALE_LOWER
             baseline_y = X_HEIGHT / SCALE_LOWER
+
         elif key in DESCEND_ASCEND:
-            # ascender top, descender bottom
-            # baseline is at cap_height / scale from top ≈ 114 px
-            baseline_y = CAP_HEIGHT / SCALE_LOWER
+            # 'j': ascender AND descender — scale so it spans exactly from CAP_HEIGHT
+            # down to -DESCENDER_D, baseline placed at CAP_HEIGHT / scale from the top.
+            scale      = (CAP_HEIGHT + DESCENDER_D) / svg_h
+            baseline_y = CAP_HEIGHT / scale
+
         else:
-            # no descender: baseline at bottom of SVG
+            # Pure x-height letters: baseline at the bottom of the SVG.
+            scale      = SCALE_LOWER
             baseline_y = svg_h
 
         glyph_name = f'latin{key}'
