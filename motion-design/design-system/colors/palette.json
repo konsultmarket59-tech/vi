@@ -1,0 +1,24 @@
+{
+  "brand": "ДИНАМИКА",
+  "rule": "70% neutral surfaces / 30% accents — accents punctuate, never flood",
+  "colors": {
+    "primary":   { "hex": "#FF2F6D", "token": "--din-pink",     "role": "primary CTA, energy" },
+    "secondary": { "hex": "#00D9FF", "token": "--din-cyan",     "role": "secondary spark, highlight" },
+    "dark":      { "hex": "#0A0A0A", "token": "--din-ink",      "role": "type, graphic blocks (structure)" },
+    "light":     { "hex": "#FFFFFF", "token": "--din-white",    "role": "air, surfaces" },
+    "gray_50":   { "hex": "#F4F5F7", "token": "--din-gray-50",  "role": "neutral surface" },
+    "gray_200":  { "hex": "#DDE3E8", "token": "--din-gray-200", "role": "hairline borders, dividers" }
+  },
+  "hover_shades": {
+    "pink_600": "#E5225B",
+    "cyan_600": "#00B7D9"
+  },
+  "gradient_duotone": {
+    "stops": ["#FF2F6D", "#8B3AB3", "#00D9FF"],
+    "usage": "reel covers, motion cover loops, hero background"
+  },
+  "tints": {
+    "pink_wash":  "#FFE3EC",
+    "cyan_wash":  "#E0F8FF"
+  }
+}
