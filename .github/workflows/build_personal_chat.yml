@@ -2,6 +2,9 @@ name: Build personal chat desktop app
 
 on:
   workflow_dispatch: {}
+  push:
+    tags:
+      - "personal-chat-build-*"
 
 permissions:
   contents: write
