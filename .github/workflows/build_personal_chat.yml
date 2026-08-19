@@ -1,0 +1,37 @@
+name: Build personal chat desktop app
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: personal-chat
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - run: npm run electron:build:win
+
+      - name: Publish build to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: personal-chat-desktop
+          name: "Личный чат — сборка для Windows"
+          body: |
+            Автоматическая сборка десктопного приложения «Личный чат» из ветки ${{ github.ref_name }}.
+            Скачайте `.exe` ниже и запустите (portable-версия не требует установки,
+            Setup-версия — обычный установщик).
+          prerelease: true
+          files: |
+            personal-chat/release/*.exe

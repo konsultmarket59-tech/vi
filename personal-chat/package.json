@@ -50,8 +50,14 @@
     },
     "win": {
       "target": [
+        "nsis",
         "portable"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
     },
     "linux": {
       "target": [
