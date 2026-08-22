@@ -1,7 +1,29 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
+
+// Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, etc.)
+// through Electron's own network stack instead of Node's built-in fetch. Node's fetch
+// (undici) doesn't pick up the OS/VPN's configured HTTP(S) proxy at all — requests just
+// go direct — whereas net.fetch shares Chromium's network stack and proxy handling
+// (including the "login" event below, which answers proxy authentication challenges),
+// same as fetch() calls made from the renderer already do automatically.
+global.fetch = net.fetch;
+
+// Answers proxy authentication challenges (HTTP 407) with the credentials saved in
+// Settings, if any — needed when the user's VPN/proxy requires a login. Electron has
+// no built-in UI for this (unlike a full browser), so without this handler a 407 just
+// passes straight through to the caller as a failed response. Only ever supplies
+// credentials for isProxy challenges, never for a origin server's own auth (401).
+app.on("login", (event, _webContents, _details, authInfo, callback) => {
+  if (!authInfo.isProxy) return;
+  loadSettings().then((s) => {
+    if (!s.proxyUsername) return; // no proxy credentials configured — leave default behavior
+    event.preventDefault();
+    callback(s.proxyUsername, s.proxyPassword || "");
+  });
+});
 
 // On some Windows setups (observed with a OneDrive-redirected Documents folder)
 // app.getPath() hands back a "\\?\"-prefixed extended-length path. Node's path.join
@@ -967,7 +989,7 @@ ipcMain.handle("skills:pickImportFile", async () => {
   const win = BrowserWindow.getFocusedWindow();
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile"],
-    filters: [{ name: "Навык", extensions: ["md", "txt"] }],
+    filters: [{ name: "Навык", extensions: ["md", "txt", "skill"] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];

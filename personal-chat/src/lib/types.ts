@@ -73,6 +73,8 @@ export interface Settings {
   model: string;
   temperature: number;
   maxTokens: number;
+  proxyUsername?: string;
+  proxyPassword?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -81,6 +83,8 @@ export const DEFAULT_SETTINGS: Settings = {
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
   maxTokens: 4096,
+  proxyUsername: "",
+  proxyPassword: "",
 };
 
 export interface AppConfig {
