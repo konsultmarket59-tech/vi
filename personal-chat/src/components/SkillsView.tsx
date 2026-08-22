@@ -84,6 +84,30 @@ export default function SkillsView({ skills, settings, onSkillsChange, onOpenSet
     onSkillsChange(skills.filter((s) => s.id !== id));
   }
 
+  async function importFromFile() {
+    const filePath = await window.api.pickSkillImportFile();
+    if (!filePath) return;
+    try {
+      const parsed = await window.api.importSkillFromFile(filePath);
+      setDraft({ id: null, name: parsed.name, description: parsed.description, content: parsed.content });
+      setMode("editor");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function importFromFolder() {
+    const folderPath = await window.api.pickSkillImportFolder();
+    if (!folderPath) return;
+    try {
+      const parsed = await window.api.importSkillFromFolder(folderPath);
+      setDraft({ id: null, name: parsed.name, description: parsed.description, content: parsed.content });
+      setMode("editor");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function saveFromDraftBlock() {
     if (!pendingSkill) return;
     setDraft({ id: null, name: pendingSkill.name, description: pendingSkill.description, content: pendingSkill.content });
@@ -97,6 +121,12 @@ export default function SkillsView({ skills, settings, onSkillsChange, onOpenSet
           <div className="skills-toolbar">
             <h2>Навыки</h2>
             <div>
+              <button className="btn btn-secondary" onClick={importFromFile}>
+                📄 Загрузить из файла (.md)
+              </button>
+              <button className="btn btn-secondary" onClick={importFromFolder}>
+                📁 Загрузить из папки (SKILL.md)
+              </button>
               <button className="btn btn-secondary" onClick={() => setMode("creator")}>
                 ✨ Создать навык с помощью ИИ
               </button>
@@ -107,8 +137,9 @@ export default function SkillsView({ skills, settings, onSkillsChange, onOpenSet
           </div>
           {skills.length === 0 && (
             <p className="hint">
-              Навыков пока нет. Загрузите свои профессиональные навыки (копирайтинг, делопроизводство и т.д.) вручную
-              или воспользуйтесь конструктором навыков.
+              Навыков пока нет. Загрузите свои профессиональные навыки (копирайтинг, делопроизводство и т.д.) вручную,
+              импортируйте готовый навык из файла или папки (как в Claude — с файлом SKILL.md и вложенными
+              материалами), или воспользуйтесь конструктором навыков.
             </p>
           )}
           <ul className="skills-list">

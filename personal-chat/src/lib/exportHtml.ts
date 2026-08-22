@@ -6,6 +6,9 @@ export interface BrandKit {
   accentColor: string;
   footerText: string;
   logoDataUrl?: string;
+  qrDataUrl?: string;
+  contactPhone?: string;
+  contactEmail?: string;
 }
 
 function escapeHtml(text: string): string {
@@ -43,21 +46,44 @@ function baseStyles(accent: string): string {
   ul, ol { margin: 0 0 10px; padding-left: 22px; }
   ${CHART_CSS}
   .pc-brand-header { display: flex; align-items: center; gap: 14px; padding-bottom: 16px; margin-bottom: 24px; border-bottom: 3px solid ${accent}; }
+  .pc-brand-header-full { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px; }
+  .pc-brand-header-center { text-align: center; }
+  .pc-brand-header-right { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
   .pc-brand-logo { max-height: 52px; max-width: 160px; }
   .pc-brand-company { font-weight: 700; font-size: 17px; color: #111; }
   .pc-brand-tagline { font-size: 12px; color: #777; margin-top: 2px; }
+  .pc-brand-contacts { text-align: right; font-size: 12px; color: #555; line-height: 1.5; white-space: nowrap; }
+  .pc-brand-qr { width: 64px; height: 64px; object-fit: contain; flex-shrink: 0; }
   .pc-brand-footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 11px; color: #999; }
 `;
 }
 
 function brandHeaderHtml(brand?: BrandKit): string {
-  if (!brand || (!brand.companyName && !brand.logoDataUrl)) return "";
-  return `<div class="pc-brand-header">
-    ${brand.logoDataUrl ? `<img class="pc-brand-logo" src="${brand.logoDataUrl}" alt="" />` : ""}
-    <div>
+  if (!brand || (!brand.companyName && !brand.logoDataUrl && !brand.qrDataUrl)) return "";
+
+  const nameBlock = `
       ${brand.companyName ? `<div class="pc-brand-company">${escapeHtml(brand.companyName)}</div>` : ""}
-      ${brand.tagline ? `<div class="pc-brand-tagline">${escapeHtml(brand.tagline)}</div>` : ""}
-    </div>
+      ${brand.tagline ? `<div class="pc-brand-tagline">${escapeHtml(brand.tagline)}</div>` : ""}`;
+
+  if (!brand.qrDataUrl) {
+    return `<div class="pc-brand-header">
+    ${brand.logoDataUrl ? `<img class="pc-brand-logo" src="${brand.logoDataUrl}" alt="" />` : ""}
+    <div>${nameBlock}</div>
+  </div>`;
+  }
+
+  const contactsHtml =
+    brand.contactPhone || brand.contactEmail
+      ? `<div class="pc-brand-contacts">
+        ${brand.contactPhone ? `<div>${escapeHtml(brand.contactPhone)}</div>` : ""}
+        ${brand.contactEmail ? `<div>${escapeHtml(brand.contactEmail)}</div>` : ""}
+      </div>`
+      : "";
+
+  return `<div class="pc-brand-header pc-brand-header-full">
+    <div>${brand.logoDataUrl ? `<img class="pc-brand-logo" src="${brand.logoDataUrl}" alt="" />` : ""}</div>
+    <div class="pc-brand-header-center">${nameBlock}</div>
+    <div class="pc-brand-header-right">${contactsHtml}<img class="pc-brand-qr" src="${brand.qrDataUrl}" alt="QR" /></div>
   </div>`;
 }
 

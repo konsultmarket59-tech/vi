@@ -267,6 +267,18 @@ async function saveProjectBrandLogo(id, sourcePath) {
   return updateProject(id, { brand });
 }
 
+async function saveProjectBrandQr(id, sourcePath) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const ext = path.extname(sourcePath) || ".png";
+  const dest = path.join(dir, "brand-qr" + ext);
+  await fs.copyFile(sourcePath, dest);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), qrPath: dest };
+  return updateProject(id, { brand });
+}
+
 async function deleteProject(id) {
   const root = await getRootPath();
   const dir = projectDir(root, id);
@@ -331,6 +343,22 @@ async function removeDoc(projectId, fileName) {
   return listDocs(projectId);
 }
 
+async function listExternalDocs(projectId) {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  if (!meta?.externalDocsPath) return [];
+  const entries = await fs.readdir(meta.externalDocsPath, { withFileTypes: true }).catch(() => []);
+  const docs = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!SUPPORTED_DOC_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) continue;
+    const stat = await fs.stat(path.join(meta.externalDocsPath, entry.name));
+    docs.push({ name: entry.name, size: stat.size, mtime: stat.mtimeMs });
+  }
+  docs.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  return docs;
+}
+
 // ---------- skills ----------
 
 async function listSkills() {
@@ -374,6 +402,51 @@ async function saveSkill(skill) {
   };
   await writeJson(path.join(dir, id + ".json"), data);
   return { id, ...data };
+}
+
+function parseSkillFrontmatter(raw) {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return { name: "", description: "", body: raw.trim() };
+  const [, fm, body] = match;
+  const meta = {};
+  for (const line of fm.split(/\r?\n/)) {
+    const m = line.match(/^([A-Za-z_-]+):\s*(.*)$/);
+    if (m) meta[m[1].toLowerCase()] = m[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return { name: meta.name || "", description: meta.description || "", body: body.trim() };
+}
+
+function humanizeFileStem(stem) {
+  return stem.replace(/[-_]+/g, " ").trim();
+}
+
+async function importSkillFromFile(filePath) {
+  const raw = await fs.readFile(filePath, "utf-8");
+  const { name, description, body } = parseSkillFrontmatter(raw);
+  const fallbackName = humanizeFileStem(path.basename(filePath, path.extname(filePath)));
+  return { name: name || fallbackName, description, content: body || raw.trim() };
+}
+
+async function importSkillFromFolder(folderPath) {
+  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+  const skillEntry = entries.find((e) => e.isFile() && /^skill\.md$/i.test(e.name));
+  if (!skillEntry) throw new Error('В выбранной папке не найден файл SKILL.md.');
+  const raw = await fs.readFile(path.join(folderPath, skillEntry.name), "utf-8");
+  const { name, description, body } = parseSkillFrontmatter(raw);
+  const fallbackName = humanizeFileStem(path.basename(folderPath));
+  const parts = [body || raw.trim()];
+  const resources = entries.filter((e) => e.isFile() && e.name !== skillEntry.name);
+  for (const entry of resources) {
+    const ext = path.extname(entry.name).toLowerCase();
+    if (!SUPPORTED_DOC_EXTENSIONS.includes(ext)) continue;
+    try {
+      const text = await extractDocText(path.join(folderPath, entry.name));
+      parts.push(`\n--- Файл: ${entry.name} ---\n${truncate(text, MAX_DOC_CHARS)}`);
+    } catch {
+      // skip unreadable resource file
+    }
+  }
+  return { name: name || fallbackName, description, content: parts.join("\n") };
 }
 
 async function deleteSkill(id) {
@@ -525,6 +598,23 @@ async function buildSystemPrompt(projectId) {
         content = `[Ошибка чтения файла: ${e.message}]`;
       }
       parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
+    }
+  }
+
+  if (meta.externalDocsPath) {
+    const externalDocs = await listExternalDocs(projectId);
+    if (externalDocs.length > 0) {
+      parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
+      for (const doc of externalDocs) {
+        const filePath = path.join(meta.externalDocsPath, doc.name);
+        let content;
+        try {
+          content = await extractDocText(filePath);
+        } catch (e) {
+          content = `[Ошибка чтения файла: ${e.message}]`;
+        }
+        parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
+      }
     }
   }
 
@@ -738,7 +828,28 @@ ipcMain.handle("projects:pickLogo", async () => {
   return result.filePaths[0];
 });
 ipcMain.handle("projects:saveBrandLogo", (_e, id, filePath) => saveProjectBrandLogo(id, filePath));
+ipcMain.handle("projects:pickQr", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg", "webp"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:saveBrandQr", (_e, id, filePath) => saveProjectBrandQr(id, filePath));
 ipcMain.handle("fs:readFileAsDataUrl", (_e, filePath) => readFileAsDataUrl(filePath));
+
+ipcMain.handle("projects:pickExternalDocsFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:setExternalDocsFolder", (_e, id, folderPath) =>
+  updateProject(id, { externalDocsPath: folderPath || "" })
+);
+ipcMain.handle("docs:listExternal", (_e, projectId) => listExternalDocs(projectId));
 
 ipcMain.handle("projects:openFolder", async (_e, id) => {
   const root = await getRootPath();
@@ -768,6 +879,23 @@ ipcMain.handle("docs:pickFiles", async () => {
 ipcMain.handle("skills:list", () => listSkills());
 ipcMain.handle("skills:save", (_e, skill) => saveSkill(skill));
 ipcMain.handle("skills:delete", (_e, id) => deleteSkill(id));
+ipcMain.handle("skills:pickImportFile", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Навык", extensions: ["md", "txt"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("skills:pickImportFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("skills:importFromFile", (_e, filePath) => importSkillFromFile(filePath));
+ipcMain.handle("skills:importFromFolder", (_e, folderPath) => importSkillFromFolder(folderPath));
 
 ipcMain.handle("conversations:list", (_e, projectId) => listConversations(projectId));
 ipcMain.handle("conversations:save", (_e, projectId, conv) => saveConversation(projectId, conv));

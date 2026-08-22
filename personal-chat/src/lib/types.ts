@@ -10,6 +10,9 @@ export interface Brand {
   accentColor: string;
   footerText: string;
   logoPath: string;
+  qrPath?: string;
+  contactPhone?: string;
+  contactEmail?: string;
 }
 
 export const DEFAULT_BRAND: Brand = {
@@ -18,6 +21,9 @@ export const DEFAULT_BRAND: Brand = {
   accentColor: "#c96442",
   footerText: "",
   logoPath: "",
+  qrPath: "",
+  contactPhone: "",
+  contactEmail: "",
 };
 
 export interface Project {
@@ -27,6 +33,7 @@ export interface Project {
   instructions: string;
   skillIds: string[];
   brand?: Brand;
+  externalDocsPath?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -285,6 +292,8 @@ export interface ElectronAPI {
   openProjectFolder(id: string): Promise<void>;
   pickBrandLogo(): Promise<string | null>;
   saveProjectBrandLogo(id: string, filePath: string): Promise<Project>;
+  pickBrandQr(): Promise<string | null>;
+  saveProjectBrandQr(id: string, filePath: string): Promise<Project>;
   readFileAsDataUrl(filePath: string): Promise<string>;
 
   listDocs(projectId: string): Promise<DocMeta[]>;
@@ -293,9 +302,17 @@ export interface ElectronAPI {
   removeDoc(projectId: string, fileName: string): Promise<DocMeta[]>;
   pickFiles(): Promise<string[]>;
 
+  pickExternalDocsFolder(): Promise<string | null>;
+  setProjectExternalDocsFolder(id: string, folderPath: string | null): Promise<Project>;
+  listExternalDocs(projectId: string): Promise<DocMeta[]>;
+
   listSkills(): Promise<Skill[]>;
   saveSkill(skill: { id: string | null; name: string; description: string; content: string }): Promise<Skill>;
   deleteSkill(id: string): Promise<void>;
+  pickSkillImportFile(): Promise<string | null>;
+  pickSkillImportFolder(): Promise<string | null>;
+  importSkillFromFile(filePath: string): Promise<{ name: string; description: string; content: string }>;
+  importSkillFromFolder(folderPath: string): Promise<{ name: string; description: string; content: string }>;
 
   listConversations(projectId: string): Promise<Conversation[]>;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
