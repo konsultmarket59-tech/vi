@@ -3,8 +3,20 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 
-const APP_CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
-const DEFAULT_ROOT = path.join(app.getPath("documents"), "Личный чат");
+// On some Windows setups (observed with a OneDrive-redirected Documents folder)
+// app.getPath() hands back a "\\?\"-prefixed extended-length path. Node's path.join
+// doesn't reliably preserve that prefix and can collapse it down to a bare "\\?"
+// that no longer points anywhere, breaking every fs call built from it (ENOENT on
+// the very first mkdir). We don't need the extended-length form for our own short
+// subpaths, so strip it defensively before joining anything onto it.
+function stripWindowsExtendedPrefix(p) {
+  return typeof p === "string" && p.startsWith("\\\\?\\") ? p.slice(4) : p;
+}
+
+const USER_DATA_PATH = stripWindowsExtendedPrefix(app.getPath("userData"));
+const APP_CONFIG_PATH = path.join(USER_DATA_PATH, "config.json");
+const DEFAULT_ROOT = path.join(stripWindowsExtendedPrefix(app.getPath("documents")), "Личный чат");
+const FALLBACK_ROOT = path.join(USER_DATA_PATH, "data");
 
 const DEFAULT_SETTINGS = {
   baseUrl: "https://polza.ai/api/v1",
@@ -66,10 +78,22 @@ async function saveAppConfig(cfg) {
 
 async function getRootPath() {
   const cfg = await loadAppConfig();
-  await ensureDir(cfg.rootPath);
-  await ensureDir(path.join(cfg.rootPath, "projects"));
-  await ensureDir(path.join(cfg.rootPath, "skills"));
-  return cfg.rootPath;
+  let root = cfg.rootPath;
+  try {
+    await ensureDir(root);
+  } catch (e) {
+    // The configured/default folder turned out to be unreachable (e.g. a mangled
+    // Windows path — see stripWindowsExtendedPrefix above). Fall back to a plain
+    // folder inside the app's own per-user data directory so the app can still
+    // start; the user can redirect it to a different folder from Settings once
+    // it's running.
+    console.error(`Не удалось создать папку данных "${root}", использую запасную папку:`, e);
+    root = FALLBACK_ROOT;
+    await ensureDir(root);
+  }
+  await ensureDir(path.join(root, "projects"));
+  await ensureDir(path.join(root, "skills"));
+  return root;
 }
 
 function projectsDir(root) {
@@ -90,7 +114,7 @@ function chatsDir(root, id) {
 
 // ---------- settings (app-level, stored alongside config) ----------
 
-const SETTINGS_PATH = path.join(app.getPath("userData"), "settings.json");
+const SETTINGS_PATH = path.join(USER_DATA_PATH, "settings.json");
 
 async function loadSettings() {
   const s = await readJson(SETTINGS_PATH, {});
@@ -696,7 +720,7 @@ async function resolveExportDir(projectId) {
     await ensureDir(dir);
     return dir;
   }
-  return app.getPath("documents");
+  return stripWindowsExtendedPrefix(app.getPath("documents"));
 }
 
 async function renderHtmlInHiddenWindow(html, { width = 900, height = 600 } = {}) {
