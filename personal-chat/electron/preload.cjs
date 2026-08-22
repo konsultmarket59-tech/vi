@@ -47,4 +47,28 @@ contextBridge.exposeInMainWorld("api", {
   getSkillCreatorPrompt: () => ipcRenderer.invoke("meta:skillCreatorPrompt"),
   getSkillCreatorConversation: () => ipcRenderer.invoke("skillCreator:get"),
   saveSkillCreatorConversation: (conv) => ipcRenderer.invoke("skillCreator:save", conv),
+
+  // operations module
+  listOpsSheets: () => ipcRenderer.invoke("ops:list"),
+  saveOpsSheet: (sheet) => ipcRenderer.invoke("ops:save", sheet),
+  deleteOpsSheet: (id) => ipcRenderer.invoke("ops:delete", id),
+  buildOpsAgentPrompt: () => ipcRenderer.invoke("ops:buildAgentPrompt"),
+  applyOpsEdit: (edit) => ipcRenderer.invoke("ops:applyEdit", edit),
+  getOpsAgentConversation: () => ipcRenderer.invoke("ops:getAgentConversation"),
+  saveOpsAgentConversation: (conv) => ipcRenderer.invoke("ops:saveAgentConversation", conv),
+  pickXlsx: () => ipcRenderer.invoke("ops:pickXlsx"),
+  importOpsXlsx: (filePath) => ipcRenderer.invoke("ops:importXlsx", filePath),
+
+  // mail
+  getMailAccount: () => ipcRenderer.invoke("mail:getAccount"),
+  saveMailAccount: (account) => ipcRenderer.invoke("mail:saveAccount", account),
+  testMailConnection: (account) => ipcRenderer.invoke("mail:testConnection", account),
+  listMailMessages: (opts) => ipcRenderer.invoke("mail:listMessages", opts),
+  getMailMessage: (uid) => ipcRenderer.invoke("mail:getMessage", uid),
+  sendMail: (payload) => ipcRenderer.invoke("mail:sendMail", payload),
+  getMailAgentConversation: () => ipcRenderer.invoke("mail:getAgentConversation"),
+  saveMailAgentConversation: (conv) => ipcRenderer.invoke("mail:saveAgentConversation", conv),
+  getMailDraftPrompt: () => ipcRenderer.invoke("meta:mailDraftPrompt"),
+  pickMailLogo: () => ipcRenderer.invoke("mail:pickLogo"),
+  saveMailSignatureLogo: (filePath) => ipcRenderer.invoke("mail:saveSignatureLogo", filePath),
 });

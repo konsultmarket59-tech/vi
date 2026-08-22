@@ -1,6 +1,11 @@
 import type { Project } from "../lib/types";
 
-export type View = { kind: "project"; id: string } | { kind: "skills" } | { kind: "settings" };
+export type View =
+  | { kind: "project"; id: string }
+  | { kind: "skills" }
+  | { kind: "ops" }
+  | { kind: "mail" }
+  | { kind: "settings" };
 
 interface Props {
   projects: Project[];
@@ -60,6 +65,18 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           onClick={() => onSelectView({ kind: "skills" })}
         >
           🧩 Навыки
+        </button>
+        <button
+          className={view.kind === "ops" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "ops" })}
+        >
+          💼 Операционка
+        </button>
+        <button
+          className={view.kind === "mail" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "mail" })}
+        >
+          ✉️ Почта
         </button>
         <button
           className={view.kind === "settings" ? "sidebar-item active" : "sidebar-item"}

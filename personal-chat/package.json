@@ -18,12 +18,19 @@
   "dependencies": {
     "dompurify": "^3.4.14",
     "exceljs": "^4.4.0",
+    "imapflow": "^1.7.2",
+    "mailparser": "^3.9.15",
     "mammoth": "^1.12.1",
     "marked": "^18.0.10",
+    "nodemailer": "^9.0.5",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "word-extractor": "^1.0.4"
+  },
+  "overrides": {
+    "html-to-text": "^10.0.1",
+    "deepmerge-ts": "^8.0.1"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",

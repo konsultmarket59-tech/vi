@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
 import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
+import OpsView from "./components/OpsView";
+import MailView from "./components/MailView";
 import SettingsView from "./components/SettingsView";
 
 export default function App() {
@@ -62,6 +64,8 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
+        {view.kind === "ops" && <OpsView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
+        {view.kind === "mail" && <MailView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
         {view.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>
     </div>

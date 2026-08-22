@@ -394,6 +394,44 @@ async function saveSkillCreatorConversation(conv) {
   return conv;
 }
 
+// ---------- operations module + mail (delegated to sibling modules) ----------
+
+const ops = require("./ops.cjs");
+const mail = require("./mail.cjs");
+const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
+
+function opsScratchDir(root) {
+  return path.join(root, "operations");
+}
+
+async function getOpsAgentConversation() {
+  const root = await getRootPath();
+  return readJson(path.join(opsScratchDir(root), "_agent_chat.json"), null);
+}
+
+async function saveOpsAgentConversation(conv) {
+  const root = await getRootPath();
+  await ensureDir(opsScratchDir(root));
+  await writeJson(path.join(opsScratchDir(root), "_agent_chat.json"), conv);
+  return conv;
+}
+
+async function getMailAgentConversation() {
+  const root = await getRootPath();
+  return readJson(path.join(mailDirPath(root), "_agent_chat.json"), null);
+}
+
+async function saveMailAgentConversation(conv) {
+  const root = await getRootPath();
+  await ensureDir(mailDirPath(root));
+  await writeJson(path.join(mailDirPath(root), "_agent_chat.json"), conv);
+  return conv;
+}
+
+function mailDirPath(root) {
+  return path.join(root, "mail");
+}
+
 // ---------- system prompt assembly ----------
 
 const SKILL_CREATOR_PROMPT = require("./skillCreatorPrompt.cjs");
@@ -691,3 +729,47 @@ ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
 ipcMain.handle("meta:skillCreatorPrompt", () => SKILL_CREATOR_PROMPT);
 ipcMain.handle("skillCreator:get", () => getSkillCreatorConversation());
 ipcMain.handle("skillCreator:save", (_e, conv) => saveSkillCreatorConversation(conv));
+
+// ---------- operations IPC ----------
+
+ipcMain.handle("ops:list", async () => ops.listSheets(await getRootPath()));
+ipcMain.handle("ops:save", async (_e, sheet) => ops.saveSheet(await getRootPath(), sheet));
+ipcMain.handle("ops:delete", async (_e, id) => ops.deleteSheet(await getRootPath(), id));
+ipcMain.handle("ops:buildAgentPrompt", async () => ops.buildAgentSystemPrompt(await getRootPath()));
+ipcMain.handle("ops:applyEdit", async (_e, edit) => ops.applyEdit(await getRootPath(), edit));
+ipcMain.handle("ops:getAgentConversation", () => getOpsAgentConversation());
+ipcMain.handle("ops:saveAgentConversation", (_e, conv) => saveOpsAgentConversation(conv));
+
+ipcMain.handle("ops:pickXlsx", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Excel", extensions: ["xlsx"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("ops:importXlsx", async (_e, filePath) => ops.importXlsx(await getRootPath(), filePath));
+
+// ---------- mail IPC ----------
+
+ipcMain.handle("mail:getAccount", async () => mail.getAccount(await getRootPath()));
+ipcMain.handle("mail:saveAccount", async (_e, account) => mail.saveAccount(await getRootPath(), account));
+ipcMain.handle("mail:testConnection", (_e, account) => mail.testConnection(account));
+ipcMain.handle("mail:listMessages", async (_e, opts) => mail.listMessages(await mail.getAccount(await getRootPath()), opts));
+ipcMain.handle("mail:getMessage", async (_e, uid) => mail.getMessage(await mail.getAccount(await getRootPath()), uid));
+ipcMain.handle("mail:sendMail", async (_e, payload) => mail.sendMail(await getRootPath(), payload));
+ipcMain.handle("mail:getAgentConversation", () => getMailAgentConversation());
+ipcMain.handle("mail:saveAgentConversation", (_e, conv) => saveMailAgentConversation(conv));
+ipcMain.handle("meta:mailDraftPrompt", () => MAIL_DRAFT_PROMPT);
+
+ipcMain.handle("mail:pickLogo", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("mail:saveSignatureLogo", async (_e, filePath) => mail.saveSignatureLogo(await getRootPath(), filePath));

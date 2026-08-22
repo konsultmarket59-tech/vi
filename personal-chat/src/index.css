@@ -469,3 +469,71 @@ body {
 .saved-note { color: #7fd88f; margin-left: 10px; font-size: 13px; }
 
 .settings-view a { color: var(--accent-hover); }
+
+/* Operations module */
+.ops-view, .mail-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+.ops-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ops-toolbar h2 { margin: 0; }
+.ops-toolbar div { display: flex; gap: 8px; }
+
+.ops-layout, .mail-layout { display: flex; flex: 1; overflow: hidden; }
+
+.ops-sheet-list, .mail-list {
+  width: 240px;
+  min-width: 240px;
+  border-right: 1px solid var(--border);
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.ops-table-area, .mail-reader {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 24px;
+}
+
+.ops-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.ops-table-toolbar h3 { margin: 0; }
+
+.ops-table-scroll { overflow: auto; }
+
+.ops-table { border-collapse: collapse; font-size: 13px; }
+.ops-table td { border: 1px solid var(--border); padding: 2px; }
+.ops-table input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 13px;
+  width: 140px;
+}
+.ops-table input:focus { background: var(--bg-input); outline: 1px solid var(--accent); }
+.ops-row-index { color: var(--text-dim); text-align: center; font-size: 11px; padding: 0 6px !important; }
+
+/* Mail */
+.mail-list .conv-item { display: block; padding: 10px; margin-bottom: 4px; }
+.mail-list .conv-item span { font-size: 13px; }
+
+.mail-host-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.mail-host-row label { margin-top: 0; }
+
+.settings-actions { display: flex; gap: 10px; margin: 14px 0; }

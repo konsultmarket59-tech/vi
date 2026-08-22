@@ -61,6 +61,64 @@ export interface AppConfig {
   rootPath: string;
 }
 
+export type CellValue = string | number;
+
+export interface OpsSheet {
+  id: string;
+  name: string;
+  rows: CellValue[][];
+  order: number;
+  updatedAt: number;
+}
+
+export interface OpsEdit {
+  sheet: string;
+  action: "add_row" | "update_row" | "delete_row";
+  rowIndex?: number;
+  values?: CellValue[];
+}
+
+export interface MailSignature {
+  name: string;
+  position: string;
+  company: string;
+  phone: string;
+  email: string;
+  website: string;
+  accentColor: string;
+  logoPath: string;
+}
+
+export interface MailAccount {
+  email: string;
+  password: string;
+  displayName: string;
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  signature: MailSignature;
+}
+
+export interface MailMessageSummary {
+  uid: number;
+  subject: string;
+  from: string;
+  date: number;
+  seen: boolean;
+}
+
+export interface MailMessageFull extends MailMessageSummary {
+  to: string;
+  text: string;
+  html: string | null;
+}
+
+export interface MailTestResult {
+  ok: boolean;
+  errors: { imap?: string; smtp?: string };
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -99,6 +157,30 @@ export interface ElectronAPI {
   getSkillCreatorPrompt(): Promise<string>;
   getSkillCreatorConversation(): Promise<Conversation | null>;
   saveSkillCreatorConversation(conv: Conversation): Promise<Conversation>;
+
+  // operations module
+  listOpsSheets(): Promise<OpsSheet[]>;
+  saveOpsSheet(sheet: { id?: string | null; name: string; rows: CellValue[][]; order?: number }): Promise<OpsSheet>;
+  deleteOpsSheet(id: string): Promise<void>;
+  buildOpsAgentPrompt(): Promise<string>;
+  applyOpsEdit(edit: OpsEdit): Promise<OpsSheet>;
+  getOpsAgentConversation(): Promise<Conversation | null>;
+  saveOpsAgentConversation(conv: Conversation): Promise<Conversation>;
+  pickXlsx(): Promise<string | null>;
+  importOpsXlsx(filePath: string): Promise<OpsSheet[]>;
+
+  // mail
+  getMailAccount(): Promise<MailAccount>;
+  saveMailAccount(account: MailAccount): Promise<MailAccount>;
+  testMailConnection(account: MailAccount): Promise<MailTestResult>;
+  listMailMessages(opts?: { limit?: number }): Promise<MailMessageSummary[]>;
+  getMailMessage(uid: number): Promise<MailMessageFull>;
+  sendMail(payload: { to: string; subject: string; bodyText: string; includeSignature?: boolean }): Promise<string>;
+  getMailAgentConversation(): Promise<Conversation | null>;
+  saveMailAgentConversation(conv: Conversation): Promise<Conversation>;
+  getMailDraftPrompt(): Promise<string>;
+  pickMailLogo(): Promise<string | null>;
+  saveMailSignatureLogo(filePath: string): Promise<MailAccount>;
 }
 
 declare global {
