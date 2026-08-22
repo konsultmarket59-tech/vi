@@ -9,6 +9,7 @@ export interface BrandKit {
   qrDataUrl?: string;
   contactPhone?: string;
   contactEmail?: string;
+  headerImageDataUrl?: string;
 }
 
 function escapeHtml(text: string): string {
@@ -55,10 +56,15 @@ function baseStyles(accent: string): string {
   .pc-brand-contacts { text-align: right; font-size: 12px; color: #555; line-height: 1.5; white-space: nowrap; }
   .pc-brand-qr { width: 64px; height: 64px; object-fit: contain; flex-shrink: 0; }
   .pc-brand-footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 11px; color: #999; }
+  .pc-brand-header-image-wrap { margin-bottom: 24px; }
+  .pc-brand-header-image-wrap img { display: block; width: 100%; height: auto; }
 `;
 }
 
 function brandHeaderHtml(brand?: BrandKit): string {
+  if (brand?.headerImageDataUrl) {
+    return `<div class="pc-brand-header-image-wrap"><img src="${brand.headerImageDataUrl}" alt="" /></div>`;
+  }
   if (!brand || (!brand.companyName && !brand.logoDataUrl && !brand.qrDataUrl)) return "";
 
   const nameBlock = `
@@ -97,6 +103,13 @@ function wrapDocument(title: string, bodyHtml: string, brand?: BrandKit): string
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
     title
   )}</title><style>${baseStyles(accent)}</style></head><body>${brandHeaderHtml(brand)}${bodyHtml}${brandFooterHtml(brand)}</body></html>`;
+}
+
+export function buildDesignExportHtml(content: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { background: #ffffff; }
+  </style></head><body>${content}</body></html>`;
 }
 
 export function buildMessageExportHtml(title: string, content: string, brand?: BrandKit): string {

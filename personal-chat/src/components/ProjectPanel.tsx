@@ -65,9 +65,10 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     }
     const brand = project.brand;
     (async () => {
-      const [logoDataUrl, qrDataUrl] = await Promise.all([
+      const [logoDataUrl, qrDataUrl, headerImageDataUrl] = await Promise.all([
         brand.logoPath ? window.api.readFileAsDataUrl(brand.logoPath) : Promise.resolve(undefined),
         brand.qrPath ? window.api.readFileAsDataUrl(brand.qrPath) : Promise.resolve(undefined),
+        brand.headerImagePath ? window.api.readFileAsDataUrl(brand.headerImagePath) : Promise.resolve(undefined),
       ]);
       setBrandKit({
         companyName: brand.companyName,
@@ -78,6 +79,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
         qrDataUrl,
         contactPhone: brand.contactPhone,
         contactEmail: brand.contactEmail,
+        headerImageDataUrl,
       });
     })();
   }, [project.brand]);
@@ -188,6 +190,18 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     const filePath = await window.api.pickBrandQr();
     if (!filePath) return;
     const updated = await window.api.saveProjectBrandQr(project.id, filePath);
+    onProjectChange(updated);
+  }
+
+  async function pickHeaderImage() {
+    const filePath = await window.api.pickBrandHeaderImage();
+    if (!filePath) return;
+    const updated = await window.api.saveProjectBrandHeaderImage(project.id, filePath);
+    onProjectChange(updated);
+  }
+
+  async function clearHeaderImage() {
+    const updated = await window.api.clearProjectBrandHeaderImage(project.id);
     onProjectChange(updated);
   }
 
@@ -373,6 +387,33 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             Фирменный стиль проекта: логотип и цвет применяются автоматически к экспортированным документам (PDF/PNG)
             и графикам в чате этого проекта — шапка с логотипом сверху, акцентный цвет в заголовках и таблицах.
           </p>
+
+          <h3>Шапка документа</h3>
+          <p className="hint">
+            Два варианта на выбор: собрать шапку из полей ниже (логотип/название/слоган/контакты/QR), либо один раз
+            загрузить уже готовую шапку целиком одной картинкой — тогда она используется как есть, поля ниже на саму
+            шапку не влияют (но акцентный цвет и подвал документа продолжают применяться).
+          </p>
+          {brandKit?.headerImageDataUrl ? (
+            <>
+              <img src={brandKit.headerImageDataUrl} alt="" className="brand-header-image-preview" />
+              <div className="folder-row">
+                <button className="btn btn-secondary" onClick={pickHeaderImage}>
+                  Заменить картинку
+                </button>
+                <button className="btn btn-danger" onClick={clearHeaderImage}>
+                  Убрать — собирать шапку из полей
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="folder-row">
+              <button className="btn btn-secondary" onClick={pickHeaderImage}>
+                Загрузить готовую шапку целиком
+              </button>
+            </div>
+          )}
+
           <label>Название компании / бренда</label>
           <input
             value={brandDraft.companyName}
@@ -434,9 +475,9 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             </button>
           </div>
 
-          {brandKit && (brandKit.companyName || brandKit.logoDataUrl || brandKit.qrDataUrl) && (
+          {brandKit && !brandKit.headerImageDataUrl && (brandKit.companyName || brandKit.logoDataUrl || brandKit.qrDataUrl) && (
             <>
-              <h3>Предпросмотр шапки документа</h3>
+              <h3>Предпросмотр шапки документа (собранная из полей)</h3>
               {brandKit.qrDataUrl ? (
                 <div className="brand-preview brand-preview-full" style={{ borderColor: brandKit.accentColor }}>
                   <div className="brand-preview-left">

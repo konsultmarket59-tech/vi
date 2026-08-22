@@ -7,6 +7,7 @@ import SkillsView from "./components/SkillsView";
 import OpsView from "./components/OpsView";
 import MailView from "./components/MailView";
 import MediaView from "./components/MediaView";
+import DesignView from "./components/DesignView";
 import GitHubView from "./components/GitHubView";
 import ChatBotsView from "./components/ChatBotsView";
 import SettingsView from "./components/SettingsView";
@@ -71,6 +72,9 @@ export default function App() {
         {view.kind === "mail" && <MailView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
         {view.kind === "media" && (
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {view.kind === "design" && (
+          <DesignView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {view.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />

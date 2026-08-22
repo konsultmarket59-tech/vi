@@ -279,6 +279,27 @@ async function saveProjectBrandQr(id, sourcePath) {
   return updateProject(id, { brand });
 }
 
+async function saveProjectBrandHeaderImage(id, sourcePath) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const ext = path.extname(sourcePath) || ".png";
+  const dest = path.join(dir, "brand-header" + ext);
+  await fs.copyFile(sourcePath, dest);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), headerImagePath: dest };
+  return updateProject(id, { brand });
+}
+
+async function clearProjectBrandHeaderImage(id) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), headerImagePath: "" };
+  return updateProject(id, { brand });
+}
+
 async function deleteProject(id) {
   const root = await getRootPath();
   const dir = projectDir(root, id);
@@ -509,6 +530,7 @@ const mail = require("./mail.cjs");
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
+const design = require("./design.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
 
 function broadcast(channel, payload) {
@@ -720,16 +742,7 @@ async function exportHtmlToPdf({ html, defaultName, projectId }) {
   return result.filePath;
 }
 
-async function exportHtmlToPng({ html, defaultName, projectId }) {
-  const parentWin = BrowserWindow.getFocusedWindow();
-  const defaultDir = await resolveExportDir(projectId);
-  const result = await dialog.showSaveDialog(parentWin, {
-    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".png"),
-    filters: [{ name: "PNG", extensions: ["png"] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-
-  const width = 900;
+async function captureHtmlAsImage(html, { width = 900 } = {}) {
   const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width });
   try {
     // Note: document.documentElement.scrollHeight is floored at the window's
@@ -741,11 +754,47 @@ async function exportHtmlToPng({ html, defaultName, projectId }) {
     win.setContentSize(width, Math.max(contentHeight, 80));
     // give layout a moment to settle after the resize before capturing
     await new Promise((resolve) => setTimeout(resolve, 80));
-    const image = await win.webContents.capturePage();
-    await fs.writeFile(result.filePath, image.toPNG());
+    return await win.webContents.capturePage();
   } finally {
     await cleanupHiddenWindow(win, tmpFile);
   }
+}
+
+async function exportHtmlToPng({ html, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".png"),
+    filters: [{ name: "PNG", extensions: ["png"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const image = await captureHtmlAsImage(html);
+  await fs.writeFile(result.filePath, image.toPNG());
+  return result.filePath;
+}
+
+async function exportHtmlToJpg({ html, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".jpg"),
+    filters: [{ name: "JPEG", extensions: ["jpg"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const image = await captureHtmlAsImage(html);
+  await fs.writeFile(result.filePath, image.toJPEG(92));
+  return result.filePath;
+}
+
+async function exportSvgToFile({ svg, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".svg"),
+    filters: [{ name: "SVG", extensions: ["svg"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  await fs.writeFile(result.filePath, svg, "utf-8");
   return result.filePath;
 }
 
@@ -838,6 +887,17 @@ ipcMain.handle("projects:pickQr", async () => {
   return result.filePaths[0];
 });
 ipcMain.handle("projects:saveBrandQr", (_e, id, filePath) => saveProjectBrandQr(id, filePath));
+ipcMain.handle("projects:pickHeaderImage", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg", "webp"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:saveBrandHeaderImage", (_e, id, filePath) => saveProjectBrandHeaderImage(id, filePath));
+ipcMain.handle("projects:clearBrandHeaderImage", (_e, id) => clearProjectBrandHeaderImage(id));
 ipcMain.handle("fs:readFileAsDataUrl", (_e, filePath) => readFileAsDataUrl(filePath));
 
 ipcMain.handle("projects:pickExternalDocsFolder", async () => {
@@ -914,6 +974,8 @@ ipcMain.handle("import:claudeExports", (_e, filePaths) => importClaudeExport(fil
 
 ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
 ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
+ipcMain.handle("export:toJpg", (_e, payload) => exportHtmlToJpg(payload));
+ipcMain.handle("export:svgFile", (_e, payload) => exportSvgToFile(payload));
 
 ipcMain.handle("meta:skillCreatorPrompt", () => SKILL_CREATOR_PROMPT);
 ipcMain.handle("skillCreator:get", () => getSkillCreatorConversation());
@@ -1043,6 +1105,29 @@ ipcMain.handle("media:pickReferenceImage", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
+});
+
+// ---------- design section IPC ----------
+
+ipcMain.handle("design:list", async (_e, projectId) => design.list(await getRootPath(), projectId));
+ipcMain.handle("design:save", async (_e, projectId, doc) => design.save(await getRootPath(), projectId, doc));
+ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await getRootPath(), projectId, id));
+ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
+  const root = await getRootPath();
+  let brand;
+  if (projectId) {
+    const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+    brand = meta?.brand;
+  }
+  return design.buildAgentSystemPrompt(brand);
+});
+ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
+ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
+ipcMain.handle("design:openFolder", async (_e, projectId) => {
+  const root = await getRootPath();
+  const dir = design.designDir(root, projectId);
+  await ensureDir(dir);
+  await shell.openPath(dir);
 });
 
 ipcMain.handle("mail:pickLogo", async () => {

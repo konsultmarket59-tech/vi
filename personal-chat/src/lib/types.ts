@@ -13,6 +13,7 @@ export interface Brand {
   qrPath?: string;
   contactPhone?: string;
   contactEmail?: string;
+  headerImagePath?: string;
 }
 
 export const DEFAULT_BRAND: Brand = {
@@ -24,6 +25,7 @@ export const DEFAULT_BRAND: Brand = {
   qrPath: "",
   contactPhone: "",
   contactEmail: "",
+  headerImagePath: "",
 };
 
 export interface Project {
@@ -276,6 +278,20 @@ export interface MediaGenerationResult {
   costRub?: number;
 }
 
+export type DesignType = "post" | "document" | "presentation" | "design-system" | "website" | "graphic" | "other";
+export type DesignFormat = "html" | "svg";
+
+export interface DesignDoc {
+  id: string;
+  title: string;
+  type: DesignType;
+  format: DesignFormat;
+  content: string;
+  projectId?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -294,6 +310,9 @@ export interface ElectronAPI {
   saveProjectBrandLogo(id: string, filePath: string): Promise<Project>;
   pickBrandQr(): Promise<string | null>;
   saveProjectBrandQr(id: string, filePath: string): Promise<Project>;
+  pickBrandHeaderImage(): Promise<string | null>;
+  saveProjectBrandHeaderImage(id: string, filePath: string): Promise<Project>;
+  clearProjectBrandHeaderImage(id: string): Promise<Project>;
   readFileAsDataUrl(filePath: string): Promise<string>;
 
   listDocs(projectId: string): Promise<DocMeta[]>;
@@ -393,6 +412,26 @@ export interface ElectronAPI {
   openMediaFolder(projectId?: string): Promise<void>;
   pickReferenceImage(): Promise<string | null>;
   onMediaProgress(callback: (status: string) => void): () => void;
+
+  // design section
+  listDesignDocs(projectId?: string): Promise<DesignDoc[]>;
+  saveDesignDoc(payload: {
+    id?: string | null;
+    title: string;
+    type: DesignType;
+    format: DesignFormat;
+    content: string;
+    projectId?: string;
+  }): Promise<DesignDoc>;
+  deleteDesignDoc(id: string, projectId?: string): Promise<void>;
+  buildDesignAgentPrompt(projectId?: string): Promise<string>;
+  getDesignAgentConversation(projectId?: string): Promise<Conversation | null>;
+  saveDesignAgentConversation(projectId: string | undefined, conv: Conversation): Promise<Conversation>;
+  openDesignFolder(projectId?: string): Promise<void>;
+
+  // export (shared by chat exports and the design section)
+  exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
+  exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
 }
 
 declare global {
