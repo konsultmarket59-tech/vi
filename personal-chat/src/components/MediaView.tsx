@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MediaGenerationResult, MediaType, Project, Settings } from "../lib/types";
+import { listModels, type ModelInfo } from "../lib/api";
 
 interface Props {
   projects: Project[];
@@ -31,9 +32,20 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [history, setHistory] = useState<MediaGenerationResult[]>([]);
   const [historyPreview, setHistoryPreview] = useState<{ item: MediaGenerationResult; url: string } | null>(null);
 
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+
   useEffect(() => {
     refreshHistory();
   }, [projectId]);
+
+  useEffect(() => {
+    setModels([]);
+    setModelsError(null);
+    listModels(settings.baseUrl, settings.apiKey, type)
+      .then(setModels)
+      .catch((e) => setModelsError(e instanceof Error ? e.message : String(e)));
+  }, [type, settings.baseUrl, settings.apiKey]);
 
   async function refreshHistory() {
     setHistory(await window.api.listMediaGenerations(projectId || undefined));
@@ -121,7 +133,24 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
           </div>
 
           <label>ID модели</label>
-          <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={TYPE_PLACEHOLDERS[type].model} />
+          <input
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder={TYPE_PLACEHOLDERS[type].model}
+            list="media-models-list"
+          />
+          <datalist id="media-models-list">
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </datalist>
+          {modelsError ? (
+            <p className="hint">Не удалось загрузить список моделей: {modelsError}. Введите ID вручную.</p>
+          ) : (
+            models.length > 0 && <p className="hint">Доступно моделей типа «{type}»: {models.length} — начните вводить, появятся варианты.</p>
+          )}
 
           <label>Промпт</label>
           <textarea

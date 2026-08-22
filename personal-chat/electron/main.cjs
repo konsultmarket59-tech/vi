@@ -434,6 +434,7 @@ async function saveSkillCreatorConversation(conv) {
 const ops = require("./ops.cjs");
 const mail = require("./mail.cjs");
 const media = require("./media.cjs");
+const github = require("./github.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
 
 function opsScratchDir(root) {
@@ -810,6 +811,33 @@ ipcMain.handle("mail:sendMail", async (_e, payload) => mail.sendMail(await getRo
 ipcMain.handle("mail:getAgentConversation", () => getMailAgentConversation());
 ipcMain.handle("mail:saveAgentConversation", (_e, conv) => saveMailAgentConversation(conv));
 ipcMain.handle("meta:mailDraftPrompt", () => MAIL_DRAFT_PROMPT);
+
+// ---------- GitHub IPC ----------
+
+ipcMain.handle("github:getAccount", async () => github.getAccount(await getRootPath()));
+ipcMain.handle("github:saveAccount", async (_e, account) => github.saveAccount(await getRootPath(), account));
+ipcMain.handle("github:testConnection", (_e, token) => github.testConnection(token));
+
+async function githubToken() {
+  const account = await github.getAccount(await getRootPath());
+  return account.token;
+}
+
+ipcMain.handle("github:listRepos", async () => github.listRepos(await githubToken()));
+ipcMain.handle("github:createRepo", async (_e, data) => github.createRepo(await githubToken(), data));
+ipcMain.handle("github:getTree", async (_e, owner, repo) => github.getTree(await githubToken(), owner, repo));
+ipcMain.handle("github:getFileContent", async (_e, owner, repo, filePath, ref) =>
+  github.getFileContent(await githubToken(), owner, repo, filePath, ref)
+);
+ipcMain.handle("github:commitFile", async (_e, owner, repo, filePath, content, message, sha, branch) =>
+  github.commitFile(await githubToken(), owner, repo, filePath, content, message, sha, branch)
+);
+ipcMain.handle("github:getAgentConversation", async (_e, owner, repo) =>
+  github.getAgentConversation(await getRootPath(), owner, repo)
+);
+ipcMain.handle("github:saveAgentConversation", async (_e, owner, repo, conv) =>
+  github.saveAgentConversation(await getRootPath(), owner, repo, conv)
+);
 
 // ---------- media generation IPC ----------
 

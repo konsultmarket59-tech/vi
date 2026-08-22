@@ -136,6 +136,51 @@ export interface MailTestResult {
   errors: { imap?: string; smtp?: string };
 }
 
+export interface GitHubAccount {
+  token: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  description: string;
+  private: boolean;
+  updatedAt: number;
+  defaultBranch: string;
+}
+
+export interface GitHubTreeEntry {
+  path: string;
+  size: number;
+  binary: boolean;
+}
+
+export interface GitHubTree {
+  branch: string;
+  truncated: boolean;
+  entries: GitHubTreeEntry[];
+}
+
+export interface GitHubFileContent {
+  path: string;
+  content: string;
+  sha: string;
+}
+
+export interface GitHubCommitResult {
+  path: string;
+  sha?: string;
+  commitSha?: string;
+}
+
+export interface GitHubTestResult {
+  ok: boolean;
+  login?: string;
+  error?: string;
+}
+
 export type MediaType = "image" | "video" | "audio";
 
 export interface MediaGenerationRequest {
@@ -223,6 +268,26 @@ export interface ElectronAPI {
   getMailDraftPrompt(): Promise<string>;
   pickMailLogo(): Promise<string | null>;
   saveMailSignatureLogo(filePath: string): Promise<MailAccount>;
+
+  // GitHub
+  getGitHubAccount(): Promise<GitHubAccount>;
+  saveGitHubAccount(account: GitHubAccount): Promise<GitHubAccount>;
+  testGitHubConnection(token: string): Promise<GitHubTestResult>;
+  listGitHubRepos(): Promise<GitHubRepo[]>;
+  createGitHubRepo(data: { name: string; description: string; private: boolean }): Promise<GitHubRepo>;
+  getGitHubTree(owner: string, repo: string): Promise<GitHubTree>;
+  getGitHubFile(owner: string, repo: string, filePath: string, ref?: string): Promise<GitHubFileContent>;
+  commitGitHubFile(
+    owner: string,
+    repo: string,
+    filePath: string,
+    content: string,
+    message: string,
+    sha?: string,
+    branch?: string
+  ): Promise<GitHubCommitResult>;
+  getGitHubAgentConversation(owner: string, repo: string): Promise<Conversation | null>;
+  saveGitHubAgentConversation(owner: string, repo: string, conv: Conversation): Promise<Conversation>;
 
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;

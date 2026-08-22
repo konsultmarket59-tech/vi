@@ -62,6 +62,19 @@ contextBridge.exposeInMainWorld("api", {
   pickXlsx: () => ipcRenderer.invoke("ops:pickXlsx"),
   importOpsXlsx: (filePath) => ipcRenderer.invoke("ops:importXlsx", filePath),
 
+  // GitHub
+  getGitHubAccount: () => ipcRenderer.invoke("github:getAccount"),
+  saveGitHubAccount: (account) => ipcRenderer.invoke("github:saveAccount", account),
+  testGitHubConnection: (token) => ipcRenderer.invoke("github:testConnection", token),
+  listGitHubRepos: () => ipcRenderer.invoke("github:listRepos"),
+  createGitHubRepo: (data) => ipcRenderer.invoke("github:createRepo", data),
+  getGitHubTree: (owner, repo) => ipcRenderer.invoke("github:getTree", owner, repo),
+  getGitHubFile: (owner, repo, filePath, ref) => ipcRenderer.invoke("github:getFileContent", owner, repo, filePath, ref),
+  commitGitHubFile: (owner, repo, filePath, content, message, sha, branch) =>
+    ipcRenderer.invoke("github:commitFile", owner, repo, filePath, content, message, sha, branch),
+  getGitHubAgentConversation: (owner, repo) => ipcRenderer.invoke("github:getAgentConversation", owner, repo),
+  saveGitHubAgentConversation: (owner, repo, conv) => ipcRenderer.invoke("github:saveAgentConversation", owner, repo, conv),
+
   // media generation
   generateMedia: (payload) => ipcRenderer.invoke("media:generate", payload),
   listMediaGenerations: (projectId) => ipcRenderer.invoke("media:list", projectId),

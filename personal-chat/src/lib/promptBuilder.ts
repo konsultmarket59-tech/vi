@@ -86,6 +86,34 @@ PROMPT: <промпт для генерации на английском или
 Если пользователь не назвал модель — предложи разумную по умолчанию для нужного типа медиа и уточни, что её можно
 сменить в настройках.`;
 
+export interface ParsedFileEdit {
+  path: string;
+  content: string;
+}
+
+export function parseFileEdit(text: string): ParsedFileEdit | null {
+  const match = text.match(/===FILE EDIT START===([\s\S]*?)===FILE EDIT END===/);
+  if (!match) return null;
+  const block = match[1];
+  const path = block.match(/PATH:\s*(.+)/)?.[1]?.trim();
+  const contentMatch = block.match(/CONTENT:\s*([\s\S]*)/);
+  if (!path || !contentMatch) return null;
+  return { path, content: contentMatch[1].trim() };
+}
+
+export const FILE_EDIT_SYNTAX_HINT = `Когда нужно создать или изменить файл в репозитории, предложи это строго в формате (приложение распознает
+и покажет кнопку «Применить и закоммитить» — сам ты ничего не коммитишь):
+
+===FILE EDIT START===
+PATH: <путь файла относительно корня репозитория, например src/App.tsx>
+CONTENT:
+<ПОЛНОЕ новое содержимое файла целиком, не диф и не фрагмент>
+===FILE EDIT END===
+
+Если для правки нужно увидеть содержимое файла, которого нет среди прикреплённых — попроси пользователя прикрепить
+его через список файлов слева (отметить галочкой), не изобретай содержимое. Можно предложить только одну правку за
+раз — если изменений несколько, предлагай по очереди в отдельных ответах.`;
+
 export interface ParsedMailDraft {
   to: string;
   subject: string;

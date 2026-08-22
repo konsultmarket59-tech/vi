@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Settings } from "../lib/types";
+import { listModels, type ModelInfo } from "../lib/api";
 
 interface Props {
   settings: Settings;
@@ -11,10 +12,26 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rootPath, setRootPath] = useState("");
+  const [chatModels, setChatModels] = useState<ModelInfo[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   useEffect(() => {
     window.api.getConfig().then((cfg) => setRootPath(cfg.rootPath));
+    refreshModels();
   }, []);
+
+  async function refreshModels() {
+    setLoadingModels(true);
+    setModelsError(null);
+    try {
+      setChatModels(await listModels(draft.baseUrl, draft.apiKey, "chat"));
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingModels(false);
+    }
+  }
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -73,13 +90,34 @@ export default function SettingsView({ settings, onChange }: Props) {
       </div>
 
       <label>Модель</label>
-      <input value={draft.model} onChange={(e) => update("model", e.target.value)} placeholder="anthropic/claude-sonnet-5" />
+      <div className="key-row">
+        <input
+          value={draft.model}
+          onChange={(e) => update("model", e.target.value)}
+          placeholder="anthropic/claude-sonnet-5"
+          list="chat-models-list"
+        />
+        <button className="btn btn-secondary" onClick={refreshModels} disabled={loadingModels}>
+          {loadingModels ? "Загрузка…" : "Обновить список"}
+        </button>
+      </div>
+      <datalist id="chat-models-list">
+        {chatModels.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name}
+          </option>
+        ))}
+      </datalist>
+      {modelsError && <p className="hint">Не удалось загрузить список моделей: {modelsError}. Можно ввести ID вручную.</p>}
       <p className="hint">
-        Точный идентификатор модели скопируйте со страницы{" "}
+        {chatModels.length > 0
+          ? `Начните вводить название или ID — появятся варианты из ${chatModels.length} доступных на Polza.ai моделей.`
+          : "Точный идентификатор модели скопируйте со страницы"}{" "}
         <a href="https://polza.ai/models" target="_blank" rel="noreferrer">
           polza.ai/models
         </a>{" "}
-        (например: anthropic/claude-sonnet-5, anthropic/claude-opus-5).
+        (например: anthropic/claude-sonnet-5, anthropic/claude-opus-5). Список не ограничен приложением — доступна
+        любая модель, включённая на вашем аккаунте Polza.ai.
       </p>
 
       <label>Temperature: {draft.temperature}</label>

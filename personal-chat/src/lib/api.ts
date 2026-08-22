@@ -86,3 +86,30 @@ export async function streamChat(
 
   return full;
 }
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+}
+
+/**
+ * Lists models available on the configured OpenAI-compatible endpoint. For
+ * Polza.ai this is the full catalog (GET /models needs no auth there), not a
+ * per-account "activated" list — the point is to make every model you can
+ * use easy to find and paste in, not to restrict the model field to a fixed
+ * set.
+ */
+export async function listModels(baseUrl: string, apiKey: string, type?: string): Promise<ModelInfo[]> {
+  const url = baseUrl.replace(/\/+$/, "") + "/models" + (type ? `?type=${encodeURIComponent(type)}` : "");
+  const res = await fetch(url, {
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+  });
+  if (!res.ok) {
+    throw new ApiError(`Не удалось получить список моделей (${res.status} ${res.statusText}).`);
+  }
+  const body = await res.json();
+  const list = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+  return list
+    .map((m: { id?: string; name?: string }) => ({ id: m.id ?? "", name: m.name ?? m.id ?? "" }))
+    .filter((m: ModelInfo) => m.id);
+}
