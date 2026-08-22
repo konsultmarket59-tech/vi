@@ -4,12 +4,29 @@ export interface DocMeta {
   mtime: number;
 }
 
+export interface Brand {
+  companyName: string;
+  tagline: string;
+  accentColor: string;
+  footerText: string;
+  logoPath: string;
+}
+
+export const DEFAULT_BRAND: Brand = {
+  companyName: "",
+  tagline: "",
+  accentColor: "#c96442",
+  footerText: "",
+  logoPath: "",
+};
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   instructions: string;
   skillIds: string[];
+  brand?: Brand;
   createdAt: number;
   updatedAt: number;
 }
@@ -133,6 +150,9 @@ export interface ElectronAPI {
   deleteProject(id: string): Promise<void>;
   buildSystemPrompt(id: string): Promise<string>;
   openProjectFolder(id: string): Promise<void>;
+  pickBrandLogo(): Promise<string | null>;
+  saveProjectBrandLogo(id: string, filePath: string): Promise<Project>;
+  readFileAsDataUrl(filePath: string): Promise<string>;
 
   listDocs(projectId: string): Promise<DocMeta[]>;
   addDocsFromPaths(projectId: string, filePaths: string[]): Promise<DocMeta[]>;

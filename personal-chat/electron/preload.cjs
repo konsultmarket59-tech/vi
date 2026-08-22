@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld("api", {
   deleteProject: (id) => ipcRenderer.invoke("projects:delete", id),
   buildSystemPrompt: (id) => ipcRenderer.invoke("projects:buildSystemPrompt", id),
   openProjectFolder: (id) => ipcRenderer.invoke("projects:openFolder", id),
+  pickBrandLogo: () => ipcRenderer.invoke("projects:pickLogo"),
+  saveProjectBrandLogo: (id, filePath) => ipcRenderer.invoke("projects:saveBrandLogo", id, filePath),
+  readFileAsDataUrl: (filePath) => ipcRenderer.invoke("fs:readFileAsDataUrl", filePath),
 
   // docs
   listDocs: (projectId) => ipcRenderer.invoke("docs:list", projectId),

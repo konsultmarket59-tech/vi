@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Conversation, DocMeta, Project, Settings, Skill } from "../lib/types";
+import type { Brand, Conversation, DocMeta, Project, Settings, Skill } from "../lib/types";
+import { DEFAULT_BRAND } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
+import type { BrandKit } from "../lib/exportHtml";
 import ChatView from "./ChatView";
 
 interface Props {
@@ -11,7 +13,7 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-type Tab = "chat" | "instructions" | "docs" | "skills";
+type Tab = "chat" | "instructions" | "docs" | "skills" | "brand";
 
 export default function ProjectPanel({ project, skills, settings, onProjectChange, onOpenSettings }: Props) {
   const [tab, setTab] = useState<Tab>("chat");
@@ -25,6 +27,8 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [pasteTitle, setPasteTitle] = useState("");
   const [docError, setDocError] = useState<string | null>(null);
   const [systemPrompt, setSystemPrompt] = useState("");
+  const [brandDraft, setBrandDraft] = useState<Brand>(project.brand ?? DEFAULT_BRAND);
+  const [brandKit, setBrandKit] = useState<BrandKit | undefined>(undefined);
 
   useEffect(() => {
     setInstructionsDraft(project.instructions);
@@ -38,6 +42,25 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   useEffect(() => {
     window.api.buildSystemPrompt(project.id).then(setSystemPrompt);
   }, [project.id, project.instructions, project.skillIds, docs, tab]);
+
+  useEffect(() => {
+    setBrandDraft(project.brand ?? DEFAULT_BRAND);
+    if (!project.brand) {
+      setBrandKit(undefined);
+      return;
+    }
+    const brand = project.brand;
+    (async () => {
+      const logoDataUrl = brand.logoPath ? await window.api.readFileAsDataUrl(brand.logoPath) : undefined;
+      setBrandKit({
+        companyName: brand.companyName,
+        tagline: brand.tagline,
+        accentColor: brand.accentColor,
+        footerText: brand.footerText,
+        logoDataUrl,
+      });
+    })();
+  }, [project.brand]);
 
   async function loadConversations(projectId: string) {
     const list = await window.api.listConversations(projectId);
@@ -129,6 +152,18 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     await window.api.openProjectFolder(project.id);
   }
 
+  async function saveBrand() {
+    const updated = await window.api.updateProject(project.id, { brand: brandDraft });
+    onProjectChange(updated);
+  }
+
+  async function pickLogo() {
+    const filePath = await window.api.pickBrandLogo();
+    if (!filePath) return;
+    const updated = await window.api.saveProjectBrandLogo(project.id, filePath);
+    onProjectChange(updated);
+  }
+
   const activeConv = conversations.find((c) => c.id === activeConvId);
 
   return (
@@ -150,6 +185,9 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
           </button>
           <button className={tab === "skills" ? "tab active" : "tab"} onClick={() => setTab("skills")}>
             Навыки ({project.skillIds.length})
+          </button>
+          <button className={tab === "brand" ? "tab active" : "tab"} onClick={() => setTab("brand")}>
+            Дизайн
           </button>
           <button className="link-btn folder-link" onClick={openFolder}>
             📁 Открыть папку проекта
@@ -186,6 +224,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 onUpdate={updateConversationLocal}
                 onSave={(conv) => window.api.saveConversation(project.id, conv)}
                 projectId={project.id}
+                brand={brandKit}
               />
             ) : (
               <div className="chat-empty-hint">Нет активного чата. Нажмите «+ Новый чат».</div>
@@ -251,6 +290,55 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {tab === "brand" && (
+        <div className="panel-section">
+          <p className="hint">
+            Фирменный стиль проекта: логотип и цвет применяются автоматически к экспортированным документам (PDF/PNG)
+            и графикам в чате этого проекта — шапка с логотипом сверху, акцентный цвет в заголовках и таблицах.
+          </p>
+          <label>Название компании / бренда</label>
+          <input value={brandDraft.companyName} onChange={(e) => setBrandDraft({ ...brandDraft, companyName: e.target.value })} onBlur={saveBrand} />
+          <label>Слоган / подзаголовок</label>
+          <input value={brandDraft.tagline} onChange={(e) => setBrandDraft({ ...brandDraft, tagline: e.target.value })} onBlur={saveBrand} />
+          <label>Акцентный цвет</label>
+          <input
+            type="color"
+            value={brandDraft.accentColor}
+            onChange={(e) => {
+              const next = { ...brandDraft, accentColor: e.target.value };
+              setBrandDraft(next);
+            }}
+            onBlur={saveBrand}
+          />
+          <label>Текст в подвале документов (адрес, контакты, реквизиты)</label>
+          <textarea
+            value={brandDraft.footerText}
+            onChange={(e) => setBrandDraft({ ...brandDraft, footerText: e.target.value })}
+            onBlur={saveBrand}
+            rows={3}
+          />
+          <label>Логотип</label>
+          <div className="folder-row">
+            {project.brand?.logoPath && <span className="hint">Загружен: {project.brand.logoPath.split(/[\\/]/).pop()}</span>}
+            <button className="btn btn-secondary" onClick={pickLogo}>
+              Выбрать логотип
+            </button>
+          </div>
+          {brandKit && (
+            <>
+              <h3>Предпросмотр шапки документа</h3>
+              <div className="brand-preview" style={{ borderColor: brandKit.accentColor }}>
+                {brandKit.logoDataUrl && <img src={brandKit.logoDataUrl} alt="" className="brand-preview-logo" />}
+                <div>
+                  {brandKit.companyName && <div className="brand-preview-company">{brandKit.companyName}</div>}
+                  {brandKit.tagline && <div className="brand-preview-tagline">{brandKit.tagline}</div>}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

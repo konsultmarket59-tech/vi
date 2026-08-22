@@ -399,6 +399,14 @@ body {
 .markdown code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
 .markdown ul, .markdown ol { margin: 0 0 10px; padding-left: 22px; }
 
+.markdown .pc-chart { margin: 14px 0; background: #fff; border-radius: 8px; padding: 14px; color: #1a1a1a; }
+.markdown .pc-chart-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.markdown .pc-chart-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11px; color: #444; }
+.markdown .pc-chart-legend-vertical { flex-direction: column; gap: 5px; }
+.markdown .pc-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.markdown .pc-legend-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.markdown .pc-chart-pie-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+
 .chat-error {
   background: #3a1a1a;
   border: 1px solid #5a2020;
@@ -537,3 +545,20 @@ body {
 .mail-host-row label { margin-top: 0; }
 
 .settings-actions { display: flex; gap: 10px; margin: 14px 0; }
+
+/* Brand kit preview */
+.brand-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-bottom-width: 3px;
+  border-radius: 8px;
+  background: #fff;
+  margin-top: 10px;
+  max-width: 500px;
+}
+.brand-preview-logo { max-height: 44px; max-width: 140px; }
+.brand-preview-company { font-weight: 700; color: #111; font-size: 15px; }
+.brand-preview-tagline { font-size: 12px; color: #777; margin-top: 2px; }

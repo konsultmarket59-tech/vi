@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, Conversation, Settings } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import { streamChat, ApiError, type ApiMessage } from "../lib/api";
-import { buildConversationExportHtml, buildMessageExportHtml } from "../lib/exportHtml";
+import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
+import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
 import Markdown from "./Markdown";
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
   onUpdate: (conv: Conversation) => void;
   onSave: (conv: Conversation) => Promise<unknown>;
   projectId?: string;
+  brand?: BrandKit;
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
 }
@@ -28,6 +30,7 @@ export default function ChatView({
   onUpdate,
   onSave,
   projectId,
+  brand,
   emptyHint,
   onAssistantMessage,
 }: Props) {
@@ -60,7 +63,7 @@ export default function ChatView({
     await onSave(withUser);
 
     const apiMessages: ApiMessage[] = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: systemPrompt + "\n\n" + CHART_SYNTAX_HINT },
       ...withUser.messages.map((m) => ({ role: m.role, content: m.content }) as ApiMessage),
     ];
 
@@ -108,7 +111,7 @@ export default function ChatView({
   async function exportMessage(m: ChatMessage, format: "pdf" | "png") {
     setExportError(null);
     try {
-      const html = buildMessageExportHtml(deriveFileName(m.content), m.content);
+      const html = buildMessageExportHtml(deriveFileName(m.content), m.content, brand);
       const payload = { html, defaultName: deriveFileName(m.content), projectId };
       if (format === "pdf") await window.api.exportToPdf(payload);
       else await window.api.exportToPng(payload);
@@ -120,7 +123,7 @@ export default function ChatView({
   async function exportConversation(format: "pdf" | "png") {
     setExportError(null);
     try {
-      const html = buildConversationExportHtml(conversation.title, conversation.messages);
+      const html = buildConversationExportHtml(conversation.title, conversation.messages, brand);
       const payload = { html, defaultName: conversation.title, projectId };
       if (format === "pdf") await window.api.exportToPdf(payload);
       else await window.api.exportToPng(payload);
@@ -156,7 +159,7 @@ export default function ChatView({
         {conversation.messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>
             <div className="msg-role">{m.role === "user" ? "Вы" : "Ассистент"}</div>
-            <Markdown text={m.content} />
+            <Markdown text={m.content} accentColor={brand?.accentColor} />
             <div className="msg-export-actions">
               <button className="link-btn" onClick={() => exportMessage(m, "pdf")}>
                 Экспорт в PDF
@@ -170,7 +173,7 @@ export default function ChatView({
         {busy && (
           <div className="msg msg-assistant">
             <div className="msg-role">Ассистент</div>
-            <Markdown text={streamingText || "…"} />
+            <Markdown text={streamingText || "…"} accentColor={brand?.accentColor} />
           </div>
         )}
         {error && <div className="chat-error">{error}</div>}

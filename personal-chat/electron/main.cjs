@@ -232,6 +232,34 @@ async function updateProject(id, patch) {
   return { id, ...updated };
 }
 
+const IMAGE_MIME_BY_EXT = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+};
+
+async function readFileAsDataUrl(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const mime = IMAGE_MIME_BY_EXT[ext] || "application/octet-stream";
+  const buffer = await fs.readFile(filePath);
+  return `data:${mime};base64,${buffer.toString("base64")}`;
+}
+
+async function saveProjectBrandLogo(id, sourcePath) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const ext = path.extname(sourcePath) || ".png";
+  const dest = path.join(dir, "brand-logo" + ext);
+  await fs.copyFile(sourcePath, dest);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), logoPath: dest };
+  return updateProject(id, { brand });
+}
+
 async function deleteProject(id) {
   const root = await getRootPath();
   const dir = projectDir(root, id);
@@ -679,6 +707,18 @@ ipcMain.handle("projects:create", (_e, data) => createProject(data));
 ipcMain.handle("projects:update", (_e, id, patch) => updateProject(id, patch));
 ipcMain.handle("projects:delete", (_e, id) => deleteProject(id));
 ipcMain.handle("projects:buildSystemPrompt", (_e, id) => buildSystemPrompt(id));
+ipcMain.handle("projects:pickLogo", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg", "webp"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:saveBrandLogo", (_e, id, filePath) => saveProjectBrandLogo(id, filePath));
+ipcMain.handle("fs:readFileAsDataUrl", (_e, filePath) => readFileAsDataUrl(filePath));
+
 ipcMain.handle("projects:openFolder", async (_e, id) => {
   const root = await getRootPath();
   await shell.openPath(projectDir(root, id));
