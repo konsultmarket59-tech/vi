@@ -32,7 +32,24 @@ body {
   justify-content: center;
   height: 100vh;
   color: var(--text-dim);
+  text-align: center;
 }
+.loading-screen-error { color: var(--text); padding: 20px; }
+.loading-screen-error > div { max-width: 640px; }
+.startup-error-details {
+  text-align: left;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow: auto;
+  margin: 12px 0;
+}
+.startup-slow-hint { max-width: 420px; margin: 12px auto 0; }
 
 .app-shell {
   display: flex;
