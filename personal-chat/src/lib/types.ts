@@ -136,6 +136,72 @@ export interface MailTestResult {
   errors: { imap?: string; smtp?: string };
 }
 
+export type ChatbotPlatform = "telegram" | "vk" | "max";
+
+export interface TelegramAccount {
+  token: string;
+  enabled: boolean;
+}
+export interface VkAccount {
+  token: string;
+  groupId: string;
+  enabled: boolean;
+}
+export interface MaxAccount {
+  token: string;
+  enabled: boolean;
+}
+
+export interface ChatbotAccounts {
+  telegram: TelegramAccount;
+  vk: VkAccount;
+  max: MaxAccount;
+}
+
+export interface ChatbotTestResult {
+  ok: boolean;
+  login?: string;
+  error?: string;
+}
+
+export type ChatbotStatusMap = Record<ChatbotPlatform, boolean>;
+
+export interface FunnelStep {
+  delayMinutes: number;
+  text: string;
+}
+
+export interface FunnelTrigger {
+  type: "keyword" | "start" | "default";
+  keyword?: string;
+}
+
+export interface Funnel {
+  id: string;
+  name: string;
+  trigger: FunnelTrigger;
+  platforms: ChatbotPlatform[];
+  steps: FunnelStep[];
+}
+
+export interface Lead {
+  userId: string;
+  name: string;
+  firstSeenAt: number;
+  funnelId: string | null;
+  stepIndex: number;
+  nextStepDueAt: number | null;
+  lastMessageAt: number;
+}
+
+export interface ChatbotMessage {
+  userId: string;
+  name: string;
+  direction: "in" | "out";
+  text: string;
+  at: number;
+}
+
 export interface GitHubAccount {
   token: string;
 }
@@ -268,6 +334,21 @@ export interface ElectronAPI {
   getMailDraftPrompt(): Promise<string>;
   pickMailLogo(): Promise<string | null>;
   saveMailSignatureLogo(filePath: string): Promise<MailAccount>;
+
+  // chatbots / funnels
+  getChatbotAccounts(): Promise<ChatbotAccounts>;
+  saveChatbotAccounts(accounts: ChatbotAccounts): Promise<ChatbotAccounts>;
+  testChatbotConnection(platform: ChatbotPlatform, account: TelegramAccount | VkAccount | MaxAccount): Promise<ChatbotTestResult>;
+  startChatbot(platform: ChatbotPlatform): Promise<ChatbotStatusMap>;
+  stopChatbot(platform: ChatbotPlatform): Promise<ChatbotStatusMap>;
+  getChatbotStatus(): Promise<ChatbotStatusMap>;
+  getFunnels(): Promise<Funnel[]>;
+  saveFunnels(funnels: Funnel[]): Promise<Funnel[]>;
+  getChatbotLeads(platform: ChatbotPlatform): Promise<Lead[]>;
+  getChatbotMessages(platform: ChatbotPlatform): Promise<ChatbotMessage[]>;
+  sendChatbotMessage(platform: ChatbotPlatform, userId: string, text: string): Promise<ChatbotMessage>;
+  onChatbotMessage(callback: (payload: { platform: ChatbotPlatform; message: ChatbotMessage }) => void): () => void;
+  onChatbotStatus(callback: (payload: { platform: ChatbotPlatform; status: string }) => void): () => void;
 
   // GitHub
   getGitHubAccount(): Promise<GitHubAccount>;

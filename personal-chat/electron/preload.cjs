@@ -62,6 +62,29 @@ contextBridge.exposeInMainWorld("api", {
   pickXlsx: () => ipcRenderer.invoke("ops:pickXlsx"),
   importOpsXlsx: (filePath) => ipcRenderer.invoke("ops:importXlsx", filePath),
 
+  // chatbots / funnels
+  getChatbotAccounts: () => ipcRenderer.invoke("chatbots:getAccounts"),
+  saveChatbotAccounts: (accounts) => ipcRenderer.invoke("chatbots:saveAccounts", accounts),
+  testChatbotConnection: (platform, account) => ipcRenderer.invoke("chatbots:testConnection", platform, account),
+  startChatbot: (platform) => ipcRenderer.invoke("chatbots:start", platform),
+  stopChatbot: (platform) => ipcRenderer.invoke("chatbots:stop", platform),
+  getChatbotStatus: () => ipcRenderer.invoke("chatbots:getStatus"),
+  getFunnels: () => ipcRenderer.invoke("chatbots:getFunnels"),
+  saveFunnels: (funnels) => ipcRenderer.invoke("chatbots:saveFunnels", funnels),
+  getChatbotLeads: (platform) => ipcRenderer.invoke("chatbots:getLeads", platform),
+  getChatbotMessages: (platform) => ipcRenderer.invoke("chatbots:getMessages", platform),
+  sendChatbotMessage: (platform, userId, text) => ipcRenderer.invoke("chatbots:sendManual", platform, userId, text),
+  onChatbotMessage: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("chatbots:message", listener);
+    return () => ipcRenderer.removeListener("chatbots:message", listener);
+  },
+  onChatbotStatus: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("chatbots:status", listener);
+    return () => ipcRenderer.removeListener("chatbots:status", listener);
+  },
+
   // GitHub
   getGitHubAccount: () => ipcRenderer.invoke("github:getAccount"),
   saveGitHubAccount: (account) => ipcRenderer.invoke("github:saveAccount", account),

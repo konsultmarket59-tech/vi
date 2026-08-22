@@ -435,7 +435,18 @@ const ops = require("./ops.cjs");
 const mail = require("./mail.cjs");
 const media = require("./media.cjs");
 const github = require("./github.cjs");
+const chatbots = require("./chatbots.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
+
+function broadcast(channel, payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      win.webContents.send(channel, payload);
+    } catch {
+      // window may be closing; ignore
+    }
+  }
+}
 
 function opsScratchDir(root) {
   return path.join(root, "operations");
@@ -678,6 +689,7 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+  chatbots.startScheduler(getRootPath, (platform, message) => broadcast("chatbots:message", { platform, message }));
 });
 
 app.on("window-all-closed", () => {
@@ -837,6 +849,37 @@ ipcMain.handle("github:getAgentConversation", async (_e, owner, repo) =>
 );
 ipcMain.handle("github:saveAgentConversation", async (_e, owner, repo, conv) =>
   github.saveAgentConversation(await getRootPath(), owner, repo, conv)
+);
+
+// ---------- chatbots / funnels IPC ----------
+
+ipcMain.handle("chatbots:getAccounts", async () => chatbots.getAccounts(await getRootPath()));
+ipcMain.handle("chatbots:saveAccounts", async (_e, accounts) => chatbots.saveAccounts(await getRootPath(), accounts));
+ipcMain.handle("chatbots:testConnection", (_e, platform, account) => chatbots.testConnection(platform, account));
+
+ipcMain.handle("chatbots:start", async (_e, platform) => {
+  const root = await getRootPath();
+  await chatbots.start(
+    root,
+    platform,
+    (p, message) => broadcast("chatbots:message", { platform: p, message }),
+    (p, status) => broadcast("chatbots:status", { platform: p, status })
+  );
+  return chatbots.getStatus();
+});
+ipcMain.handle("chatbots:stop", (_e, platform) => {
+  chatbots.stop(platform);
+  return chatbots.getStatus();
+});
+ipcMain.handle("chatbots:getStatus", () => chatbots.getStatus());
+
+ipcMain.handle("chatbots:getFunnels", async () => chatbots.getFunnels(await getRootPath()));
+ipcMain.handle("chatbots:saveFunnels", async (_e, funnels) => chatbots.saveFunnels(await getRootPath(), funnels));
+
+ipcMain.handle("chatbots:getLeads", async (_e, platform) => chatbots.getLeads(await getRootPath(), platform));
+ipcMain.handle("chatbots:getMessages", async (_e, platform) => chatbots.getMessages(await getRootPath(), platform));
+ipcMain.handle("chatbots:sendManual", async (_e, platform, userId, text) =>
+  chatbots.sendManual(await getRootPath(), platform, userId, text)
 );
 
 // ---------- media generation IPC ----------

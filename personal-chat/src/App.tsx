@@ -8,6 +8,7 @@ import OpsView from "./components/OpsView";
 import MailView from "./components/MailView";
 import MediaView from "./components/MediaView";
 import GitHubView from "./components/GitHubView";
+import ChatBotsView from "./components/ChatBotsView";
 import SettingsView from "./components/SettingsView";
 
 export default function App() {
@@ -74,6 +75,7 @@ export default function App() {
         {view.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
+        {view.kind === "chatbots" && <ChatBotsView />}
         {view.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>
     </div>
