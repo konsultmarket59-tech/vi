@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import type { MediaGenerationResult, MediaType, Project, Settings } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
+import { CURATED_IMAGE_MODELS, CURATED_VIDEO_MODELS, mergeModelLists } from "../lib/curatedModels";
+
+const CURATED_BY_TYPE: Record<MediaType, ModelInfo[]> = {
+  image: CURATED_IMAGE_MODELS,
+  video: CURATED_VIDEO_MODELS,
+  audio: [],
+};
 
 interface Props {
   projects: Project[];
@@ -40,10 +47,10 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   }, [projectId]);
 
   useEffect(() => {
-    setModels([]);
+    setModels(CURATED_BY_TYPE[type]);
     setModelsError(null);
     listModels(settings.baseUrl, settings.apiKey, type)
-      .then(setModels)
+      .then((fetched) => setModels(mergeModelLists(CURATED_BY_TYPE[type], fetched)))
       .catch((e) => setModelsError(e instanceof Error ? e.message : String(e)));
   }, [type, settings.baseUrl, settings.apiKey]);
 

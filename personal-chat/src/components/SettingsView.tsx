@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Settings } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
+import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
 
 interface Props {
   settings: Settings;
@@ -12,7 +13,7 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [rootPath, setRootPath] = useState("");
-  const [chatModels, setChatModels] = useState<ModelInfo[]>([]);
+  const [chatModels, setChatModels] = useState<ModelInfo[]>(CURATED_CHAT_MODELS);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
 
@@ -25,7 +26,7 @@ export default function SettingsView({ settings, onChange }: Props) {
     setLoadingModels(true);
     setModelsError(null);
     try {
-      setChatModels(await listModels(draft.baseUrl, draft.apiKey, "chat"));
+      setChatModels(mergeModelLists(CURATED_CHAT_MODELS, await listModels(draft.baseUrl, draft.apiKey, "chat")));
     } catch (e) {
       setModelsError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -108,16 +109,20 @@ export default function SettingsView({ settings, onChange }: Props) {
           </option>
         ))}
       </datalist>
-      {modelsError && <p className="hint">Не удалось загрузить список моделей: {modelsError}. Можно ввести ID вручную.</p>}
+      {modelsError && (
+        <p className="hint">
+          Не удалось загрузить полный список моделей: {modelsError}. Можно ввести ID вручную — ниже уже есть
+          заготовленный список часто используемых моделей.
+        </p>
+      )}
       <p className="hint">
-        {chatModels.length > 0
-          ? `Начните вводить название или ID — появятся варианты из ${chatModels.length} доступных на Polza.ai моделей.`
-          : "Точный идентификатор модели скопируйте со страницы"}{" "}
+        Начните вводить название или ID — появятся варианты (среди них — заготовленный список: Claude Sonnet 5,
+        Claude Opus 5, Claude Fable 5, Gemini 3.5 Flash-Lite, Kimi K3, и всё, что удалось загрузить с Polza.ai).
+        Точный идентификатор любой другой модели можно скопировать со страницы{" "}
         <a href="https://polza.ai/models" target="_blank" rel="noreferrer">
           polza.ai/models
         </a>{" "}
-        (например: anthropic/claude-sonnet-5, anthropic/claude-opus-5). Список не ограничен приложением — доступна
-        любая модель, включённая на вашем аккаунте Polza.ai.
+        — список не ограничен приложением, доступна любая модель, включённая на вашем аккаунте Polza.ai.
       </p>
 
       <label>Temperature: {draft.temperature}</label>
