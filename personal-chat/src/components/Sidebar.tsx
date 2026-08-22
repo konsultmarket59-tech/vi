@@ -6,6 +6,7 @@ export type View =
   | { kind: "ops" }
   | { kind: "mail" }
   | { kind: "media" }
+  | { kind: "design" }
   | { kind: "github" }
   | { kind: "chatbots" }
   | { kind: "settings" };
@@ -86,6 +87,12 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           onClick={() => onSelectView({ kind: "media" })}
         >
           🎨 Медиа
+        </button>
+        <button
+          className={view.kind === "design" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "design" })}
+        >
+          🖌️ Дизайн
         </button>
         <button
           className={view.kind === "github" ? "sidebar-item active" : "sidebar-item"}

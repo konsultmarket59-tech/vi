@@ -19,6 +19,11 @@ contextBridge.exposeInMainWorld("api", {
   openProjectFolder: (id) => ipcRenderer.invoke("projects:openFolder", id),
   pickBrandLogo: () => ipcRenderer.invoke("projects:pickLogo"),
   saveProjectBrandLogo: (id, filePath) => ipcRenderer.invoke("projects:saveBrandLogo", id, filePath),
+  pickBrandQr: () => ipcRenderer.invoke("projects:pickQr"),
+  saveProjectBrandQr: (id, filePath) => ipcRenderer.invoke("projects:saveBrandQr", id, filePath),
+  pickBrandHeaderImage: () => ipcRenderer.invoke("projects:pickHeaderImage"),
+  saveProjectBrandHeaderImage: (id, filePath) => ipcRenderer.invoke("projects:saveBrandHeaderImage", id, filePath),
+  clearProjectBrandHeaderImage: (id) => ipcRenderer.invoke("projects:clearBrandHeaderImage", id),
   readFileAsDataUrl: (filePath) => ipcRenderer.invoke("fs:readFileAsDataUrl", filePath),
 
   // docs
@@ -27,11 +32,18 @@ contextBridge.exposeInMainWorld("api", {
   addPastedDoc: (projectId, name, content) => ipcRenderer.invoke("docs:addPasted", projectId, name, content),
   removeDoc: (projectId, fileName) => ipcRenderer.invoke("docs:remove", projectId, fileName),
   pickFiles: () => ipcRenderer.invoke("docs:pickFiles"),
+  pickExternalDocsFolder: () => ipcRenderer.invoke("projects:pickExternalDocsFolder"),
+  setProjectExternalDocsFolder: (id, folderPath) => ipcRenderer.invoke("projects:setExternalDocsFolder", id, folderPath),
+  listExternalDocs: (projectId) => ipcRenderer.invoke("docs:listExternal", projectId),
 
   // skills
   listSkills: () => ipcRenderer.invoke("skills:list"),
   saveSkill: (skill) => ipcRenderer.invoke("skills:save", skill),
   deleteSkill: (id) => ipcRenderer.invoke("skills:delete", id),
+  pickSkillImportFile: () => ipcRenderer.invoke("skills:pickImportFile"),
+  pickSkillImportFolder: () => ipcRenderer.invoke("skills:pickImportFolder"),
+  importSkillFromFile: (filePath) => ipcRenderer.invoke("skills:importFromFile", filePath),
+  importSkillFromFolder: (folderPath) => ipcRenderer.invoke("skills:importFromFolder", folderPath),
 
   // conversations
   listConversations: (projectId) => ipcRenderer.invoke("conversations:list", projectId),
@@ -45,6 +57,8 @@ contextBridge.exposeInMainWorld("api", {
   // export
   exportToPdf: (payload) => ipcRenderer.invoke("export:toPdf", payload),
   exportToPng: (payload) => ipcRenderer.invoke("export:toPng", payload),
+  exportToJpg: (payload) => ipcRenderer.invoke("export:toJpg", payload),
+  exportSvgFile: (payload) => ipcRenderer.invoke("export:svgFile", payload),
 
   // misc
   getSkillCreatorPrompt: () => ipcRenderer.invoke("meta:skillCreatorPrompt"),
@@ -121,4 +135,13 @@ contextBridge.exposeInMainWorld("api", {
   getMailDraftPrompt: () => ipcRenderer.invoke("meta:mailDraftPrompt"),
   pickMailLogo: () => ipcRenderer.invoke("mail:pickLogo"),
   saveMailSignatureLogo: (filePath) => ipcRenderer.invoke("mail:saveSignatureLogo", filePath),
+
+  // design section
+  listDesignDocs: (projectId) => ipcRenderer.invoke("design:list", projectId),
+  saveDesignDoc: (payload) => ipcRenderer.invoke("design:save", payload.projectId, payload),
+  deleteDesignDoc: (id, projectId) => ipcRenderer.invoke("design:delete", projectId, id),
+  buildDesignAgentPrompt: (projectId) => ipcRenderer.invoke("design:buildAgentPrompt", projectId),
+  getDesignAgentConversation: (projectId) => ipcRenderer.invoke("design:getAgentConversation", projectId),
+  saveDesignAgentConversation: (projectId, conv) => ipcRenderer.invoke("design:saveAgentConversation", projectId, conv),
+  openDesignFolder: (projectId) => ipcRenderer.invoke("design:openFolder", projectId),
 });

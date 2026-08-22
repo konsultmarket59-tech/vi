@@ -23,6 +23,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [nameDraft, setNameDraft] = useState(project.name);
   const [descDraft, setDescDraft] = useState(project.description);
   const [docs, setDocs] = useState<DocMeta[]>([]);
+  const [externalDocs, setExternalDocs] = useState<DocMeta[]>([]);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
   const [docError, setDocError] = useState<string | null>(null);
@@ -41,23 +42,44 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
   useEffect(() => {
     window.api.buildSystemPrompt(project.id).then(setSystemPrompt);
-  }, [project.id, project.instructions, project.skillIds, docs, tab]);
+  }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, docs, tab]);
+
+  useEffect(() => {
+    window.api.listExternalDocs(project.id).then(setExternalDocs);
+  }, [project.id, project.externalDocsPath]);
 
   useEffect(() => {
     setBrandDraft(project.brand ?? DEFAULT_BRAND);
+    // Deliberately not depending on project.brand here: this only re-initializes the
+    // editable draft when switching projects. Depending on project.brand would also
+    // reset the draft every time our own saveBrand() echoes back through onProjectChange
+    // mid-edit, racing with (and sometimes wiping) whatever field the user just typed
+    // into next before that field's own save fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
+  useEffect(() => {
     if (!project.brand) {
       setBrandKit(undefined);
       return;
     }
     const brand = project.brand;
     (async () => {
-      const logoDataUrl = brand.logoPath ? await window.api.readFileAsDataUrl(brand.logoPath) : undefined;
+      const [logoDataUrl, qrDataUrl, headerImageDataUrl] = await Promise.all([
+        brand.logoPath ? window.api.readFileAsDataUrl(brand.logoPath) : Promise.resolve(undefined),
+        brand.qrPath ? window.api.readFileAsDataUrl(brand.qrPath) : Promise.resolve(undefined),
+        brand.headerImagePath ? window.api.readFileAsDataUrl(brand.headerImagePath) : Promise.resolve(undefined),
+      ]);
       setBrandKit({
         companyName: brand.companyName,
         tagline: brand.tagline,
         accentColor: brand.accentColor,
         footerText: brand.footerText,
         logoDataUrl,
+        qrDataUrl,
+        contactPhone: brand.contactPhone,
+        contactEmail: brand.contactEmail,
+        headerImageDataUrl,
       });
     })();
   }, [project.brand]);
@@ -161,6 +183,37 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     const filePath = await window.api.pickBrandLogo();
     if (!filePath) return;
     const updated = await window.api.saveProjectBrandLogo(project.id, filePath);
+    onProjectChange(updated);
+  }
+
+  async function pickQr() {
+    const filePath = await window.api.pickBrandQr();
+    if (!filePath) return;
+    const updated = await window.api.saveProjectBrandQr(project.id, filePath);
+    onProjectChange(updated);
+  }
+
+  async function pickHeaderImage() {
+    const filePath = await window.api.pickBrandHeaderImage();
+    if (!filePath) return;
+    const updated = await window.api.saveProjectBrandHeaderImage(project.id, filePath);
+    onProjectChange(updated);
+  }
+
+  async function clearHeaderImage() {
+    const updated = await window.api.clearProjectBrandHeaderImage(project.id);
+    onProjectChange(updated);
+  }
+
+  async function pickExternalDocsFolder() {
+    const folderPath = await window.api.pickExternalDocsFolder();
+    if (!folderPath) return;
+    const updated = await window.api.setProjectExternalDocsFolder(project.id, folderPath);
+    onProjectChange(updated);
+  }
+
+  async function clearExternalDocsFolder() {
+    const updated = await window.api.setProjectExternalDocsFolder(project.id, null);
     onProjectChange(updated);
   }
 
@@ -290,6 +343,41 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               </li>
             ))}
           </ul>
+
+          <h3>Папка на компьютере</h3>
+          <p className="hint">
+            Вместо копирования файлов можно один раз указать папку на вашем компьютере — ассистент будет читать
+            документы прямо из неё, файлы никуда не копируются, и изменения в них подхватываются автоматически при
+            следующем обращении к проекту.
+          </p>
+          <div className="folder-row">
+            {project.externalDocsPath ? (
+              <span className="folder-path">{project.externalDocsPath}</span>
+            ) : (
+              <span className="hint">Папка не выбрана.</span>
+            )}
+            <button className="btn btn-secondary" onClick={pickExternalDocsFolder}>
+              {project.externalDocsPath ? "Сменить папку" : "Выбрать папку"}
+            </button>
+            {project.externalDocsPath && (
+              <button className="btn btn-danger" onClick={clearExternalDocsFolder}>
+                Отключить
+              </button>
+            )}
+          </div>
+          {project.externalDocsPath && (
+            <ul className="doc-list">
+              {externalDocs.length === 0 && (
+                <p className="hint">В папке не найдено файлов поддерживаемых форматов.</p>
+              )}
+              {externalDocs.map((d) => (
+                <li key={d.name}>
+                  <span className="doc-name">{d.name}</span>
+                  <span className="doc-size">{(d.size / 1024).toFixed(1)} КБ</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -299,24 +387,56 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             Фирменный стиль проекта: логотип и цвет применяются автоматически к экспортированным документам (PDF/PNG)
             и графикам в чате этого проекта — шапка с логотипом сверху, акцентный цвет в заголовках и таблицах.
           </p>
+
+          <h3>Шапка документа</h3>
+          <p className="hint">
+            Два варианта на выбор: собрать шапку из полей ниже (логотип/название/слоган/контакты/QR), либо один раз
+            загрузить уже готовую шапку целиком одной картинкой — тогда она используется как есть, поля ниже на саму
+            шапку не влияют (но акцентный цвет и подвал документа продолжают применяться).
+          </p>
+          {brandKit?.headerImageDataUrl ? (
+            <>
+              <img src={brandKit.headerImageDataUrl} alt="" className="brand-header-image-preview" />
+              <div className="folder-row">
+                <button className="btn btn-secondary" onClick={pickHeaderImage}>
+                  Заменить картинку
+                </button>
+                <button className="btn btn-danger" onClick={clearHeaderImage}>
+                  Убрать — собирать шапку из полей
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="folder-row">
+              <button className="btn btn-secondary" onClick={pickHeaderImage}>
+                Загрузить готовую шапку целиком
+              </button>
+            </div>
+          )}
+
           <label>Название компании / бренда</label>
-          <input value={brandDraft.companyName} onChange={(e) => setBrandDraft({ ...brandDraft, companyName: e.target.value })} onBlur={saveBrand} />
+          <input
+            value={brandDraft.companyName}
+            onChange={(e) => setBrandDraft((prev) => ({ ...prev, companyName: e.target.value }))}
+            onBlur={saveBrand}
+          />
           <label>Слоган / подзаголовок</label>
-          <input value={brandDraft.tagline} onChange={(e) => setBrandDraft({ ...brandDraft, tagline: e.target.value })} onBlur={saveBrand} />
+          <input
+            value={brandDraft.tagline}
+            onChange={(e) => setBrandDraft((prev) => ({ ...prev, tagline: e.target.value }))}
+            onBlur={saveBrand}
+          />
           <label>Акцентный цвет</label>
           <input
             type="color"
             value={brandDraft.accentColor}
-            onChange={(e) => {
-              const next = { ...brandDraft, accentColor: e.target.value };
-              setBrandDraft(next);
-            }}
+            onChange={(e) => setBrandDraft((prev) => ({ ...prev, accentColor: e.target.value }))}
             onBlur={saveBrand}
           />
           <label>Текст в подвале документов (адрес, контакты, реквизиты)</label>
           <textarea
             value={brandDraft.footerText}
-            onChange={(e) => setBrandDraft({ ...brandDraft, footerText: e.target.value })}
+            onChange={(e) => setBrandDraft((prev) => ({ ...prev, footerText: e.target.value }))}
             onBlur={saveBrand}
             rows={3}
           />
@@ -327,16 +447,65 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               Выбрать логотип
             </button>
           </div>
-          {brandKit && (
+
+          <label>Контактный телефон</label>
+          <input
+            value={brandDraft.contactPhone ?? ""}
+            onChange={(e) => setBrandDraft((prev) => ({ ...prev, contactPhone: e.target.value }))}
+            onBlur={saveBrand}
+            placeholder="+7 900 000-00-00"
+          />
+          <label>Контактный e-mail</label>
+          <input
+            value={brandDraft.contactEmail ?? ""}
+            onChange={(e) => setBrandDraft((prev) => ({ ...prev, contactEmail: e.target.value }))}
+            onBlur={saveBrand}
+            placeholder="info@company.ru"
+          />
+          <label>QR-код</label>
+          <p className="hint">
+            Если QR-код загружен, он выравнивается по правому краю шапки документа с постоянным отступом, телефон и
+            e-mail (если заполнены) размещаются перед ним, а название и слоган компании при этом переходят в центр
+            шапки.
+          </p>
+          <div className="folder-row">
+            {project.brand?.qrPath && <span className="hint">Загружен: {project.brand.qrPath.split(/[\\/]/).pop()}</span>}
+            <button className="btn btn-secondary" onClick={pickQr}>
+              Выбрать QR-код
+            </button>
+          </div>
+
+          {brandKit && !brandKit.headerImageDataUrl && (brandKit.companyName || brandKit.logoDataUrl || brandKit.qrDataUrl) && (
             <>
-              <h3>Предпросмотр шапки документа</h3>
-              <div className="brand-preview" style={{ borderColor: brandKit.accentColor }}>
-                {brandKit.logoDataUrl && <img src={brandKit.logoDataUrl} alt="" className="brand-preview-logo" />}
-                <div>
-                  {brandKit.companyName && <div className="brand-preview-company">{brandKit.companyName}</div>}
-                  {brandKit.tagline && <div className="brand-preview-tagline">{brandKit.tagline}</div>}
+              <h3>Предпросмотр шапки документа (собранная из полей)</h3>
+              {brandKit.qrDataUrl ? (
+                <div className="brand-preview brand-preview-full" style={{ borderColor: brandKit.accentColor }}>
+                  <div className="brand-preview-left">
+                    {brandKit.logoDataUrl && <img src={brandKit.logoDataUrl} alt="" className="brand-preview-logo" />}
+                  </div>
+                  <div className="brand-preview-center">
+                    {brandKit.companyName && <div className="brand-preview-company">{brandKit.companyName}</div>}
+                    {brandKit.tagline && <div className="brand-preview-tagline">{brandKit.tagline}</div>}
+                  </div>
+                  <div className="brand-preview-right">
+                    {(brandKit.contactPhone || brandKit.contactEmail) && (
+                      <div className="brand-preview-contacts">
+                        {brandKit.contactPhone && <div>{brandKit.contactPhone}</div>}
+                        {brandKit.contactEmail && <div>{brandKit.contactEmail}</div>}
+                      </div>
+                    )}
+                    <img src={brandKit.qrDataUrl} alt="QR" className="brand-preview-qr" />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="brand-preview brand-preview-simple" style={{ borderColor: brandKit.accentColor }}>
+                  {brandKit.logoDataUrl && <img src={brandKit.logoDataUrl} alt="" className="brand-preview-logo" />}
+                  <div>
+                    {brandKit.companyName && <div className="brand-preview-company">{brandKit.companyName}</div>}
+                    {brandKit.tagline && <div className="brand-preview-tagline">{brandKit.tagline}</div>}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

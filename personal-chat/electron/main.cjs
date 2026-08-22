@@ -267,6 +267,39 @@ async function saveProjectBrandLogo(id, sourcePath) {
   return updateProject(id, { brand });
 }
 
+async function saveProjectBrandQr(id, sourcePath) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const ext = path.extname(sourcePath) || ".png";
+  const dest = path.join(dir, "brand-qr" + ext);
+  await fs.copyFile(sourcePath, dest);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), qrPath: dest };
+  return updateProject(id, { brand });
+}
+
+async function saveProjectBrandHeaderImage(id, sourcePath) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const ext = path.extname(sourcePath) || ".png";
+  const dest = path.join(dir, "brand-header" + ext);
+  await fs.copyFile(sourcePath, dest);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), headerImagePath: dest };
+  return updateProject(id, { brand });
+}
+
+async function clearProjectBrandHeaderImage(id) {
+  const root = await getRootPath();
+  const dir = projectDir(root, id);
+  const current = await readJson(path.join(dir, "project.json"), null);
+  if (!current) throw new Error("Проект не найден: " + id);
+  const brand = { ...(current.brand || {}), headerImagePath: "" };
+  return updateProject(id, { brand });
+}
+
 async function deleteProject(id) {
   const root = await getRootPath();
   const dir = projectDir(root, id);
@@ -331,6 +364,22 @@ async function removeDoc(projectId, fileName) {
   return listDocs(projectId);
 }
 
+async function listExternalDocs(projectId) {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  if (!meta?.externalDocsPath) return [];
+  const entries = await fs.readdir(meta.externalDocsPath, { withFileTypes: true }).catch(() => []);
+  const docs = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!SUPPORTED_DOC_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) continue;
+    const stat = await fs.stat(path.join(meta.externalDocsPath, entry.name));
+    docs.push({ name: entry.name, size: stat.size, mtime: stat.mtimeMs });
+  }
+  docs.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  return docs;
+}
+
 // ---------- skills ----------
 
 async function listSkills() {
@@ -374,6 +423,51 @@ async function saveSkill(skill) {
   };
   await writeJson(path.join(dir, id + ".json"), data);
   return { id, ...data };
+}
+
+function parseSkillFrontmatter(raw) {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return { name: "", description: "", body: raw.trim() };
+  const [, fm, body] = match;
+  const meta = {};
+  for (const line of fm.split(/\r?\n/)) {
+    const m = line.match(/^([A-Za-z_-]+):\s*(.*)$/);
+    if (m) meta[m[1].toLowerCase()] = m[2].trim().replace(/^["']|["']$/g, "");
+  }
+  return { name: meta.name || "", description: meta.description || "", body: body.trim() };
+}
+
+function humanizeFileStem(stem) {
+  return stem.replace(/[-_]+/g, " ").trim();
+}
+
+async function importSkillFromFile(filePath) {
+  const raw = await fs.readFile(filePath, "utf-8");
+  const { name, description, body } = parseSkillFrontmatter(raw);
+  const fallbackName = humanizeFileStem(path.basename(filePath, path.extname(filePath)));
+  return { name: name || fallbackName, description, content: body || raw.trim() };
+}
+
+async function importSkillFromFolder(folderPath) {
+  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+  const skillEntry = entries.find((e) => e.isFile() && /^skill\.md$/i.test(e.name));
+  if (!skillEntry) throw new Error('В выбранной папке не найден файл SKILL.md.');
+  const raw = await fs.readFile(path.join(folderPath, skillEntry.name), "utf-8");
+  const { name, description, body } = parseSkillFrontmatter(raw);
+  const fallbackName = humanizeFileStem(path.basename(folderPath));
+  const parts = [body || raw.trim()];
+  const resources = entries.filter((e) => e.isFile() && e.name !== skillEntry.name);
+  for (const entry of resources) {
+    const ext = path.extname(entry.name).toLowerCase();
+    if (!SUPPORTED_DOC_EXTENSIONS.includes(ext)) continue;
+    try {
+      const text = await extractDocText(path.join(folderPath, entry.name));
+      parts.push(`\n--- Файл: ${entry.name} ---\n${truncate(text, MAX_DOC_CHARS)}`);
+    } catch {
+      // skip unreadable resource file
+    }
+  }
+  return { name: name || fallbackName, description, content: parts.join("\n") };
 }
 
 async function deleteSkill(id) {
@@ -436,6 +530,7 @@ const mail = require("./mail.cjs");
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
+const design = require("./design.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
 
 function broadcast(channel, payload) {
@@ -525,6 +620,23 @@ async function buildSystemPrompt(projectId) {
         content = `[Ошибка чтения файла: ${e.message}]`;
       }
       parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
+    }
+  }
+
+  if (meta.externalDocsPath) {
+    const externalDocs = await listExternalDocs(projectId);
+    if (externalDocs.length > 0) {
+      parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
+      for (const doc of externalDocs) {
+        const filePath = path.join(meta.externalDocsPath, doc.name);
+        let content;
+        try {
+          content = await extractDocText(filePath);
+        } catch (e) {
+          content = `[Ошибка чтения файла: ${e.message}]`;
+        }
+        parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
+      }
     }
   }
 
@@ -630,16 +742,7 @@ async function exportHtmlToPdf({ html, defaultName, projectId }) {
   return result.filePath;
 }
 
-async function exportHtmlToPng({ html, defaultName, projectId }) {
-  const parentWin = BrowserWindow.getFocusedWindow();
-  const defaultDir = await resolveExportDir(projectId);
-  const result = await dialog.showSaveDialog(parentWin, {
-    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".png"),
-    filters: [{ name: "PNG", extensions: ["png"] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-
-  const width = 900;
+async function captureHtmlAsImage(html, { width = 900 } = {}) {
   const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width });
   try {
     // Note: document.documentElement.scrollHeight is floored at the window's
@@ -651,11 +754,47 @@ async function exportHtmlToPng({ html, defaultName, projectId }) {
     win.setContentSize(width, Math.max(contentHeight, 80));
     // give layout a moment to settle after the resize before capturing
     await new Promise((resolve) => setTimeout(resolve, 80));
-    const image = await win.webContents.capturePage();
-    await fs.writeFile(result.filePath, image.toPNG());
+    return await win.webContents.capturePage();
   } finally {
     await cleanupHiddenWindow(win, tmpFile);
   }
+}
+
+async function exportHtmlToPng({ html, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".png"),
+    filters: [{ name: "PNG", extensions: ["png"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const image = await captureHtmlAsImage(html);
+  await fs.writeFile(result.filePath, image.toPNG());
+  return result.filePath;
+}
+
+async function exportHtmlToJpg({ html, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".jpg"),
+    filters: [{ name: "JPEG", extensions: ["jpg"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const image = await captureHtmlAsImage(html);
+  await fs.writeFile(result.filePath, image.toJPEG(92));
+  return result.filePath;
+}
+
+async function exportSvgToFile({ svg, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".svg"),
+    filters: [{ name: "SVG", extensions: ["svg"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  await fs.writeFile(result.filePath, svg, "utf-8");
   return result.filePath;
 }
 
@@ -738,7 +877,39 @@ ipcMain.handle("projects:pickLogo", async () => {
   return result.filePaths[0];
 });
 ipcMain.handle("projects:saveBrandLogo", (_e, id, filePath) => saveProjectBrandLogo(id, filePath));
+ipcMain.handle("projects:pickQr", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg", "webp"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:saveBrandQr", (_e, id, filePath) => saveProjectBrandQr(id, filePath));
+ipcMain.handle("projects:pickHeaderImage", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg", "webp"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:saveBrandHeaderImage", (_e, id, filePath) => saveProjectBrandHeaderImage(id, filePath));
+ipcMain.handle("projects:clearBrandHeaderImage", (_e, id) => clearProjectBrandHeaderImage(id));
 ipcMain.handle("fs:readFileAsDataUrl", (_e, filePath) => readFileAsDataUrl(filePath));
+
+ipcMain.handle("projects:pickExternalDocsFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:setExternalDocsFolder", (_e, id, folderPath) =>
+  updateProject(id, { externalDocsPath: folderPath || "" })
+);
+ipcMain.handle("docs:listExternal", (_e, projectId) => listExternalDocs(projectId));
 
 ipcMain.handle("projects:openFolder", async (_e, id) => {
   const root = await getRootPath();
@@ -768,6 +939,23 @@ ipcMain.handle("docs:pickFiles", async () => {
 ipcMain.handle("skills:list", () => listSkills());
 ipcMain.handle("skills:save", (_e, skill) => saveSkill(skill));
 ipcMain.handle("skills:delete", (_e, id) => deleteSkill(id));
+ipcMain.handle("skills:pickImportFile", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Навык", extensions: ["md", "txt"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("skills:pickImportFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("skills:importFromFile", (_e, filePath) => importSkillFromFile(filePath));
+ipcMain.handle("skills:importFromFolder", (_e, folderPath) => importSkillFromFolder(folderPath));
 
 ipcMain.handle("conversations:list", (_e, projectId) => listConversations(projectId));
 ipcMain.handle("conversations:save", (_e, projectId, conv) => saveConversation(projectId, conv));
@@ -786,6 +974,8 @@ ipcMain.handle("import:claudeExports", (_e, filePaths) => importClaudeExport(fil
 
 ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
 ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
+ipcMain.handle("export:toJpg", (_e, payload) => exportHtmlToJpg(payload));
+ipcMain.handle("export:svgFile", (_e, payload) => exportSvgToFile(payload));
 
 ipcMain.handle("meta:skillCreatorPrompt", () => SKILL_CREATOR_PROMPT);
 ipcMain.handle("skillCreator:get", () => getSkillCreatorConversation());
@@ -915,6 +1105,29 @@ ipcMain.handle("media:pickReferenceImage", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
+});
+
+// ---------- design section IPC ----------
+
+ipcMain.handle("design:list", async (_e, projectId) => design.list(await getRootPath(), projectId));
+ipcMain.handle("design:save", async (_e, projectId, doc) => design.save(await getRootPath(), projectId, doc));
+ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await getRootPath(), projectId, id));
+ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
+  const root = await getRootPath();
+  let brand;
+  if (projectId) {
+    const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+    brand = meta?.brand;
+  }
+  return design.buildAgentSystemPrompt(brand);
+});
+ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
+ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
+ipcMain.handle("design:openFolder", async (_e, projectId) => {
+  const root = await getRootPath();
+  const dir = design.designDir(root, projectId);
+  await ensureDir(dir);
+  await shell.openPath(dir);
 });
 
 ipcMain.handle("mail:pickLogo", async () => {

@@ -10,6 +10,10 @@ export interface Brand {
   accentColor: string;
   footerText: string;
   logoPath: string;
+  qrPath?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  headerImagePath?: string;
 }
 
 export const DEFAULT_BRAND: Brand = {
@@ -18,6 +22,10 @@ export const DEFAULT_BRAND: Brand = {
   accentColor: "#c96442",
   footerText: "",
   logoPath: "",
+  qrPath: "",
+  contactPhone: "",
+  contactEmail: "",
+  headerImagePath: "",
 };
 
 export interface Project {
@@ -27,6 +35,7 @@ export interface Project {
   instructions: string;
   skillIds: string[];
   brand?: Brand;
+  externalDocsPath?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -269,6 +278,20 @@ export interface MediaGenerationResult {
   costRub?: number;
 }
 
+export type DesignType = "post" | "document" | "presentation" | "design-system" | "website" | "graphic" | "other";
+export type DesignFormat = "html" | "svg";
+
+export interface DesignDoc {
+  id: string;
+  title: string;
+  type: DesignType;
+  format: DesignFormat;
+  content: string;
+  projectId?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -285,6 +308,11 @@ export interface ElectronAPI {
   openProjectFolder(id: string): Promise<void>;
   pickBrandLogo(): Promise<string | null>;
   saveProjectBrandLogo(id: string, filePath: string): Promise<Project>;
+  pickBrandQr(): Promise<string | null>;
+  saveProjectBrandQr(id: string, filePath: string): Promise<Project>;
+  pickBrandHeaderImage(): Promise<string | null>;
+  saveProjectBrandHeaderImage(id: string, filePath: string): Promise<Project>;
+  clearProjectBrandHeaderImage(id: string): Promise<Project>;
   readFileAsDataUrl(filePath: string): Promise<string>;
 
   listDocs(projectId: string): Promise<DocMeta[]>;
@@ -293,9 +321,17 @@ export interface ElectronAPI {
   removeDoc(projectId: string, fileName: string): Promise<DocMeta[]>;
   pickFiles(): Promise<string[]>;
 
+  pickExternalDocsFolder(): Promise<string | null>;
+  setProjectExternalDocsFolder(id: string, folderPath: string | null): Promise<Project>;
+  listExternalDocs(projectId: string): Promise<DocMeta[]>;
+
   listSkills(): Promise<Skill[]>;
   saveSkill(skill: { id: string | null; name: string; description: string; content: string }): Promise<Skill>;
   deleteSkill(id: string): Promise<void>;
+  pickSkillImportFile(): Promise<string | null>;
+  pickSkillImportFolder(): Promise<string | null>;
+  importSkillFromFile(filePath: string): Promise<{ name: string; description: string; content: string }>;
+  importSkillFromFolder(folderPath: string): Promise<{ name: string; description: string; content: string }>;
 
   listConversations(projectId: string): Promise<Conversation[]>;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
@@ -376,6 +412,26 @@ export interface ElectronAPI {
   openMediaFolder(projectId?: string): Promise<void>;
   pickReferenceImage(): Promise<string | null>;
   onMediaProgress(callback: (status: string) => void): () => void;
+
+  // design section
+  listDesignDocs(projectId?: string): Promise<DesignDoc[]>;
+  saveDesignDoc(payload: {
+    id?: string | null;
+    title: string;
+    type: DesignType;
+    format: DesignFormat;
+    content: string;
+    projectId?: string;
+  }): Promise<DesignDoc>;
+  deleteDesignDoc(id: string, projectId?: string): Promise<void>;
+  buildDesignAgentPrompt(projectId?: string): Promise<string>;
+  getDesignAgentConversation(projectId?: string): Promise<Conversation | null>;
+  saveDesignAgentConversation(projectId: string | undefined, conv: Conversation): Promise<Conversation>;
+  openDesignFolder(projectId?: string): Promise<void>;
+
+  // export (shared by chat exports and the design section)
+  exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
+  exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
 }
 
 declare global {

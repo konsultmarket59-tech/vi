@@ -113,120 +113,127 @@ export default function OpsView({ settings, onOpenSettings }: Props) {
 
   return (
     <div className="ops-view">
-      <div className="ops-toolbar">
-        <h2>Операционка</h2>
-        <div>
-          <button className="btn btn-secondary" onClick={importXlsx} disabled={importing}>
-            {importing ? "Импорт…" : "Импортировать xlsx"}
-          </button>
-          <button className={mode === "agent" ? "btn btn-primary" : "btn btn-secondary"} onClick={openAgent}>
-            🤖 Агент операционки
-          </button>
-        </div>
-      </div>
-
-      {mode === "tables" && (
-        <div className="ops-layout">
-          <div className="ops-sheet-list">
-            {sheets.length === 0 && (
-              <p className="hint">
-                Пока нет данных. Нажмите «Импортировать xlsx» и выберите файл — каждый лист станет отдельной таблицей.
-              </p>
-            )}
-            {sheets.map((s) => (
-              <button
-                key={s.id}
-                className={s.id === activeId ? "sidebar-item active" : "sidebar-item"}
-                onClick={() => setActiveId(s.id)}
-              >
-                {s.name}
-              </button>
-            ))}
+      <div className="ops-app">
+        <div className="ops-app-titlebar">
+          <div className="ops-app-titlebar-title">
+            <span className="ops-app-icon">📊</span>
+            <h2>Операционка</h2>
           </div>
-          <div className="ops-table-area">
-            {activeSheet ? (
+          <div>
+            {mode === "tables" ? (
               <>
-                <div className="ops-table-toolbar">
-                  <h3>{activeSheet.name}</h3>
-                  <button className="btn btn-secondary" onClick={addRow}>
-                    + Строка
-                  </button>
-                </div>
-                <div className="ops-table-scroll">
-                  <table className="ops-table">
-                    <tbody>
-                      {rowsDraft.map((row, rowIdx) => (
-                        <tr key={rowIdx}>
-                          <td className="ops-row-index">{rowIdx}</td>
-                          {row.map((cell, colIdx) => (
-                            <td key={colIdx}>
-                              <input
-                                value={cell}
-                                onChange={(e) => updateCell(rowIdx, colIdx, e.target.value)}
-                                onBlur={saveActiveSheet}
-                              />
-                            </td>
-                          ))}
-                          <td>
-                            <button className="conv-delete" onClick={() => deleteRow(rowIdx)} title="Удалить строку">
-                              ×
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <button className="btn btn-secondary" onClick={importXlsx} disabled={importing}>
+                  {importing ? "Импорт…" : "Импортировать xlsx"}
+                </button>
+                <button className="btn btn-primary" onClick={openAgent}>
+                  🤖 Агент операционки
+                </button>
               </>
             ) : (
-              <div className="chat-empty-hint">Выберите лист слева.</div>
+              <button className="btn btn-secondary" onClick={() => setMode("tables")}>
+                ← К таблицам
+              </button>
             )}
           </div>
         </div>
-      )}
 
-      {mode === "agent" && (
-        <div className="creator-layout">
-          <div className="creator-header">
-            <button className="link-btn" onClick={() => setMode("tables")}>
-              ← К таблицам
-            </button>
-            <p className="hint">
+        {mode === "tables" && (
+          <div className="ops-app-body">
+            {sheets.length === 0 ? (
+              <p className="hint ops-app-empty">
+                Пока нет данных. Нажмите «Импортировать xlsx» и выберите файл — каждый лист станет отдельной таблицей.
+              </p>
+            ) : (
+              <>
+                <div className="ops-tabs">
+                  {sheets.map((s) => (
+                    <button
+                      key={s.id}
+                      className={s.id === activeId ? "ops-tab active" : "ops-tab"}
+                      onClick={() => setActiveId(s.id)}
+                    >
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+                {activeSheet && (
+                  <>
+                    <div className="ops-table-toolbar">
+                      <h3>{activeSheet.name}</h3>
+                      <button className="btn btn-secondary" onClick={addRow}>
+                        + Строка
+                      </button>
+                    </div>
+                    <div className="ops-table-scroll">
+                      <table className="ops-table">
+                        <tbody>
+                          {rowsDraft.map((row, rowIdx) => (
+                            <tr key={rowIdx} className={rowIdx === 0 ? "ops-header-row" : undefined}>
+                              <td className="ops-row-index">{rowIdx}</td>
+                              {row.map((cell, colIdx) => (
+                                <td key={colIdx}>
+                                  <input
+                                    value={cell}
+                                    onChange={(e) => updateCell(rowIdx, colIdx, e.target.value)}
+                                    onBlur={saveActiveSheet}
+                                  />
+                                </td>
+                              ))}
+                              <td className="ops-row-actions">
+                                <button className="conv-delete" onClick={() => deleteRow(rowIdx)} title="Удалить строку">
+                                  ×
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {mode === "agent" && (
+          <div className="ops-app-body ops-app-agent">
+            <p className="hint ops-agent-hint">
               Спрашивайте про данные или просите добавить/изменить/удалить запись — агент предложит точное
               изменение, вы подтверждаете перед тем как оно применится.
             </p>
+            {!settings.apiKey && (
+              <div className="warning-banner">
+                API-ключ не задан. <button className="link-btn" onClick={onOpenSettings}>Открыть настройки</button>
+              </div>
+            )}
+            {applyError && <div className="chat-error">Не удалось применить изменение: {applyError}</div>}
+            {pendingEdit && (
+              <div className="pending-skill-banner">
+                Предложено изменение — лист «{pendingEdit.sheet}», действие: {actionLabel(pendingEdit.action)}
+                {pendingEdit.rowIndex != null ? `, строка ${pendingEdit.rowIndex}` : ""}.
+                <button className="btn btn-primary" onClick={applyPendingEdit}>
+                  Применить
+                </button>
+                <button className="btn btn-secondary" onClick={() => setPendingEdit(null)}>
+                  Отклонить
+                </button>
+              </div>
+            )}
+            {agentConv && (
+              <ChatView
+                conversation={agentConv}
+                systemPrompt={agentPrompt}
+                settings={settings}
+                onUpdate={setAgentConv}
+                onSave={(conv) => window.api.saveOpsAgentConversation(conv)}
+                emptyHint="Например: «Добавь оплату от Болдино LIFE на 50000 ₽» или «Какая маржа по СВЕРХУ?»."
+                onAssistantMessage={(content) => setPendingEdit(parseOpsEdit(content))}
+              />
+            )}
           </div>
-          {!settings.apiKey && (
-            <div className="warning-banner">
-              API-ключ не задан. <button className="link-btn" onClick={onOpenSettings}>Открыть настройки</button>
-            </div>
-          )}
-          {applyError && <div className="chat-error">Не удалось применить изменение: {applyError}</div>}
-          {pendingEdit && (
-            <div className="pending-skill-banner">
-              Предложено изменение — лист «{pendingEdit.sheet}», действие: {actionLabel(pendingEdit.action)}
-              {pendingEdit.rowIndex != null ? `, строка ${pendingEdit.rowIndex}` : ""}.
-              <button className="btn btn-primary" onClick={applyPendingEdit}>
-                Применить
-              </button>
-              <button className="btn btn-secondary" onClick={() => setPendingEdit(null)}>
-                Отклонить
-              </button>
-            </div>
-          )}
-          {agentConv && (
-            <ChatView
-              conversation={agentConv}
-              systemPrompt={agentPrompt}
-              settings={settings}
-              onUpdate={setAgentConv}
-              onSave={(conv) => window.api.saveOpsAgentConversation(conv)}
-              emptyHint="Например: «Добавь оплату от Болдино LIFE на 50000 ₽» или «Какая маржа по СВЕРХУ?»."
-              onAssistantMessage={(content) => setPendingEdit(parseOpsEdit(content))}
-            />
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
