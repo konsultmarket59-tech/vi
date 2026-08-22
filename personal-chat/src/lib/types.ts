@@ -136,6 +136,28 @@ export interface MailTestResult {
   errors: { imap?: string; smtp?: string };
 }
 
+export type MediaType = "image" | "video" | "audio";
+
+export interface MediaGenerationRequest {
+  type: MediaType;
+  model: string;
+  prompt: string;
+  referenceImagePath?: string;
+  extraParamsJson?: string;
+  projectId?: string;
+}
+
+export interface MediaGenerationResult {
+  id: string;
+  type: MediaType;
+  model: string;
+  prompt: string;
+  fileName: string;
+  localPath: string;
+  createdAt: number;
+  costRub?: number;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -201,6 +223,13 @@ export interface ElectronAPI {
   getMailDraftPrompt(): Promise<string>;
   pickMailLogo(): Promise<string | null>;
   saveMailSignatureLogo(filePath: string): Promise<MailAccount>;
+
+  // media generation
+  generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
+  listMediaGenerations(projectId?: string): Promise<MediaGenerationResult[]>;
+  openMediaFolder(projectId?: string): Promise<void>;
+  pickReferenceImage(): Promise<string | null>;
+  onMediaProgress(callback: (status: string) => void): () => void;
 }
 
 declare global {

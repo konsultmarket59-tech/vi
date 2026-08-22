@@ -62,6 +62,17 @@ contextBridge.exposeInMainWorld("api", {
   pickXlsx: () => ipcRenderer.invoke("ops:pickXlsx"),
   importOpsXlsx: (filePath) => ipcRenderer.invoke("ops:importXlsx", filePath),
 
+  // media generation
+  generateMedia: (payload) => ipcRenderer.invoke("media:generate", payload),
+  listMediaGenerations: (projectId) => ipcRenderer.invoke("media:list", projectId),
+  openMediaFolder: (projectId) => ipcRenderer.invoke("media:openFolder", projectId),
+  pickReferenceImage: () => ipcRenderer.invoke("media:pickReferenceImage"),
+  onMediaProgress: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on("media:progress", listener);
+    return () => ipcRenderer.removeListener("media:progress", listener);
+  },
+
   // mail
   getMailAccount: () => ipcRenderer.invoke("mail:getAccount"),
   saveMailAccount: (account) => ipcRenderer.invoke("mail:saveAccount", account),

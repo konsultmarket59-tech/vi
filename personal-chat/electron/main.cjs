@@ -239,6 +239,13 @@ const IMAGE_MIME_BY_EXT = {
   ".gif": "image/gif",
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/mp4",
+  ".ogg": "audio/ogg",
 };
 
 async function readFileAsDataUrl(filePath) {
@@ -426,6 +433,7 @@ async function saveSkillCreatorConversation(conv) {
 
 const ops = require("./ops.cjs");
 const mail = require("./mail.cjs");
+const media = require("./media.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
 
 function opsScratchDir(root) {
@@ -802,6 +810,41 @@ ipcMain.handle("mail:sendMail", async (_e, payload) => mail.sendMail(await getRo
 ipcMain.handle("mail:getAgentConversation", () => getMailAgentConversation());
 ipcMain.handle("mail:saveAgentConversation", (_e, conv) => saveMailAgentConversation(conv));
 ipcMain.handle("meta:mailDraftPrompt", () => MAIL_DRAFT_PROMPT);
+
+// ---------- media generation IPC ----------
+
+ipcMain.handle("media:generate", async (event, payload) => {
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  return media.generate(root, {
+    ...payload,
+    baseUrl: settings.baseUrl,
+    apiKey: settings.apiKey,
+    onStatus: (status) => {
+      try {
+        event.sender.send("media:progress", status);
+      } catch {
+        // window may have closed mid-generation; ignore
+      }
+    },
+  });
+});
+ipcMain.handle("media:list", async (_e, projectId) => media.list(await getRootPath(), projectId));
+ipcMain.handle("media:openFolder", async (_e, projectId) => {
+  const root = await getRootPath();
+  const dir = media.mediaDir(root, projectId);
+  await media.ensureDir(dir);
+  await shell.openPath(dir);
+});
+ipcMain.handle("media:pickReferenceImage", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: ["openFile"],
+    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "webp"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
 
 ipcMain.handle("mail:pickLogo", async () => {
   const win = BrowserWindow.getFocusedWindow();

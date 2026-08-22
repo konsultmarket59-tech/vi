@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, Conversation, Settings } from "../lib/types";
-import { uid } from "../lib/promptBuilder";
+import type { ChatMessage, Conversation, MediaGenerationResult, Settings } from "../lib/types";
+import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
 import { streamChat, ApiError, type ApiMessage } from "../lib/api";
 import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
 import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
@@ -23,6 +23,18 @@ function deriveFileName(text: string): string {
   return firstLine.replace(/[#*`_>-]/g, "").trim().slice(0, 50) || "документ";
 }
 
+function statusLabel(status: string): string {
+  if (status === "pending") return "В очереди…";
+  if (status === "processing") return "Генерация выполняется…";
+  return status;
+}
+
+function mediaTypeLabel(type: ParsedMediaRequest["type"]): string {
+  if (type === "image") return "изображение";
+  if (type === "video") return "видео";
+  return "аудио";
+}
+
 export default function ChatView({
   conversation,
   systemPrompt,
@@ -39,12 +51,26 @@ export default function ChatView({
   const [error, setError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [exportError, setExportError] = useState<string | null>(null);
+  const [pendingMedia, setPendingMedia] = useState<ParsedMediaRequest | null>(null);
+  const [mediaGenerating, setMediaGenerating] = useState(false);
+  const [mediaStatus, setMediaStatus] = useState("");
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaResult, setMediaResult] = useState<MediaGenerationResult | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation.messages, streamingText]);
+
+  useEffect(() => {
+    const lastAssistant = [...conversation.messages].reverse().find((m) => m.role === "assistant");
+    setPendingMedia(lastAssistant ? parseMediaRequest(lastAssistant.content) : null);
+    setMediaResult(null);
+    setMediaPreviewUrl(null);
+    setMediaError(null);
+  }, [conversation.id]);
 
   async function send() {
     const text = input.trim();
@@ -63,7 +89,7 @@ export default function ChatView({
     await onSave(withUser);
 
     const apiMessages: ApiMessage[] = [
-      { role: "system", content: systemPrompt + "\n\n" + CHART_SYNTAX_HINT },
+      { role: "system", content: systemPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT },
       ...withUser.messages.map((m) => ({ role: m.role, content: m.content }) as ApiMessage),
     ];
 
@@ -93,6 +119,10 @@ export default function ChatView({
       onUpdate(finalConv);
       await onSave(finalConv);
       onAssistantMessage?.(full);
+      setPendingMedia(parseMediaRequest(full));
+      setMediaResult(null);
+      setMediaPreviewUrl(null);
+      setMediaError(null);
     } catch (e) {
       if (e instanceof ApiError) setError(e.message);
       else if (e instanceof DOMException && e.name === "AbortError") setError("Отменено.");
@@ -132,6 +162,31 @@ export default function ChatView({
     }
   }
 
+  async function runMediaGeneration() {
+    if (!pendingMedia) return;
+    setMediaGenerating(true);
+    setMediaError(null);
+    setMediaStatus("Запуск…");
+    const unsubscribe = window.api.onMediaProgress((status) => setMediaStatus(statusLabel(status)));
+    try {
+      const result = await window.api.generateMedia({
+        type: pendingMedia.type,
+        model: pendingMedia.model,
+        prompt: pendingMedia.prompt,
+        projectId,
+      });
+      setMediaResult(result);
+      setMediaPreviewUrl(await window.api.readFileAsDataUrl(result.localPath));
+      setPendingMedia(null);
+    } catch (e) {
+      setMediaError(e instanceof Error ? e.message : String(e));
+    } finally {
+      unsubscribe();
+      setMediaGenerating(false);
+      setMediaStatus("");
+    }
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -150,6 +205,39 @@ export default function ChatView({
           <button className="link-btn" onClick={() => exportConversation("png")}>
             в PNG
           </button>
+        </div>
+      )}
+      {pendingMedia && (
+        <div className="pending-skill-banner">
+          Предложена генерация: {mediaTypeLabel(pendingMedia.type)}, модель «{pendingMedia.model}» — «
+          {pendingMedia.prompt.slice(0, 80)}
+          {pendingMedia.prompt.length > 80 ? "…" : ""}».
+          {mediaGenerating ? (
+            <span className="hint"> {mediaStatus}</span>
+          ) : (
+            <>
+              <button className="btn btn-primary" onClick={runMediaGeneration}>
+                Сгенерировать
+              </button>
+              <button className="btn btn-secondary" onClick={() => setPendingMedia(null)}>
+                Отклонить
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {mediaError && <div className="chat-error">Не удалось сгенерировать: {mediaError}</div>}
+      {mediaResult && mediaPreviewUrl && (
+        <div className="media-result-card">
+          {mediaResult.type === "image" && <img src={mediaPreviewUrl} alt={mediaResult.prompt} />}
+          {mediaResult.type === "video" && <video src={mediaPreviewUrl} controls />}
+          {mediaResult.type === "audio" && <audio src={mediaPreviewUrl} controls />}
+          <div className="media-result-actions">
+            <span className="hint">{mediaResult.fileName}</span>
+            <button className="link-btn" onClick={() => window.api.openMediaFolder(projectId)}>
+              Открыть папку
+            </button>
+          </div>
         </div>
       )}
       <div className="chat-messages">

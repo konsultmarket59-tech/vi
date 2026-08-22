@@ -6,6 +6,7 @@ import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
 import OpsView from "./components/OpsView";
 import MailView from "./components/MailView";
+import MediaView from "./components/MediaView";
 import SettingsView from "./components/SettingsView";
 
 export default function App() {
@@ -66,6 +67,9 @@ export default function App() {
         )}
         {view.kind === "ops" && <OpsView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
         {view.kind === "mail" && <MailView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
+        {view.kind === "media" && (
+          <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
         {view.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>
     </div>

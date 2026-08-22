@@ -57,6 +57,35 @@ export function parseOpsEdit(text: string): ParsedOpsEdit | null {
   };
 }
 
+export interface ParsedMediaRequest {
+  type: "image" | "video" | "audio";
+  model: string;
+  prompt: string;
+}
+
+export function parseMediaRequest(text: string): ParsedMediaRequest | null {
+  const match = text.match(/===MEDIA GENERATE START===([\s\S]*?)===MEDIA GENERATE END===/);
+  if (!match) return null;
+  const block = match[1];
+  const type = block.match(/TYPE:\s*(image|video|audio)/)?.[1] as ParsedMediaRequest["type"] | undefined;
+  const model = block.match(/MODEL:\s*(.+)/)?.[1]?.trim();
+  const prompt = block.match(/PROMPT:\s*([\s\S]*?)(?:\n===|$)/)?.[1]?.trim();
+  if (!type || !model || !prompt) return null;
+  return { type, model, prompt };
+}
+
+export const MEDIA_SYNTAX_HINT = `Если пользователь просит сгенерировать изображение, видео или аудио — предложи это строго в формате
+(приложение распознает и покажет кнопку «Сгенерировать», сам ты медиа не создаёшь):
+
+===MEDIA GENERATE START===
+TYPE: image | video | audio
+MODEL: <точный id модели из каталога polza.ai/models, например "seedream-3" для изображений или "google/veo3" для видео>
+PROMPT: <промпт для генерации на английском или русском, максимально подробный>
+===MEDIA GENERATE END===
+
+Если пользователь не назвал модель — предложи разумную по умолчанию для нужного типа медиа и уточни, что её можно
+сменить в настройках.`;
+
 export interface ParsedMailDraft {
   to: string;
   subject: string;

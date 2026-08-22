@@ -5,6 +5,7 @@ export type View =
   | { kind: "skills" }
   | { kind: "ops" }
   | { kind: "mail" }
+  | { kind: "media" }
   | { kind: "settings" };
 
 interface Props {
@@ -77,6 +78,12 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           onClick={() => onSelectView({ kind: "mail" })}
         >
           ✉️ Почта
+        </button>
+        <button
+          className={view.kind === "media" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "media" })}
+        >
+          🎨 Медиа
         </button>
         <button
           className={view.kind === "settings" ? "sidebar-item active" : "sidebar-item"}
