@@ -185,6 +185,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 settings={settings}
                 onUpdate={updateConversationLocal}
                 onSave={(conv) => window.api.saveConversation(project.id, conv)}
+                projectId={project.id}
               />
             ) : (
               <div className="chat-empty-hint">Нет активного чата. Нажмите «+ Новый чат».</div>

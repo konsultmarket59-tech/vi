@@ -93,6 +93,9 @@ export interface ElectronAPI {
   pickClaudeExportFiles(): Promise<string[]>;
   importClaudeExports(filePaths: string[]): Promise<Project[]>;
 
+  exportToPdf(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
+  exportToPng(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
+
   getSkillCreatorPrompt(): Promise<string>;
   getSkillCreatorConversation(): Promise<Conversation | null>;
   saveSkillCreatorConversation(conv: Conversation): Promise<Conversation>;

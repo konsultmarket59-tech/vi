@@ -103,22 +103,87 @@ async function saveSettingsFile(settings) {
 
 // ---------- document text extraction ----------
 
-const TEXT_EXTENSIONS = [".txt", ".md", ".csv", ".json", ".html", ".rtf"];
+const TEXT_EXTENSIONS = [".txt", ".md", ".csv", ".json", ".html"];
+const SUPPORTED_DOC_EXTENSIONS = [
+  ".txt", ".md", ".csv", ".json", ".html", ".rtf",
+  ".docx", ".doc", ".xlsx", ".xls", ".pdf",
+];
+
+function sheetToText(worksheet) {
+  const lines = [];
+  worksheet.eachRow((row) => {
+    const cells = row.values.slice(1).map((v) => {
+      if (v == null) return "";
+      if (typeof v === "object" && v.text) return v.text; // rich text / hyperlink
+      if (typeof v === "object" && v.result != null) return String(v.result); // formula
+      return String(v);
+    });
+    lines.push(cells.join(" | "));
+  });
+  return lines.join("\n");
+}
 
 async function extractDocText(filePath) {
   const ext = path.extname(filePath).toLowerCase();
+
   if (TEXT_EXTENSIONS.includes(ext)) {
     return fs.readFile(filePath, "utf-8");
   }
+
+  if (ext === ".rtf") {
+    const raw = await fs.readFile(filePath, "utf-8");
+    // Best-effort plain-text fallback: strip RTF control words/groups.
+    return raw
+      .replace(/\\par[d]?/g, "\n")
+      .replace(/\\[a-zA-Z]+-?\d* ?/g, "")
+      .replace(/[{}]/g, "")
+      .trim();
+  }
+
   if (ext === ".docx") {
     const mammoth = require("mammoth");
     const buffer = await fs.readFile(filePath);
     const result = await mammoth.extractRawText({ buffer });
     return result.value;
   }
+
+  if (ext === ".doc") {
+    const WordExtractor = require("word-extractor");
+    const extractor = new WordExtractor();
+    const doc = await extractor.extract(filePath);
+    return doc.getBody();
+  }
+
+  if (ext === ".xlsx" || ext === ".xls") {
+    const ExcelJS = require("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    if (ext === ".xls") {
+      throw new Error("Старый формат .xls не поддерживается — пересохраните файл как .xlsx.");
+    }
+    await workbook.xlsx.readFile(filePath);
+    const parts = [];
+    workbook.eachSheet((sheet) => {
+      parts.push(`## Лист: ${sheet.name}`);
+      parts.push(sheetToText(sheet));
+    });
+    return parts.join("\n\n");
+  }
+
+  if (ext === ".pdf") {
+    const { PDFParse } = require("pdf-parse");
+    const data = await fs.readFile(filePath);
+    const parser = new PDFParse({ data });
+    try {
+      const result = await parser.getText();
+      return result.text.replace(/-- \d+ of \d+ --\n*/g, "").trim();
+    } finally {
+      await parser.destroy();
+    }
+  }
+
   return `[Не удалось извлечь текст из файла "${path.basename(
     filePath
-  )}" — формат не поддерживается (поддерживаются .txt, .md, .csv, .json, .docx).]`;
+  )}" — формат не поддерживается (поддерживаются .txt, .md, .csv, .json, .rtf, .docx, .doc, .xlsx, .pdf).]`;
 }
 
 // ---------- projects ----------
@@ -420,6 +485,94 @@ async function addPastedDocRaw(projectId, fileName, content) {
   await fs.writeFile(dest, content, "utf-8");
 }
 
+// ---------- export (PDF / PNG) ----------
+
+function sanitizeFileName(name) {
+  return (name || "export").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "export";
+}
+
+async function resolveExportDir(projectId) {
+  const root = await getRootPath();
+  if (projectId) {
+    const dir = docsDir(root, projectId);
+    await ensureDir(dir);
+    return dir;
+  }
+  return app.getPath("documents");
+}
+
+async function renderHtmlInHiddenWindow(html, { width = 900, height = 600 } = {}) {
+  const tmpFile = path.join(
+    app.getPath("temp"),
+    `personal-chat-export-${Date.now()}-${Math.random().toString(36).slice(2)}.html`
+  );
+  await fs.writeFile(tmpFile, html, "utf-8");
+  const win = new BrowserWindow({
+    show: false,
+    width,
+    height,
+    webPreferences: { offscreen: false },
+  });
+  await win.loadFile(tmpFile);
+  return { win, tmpFile };
+}
+
+async function cleanupHiddenWindow(win, tmpFile) {
+  win.destroy();
+  await fs.rm(tmpFile, { force: true }).catch(() => {});
+}
+
+async function exportHtmlToPdf({ html, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".pdf"),
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html);
+  try {
+    const pdfBuffer = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: "A4",
+    });
+    await fs.writeFile(result.filePath, pdfBuffer);
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+  return result.filePath;
+}
+
+async function exportHtmlToPng({ html, defaultName, projectId }) {
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".png"),
+    filters: [{ name: "PNG", extensions: ["png"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+
+  const width = 900;
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width });
+  try {
+    // Note: document.documentElement.scrollHeight is floored at the window's
+    // viewport height (a browser quirk for the root scrolling element), so it
+    // over-reports for short content — measure the body box instead.
+    const contentHeight = await win.webContents.executeJavaScript(
+      "Math.ceil(document.body.scrollHeight)"
+    );
+    win.setContentSize(width, Math.max(contentHeight, 80));
+    // give layout a moment to settle after the resize before capturing
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const image = await win.webContents.capturePage();
+    await fs.writeFile(result.filePath, image.toPNG());
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+  return result.filePath;
+}
+
 // ---------- window ----------
 
 function createWindow() {
@@ -502,7 +655,10 @@ ipcMain.handle("docs:pickFiles", async () => {
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "Документы", extensions: ["txt", "md", "csv", "json", "docx"] },
+      {
+        name: "Документы",
+        extensions: SUPPORTED_DOC_EXTENSIONS.map((e) => e.slice(1)),
+      },
       { name: "Все файлы", extensions: ["*"] },
     ],
   });
@@ -528,6 +684,9 @@ ipcMain.handle("import:pickClaudeExports", async () => {
   return result.filePaths;
 });
 ipcMain.handle("import:claudeExports", (_e, filePaths) => importClaudeExport(filePaths));
+
+ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
+ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
 
 ipcMain.handle("meta:skillCreatorPrompt", () => SKILL_CREATOR_PROMPT);
 ipcMain.handle("skillCreator:get", () => getSkillCreatorConversation());

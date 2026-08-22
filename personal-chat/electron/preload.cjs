@@ -39,6 +39,10 @@ contextBridge.exposeInMainWorld("api", {
   pickClaudeExportFiles: () => ipcRenderer.invoke("import:pickClaudeExports"),
   importClaudeExports: (filePaths) => ipcRenderer.invoke("import:claudeExports", filePaths),
 
+  // export
+  exportToPdf: (payload) => ipcRenderer.invoke("export:toPdf", payload),
+  exportToPng: (payload) => ipcRenderer.invoke("export:toPng", payload),
+
   // misc
   getSkillCreatorPrompt: () => ipcRenderer.invoke("meta:skillCreatorPrompt"),
   getSkillCreatorConversation: () => ipcRenderer.invoke("skillCreator:get"),

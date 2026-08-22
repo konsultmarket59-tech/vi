@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, Conversation, Settings } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import { streamChat, ApiError, type ApiMessage } from "../lib/api";
+import { buildConversationExportHtml, buildMessageExportHtml } from "../lib/exportHtml";
 import Markdown from "./Markdown";
 
 interface Props {
@@ -10,8 +11,14 @@ interface Props {
   settings: Settings;
   onUpdate: (conv: Conversation) => void;
   onSave: (conv: Conversation) => Promise<unknown>;
+  projectId?: string;
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
+}
+
+function deriveFileName(text: string): string {
+  const firstLine = text.split("\n").find((l) => l.trim().length > 0) ?? "документ";
+  return firstLine.replace(/[#*`_>-]/g, "").trim().slice(0, 50) || "документ";
 }
 
 export default function ChatView({
@@ -20,6 +27,7 @@ export default function ChatView({
   settings,
   onUpdate,
   onSave,
+  projectId,
   emptyHint,
   onAssistantMessage,
 }: Props) {
@@ -27,6 +35,7 @@ export default function ChatView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
+  const [exportError, setExportError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -96,6 +105,30 @@ export default function ChatView({
     abortRef.current?.abort();
   }
 
+  async function exportMessage(m: ChatMessage, format: "pdf" | "png") {
+    setExportError(null);
+    try {
+      const html = buildMessageExportHtml(deriveFileName(m.content), m.content);
+      const payload = { html, defaultName: deriveFileName(m.content), projectId };
+      if (format === "pdf") await window.api.exportToPdf(payload);
+      else await window.api.exportToPng(payload);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function exportConversation(format: "pdf" | "png") {
+    setExportError(null);
+    try {
+      const html = buildConversationExportHtml(conversation.title, conversation.messages);
+      const payload = { html, defaultName: conversation.title, projectId };
+      if (format === "pdf") await window.api.exportToPdf(payload);
+      else await window.api.exportToPng(payload);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -105,6 +138,17 @@ export default function ChatView({
 
   return (
     <div className="chat-view">
+      {conversation.messages.length > 0 && (
+        <div className="chat-export-bar">
+          <span className="hint">Экспорт всего чата:</span>
+          <button className="link-btn" onClick={() => exportConversation("pdf")}>
+            в PDF
+          </button>
+          <button className="link-btn" onClick={() => exportConversation("png")}>
+            в PNG
+          </button>
+        </div>
+      )}
       <div className="chat-messages">
         {conversation.messages.length === 0 && !streamingText && (
           <div className="chat-empty-hint">{emptyHint ?? "Начните диалог — сообщение ниже."}</div>
@@ -113,6 +157,14 @@ export default function ChatView({
           <div key={m.id} className={`msg msg-${m.role}`}>
             <div className="msg-role">{m.role === "user" ? "Вы" : "Ассистент"}</div>
             <Markdown text={m.content} />
+            <div className="msg-export-actions">
+              <button className="link-btn" onClick={() => exportMessage(m, "pdf")}>
+                Экспорт в PDF
+              </button>
+              <button className="link-btn" onClick={() => exportMessage(m, "png")}>
+                Экспорт в PNG
+              </button>
+            </div>
           </div>
         ))}
         {busy && (
@@ -122,6 +174,7 @@ export default function ChatView({
           </div>
         )}
         {error && <div className="chat-error">{error}</div>}
+        {exportError && <div className="chat-error">Не удалось экспортировать: {exportError}</div>}
         <div ref={bottomRef} />
       </div>
       <div className="chat-input-bar">
