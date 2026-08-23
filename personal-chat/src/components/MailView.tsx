@@ -53,8 +53,17 @@ export default function MailView({ settings, onOpenSettings }: Props) {
     });
   }, []);
 
+  // A copy-pasted address or app password very easily picks up a leading/trailing
+  // space or a trailing newline (common when copying from a browser page or a
+  // password manager) — invisible in a password-masked field, but mail.ru's server
+  // rejects it outright with "app password required" even though a correct one was
+  // entered. Trim before it ever reaches the wire.
+  function sanitizeAccountForSave(a: MailAccount): MailAccount {
+    return { ...a, email: a.email.trim(), password: a.password.trim() };
+  }
+
   async function saveAccountDraft() {
-    const saved = await window.api.saveMailAccount(accountDraft);
+    const saved = await window.api.saveMailAccount(sanitizeAccountForSave(accountDraft));
     setAccount(saved);
     setAccountDraft(saved);
   }
@@ -63,7 +72,7 @@ export default function MailView({ settings, onOpenSettings }: Props) {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await window.api.testMailConnection(accountDraft);
+      const result = await window.api.testMailConnection(sanitizeAccountForSave(accountDraft));
       if (result.ok) setTestResult("Соединение успешно ✓");
       else setTestResult(`Ошибка. IMAP: ${result.errors.imap ?? "OK"}; SMTP: ${result.errors.smtp ?? "OK"}`);
     } finally {
@@ -336,6 +345,16 @@ export default function MailView({ settings, onOpenSettings }: Props) {
             </button>
           </div>
           {testResult && <p className="hint">{testResult}</p>}
+          {testResult && /535|parol|application password/i.test(testResult) && (
+            <p className="hint">
+              Почтовый сервер прямым текстом говорит, что нужен пароль приложения, а не обычный пароль от почты.
+              Даже если он уже введён, проверьте: 1) в mail.ru включён именно тумблер «Доступ для внешних
+              приложений» (Настройки → Пароль и безопасность → Пароли для внешних приложений) — пароль создаётся
+              только после его включения; 2) пароль приложения скопирован без случайного пробела в начале/конце —
+              надёжнее ввести его заново вручную, чем вставить; 3) используется именно последний созданный пароль —
+              каждый новый пароль приложения делает предыдущие недействительными.
+            </p>
+          )}
 
           <h3>Брендированная подпись</h3>
           <label>Имя</label>

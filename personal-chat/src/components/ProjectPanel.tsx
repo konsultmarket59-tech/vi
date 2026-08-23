@@ -1,9 +1,29 @@
 import { useEffect, useState } from "react";
-import type { Brand, Conversation, DocMeta, Project, Settings, Skill } from "../lib/types";
+import type { Brand, Conversation, DocMeta, Project, ScheduledTask, Settings, Skill, TaskRecurrence } from "../lib/types";
 import { DEFAULT_BRAND } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import type { BrandKit } from "../lib/exportHtml";
 import ChatView from "./ChatView";
+
+const WEEKDAY_NAMES = ["воскресеньям", "понедельникам", "вторникам", "средам", "четвергам", "пятницам", "субботам"];
+
+interface TaskDraft {
+  title: string;
+  prompt: string;
+  recurrence: TaskRecurrence;
+  time: string;
+  date: string;
+  weekday: number;
+}
+
+const emptyTaskDraft: TaskDraft = { title: "", prompt: "", recurrence: "once", time: "09:00", date: "", weekday: 1 };
+
+function describeTaskSchedule(t: ScheduledTask): string {
+  if (t.recurrence === "daily") return `Каждый день в ${t.time}`;
+  if (t.recurrence === "weekly") return `По ${WEEKDAY_NAMES[t.weekday ?? 1]} в ${t.time}`;
+  if (!t.enabled && t.lastRunAt) return `Выполнена ${new Date(t.lastRunAt).toLocaleString("ru-RU")}`;
+  return t.date ? `${t.date} в ${t.time}` : t.time;
+}
 
 interface Props {
   project: Project;
@@ -24,20 +44,36 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [descDraft, setDescDraft] = useState(project.description);
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [externalDocs, setExternalDocs] = useState<DocMeta[]>([]);
+  const [externalDocsError, setExternalDocsError] = useState<string | null>(null);
+  const [showSystemPromptPreview, setShowSystemPromptPreview] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
   const [docError, setDocError] = useState<string | null>(null);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [brandDraft, setBrandDraft] = useState<Brand>(project.brand ?? DEFAULT_BRAND);
   const [brandKit, setBrandKit] = useState<BrandKit | undefined>(undefined);
+  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyTaskDraft);
 
   useEffect(() => {
     setInstructionsDraft(project.instructions);
     setNameDraft(project.name);
     setDescDraft(project.description);
     setTab("chat");
+    setShowTaskForm(false);
+    setTaskDraft(emptyTaskDraft);
     loadConversations(project.id);
     loadDocs(project.id);
+    loadTasks(project.id);
+  }, [project.id]);
+
+  useEffect(() => {
+    return window.api.onTaskRan((payload) => {
+      if (payload.projectId !== project.id) return;
+      setTasks((prev) => prev.map((t) => (t.id === payload.task.id ? payload.task : t)));
+      loadConversations(project.id);
+    });
   }, [project.id]);
 
   useEffect(() => {
@@ -45,7 +81,14 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, docs, tab]);
 
   useEffect(() => {
-    window.api.listExternalDocs(project.id).then(setExternalDocs);
+    setExternalDocsError(null);
+    window.api
+      .listExternalDocs(project.id)
+      .then(setExternalDocs)
+      .catch((e) => {
+        setExternalDocs([]);
+        setExternalDocsError(e instanceof Error ? e.message : String(e));
+      });
   }, [project.id, project.externalDocsPath]);
 
   useEffect(() => {
@@ -92,6 +135,38 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
   async function loadDocs(projectId: string) {
     setDocs(await window.api.listDocs(projectId));
+  }
+
+  async function loadTasks(projectId: string) {
+    setTasks(await window.api.listTasks(projectId));
+  }
+
+  async function createTask() {
+    if (!taskDraft.title.trim() || !taskDraft.prompt.trim()) return;
+    if (taskDraft.recurrence === "once" && !taskDraft.date) return;
+    const saved = await window.api.saveTask(project.id, {
+      title: taskDraft.title.trim(),
+      prompt: taskDraft.prompt.trim(),
+      recurrence: taskDraft.recurrence,
+      time: taskDraft.time,
+      date: taskDraft.recurrence === "once" ? taskDraft.date : undefined,
+      weekday: taskDraft.recurrence === "weekly" ? taskDraft.weekday : undefined,
+      enabled: true,
+    });
+    setTasks((prev) => [...prev, saved].sort((a, b) => a.createdAt - b.createdAt));
+    setTaskDraft(emptyTaskDraft);
+    setShowTaskForm(false);
+  }
+
+  async function toggleTaskEnabled(t: ScheduledTask) {
+    const updated = await window.api.saveTask(project.id, { ...t, enabled: !t.enabled });
+    setTasks((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+  }
+
+  async function removeTask(id: string) {
+    if (!confirm("Удалить задачу?")) return;
+    await window.api.deleteTask(project.id, id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
   async function newConversation() {
@@ -251,6 +326,87 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
       {tab === "chat" && (
         <div className="chat-layout">
           <div className="conv-list">
+            <div className="conv-list-section-header">
+              <h4>Задачи</h4>
+              <button className="link-btn" onClick={() => setShowTaskForm((v) => !v)}>
+                {showTaskForm ? "Отмена" : "+ Задача"}
+              </button>
+            </div>
+            {showTaskForm && (
+              <div className="task-form">
+                <input
+                  placeholder="Название задачи"
+                  value={taskDraft.title}
+                  onChange={(e) => setTaskDraft((d) => ({ ...d, title: e.target.value }))}
+                />
+                <textarea
+                  placeholder="Что должен сделать ассистент"
+                  value={taskDraft.prompt}
+                  onChange={(e) => setTaskDraft((d) => ({ ...d, prompt: e.target.value }))}
+                  rows={3}
+                />
+                <select
+                  value={taskDraft.recurrence}
+                  onChange={(e) => setTaskDraft((d) => ({ ...d, recurrence: e.target.value as TaskRecurrence }))}
+                >
+                  <option value="once">Один раз</option>
+                  <option value="daily">Каждый день</option>
+                  <option value="weekly">Каждую неделю</option>
+                </select>
+                {taskDraft.recurrence === "once" && (
+                  <input
+                    type="date"
+                    value={taskDraft.date}
+                    onChange={(e) => setTaskDraft((d) => ({ ...d, date: e.target.value }))}
+                  />
+                )}
+                {taskDraft.recurrence === "weekly" && (
+                  <select
+                    value={taskDraft.weekday}
+                    onChange={(e) => setTaskDraft((d) => ({ ...d, weekday: Number(e.target.value) }))}
+                  >
+                    {WEEKDAY_NAMES.map((name, idx) => (
+                      <option key={idx} value={idx}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <input
+                  type="time"
+                  value={taskDraft.time}
+                  onChange={(e) => setTaskDraft((d) => ({ ...d, time: e.target.value }))}
+                />
+                <button
+                  className="btn btn-primary btn-block"
+                  onClick={createTask}
+                  disabled={
+                    !taskDraft.title.trim() || !taskDraft.prompt.trim() || (taskDraft.recurrence === "once" && !taskDraft.date)
+                  }
+                >
+                  Создать задачу
+                </button>
+              </div>
+            )}
+            {tasks.length === 0 && !showTaskForm && <p className="hint task-empty-hint">Нет задач по времени.</p>}
+            {tasks.map((t) => (
+              <div key={t.id} className="task-item">
+                <label className="task-item-main">
+                  <input type="checkbox" checked={t.enabled} onChange={() => toggleTaskEnabled(t)} />
+                  <span className="task-item-text">
+                    <span className="task-title">{t.title}</span>
+                    <span className="task-meta">{describeTaskSchedule(t)}</span>
+                  </span>
+                </label>
+                <button className="conv-delete" onClick={() => removeTask(t.id)} title="Удалить">
+                  ×
+                </button>
+              </div>
+            ))}
+
+            <div className="conv-list-section-header conv-list-section-header-chats">
+              <h4>Чаты</h4>
+            </div>
             <button className="btn btn-primary btn-block" onClick={newConversation}>
               + Новый чат
             </button>
@@ -269,6 +425,22 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 API-ключ не задан. <button className="link-btn" onClick={onOpenSettings}>Открыть настройки</button>
               </div>
             )}
+            <div className="system-prompt-preview-bar">
+              <button className="link-btn" onClick={() => setShowSystemPromptPreview((v) => !v)}>
+                {showSystemPromptPreview ? "Скрыть" : "Что видит ассистент"} ({systemPrompt.length.toLocaleString("ru-RU")}{" "}
+                симв.)
+              </button>
+            </div>
+            {showSystemPromptPreview && (
+              <div className="system-prompt-preview">
+                <p className="hint">
+                  Это ровно тот системный промпт (инструкции + навыки + документы), который сейчас уходит модели
+                  вместе с каждым сообщением в этом проекте — если документ или навык не следует, в первую очередь
+                  проверьте, попал ли он сюда.
+                </p>
+                <pre>{systemPrompt || "(пусто)"}</pre>
+              </div>
+            )}
             {activeConv ? (
               <ChatView
                 conversation={activeConv}
@@ -278,6 +450,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 onSave={(conv) => window.api.saveConversation(project.id, conv)}
                 projectId={project.id}
                 brand={brandKit}
+                skills={skills}
               />
             ) : (
               <div className="chat-empty-hint">Нет активного чата. Нажмите «+ Новый чат».</div>
@@ -365,9 +538,10 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               </button>
             )}
           </div>
+          {externalDocsError && <div className="chat-error">{externalDocsError}</div>}
           {project.externalDocsPath && (
             <ul className="doc-list">
-              {externalDocs.length === 0 && (
+              {externalDocs.length === 0 && !externalDocsError && (
                 <p className="hint">В папке не найдено файлов поддерживаемых форматов.</p>
               )}
               {externalDocs.map((d) => (

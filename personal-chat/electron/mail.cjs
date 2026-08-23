@@ -55,8 +55,16 @@ async function getAccount(root) {
 
 async function saveAccount(root, account) {
   await ensureDir(mailDir(root));
-  await writeJson(accountFile(root), account);
-  return account;
+  // Defense in depth against a copy-pasted email/app password carrying invisible
+  // leading/trailing whitespace (the renderer already trims before calling this,
+  // but any other future caller should get the same protection).
+  const sanitized = {
+    ...account,
+    email: (account.email || "").trim(),
+    password: (account.password || "").trim(),
+  };
+  await writeJson(accountFile(root), sanitized);
+  return sanitized;
 }
 
 async function saveSignatureLogo(root, sourcePath) {

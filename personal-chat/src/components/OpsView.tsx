@@ -109,7 +109,28 @@ export default function OpsView({ settings, onOpenSettings }: Props) {
     }
   }
 
-  const activeSheet = sheets.find((s) => s.id === activeId);
+  function nonEmptyCount(row: CellValue[]): number {
+  return row.filter((c) => String(c ?? "").trim() !== "").length;
+}
+
+// Spreadsheets like this one aren't one flat table — a sheet groups several
+// sub-tables, each introduced by a merged section-title row (now collapsed to a
+// single non-empty cell by the merge fix in ops.cjs), usually followed by a blank
+// spacer row and then its own column-header row. Classify each row so the table
+// can render title banners, spacers and column headers distinctly instead of one
+// static "row 0 is the header" rule that only ever matched the very first
+// sub-table.
+function classifyRow(rows: CellValue[][], i: number): "blank" | "banner" | "header" | "data" {
+  const n = nonEmptyCount(rows[i]);
+  if (n === 0) return "blank";
+  if (n === 1) return "banner";
+  let p = i - 1;
+  while (p >= 0 && nonEmptyCount(rows[p]) === 0) p--;
+  if (p < 0 || classifyRow(rows, p) === "banner") return "header";
+  return "data";
+}
+
+const activeSheet = sheets.find((s) => s.id === activeId);
 
   return (
     <div className="ops-view">
@@ -167,25 +188,61 @@ export default function OpsView({ settings, onOpenSettings }: Props) {
                     <div className="ops-table-scroll">
                       <table className="ops-table">
                         <tbody>
-                          {rowsDraft.map((row, rowIdx) => (
-                            <tr key={rowIdx} className={rowIdx === 0 ? "ops-header-row" : undefined}>
-                              <td className="ops-row-index">{rowIdx}</td>
-                              {row.map((cell, colIdx) => (
-                                <td key={colIdx}>
-                                  <input
-                                    value={cell}
-                                    onChange={(e) => updateCell(rowIdx, colIdx, e.target.value)}
-                                    onBlur={saveActiveSheet}
-                                  />
+                          {rowsDraft.map((row, rowIdx) => {
+                            const kind = classifyRow(rowsDraft, rowIdx);
+                            if (kind === "blank") {
+                              return (
+                                <tr key={rowIdx} className="ops-blank-row">
+                                  <td className="ops-row-index">{rowIdx}</td>
+                                  <td colSpan={Math.max(row.length, 1)} />
+                                  <td className="ops-row-actions">
+                                    <button className="conv-delete" onClick={() => deleteRow(rowIdx)} title="Удалить строку">
+                                      ×
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            if (kind === "banner") {
+                              const bannerColIdx = row.findIndex((c) => String(c ?? "").trim() !== "");
+                              return (
+                                <tr key={rowIdx} className="ops-banner-row">
+                                  <td className="ops-row-index">{rowIdx}</td>
+                                  <td colSpan={Math.max(row.length, 1)}>
+                                    <input
+                                      value={bannerColIdx === -1 ? "" : row[bannerColIdx]}
+                                      onChange={(e) => updateCell(rowIdx, Math.max(bannerColIdx, 0), e.target.value)}
+                                      onBlur={saveActiveSheet}
+                                    />
+                                  </td>
+                                  <td className="ops-row-actions">
+                                    <button className="conv-delete" onClick={() => deleteRow(rowIdx)} title="Удалить строку">
+                                      ×
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return (
+                              <tr key={rowIdx} className={kind === "header" ? "ops-header-row" : undefined}>
+                                <td className="ops-row-index">{rowIdx}</td>
+                                {row.map((cell, colIdx) => (
+                                  <td key={colIdx}>
+                                    <input
+                                      value={cell}
+                                      onChange={(e) => updateCell(rowIdx, colIdx, e.target.value)}
+                                      onBlur={saveActiveSheet}
+                                    />
+                                  </td>
+                                ))}
+                                <td className="ops-row-actions">
+                                  <button className="conv-delete" onClick={() => deleteRow(rowIdx)} title="Удалить строку">
+                                    ×
+                                  </button>
                                 </td>
-                              ))}
-                              <td className="ops-row-actions">
-                                <button className="conv-delete" onClick={() => deleteRow(rowIdx)} title="Удалить строку">
-                                  ×
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

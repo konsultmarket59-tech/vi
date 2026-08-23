@@ -63,6 +63,26 @@ export interface Conversation {
   projectId: string;
   title: string;
   messages: ChatMessage[];
+  model?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type TaskRecurrence = "once" | "daily" | "weekly";
+
+export interface ScheduledTask {
+  id: string;
+  projectId: string;
+  title: string;
+  prompt: string;
+  recurrence: TaskRecurrence;
+  time: string; // "HH:MM", 24h, local time
+  date?: string; // "YYYY-MM-DD" — only for recurrence "once"
+  weekday?: number; // 0 (Sun) – 6 (Sat) — only for recurrence "weekly"
+  enabled: boolean;
+  lastRunAt?: number;
+  lastConversationId?: string;
+  nextRunAt: number | null; // epoch ms; null once a "once" task has fired
   createdAt: number;
   updatedAt: number;
 }
@@ -73,6 +93,8 @@ export interface Settings {
   model: string;
   temperature: number;
   maxTokens: number;
+  proxyUsername?: string;
+  proxyPassword?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -80,7 +102,9 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 16000,
+  proxyUsername: "",
+  proxyPassword: "",
 };
 
 export interface AppConfig {
@@ -432,6 +456,12 @@ export interface ElectronAPI {
   // export (shared by chat exports and the design section)
   exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
   exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
+
+  // scheduled tasks
+  listTasks(projectId: string): Promise<ScheduledTask[]>;
+  saveTask(projectId: string, task: Partial<ScheduledTask> & { title: string; prompt: string }): Promise<ScheduledTask>;
+  deleteTask(projectId: string, id: string): Promise<void>;
+  onTaskRan(callback: (payload: { projectId: string; task: ScheduledTask; conversationId: string }) => void): () => void;
 }
 
 declare global {

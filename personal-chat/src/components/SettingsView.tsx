@@ -144,6 +144,24 @@ export default function SettingsView({ settings, onChange }: Props) {
         onChange={(e) => update("maxTokens", Number(e.target.value))}
       />
 
+      <h2>Логин прокси</h2>
+      <p className="hint">
+        Заполняйте, только если для доступа к интернету у вас используется VPN/прокси с обязательной
+        авторизацией (ошибка «407 Proxy Authentication Required» при отправке сообщений — верный признак
+        этого). Адрес самого прокси приложение берёт из настроек Windows автоматически — здесь нужны только
+        логин и пароль от него.
+      </p>
+      <label>Логин</label>
+      <input value={draft.proxyUsername ?? ""} onChange={(e) => update("proxyUsername", e.target.value)} />
+      <label>Пароль</label>
+      <div className="key-row">
+        <input
+          type={showKey ? "text" : "password"}
+          value={draft.proxyPassword ?? ""}
+          onChange={(e) => update("proxyPassword", e.target.value)}
+        />
+      </div>
+
       <button className="btn btn-primary" onClick={save}>
         Сохранить настройки
       </button>

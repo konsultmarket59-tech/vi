@@ -50,6 +50,16 @@ contextBridge.exposeInMainWorld("api", {
   saveConversation: (projectId, conv) => ipcRenderer.invoke("conversations:save", projectId, conv),
   deleteConversation: (projectId, convId) => ipcRenderer.invoke("conversations:delete", projectId, convId),
 
+  // scheduled tasks
+  listTasks: (projectId) => ipcRenderer.invoke("tasks:list", projectId),
+  saveTask: (projectId, task) => ipcRenderer.invoke("tasks:save", projectId, task),
+  deleteTask: (projectId, id) => ipcRenderer.invoke("tasks:delete", projectId, id),
+  onTaskRan: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("tasks:ran", listener);
+    return () => ipcRenderer.removeListener("tasks:ran", listener);
+  },
+
   // import
   pickClaudeExportFiles: () => ipcRenderer.invoke("import:pickClaudeExports"),
   importClaudeExports: (filePaths) => ipcRenderer.invoke("import:claudeExports", filePaths),

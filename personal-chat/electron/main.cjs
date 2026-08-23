@@ -1,7 +1,30 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
+const crypto = require("node:crypto");
+
+// Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, etc.)
+// through Electron's own network stack instead of Node's built-in fetch. Node's fetch
+// (undici) doesn't pick up the OS/VPN's configured HTTP(S) proxy at all — requests just
+// go direct — whereas net.fetch shares Chromium's network stack and proxy handling
+// (including the "login" event below, which answers proxy authentication challenges),
+// same as fetch() calls made from the renderer already do automatically.
+global.fetch = net.fetch;
+
+// Answers proxy authentication challenges (HTTP 407) with the credentials saved in
+// Settings, if any — needed when the user's VPN/proxy requires a login. Electron has
+// no built-in UI for this (unlike a full browser), so without this handler a 407 just
+// passes straight through to the caller as a failed response. Only ever supplies
+// credentials for isProxy challenges, never for a origin server's own auth (401).
+app.on("login", (event, _webContents, _details, authInfo, callback) => {
+  if (!authInfo.isProxy) return;
+  loadSettings().then((s) => {
+    if (!s.proxyUsername) return; // no proxy credentials configured — leave default behavior
+    event.preventDefault();
+    callback(s.proxyUsername, s.proxyPassword || "");
+  });
+});
 
 // On some Windows setups (observed with a OneDrive-redirected Documents folder)
 // app.getPath() hands back a "\\?\"-prefixed extended-length path. Node's path.join
@@ -23,7 +46,7 @@ const DEFAULT_SETTINGS = {
   apiKey: "",
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 16000,
 };
 
 // ---------- low-level helpers ----------
@@ -116,8 +139,16 @@ function chatsDir(root, id) {
 
 const SETTINGS_PATH = path.join(USER_DATA_PATH, "settings.json");
 
+const OLD_DEFAULT_MAX_TOKENS = 4096;
+
 async function loadSettings() {
   const s = await readJson(SETTINGS_PATH, {});
+  // One-time migration: earlier versions defaulted maxTokens to 4096, which is far too
+  // small for long-form deliverables (funnels, contracts) and silently cut answers short.
+  // A saved value still sitting at that exact old default almost certainly means the user
+  // never touched the slider, not that they deliberately chose the smallest setting — so
+  // carry them forward to the new, more generous default.
+  if (s.maxTokens === OLD_DEFAULT_MAX_TOKENS) s.maxTokens = DEFAULT_SETTINGS.maxTokens;
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -392,7 +423,16 @@ async function listExternalDocs(projectId) {
   const root = await getRootPath();
   const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
   if (!meta?.externalDocsPath) return [];
-  const entries = await fs.readdir(meta.externalDocsPath, { withFileTypes: true }).catch(() => []);
+  let entries;
+  try {
+    entries = await fs.readdir(meta.externalDocsPath, { withFileTypes: true });
+  } catch (e) {
+    // Surface this instead of silently reporting "no files" — a real access problem
+    // (folder moved/renamed, permissions, a OneDrive path that isn't actually reachable)
+    // used to look identical to an empty folder, which made the missing-docs bug
+    // impossible for the user to tell apart from "there's genuinely nothing there".
+    throw new Error(`Не удалось прочитать папку "${meta.externalDocsPath}": ${e.message}`);
+  }
   const docs = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
@@ -555,6 +595,7 @@ const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
+const tasks = require("./tasks.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
 
 function broadcast(channel, payload) {
@@ -648,19 +689,26 @@ async function buildSystemPrompt(projectId) {
   }
 
   if (meta.externalDocsPath) {
-    const externalDocs = await listExternalDocs(projectId);
-    if (externalDocs.length > 0) {
-      parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
-      for (const doc of externalDocs) {
-        const filePath = path.join(meta.externalDocsPath, doc.name);
-        let content;
-        try {
-          content = await extractDocText(filePath);
-        } catch (e) {
-          content = `[Ошибка чтения файла: ${e.message}]`;
+    try {
+      const externalDocs = await listExternalDocs(projectId);
+      if (externalDocs.length > 0) {
+        parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
+        for (const doc of externalDocs) {
+          const filePath = path.join(meta.externalDocsPath, doc.name);
+          let content;
+          try {
+            content = await extractDocText(filePath);
+          } catch (e) {
+            content = `[Ошибка чтения файла: ${e.message}]`;
+          }
+          parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
         }
-        parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
       }
+    } catch (e) {
+      // Don't let an unreachable external folder break the whole system prompt (and
+      // with it, the chat) — surface it to the assistant (and, via the debug preview
+      // in the UI, to the user) instead of failing silently or failing loudly.
+      parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ ===\n[${e.message}]`);
     }
   }
 
@@ -669,6 +717,71 @@ async function buildSystemPrompt(projectId) {
     full = full.slice(0, MAX_TOTAL_CHARS) + "\n\n[...общий контекст обрезан по лимиту...]";
   }
   return full;
+}
+
+// ---------- scheduled tasks ----------
+
+// Non-streaming chat completion, same wire format as src/lib/api.ts's
+// streamChat but called from the main process (no window/EventSource
+// involved) — used to run a scheduled task's prompt unattended.
+async function callModelOnce(settings, messages) {
+  if (!settings.apiKey) throw new Error("Не задан API-ключ. Откройте настройки и вставьте ключ Polza.ai.");
+  if (!settings.model) throw new Error("Не задана модель в настройках.");
+  const url = settings.baseUrl.replace(/\/+$/, "") + "/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({
+      model: settings.model,
+      messages,
+      temperature: settings.temperature,
+      max_tokens: settings.maxTokens,
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Ошибка API (${res.status} ${res.statusText}). ${detail.slice(0, 500)}`);
+  }
+  const body = await res.json();
+  const content = body?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Модель вернула пустой ответ.");
+  return content;
+}
+
+// Executes one due scheduled task: calls the model with the project's system
+// prompt + the task's own prompt, drops the exchange into a new conversation
+// in that project's regular chat list (so it shows up right alongside chats
+// the user started manually), and persists the task's updated run state
+// (this is what advances nextRunAt for daily/weekly tasks, or disables a
+// "once" task after it fires).
+async function runScheduledTask(root, task) {
+  const now = Date.now();
+  const systemPrompt = await buildSystemPrompt(task.projectId);
+  const settings = await loadSettings();
+  const reply = await callModelOnce(settings, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: task.prompt },
+  ]);
+  const conv = {
+    id: crypto.randomUUID(),
+    projectId: task.projectId,
+    title: `Задача: ${task.title}`,
+    messages: [
+      { id: crypto.randomUUID(), role: "user", content: task.prompt, createdAt: now },
+      { id: crypto.randomUUID(), role: "assistant", content: reply, createdAt: Date.now() },
+    ],
+    createdAt: now,
+    updatedAt: Date.now(),
+  };
+  await saveConversation(task.projectId, conv);
+  const updated = await tasks.save(root, task.projectId, {
+    ...task,
+    lastRunAt: now,
+    lastConversationId: conv.id,
+    enabled: task.recurrence === "once" ? false : task.enabled,
+  });
+  broadcast("tasks:ran", { projectId: task.projectId, task: updated, conversationId: conv.id });
 }
 
 // ---------- import from Claude.ai export ----------
@@ -839,6 +952,16 @@ function createWindow() {
     },
   });
 
+  // Electron denies opening a new window/tab for target="_blank" links by default —
+  // without this handler, every external link in the app (GitHub token page, the
+  // Polza.ai model catalog, the mail.ru help article, etc.) does nothing at all when
+  // clicked. Send them to the user's actual browser instead of trying to open inside
+  // the app.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) shell.openExternal(url);
+    return { action: "deny" };
+  });
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     win.loadURL(devUrl);
@@ -853,6 +976,7 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   chatbots.startScheduler(getRootPath, (platform, message) => broadcast("chatbots:message", { platform, message }));
+  tasks.startScheduler(getRootPath, runScheduledTask);
 });
 
 app.on("window-all-closed", () => {
@@ -967,7 +1091,7 @@ ipcMain.handle("skills:pickImportFile", async () => {
   const win = BrowserWindow.getFocusedWindow();
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile"],
-    filters: [{ name: "Навык", extensions: ["md", "txt"] }],
+    filters: [{ name: "Навык", extensions: ["md", "txt", "skill"] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
@@ -984,6 +1108,10 @@ ipcMain.handle("skills:importFromFolder", (_e, folderPath) => importSkillFromFol
 ipcMain.handle("conversations:list", (_e, projectId) => listConversations(projectId));
 ipcMain.handle("conversations:save", (_e, projectId, conv) => saveConversation(projectId, conv));
 ipcMain.handle("conversations:delete", (_e, projectId, convId) => deleteConversation(projectId, convId));
+
+ipcMain.handle("tasks:list", async (_e, projectId) => tasks.list(await getRootPath(), projectId));
+ipcMain.handle("tasks:save", async (_e, projectId, task) => tasks.save(await getRootPath(), projectId, task));
+ipcMain.handle("tasks:delete", async (_e, projectId, id) => tasks.remove(await getRootPath(), projectId, id));
 
 ipcMain.handle("import:pickClaudeExports", async () => {
   const win = BrowserWindow.getFocusedWindow();

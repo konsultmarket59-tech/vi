@@ -122,7 +122,7 @@ export default function SkillsView({ skills, settings, onSkillsChange, onOpenSet
             <h2>Навыки</h2>
             <div>
               <button className="btn btn-secondary" onClick={importFromFile}>
-                📄 Загрузить из файла (.md)
+                📄 Загрузить из файла (.md, .skill)
               </button>
               <button className="btn btn-secondary" onClick={importFromFolder}>
                 📁 Загрузить из папки (SKILL.md)
