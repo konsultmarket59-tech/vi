@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
+const crypto = require("node:crypto");
 
 // Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, etc.)
 // through Electron's own network stack instead of Node's built-in fetch. Node's fetch
@@ -577,6 +578,7 @@ const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
+const tasks = require("./tasks.cjs");
 const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
 
 function broadcast(channel, payload) {
@@ -691,6 +693,71 @@ async function buildSystemPrompt(projectId) {
     full = full.slice(0, MAX_TOTAL_CHARS) + "\n\n[...общий контекст обрезан по лимиту...]";
   }
   return full;
+}
+
+// ---------- scheduled tasks ----------
+
+// Non-streaming chat completion, same wire format as src/lib/api.ts's
+// streamChat but called from the main process (no window/EventSource
+// involved) — used to run a scheduled task's prompt unattended.
+async function callModelOnce(settings, messages) {
+  if (!settings.apiKey) throw new Error("Не задан API-ключ. Откройте настройки и вставьте ключ Polza.ai.");
+  if (!settings.model) throw new Error("Не задана модель в настройках.");
+  const url = settings.baseUrl.replace(/\/+$/, "") + "/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({
+      model: settings.model,
+      messages,
+      temperature: settings.temperature,
+      max_tokens: settings.maxTokens,
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Ошибка API (${res.status} ${res.statusText}). ${detail.slice(0, 500)}`);
+  }
+  const body = await res.json();
+  const content = body?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Модель вернула пустой ответ.");
+  return content;
+}
+
+// Executes one due scheduled task: calls the model with the project's system
+// prompt + the task's own prompt, drops the exchange into a new conversation
+// in that project's regular chat list (so it shows up right alongside chats
+// the user started manually), and persists the task's updated run state
+// (this is what advances nextRunAt for daily/weekly tasks, or disables a
+// "once" task after it fires).
+async function runScheduledTask(root, task) {
+  const now = Date.now();
+  const systemPrompt = await buildSystemPrompt(task.projectId);
+  const settings = await loadSettings();
+  const reply = await callModelOnce(settings, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: task.prompt },
+  ]);
+  const conv = {
+    id: crypto.randomUUID(),
+    projectId: task.projectId,
+    title: `Задача: ${task.title}`,
+    messages: [
+      { id: crypto.randomUUID(), role: "user", content: task.prompt, createdAt: now },
+      { id: crypto.randomUUID(), role: "assistant", content: reply, createdAt: Date.now() },
+    ],
+    createdAt: now,
+    updatedAt: Date.now(),
+  };
+  await saveConversation(task.projectId, conv);
+  const updated = await tasks.save(root, task.projectId, {
+    ...task,
+    lastRunAt: now,
+    lastConversationId: conv.id,
+    enabled: task.recurrence === "once" ? false : task.enabled,
+  });
+  broadcast("tasks:ran", { projectId: task.projectId, task: updated, conversationId: conv.id });
 }
 
 // ---------- import from Claude.ai export ----------
@@ -875,6 +942,7 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   chatbots.startScheduler(getRootPath, (platform, message) => broadcast("chatbots:message", { platform, message }));
+  tasks.startScheduler(getRootPath, runScheduledTask);
 });
 
 app.on("window-all-closed", () => {
@@ -1006,6 +1074,10 @@ ipcMain.handle("skills:importFromFolder", (_e, folderPath) => importSkillFromFol
 ipcMain.handle("conversations:list", (_e, projectId) => listConversations(projectId));
 ipcMain.handle("conversations:save", (_e, projectId, conv) => saveConversation(projectId, conv));
 ipcMain.handle("conversations:delete", (_e, projectId, convId) => deleteConversation(projectId, convId));
+
+ipcMain.handle("tasks:list", async (_e, projectId) => tasks.list(await getRootPath(), projectId));
+ipcMain.handle("tasks:save", async (_e, projectId, task) => tasks.save(await getRootPath(), projectId, task));
+ipcMain.handle("tasks:delete", async (_e, projectId, id) => tasks.remove(await getRootPath(), projectId, id));
 
 ipcMain.handle("import:pickClaudeExports", async () => {
   const win = BrowserWindow.getFocusedWindow();

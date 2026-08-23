@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, Conversation, MediaGenerationResult, Settings } from "../lib/types";
+import type { ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
 import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
 import { streamChat, ApiError, type ApiMessage } from "../lib/api";
 import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
@@ -16,6 +16,7 @@ interface Props {
   brand?: BrandKit;
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
+  skills?: Skill[];
 }
 
 function deriveFileName(text: string): string {
@@ -45,9 +46,12 @@ export default function ChatView({
   brand,
   emptyHint,
   onAssistantMessage,
+  skills,
 }: Props) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attachedSkillId, setAttachedSkillId] = useState<string | null>(null);
+  const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [exportError, setExportError] = useState<string | null>(null);
@@ -88,8 +92,14 @@ export default function ChatView({
     onUpdate(withUser);
     await onSave(withUser);
 
+    const attachedSkill = skills?.find((s) => s.id === attachedSkillId);
+    const skillPrompt = attachedSkill
+      ? `\n\n--- Навык (вызван для этого сообщения): ${attachedSkill.name} ---\n${
+          attachedSkill.description ? attachedSkill.description + "\n" : ""
+        }${attachedSkill.content}`
+      : "";
     const apiMessages: ApiMessage[] = [
-      { role: "system", content: systemPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT },
+      { role: "system", content: systemPrompt + skillPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT },
       ...withUser.messages.map((m) => ({ role: m.role, content: m.content }) as ApiMessage),
     ];
 
@@ -131,6 +141,7 @@ export default function ChatView({
       setBusy(false);
       setStreamingText("");
       abortRef.current = null;
+      setAttachedSkillId(null);
     }
   }
 
@@ -268,6 +279,47 @@ export default function ChatView({
         {exportError && <div className="chat-error">Не удалось экспортировать: {exportError}</div>}
         <div ref={bottomRef} />
       </div>
+      {skills && skills.length > 0 && (
+        <div className="chat-skill-bar">
+          {(() => {
+            const attachedSkill = skills.find((s) => s.id === attachedSkillId);
+            if (attachedSkill) {
+              return (
+                <span className="skill-chip">
+                  🎯 {attachedSkill.name}
+                  <button className="skill-chip-remove" onClick={() => setAttachedSkillId(null)} title="Убрать навык">
+                    ×
+                  </button>
+                </span>
+              );
+            }
+            return (
+              <div className="skill-picker-wrap">
+                <button className="link-btn" onClick={() => setShowSkillPicker((v) => !v)}>
+                  🎯 Вызвать навык
+                </button>
+                {showSkillPicker && (
+                  <div className="skill-picker-menu">
+                    {skills.map((s) => (
+                      <button
+                        key={s.id}
+                        className="skill-picker-item"
+                        onClick={() => {
+                          setAttachedSkillId(s.id);
+                          setShowSkillPicker(false);
+                        }}
+                      >
+                        <span className="skill-picker-name">{s.name}</span>
+                        {s.description && <span className="skill-picker-desc">{s.description}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
       <div className="chat-input-bar">
         <textarea
           value={input}
