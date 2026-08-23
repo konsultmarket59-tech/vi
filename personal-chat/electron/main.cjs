@@ -452,12 +452,19 @@ async function listSkills() {
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
   const skills = [];
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    // "_"-prefixed files in this folder are scratch state, not skills — e.g. the Skill
+    // Creator's own conversation is saved right alongside real skills as
+    // "_creator_chat.json". It has no `name` field (it's a Conversation, not a Skill),
+    // so without this exclusion it used to get picked up here and crash the sort below
+    // with "Cannot read properties of undefined (reading 'localeCompare')" — which,
+    // since this list loads at startup, took down the entire app the moment anyone had
+    // ever opened the Skill Creator once.
+    if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name.startsWith("_")) continue;
     const data = await readJson(path.join(dir, entry.name), null);
     if (!data) continue;
     skills.push({ id: entry.name.replace(/\.json$/, ""), ...data });
   }
-  skills.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+  skills.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
   return skills;
 }
 
