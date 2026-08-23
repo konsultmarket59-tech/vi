@@ -46,7 +46,7 @@ const DEFAULT_SETTINGS = {
   apiKey: "",
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 16000,
 };
 
 // ---------- low-level helpers ----------
@@ -139,8 +139,16 @@ function chatsDir(root, id) {
 
 const SETTINGS_PATH = path.join(USER_DATA_PATH, "settings.json");
 
+const OLD_DEFAULT_MAX_TOKENS = 4096;
+
 async function loadSettings() {
   const s = await readJson(SETTINGS_PATH, {});
+  // One-time migration: earlier versions defaulted maxTokens to 4096, which is far too
+  // small for long-form deliverables (funnels, contracts) and silently cut answers short.
+  // A saved value still sitting at that exact old default almost certainly means the user
+  // never touched the slider, not that they deliberately chose the smallest setting — so
+  // carry them forward to the new, more generous default.
+  if (s.maxTokens === OLD_DEFAULT_MAX_TOKENS) s.maxTokens = DEFAULT_SETTINGS.maxTokens;
   return { ...DEFAULT_SETTINGS, ...s };
 }
 
@@ -415,7 +423,16 @@ async function listExternalDocs(projectId) {
   const root = await getRootPath();
   const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
   if (!meta?.externalDocsPath) return [];
-  const entries = await fs.readdir(meta.externalDocsPath, { withFileTypes: true }).catch(() => []);
+  let entries;
+  try {
+    entries = await fs.readdir(meta.externalDocsPath, { withFileTypes: true });
+  } catch (e) {
+    // Surface this instead of silently reporting "no files" — a real access problem
+    // (folder moved/renamed, permissions, a OneDrive path that isn't actually reachable)
+    // used to look identical to an empty folder, which made the missing-docs bug
+    // impossible for the user to tell apart from "there's genuinely nothing there".
+    throw new Error(`Не удалось прочитать папку "${meta.externalDocsPath}": ${e.message}`);
+  }
   const docs = [];
   for (const entry of entries) {
     if (!entry.isFile()) continue;
@@ -672,19 +689,26 @@ async function buildSystemPrompt(projectId) {
   }
 
   if (meta.externalDocsPath) {
-    const externalDocs = await listExternalDocs(projectId);
-    if (externalDocs.length > 0) {
-      parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
-      for (const doc of externalDocs) {
-        const filePath = path.join(meta.externalDocsPath, doc.name);
-        let content;
-        try {
-          content = await extractDocText(filePath);
-        } catch (e) {
-          content = `[Ошибка чтения файла: ${e.message}]`;
+    try {
+      const externalDocs = await listExternalDocs(projectId);
+      if (externalDocs.length > 0) {
+        parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
+        for (const doc of externalDocs) {
+          const filePath = path.join(meta.externalDocsPath, doc.name);
+          let content;
+          try {
+            content = await extractDocText(filePath);
+          } catch (e) {
+            content = `[Ошибка чтения файла: ${e.message}]`;
+          }
+          parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
         }
-        parts.push(`\n--- Документ: ${doc.name} ---\n${truncate(content, MAX_DOC_CHARS)}`);
       }
+    } catch (e) {
+      // Don't let an unreachable external folder break the whole system prompt (and
+      // with it, the chat) — surface it to the assistant (and, via the debug preview
+      // in the UI, to the user) instead of failing silently or failing loudly.
+      parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ ===\n[${e.message}]`);
     }
   }
 
@@ -926,6 +950,16 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+  // Electron denies opening a new window/tab for target="_blank" links by default —
+  // without this handler, every external link in the app (GitHub token page, the
+  // Polza.ai model catalog, the mail.ru help article, etc.) does nothing at all when
+  // clicked. Send them to the user's actual browser instead of trying to open inside
+  // the app.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) shell.openExternal(url);
+    return { action: "deny" };
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;

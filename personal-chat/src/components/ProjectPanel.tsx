@@ -44,6 +44,8 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [descDraft, setDescDraft] = useState(project.description);
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [externalDocs, setExternalDocs] = useState<DocMeta[]>([]);
+  const [externalDocsError, setExternalDocsError] = useState<string | null>(null);
+  const [showSystemPromptPreview, setShowSystemPromptPreview] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
   const [docError, setDocError] = useState<string | null>(null);
@@ -79,7 +81,14 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, docs, tab]);
 
   useEffect(() => {
-    window.api.listExternalDocs(project.id).then(setExternalDocs);
+    setExternalDocsError(null);
+    window.api
+      .listExternalDocs(project.id)
+      .then(setExternalDocs)
+      .catch((e) => {
+        setExternalDocs([]);
+        setExternalDocsError(e instanceof Error ? e.message : String(e));
+      });
   }, [project.id, project.externalDocsPath]);
 
   useEffect(() => {
@@ -416,6 +425,22 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 API-ключ не задан. <button className="link-btn" onClick={onOpenSettings}>Открыть настройки</button>
               </div>
             )}
+            <div className="system-prompt-preview-bar">
+              <button className="link-btn" onClick={() => setShowSystemPromptPreview((v) => !v)}>
+                {showSystemPromptPreview ? "Скрыть" : "Что видит ассистент"} ({systemPrompt.length.toLocaleString("ru-RU")}{" "}
+                симв.)
+              </button>
+            </div>
+            {showSystemPromptPreview && (
+              <div className="system-prompt-preview">
+                <p className="hint">
+                  Это ровно тот системный промпт (инструкции + навыки + документы), который сейчас уходит модели
+                  вместе с каждым сообщением в этом проекте — если документ или навык не следует, в первую очередь
+                  проверьте, попал ли он сюда.
+                </p>
+                <pre>{systemPrompt || "(пусто)"}</pre>
+              </div>
+            )}
             {activeConv ? (
               <ChatView
                 conversation={activeConv}
@@ -513,9 +538,10 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               </button>
             )}
           </div>
+          {externalDocsError && <div className="chat-error">{externalDocsError}</div>}
           {project.externalDocsPath && (
             <ul className="doc-list">
-              {externalDocs.length === 0 && (
+              {externalDocs.length === 0 && !externalDocsError && (
                 <p className="hint">В папке не найдено файлов поддерживаемых форматов.</p>
               )}
               {externalDocs.map((d) => (

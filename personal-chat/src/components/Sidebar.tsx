@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Project } from "../lib/types";
 
 export type View =
@@ -19,6 +20,22 @@ interface Props {
 }
 
 export default function Sidebar({ projects, view, onSelectView, onProjectsChange }: Props) {
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+
+  function startRename(p: Project) {
+    setRenamingId(p.id);
+    setRenameDraft(p.name);
+  }
+
+  async function commitRename(p: Project) {
+    const name = renameDraft.trim();
+    setRenamingId(null);
+    if (!name || name === p.name) return;
+    const updated = await window.api.updateProject(p.id, { name });
+    onProjectsChange(projects.map((x) => (x.id === p.id ? updated : x)));
+  }
+
   async function createEmptyProject() {
     const project = await window.api.createProject({ name: "Новый проект", description: "", instructions: "" });
     onProjectsChange([project, ...projects]);
@@ -52,15 +69,36 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
 
       <div className="sidebar-section sidebar-projects">
         <div className="sidebar-label">Проекты</div>
-        {projects.map((p) => (
-          <button
-            key={p.id}
-            className={view.kind === "project" && view.id === p.id ? "sidebar-item active" : "sidebar-item"}
-            onClick={() => onSelectView({ kind: "project", id: p.id })}
-          >
-            {p.name}
-          </button>
-        ))}
+        {projects.map((p) =>
+          renamingId === p.id ? (
+            <input
+              key={p.id}
+              className="sidebar-item-rename-input"
+              value={renameDraft}
+              autoFocus
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onBlur={() => commitRename(p)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename(p);
+                if (e.key === "Escape") setRenamingId(null);
+              }}
+            />
+          ) : (
+            <div
+              key={p.id}
+              className={
+                view.kind === "project" && view.id === p.id ? "sidebar-item sidebar-item-project active" : "sidebar-item sidebar-item-project"
+              }
+            >
+              <button className="sidebar-item-name" onClick={() => onSelectView({ kind: "project", id: p.id })}>
+                {p.name}
+              </button>
+              <button className="sidebar-item-rename" onClick={() => startRename(p)} title="Переименовать проект">
+                ✎
+              </button>
+            </div>
+          )
+        )}
       </div>
 
       <div className="sidebar-section sidebar-footer">

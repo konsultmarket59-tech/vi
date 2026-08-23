@@ -75,6 +75,39 @@ async function deleteSheet(root, id) {
   await fs.rm(path.join(opsDir(root), id + ".json"), { force: true });
 }
 
+function colLettersToNum(letters) {
+  let n = 0;
+  for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+function parseCellRef(ref) {
+  const m = /^([A-Z]+)(\d+)$/.exec(ref);
+  return { col: colLettersToNum(m[1]), row: parseInt(m[2], 10) };
+}
+
+// ExcelJS's row.values (used below) copies a merged cell's value into every column
+// the merge spans — so a title banner merged across, say, A1:F1 comes back as that
+// same title repeated in all 6 columns, which is exactly what made imported sheets
+// with section-title rows (a very common spreadsheet pattern) unreadable: the title
+// row looked like a second, bogus header, and it threw off column alignment for
+// every row below it. Blank out every cell in a merge except its top-left one so
+// each merged title/label only appears once, where it actually belongs.
+function blankMergedContinuations(rows, merges) {
+  for (const range of merges || []) {
+    const [startRef, endRef] = range.split(":");
+    const start = parseCellRef(startRef);
+    const end = endRef ? parseCellRef(endRef) : start;
+    for (let r = start.row; r <= end.row; r++) {
+      if (!rows[r - 1]) continue;
+      for (let c = start.col; c <= end.col; c++) {
+        if (r === start.row && c === start.col) continue;
+        if (c - 1 < rows[r - 1].length) rows[r - 1][c - 1] = "";
+      }
+    }
+  }
+}
+
 function cellToPlain(v) {
   if (v == null) return "";
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -105,12 +138,19 @@ async function importXlsx(root, filePath) {
     order++;
     const rows = [];
     let maxCol = 0;
-    worksheet.eachRow((row) => {
+    // includeEmpty keeps blank spacer rows in place, so array index i always maps to
+    // worksheet row i+1 — required for blankMergedContinuations below, whose merge
+    // ranges are given in real (1-based) worksheet row numbers. Without this, a sheet
+    // with any blank row between sections (very common — it's exactly how these
+    // section-title rows are visually separated) would silently compact the row
+    // indices, and every merge would end up blanking the wrong row entirely.
+    worksheet.eachRow({ includeEmpty: true }, (row) => {
       const values = row.values.slice(1).map(cellToPlain);
       maxCol = Math.max(maxCol, values.length);
       rows.push(values);
     });
     for (const r of rows) while (r.length < maxCol) r.push("");
+    blankMergedContinuations(rows, worksheet.model.merges);
     results.push({ name: worksheet.name, rows, order });
   });
 

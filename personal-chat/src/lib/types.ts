@@ -63,6 +63,7 @@ export interface Conversation {
   projectId: string;
   title: string;
   messages: ChatMessage[];
+  model?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -101,7 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 16000,
   proxyUsername: "",
   proxyPassword: "",
 };

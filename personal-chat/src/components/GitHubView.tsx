@@ -33,6 +33,7 @@ export default function GitHubView({ settings, onOpenSettings }: Props) {
       setAccount(a);
       setTokenDraft(a.token);
       if (a.token) refreshRepos();
+      else setTab("settings"); // nothing connected yet — land straight on setup instructions, not an empty repo list
     });
   }, []);
 
@@ -110,8 +111,31 @@ export default function GitHubView({ settings, onOpenSettings }: Props) {
       {tab === "settings" && (
         <div className="panel-section">
           <p className="hint">
-            Нужен Personal Access Token (fine-grained или classic) со скоупом{" "}
-            <code>repo</code>. Создать: GitHub → Settings → Developer settings → Personal access tokens.
+            Для подключения нужен Personal Access Token — это как пароль, только для одного конкретного приложения,
+            который можно в любой момент отозвать на GitHub, не меняя основной пароль от аккаунта.
+          </p>
+          <ol className="github-token-steps">
+            <li>
+              Нажмите кнопку ниже — откроется страница создания токена на GitHub, уже с нужной галочкой{" "}
+              <code>repo</code>.
+            </li>
+            <li>На открывшейся странице внизу нажмите зелёную кнопку «Generate token».</li>
+            <li>Скопируйте показанный токен (вида <code>ghp_…</code>) — он показывается только один раз.</li>
+            <li>Вставьте его в поле «Токен» ниже и нажмите «Сохранить».</li>
+          </ol>
+          <a
+            className="btn btn-secondary github-token-link"
+            href="https://github.com/settings/tokens/new?scopes=repo&description=%D0%9B%D0%B8%D1%87%D0%BD%D1%8B%D0%B9%20%D1%87%D0%B0%D1%82"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Создать токен на GitHub ↗
+          </a>
+          <p className="hint">
+            Это создаст токен старого («classic») типа — самый простой и надёжный вариант для одного личного
+            аккаунта. Если вместо этого создаёте fine-grained-токен вручную — учтите, что у него нет галочки{" "}
+            <code>repo</code>: там вместо скоупов нужно выбрать конкретные репозитории и выдать им права{" "}
+            <code>Contents: Read and write</code>.
           </p>
           <label>Токен</label>
           <input type="password" value={tokenDraft} onChange={(e) => setTokenDraft(e.target.value)} placeholder="ghp_…" />

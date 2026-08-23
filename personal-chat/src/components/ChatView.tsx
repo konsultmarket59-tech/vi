@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
 import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
-import { streamChat, ApiError, type ApiMessage } from "../lib/api";
+import { streamChat, listModels, ApiError, type ApiMessage } from "../lib/api";
 import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
 import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
+import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
 import Markdown from "./Markdown";
 
 interface Props {
@@ -52,6 +53,7 @@ export default function ChatView({
   const [busy, setBusy] = useState(false);
   const [attachedSkillId, setAttachedSkillId] = useState<string | null>(null);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
+  const [chatModels, setChatModels] = useState(CURATED_CHAT_MODELS);
   const [error, setError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [exportError, setExportError] = useState<string | null>(null);
@@ -67,6 +69,20 @@ export default function ChatView({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation.messages, streamingText]);
+
+  useEffect(() => {
+    listModels(settings.baseUrl, settings.apiKey, "chat")
+      .then((fetched) => setChatModels(mergeModelLists(CURATED_CHAT_MODELS, fetched)))
+      .catch(() => {
+        // keep the curated shortlist as-is — the picker still works without the live catalog
+      });
+  }, [settings.baseUrl, settings.apiKey]);
+
+  function updateModel(model: string) {
+    const updated: Conversation = { ...conversation, model: model || undefined };
+    onUpdate(updated);
+    onSave(updated);
+  }
 
   useEffect(() => {
     const lastAssistant = [...conversation.messages].reverse().find((m) => m.role === "assistant");
@@ -108,9 +124,13 @@ export default function ChatView({
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const effectiveSettings = conversation.model && conversation.model !== settings.model
+      ? { ...settings, model: conversation.model }
+      : settings;
+
     try {
       const full = await streamChat(
-        settings,
+        effectiveSettings,
         apiMessages,
         (chunk) => setStreamingText((prev) => prev + chunk),
         controller.signal
@@ -207,6 +227,28 @@ export default function ChatView({
 
   return (
     <div className="chat-view">
+      <div className="chat-model-bar">
+        <span className="hint">Модель:</span>
+        <input
+          className="chat-model-input"
+          value={conversation.model ?? settings.model}
+          onChange={(e) => updateModel(e.target.value)}
+          list="chat-view-models-list"
+          placeholder={settings.model}
+        />
+        <datalist id="chat-view-models-list">
+          {chatModels.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </datalist>
+        {conversation.model && conversation.model !== settings.model && (
+          <button className="link-btn" onClick={() => updateModel("")} title="Вернуть модель по умолчанию из настроек">
+            сбросить к настройкам
+          </button>
+        )}
+      </div>
       {conversation.messages.length > 0 && (
         <div className="chat-export-bar">
           <span className="hint">Экспорт всего чата:</span>
