@@ -60,6 +60,25 @@ contextBridge.exposeInMainWorld("api", {
   // chat attachments
   pickAttachments: () => ipcRenderer.invoke("attachments:pick"),
 
+  // Excel workbooks
+  pickExcelFile: () => ipcRenderer.invoke("excel:pick"),
+  openExcelFile: (filePath) => ipcRenderer.invoke("excel:open", filePath),
+  setExcelCells: (edits) => ipcRenderer.invoke("excel:setCells", edits),
+  saveExcelFile: (saveAs) => ipcRenderer.invoke("excel:save", saveAs),
+  buildExcelAgentPrompt: () => ipcRenderer.invoke("excel:buildAgentPrompt"),
+  getExcelAgentConversation: () => ipcRenderer.invoke("excel:getAgentConversation"),
+  saveExcelAgentConversation: (conv) => ipcRenderer.invoke("excel:saveAgentConversation", conv),
+
+  // cloud storage
+  getCloudAccounts: () => ipcRenderer.invoke("cloud:getAccounts"),
+  saveCloudAccounts: (accounts) => ipcRenderer.invoke("cloud:saveAccounts", accounts),
+  testCloudConnection: (provider, token) => ipcRenderer.invoke("cloud:testConnection", provider, token),
+  listCloudFiles: (provider, folder) => ipcRenderer.invoke("cloud:list", provider, folder),
+  downloadCloudFile: (provider, remote, fileName) => ipcRenderer.invoke("cloud:download", provider, remote, fileName),
+  downloadCloudFileToProject: (provider, remote, fileName, projectId) =>
+    ipcRenderer.invoke("cloud:downloadToProject", provider, remote, fileName, projectId),
+  uploadFileToCloud: (provider, remoteFolder) => ipcRenderer.invoke("cloud:uploadFile", provider, remoteFolder),
+
   // proxy
   testProxy: (draftSettings) => ipcRenderer.invoke("proxy:test", draftSettings),
 
@@ -137,7 +156,11 @@ contextBridge.exposeInMainWorld("api", {
   getGitHubFile: (owner, repo, filePath, ref) => ipcRenderer.invoke("github:getFileContent", owner, repo, filePath, ref),
   commitGitHubFile: (owner, repo, filePath, content, message, sha, branch) =>
     ipcRenderer.invoke("github:commitFile", owner, repo, filePath, content, message, sha, branch),
-  getGitHubAgentConversation: (owner, repo) => ipcRenderer.invoke("github:getAgentConversation", owner, repo),
+listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows", owner, repo),
+  runGitHubWorkflow: (owner, repo, workflowId, ref) => ipcRenderer.invoke("github:runWorkflow", owner, repo, workflowId, ref),
+  listGitHubWorkflowRuns: (owner, repo, workflowId, limit) => ipcRenderer.invoke("github:listWorkflowRuns", owner, repo, workflowId, limit),
+  listGitHubBranches: (owner, repo) => ipcRenderer.invoke("github:listBranches", owner, repo),
+    getGitHubAgentConversation: (owner, repo) => ipcRenderer.invoke("github:getAgentConversation", owner, repo),
   saveGitHubAgentConversation: (owner, repo, conv) => ipcRenderer.invoke("github:saveAgentConversation", owner, repo, conv),
 
   // media generation

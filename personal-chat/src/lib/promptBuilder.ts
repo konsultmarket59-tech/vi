@@ -164,3 +164,25 @@ CONTENT:
 
 Предлагай только один дизайн за раз — если нужно несколько вариантов, предлагай по очереди в отдельных ответах.`;
 
+
+export interface ParsedExcelEdit {
+  sheet: string;
+  cells: { cell: string; value: string }[];
+}
+
+/** Mirrors parseAgentEdit in electron/excel.cjs — the block the Excel agent emits. */
+export function parseExcelEdit(text: string): ParsedExcelEdit | null {
+  const match = /===EXCEL EDIT START===([\s\S]*?)===EXCEL EDIT END===/.exec(text || "");
+  if (!match) return null;
+  const block = match[1];
+  const sheet = /SHEET:\s*(.+)/.exec(block)?.[1]?.trim();
+  if (!sheet) return null;
+  const cellsPart = block.split(/CELLS:\s*/)[1];
+  if (!cellsPart) return null;
+  const cells: { cell: string; value: string }[] = [];
+  for (const line of cellsPart.split("\n")) {
+    const m = /^\s*([A-Za-z]+\d+)\s*=\s*(.*)$/.exec(line);
+    if (m) cells.push({ cell: m[1].toUpperCase(), value: m[2].trim() });
+  }
+  return cells.length ? { sheet, cells } : null;
+}

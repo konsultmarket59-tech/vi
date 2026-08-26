@@ -5,6 +5,8 @@ export type View =
   | { kind: "project"; id: string }
   | { kind: "skills" }
   | { kind: "ops" }
+  | { kind: "excel" }
+  | { kind: "cloud" }
   | { kind: "media" }
   | { kind: "design" }
   | { kind: "github" }
@@ -114,6 +116,12 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           💼 Операционка
         </button>
         <button
+          className={view.kind === "excel" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "excel" })}
+        >
+          📗 Excel
+        </button>
+        <button
           className={view.kind === "media" ? "sidebar-item active" : "sidebar-item"}
           onClick={() => onSelectView({ kind: "media" })}
         >
@@ -124,6 +132,12 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           onClick={() => onSelectView({ kind: "design" })}
         >
           🖌️ Дизайн
+        </button>
+        <button
+          className={view.kind === "cloud" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "cloud" })}
+        >
+          ☁️ Облако
         </button>
         <button
           className={view.kind === "github" ? "sidebar-item active" : "sidebar-item"}

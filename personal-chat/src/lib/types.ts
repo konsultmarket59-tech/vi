@@ -279,6 +279,32 @@ export interface GitHubTestResult {
   error?: string;
 }
 
+export interface GitHubWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+  runNumber: number;
+  status: string;
+  conclusion: string | null;
+  branch: string;
+  headSha: string;
+  createdAt: string;
+  updatedAt: string;
+  htmlUrl: string;
+  headCommitMessage: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+  sha?: string;
+}
+
 export type MediaType = "image" | "video" | "audio";
 
 export interface MediaGenerationRequest {
@@ -313,6 +339,61 @@ export interface DesignDoc {
   projectId?: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export type CloudProvider = "yandex" | "google";
+
+export interface CloudAccounts {
+  yandex: { token: string };
+  google: { token: string };
+}
+
+export interface CloudEntry {
+  name: string;
+  path: string;
+  isFolder: boolean;
+  size: number;
+  modified: number;
+  mimeType: string;
+}
+
+export interface CloudTestResult {
+  ok: boolean;
+  login?: string;
+  error?: string;
+}
+
+export interface ExcelCell {
+  value?: string | number | boolean | null;
+  formula?: string;
+  computed?: string | number | boolean | null;
+  numFmt?: string;
+}
+
+export interface ExcelSheet {
+  name: string;
+  cells: Record<string, ExcelCell>;
+  maxRow: number;
+  maxCol: number;
+}
+
+export interface ExcelRecalcResult {
+  evaluated: number;
+  total: number;
+  errors: { cell: string; error: string }[];
+  circular: string[];
+}
+
+export interface ExcelWorkbook {
+  filePath: string;
+  name: string;
+  sheets: ExcelSheet[];
+  recalc: ExcelRecalcResult | null;
+}
+
+export interface ExcelEdit {
+  sheet: string;
+  cells: { cell: string; value: string }[];
 }
 
 export interface ElectronAPI {
@@ -415,6 +496,10 @@ export interface ElectronAPI {
     sha?: string,
     branch?: string
   ): Promise<GitHubCommitResult>;
+  listGitHubWorkflows(owner: string, repo: string): Promise<GitHubWorkflow[]>;
+  runGitHubWorkflow(owner: string, repo: string, workflowId: number, ref: string): Promise<{ started: boolean }>;
+  listGitHubWorkflowRuns(owner: string, repo: string, workflowId?: number, limit?: number): Promise<GitHubWorkflowRun[]>;
+  listGitHubBranches(owner: string, repo: string): Promise<GitHubBranch[]>;
   getGitHubAgentConversation(owner: string, repo: string): Promise<Conversation | null>;
   saveGitHubAgentConversation(owner: string, repo: string, conv: Conversation): Promise<Conversation>;
 
@@ -454,6 +539,29 @@ export interface ElectronAPI {
 
   // chat attachments
   pickAttachments(): Promise<ChatAttachment[]>;
+
+  // cloud storage
+  getCloudAccounts(): Promise<CloudAccounts>;
+  saveCloudAccounts(accounts: CloudAccounts): Promise<CloudAccounts>;
+  testCloudConnection(provider: CloudProvider, token: string): Promise<CloudTestResult>;
+  listCloudFiles(provider: CloudProvider, folder?: string): Promise<CloudEntry[]>;
+  downloadCloudFile(provider: CloudProvider, remote: string, fileName: string): Promise<{ path: string; size: number }>;
+  downloadCloudFileToProject(
+    provider: CloudProvider,
+    remote: string,
+    fileName: string,
+    projectId: string
+  ): Promise<{ path: string; size: number }>;
+  uploadFileToCloud(provider: CloudProvider, remoteFolder?: string): Promise<{ name?: string; path?: string } | null>;
+
+  // Excel workbooks
+  pickExcelFile(): Promise<string | null>;
+  openExcelFile(filePath: string): Promise<ExcelWorkbook>;
+  setExcelCells(edits: { sheet: string; cell: string; value: string }[]): Promise<ExcelWorkbook>;
+  saveExcelFile(saveAs?: boolean): Promise<string | null>;
+  buildExcelAgentPrompt(): Promise<string>;
+  getExcelAgentConversation(): Promise<Conversation | null>;
+  saveExcelAgentConversation(conv: Conversation): Promise<Conversation>;
 
   // proxy
   testProxy(draftSettings: Partial<Settings>): Promise<{ ok: boolean; ms?: number; error?: string }>;

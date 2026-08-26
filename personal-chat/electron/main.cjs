@@ -634,6 +634,8 @@ const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
 const websearch = require("./websearch.cjs");
+const excel = require("./excel.cjs");
+const cloud = require("./cloud.cjs");
 
 function broadcast(channel, payload) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -1385,6 +1387,130 @@ ipcMain.handle("attachments:pick", async () => {
   return buildAttachments(result.filePaths);
 });
 
+// ---------- Excel workbooks (live files on disk) ----------
+
+// One workbook is open at a time, kept in memory between IPC calls so edits and
+// recalculation don't re-read the file on every keystroke.
+let openWorkbook = null;
+
+function workbookPayload(model, recalcResult) {
+  return {
+    filePath: model.filePath,
+    name: model.name,
+    sheets: model.sheets.map((s) => ({ name: s.name, cells: s.cells, maxRow: s.maxRow, maxCol: s.maxCol })),
+    recalc: recalcResult || null,
+  };
+}
+
+ipcMain.handle("excel:pick", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите файл Excel",
+    properties: ["openFile"],
+    filters: [{ name: "Excel", extensions: ["xlsx", "xlsm"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("excel:open", async (_e, filePath) => {
+  openWorkbook = await excel.loadWorkbook(filePath);
+  const recalc = excel.recalculate(openWorkbook);
+  return workbookPayload(openWorkbook, recalc);
+});
+
+ipcMain.handle("excel:setCells", async (_e, edits) => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  for (const { sheet, cell, value } of edits) excel.setCell(openWorkbook, sheet, cell, value);
+  const recalc = excel.recalculate(openWorkbook);
+  return workbookPayload(openWorkbook, recalc);
+});
+
+ipcMain.handle("excel:save", async (_e, saveAs) => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  let target = null;
+  if (saveAs) {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showSaveDialog(win, {
+      title: "Сохранить как",
+      defaultPath: openWorkbook.filePath,
+      filters: [{ name: "Excel", extensions: ["xlsx"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    target = result.filePath;
+  }
+  const dest = await excel.saveWorkbook(openWorkbook, target);
+  if (target) {
+    // After "save as" the new file becomes the one we're editing.
+    openWorkbook.filePath = dest;
+    openWorkbook.name = path.basename(dest);
+  }
+  return dest;
+});
+
+ipcMain.handle("excel:buildAgentPrompt", async () => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  return excel.buildAgentPrompt(openWorkbook);
+});
+
+ipcMain.handle("excel:getAgentConversation", async () => {
+  const root = await getRootPath();
+  return readJson(path.join(root, "excel", "_agent_chat.json"), null);
+});
+
+ipcMain.handle("excel:saveAgentConversation", async (_e, conv) => {
+  const root = await getRootPath();
+  await ensureDir(path.join(root, "excel"));
+  await writeJson(path.join(root, "excel", "_agent_chat.json"), conv);
+  return conv;
+});
+
+// ---------- Cloud storage (Яндекс Диск / Google Drive) ----------
+
+ipcMain.handle("cloud:getAccounts", async () => cloud.getAccounts(await getRootPath()));
+ipcMain.handle("cloud:saveAccounts", async (_e, accounts) => cloud.saveAccounts(await getRootPath(), accounts));
+ipcMain.handle("cloud:testConnection", (_e, provider, token) => cloud.testConnection(provider, token));
+
+ipcMain.handle("cloud:list", async (_e, provider, folder) => {
+  const accounts = await cloud.getAccounts(await getRootPath());
+  return cloud.list(provider, accounts[provider]?.token, folder);
+});
+
+ipcMain.handle("cloud:download", async (_e, provider, remote, fileName) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const dir = path.join(root, "cloud", "downloads");
+  await ensureDir(dir);
+  return cloud.download(provider, accounts[provider]?.token, remote, path.join(dir, fileName));
+});
+
+// Downloads straight into a project's docs folder, so a cloud file becomes part of
+// that project's knowledge base in one step.
+ipcMain.handle("cloud:downloadToProject", async (_e, provider, remote, fileName, projectId) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const dir = docsDir(root, projectId);
+  await ensureDir(dir);
+  const result = await cloud.download(provider, accounts[provider]?.token, remote, path.join(dir, fileName));
+  await updateProject(projectId, {});
+  return result;
+});
+
+ipcMain.handle("cloud:uploadFile", async (_e, provider, remoteFolder) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Выберите файл для загрузки в облако",
+    properties: ["openFile"],
+  });
+  if (picked.canceled || picked.filePaths.length === 0) return null;
+  const localPath = picked.filePaths[0];
+  const accounts = await cloud.getAccounts(await getRootPath());
+  const name = path.basename(localPath);
+  // Яндекс addresses by path, Google by parent folder id — build what each needs.
+  const remote = provider === "yandex" ? `${(remoteFolder || "disk:/").replace(/\/$/, "")}/${name}` : remoteFolder;
+  return cloud.upload(provider, accounts[provider]?.token, localPath, remote, name);
+});
+
 ipcMain.handle("proxy:test", async (_e, draftSettings) => {
   // Apply the settings being tested (not the saved ones) so the button reports on
   // what's currently typed in the form, then make a real request to the model API —
@@ -1500,6 +1626,23 @@ ipcMain.handle("github:getFileContent", async (_e, owner, repo, filePath, ref) =
 ipcMain.handle("github:commitFile", async (_e, owner, repo, filePath, content, message, sha, branch) =>
   github.commitFile(await githubToken(), owner, repo, filePath, content, message, sha, branch)
 );
+ipcMain.handle("github:listWorkflows", async (_e, owner, repo) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.listWorkflows(account.token, owner, repo);
+});
+ipcMain.handle("github:runWorkflow", async (_e, owner, repo, workflowId, ref) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.runWorkflow(account.token, owner, repo, workflowId, ref);
+});
+ipcMain.handle("github:listWorkflowRuns", async (_e, owner, repo, workflowId, limit) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.listWorkflowRuns(account.token, owner, repo, workflowId, limit);
+});
+ipcMain.handle("github:listBranches", async (_e, owner, repo) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.listBranches(account.token, owner, repo);
+});
+
 ipcMain.handle("github:getAgentConversation", async (_e, owner, repo) =>
   github.getAgentConversation(await getRootPath(), owner, repo)
 );
