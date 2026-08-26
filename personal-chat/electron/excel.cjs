@@ -276,6 +276,39 @@ function recalculate(model) {
   return { evaluated, total: nodes.size, errors, circular };
 }
 
+/**
+ * Rewrites ";" argument separators to ",".
+ *
+ * Russian Excel shows and accepts "=IF(A1>5;"да";"нет")", and that is how the user —
+ * and the AI agent writing for her — naturally types a formula. The .xlsx format and
+ * the formula engine both use "," regardless of locale, so the separator is converted
+ * on the way in. Quoted text and array constants ({1;2}) keep their semicolons: only
+ * separators outside strings and outside braces are touched.
+ */
+function normalizeSeparators(formula) {
+  let out = "";
+  let inString = false;
+  let braces = 0;
+  for (let i = 0; i < formula.length; i++) {
+    const ch = formula[i];
+    if (ch === '"') {
+      // "" inside a string is an escaped quote, not the end of it.
+      if (inString && formula[i + 1] === '"') {
+        out += '""';
+        i++;
+        continue;
+      }
+      inString = !inString;
+      out += ch;
+      continue;
+    }
+    if (!inString && ch === "{") braces++;
+    if (!inString && ch === "}") braces = Math.max(0, braces - 1);
+    out += !inString && braces === 0 && ch === ";" ? "," : ch;
+  }
+  return out;
+}
+
 /** Applies a single cell edit. A leading "=" makes it a formula. */
 function setCell(model, sheetName, key, raw) {
   const sheet = model.sheets.find((s) => s.name === sheetName);
@@ -289,7 +322,12 @@ function setCell(model, sheetName, key, raw) {
   if (text.trim() === "") {
     delete sheet.cells[key];
   } else if (text.startsWith("=")) {
-    sheet.cells[key] = { ...existing, formula: text.slice(1), value: undefined, computed: null };
+    sheet.cells[key] = {
+      ...existing,
+      formula: normalizeSeparators(text.slice(1)),
+      value: undefined,
+      computed: null,
+    };
   } else {
     // Keep numbers numeric so arithmetic on them works; everything else stays text.
     const num = Number(text.replace(",", "."));
@@ -298,17 +336,27 @@ function setCell(model, sheetName, key, raw) {
   }
   sheet.maxRow = Math.max(sheet.maxRow, pos.row);
   sheet.maxCol = Math.max(sheet.maxCol, pos.col);
+  delete sheet.placeholder; // it has content now, so it is a real sheet
   return sheet.cells[key] || null;
 }
 
 /**
  * Writes the model back through the original workbook file, so styling and any
  * sheet features we don't model (widths, colors, images) are preserved.
+ *
+ * A workbook created inside the app has no file behind it yet, so there is nothing
+ * to read back — it starts from an empty ExcelJS workbook instead.
  */
 async function saveWorkbook(model, targetPath) {
   const ExcelJS = require("exceljs");
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(model.filePath);
+  if (model.filePath) {
+    try {
+      await workbook.xlsx.readFile(model.filePath);
+    } catch {
+      // File is gone or was never written (new workbook) — start clean.
+    }
+  }
 
   for (const sheet of model.sheets) {
     let worksheet = workbook.getWorksheet(sheet.name);
@@ -338,6 +386,7 @@ async function saveWorkbook(model, targetPath) {
   }
 
   const dest = targetPath || model.filePath;
+  if (!dest) throw new Error("Для новой книги сначала выберите, куда её сохранить.");
   await workbook.xlsx.writeFile(dest);
   return dest;
 }
@@ -366,56 +415,327 @@ function toAgentText(model, maxCharsPerSheet = 12000) {
   return parts.join("\n\n");
 }
 
-const AGENT_PROMPT_HEADER = `Ты — ассистент по работе с таблицами Excel. Ниже — содержимое открытой книги: для каждой
+const AGENT_PROMPT_HEADER = `Ты — ИИ-агент по работе с таблицами Excel. Ниже — содержимое открытой книги: для каждой
 непустой ячейки указан её адрес и значение, а для формул — сама формула и посчитанный результат.
 
-Ты можешь отвечать на вопросы по данным и предлагать правки. Чтобы предложить правку, верни блок строго
-такого вида (по нему приложение распознаёт изменение и покажет подтверждение):
+Ты умеешь три вещи: разбирать данные, считать по ним и строить новые таблицы с формулами.
+
+1) ПОСМОТРЕТЬ И ПОСЧИТАТЬ (без изменений в книге)
+Если нужно свериться с данными или что-то вычислить до того, как предлагать правку, верни блок:
+
+===EXCEL TOOL===
+CALC: =SUMIFS(Продажи!D2:D500; Продажи!B2:B500; "Ромашка")
+===EXCEL TOOL END===
+
+или, чтобы прочитать кусок листа целиком (полезно, когда лист большой и обрезан):
+
+===EXCEL TOOL===
+READ: Продажи!A1:H40
+===EXCEL TOOL END===
+
+Приложение выполнит это по живой книге и вернёт результат тебе следующим сообщением — ничего в файле
+при этом не меняется. Можно вызывать несколько раз подряд, по одному блоку за ответ. Формулу в CALC
+пиши как в Excel, она считается по текущим данным книги.
+
+2) ИЗМЕНИТЬ ИЛИ СОЗДАТЬ ТАБЛИЦУ
+Чтобы предложить правку, верни блок строго такого вида (по нему приложение покажет подтверждение):
 
 ===EXCEL EDIT START===
-SHEET: <точное имя листа>
+SHEET: Расчёт маржи
+ROWS: A1
+Клиент | Выручка | Себестоимость | Маржа, ₽ | Маржа, %
+ООО «Ромашка» | 850000 | 500000 | =B2-C2 | =IF(B2=0;0;D2/B2)
+ООО «Вектор» | 420000 | 310000 | =B3-C3 | =IF(B3=0;0;D3/B3)
+Итого | =SUM(B2:B3) | =SUM(C2:C3) | =SUM(D2:D3) | =IF(B4=0;0;D4/B4)
+
 CELLS:
-A1 = 100
-B2 = =SUM(A1:A10)
-C3 = Текст
+A6 = Средняя маржа
+B6 = =AVERAGE(E2:E3)
+
+FORMAT: B2:D4 = #,##0" ₽"
+FORMAT: E2:E4 = 0.0%
 ===EXCEL EDIT END===
 
-Правила:
-- Формулы пиши с ведущим "=", как в Excel. Обычные значения — без него.
-- Можно менять несколько ячеек за раз, каждую с новой строки.
-- Никогда не применяй правку сам — приложение покажет пользователю подтверждение.
-- После правки формулы пересчитываются автоматически, результаты вручную писать не нужно.
-- Если данных не хватает (не знаешь адрес ячейки или значение) — сначала уточни у пользователя.
+Правила блока правки:
+- SHEET: точное имя листа. Если листа с таким именем нет — он будет создан, так и напиши в ответе.
+- ROWS: <адрес> — целая таблица одним куском: строки идут подряд от этого адреса, столбцы разделяются
+  символом "|". Пустая строка заканчивает таблицу. Пустая ячейка между "|" оставляет ячейку как была.
+- CELLS: — отдельные ячейки, по одной в строке, в виде "B7 = значение".
+- FORMAT: <ячейка или диапазон> = <формат числа> — необязательно. Коды пиши стандартные, как в файле xlsx:
+  #,##0" ₽" для рублей, 0.0% для процентов, DD.MM.YYYY для дат (Excel сам покажет их по-русски).
+- Можно указать несколько блоков SHEET: в одной правке — например, данные на одном листе, свод на другом.
+- Формулы пиши с ведущим "=", как в Excel; обычные значения — без него. Разделитель аргументов — ";".
+- Результаты формул вручную писать не нужно: после применения книга пересчитывается целиком.
+- Никогда не применяй правку сам — приложение всегда спросит подтверждение у пользователя.
+- Строй таблицы формулами, а не посчитанными числами: итоги через SUM/SUMIFS, доли и проценты — формулой,
+  чтобы таблица продолжала считаться сама, когда данные поменяются.
+- Если данных не хватает — сначала уточни у пользователя или прочитай нужный кусок листа через READ.
 - Отвечай по-русски.
 
 === СОДЕРЖИМОЕ КНИГИ ===`;
 
 function buildAgentPrompt(model) {
-  return `${AGENT_PROMPT_HEADER}\nФайл: ${model.name}\n\n${toAgentText(model)}`;
+  const where = model.filePath ? `Файл: ${model.name}` : `Новая книга: ${model.name} (ещё не сохранена на диск)`;
+  const sheetList = model.sheets.map((s) => s.name).join(", ");
+  return `${AGENT_PROMPT_HEADER}\n${where}\nЛисты: ${sheetList}\n\n${toAgentText(model)}`;
 }
 
-/** Parses the agent's proposed edit block. */
+// ---------- agent edits ----------
+
+function truthyFlag(text) {
+  const v = String(text || "").trim().toLowerCase();
+  return v !== "" && !["нет", "no", "false", "0", "-"].includes(v);
+}
+
+/**
+ * Parses the agent's proposed edit block into a list of per-sheet changes.
+ *
+ * Three ways of naming cells are accepted, because they suit different jobs: a
+ * ROWS: table for laying out a whole grid at once (what "build me a table" needs),
+ * CELLS: lines for touching individual cells, and FORMAT: lines for number formats.
+ * A single block may carry several SHEET: sections, so one proposal can create a
+ * data sheet and a summary sheet together.
+ */
 function parseAgentEdit(text) {
   const match = /===EXCEL EDIT START===([\s\S]*?)===EXCEL EDIT END===/.exec(text || "");
   if (!match) return null;
-  const block = match[1];
-  const sheet = /SHEET:\s*(.+)/.exec(block)?.[1]?.trim();
-  if (!sheet) return null;
-  const cellsPart = block.split(/CELLS:\s*/)[1];
-  if (!cellsPart) return null;
-  const cells = [];
-  for (const line of cellsPart.split("\n")) {
-    const m = /^\s*([A-Za-z]+\d+)\s*=\s*(.*)$/.exec(line);
-    if (m) cells.push({ cell: m[1].toUpperCase(), value: m[2].trim() });
+
+  const sheets = [];
+  let current = null;
+  let mode = null; // "cells" | "rows"
+  let anchor = null;
+  let rowOffset = 0;
+
+  const pushCell = (cell, value) => {
+    if (!current) return;
+    const existing = current.cells.findIndex((c) => c.cell === cell);
+    if (existing >= 0) current.cells[existing] = { cell, value };
+    else current.cells.push({ cell, value });
+  };
+
+  for (const rawLine of match[1].split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    const trimmed = line.trim();
+
+    const sheetMatch = /^SHEET:\s*(.+)$/i.exec(trimmed);
+    if (sheetMatch) {
+      current = { sheet: sheetMatch[1].trim(), cells: [], formats: [] };
+      sheets.push(current);
+      mode = null;
+      continue;
+    }
+    if (!current) continue;
+
+    const newMatch = /^NEW(?:\s+SHEET)?:\s*(.*)$/i.exec(trimmed);
+    if (newMatch) {
+      // Tolerated for compatibility with how the model may phrase it; a missing
+      // sheet is created either way, and the confirmation UI says so.
+      current.createIfMissing = truthyFlag(newMatch[1]);
+      continue;
+    }
+    if (/^CELLS:\s*$/i.test(trimmed)) {
+      mode = "cells";
+      continue;
+    }
+    const rowsMatch = /^ROWS:\s*([A-Za-z]+\d+)\s*$/i.exec(trimmed);
+    if (rowsMatch) {
+      mode = "rows";
+      anchor = parseCellKey(rowsMatch[1]);
+      rowOffset = 0;
+      continue;
+    }
+    const formatMatch = /^FORMAT:\s*([A-Za-z]+\d+(?::[A-Za-z]+\d+)?)\s*=\s*(.+)$/i.exec(trimmed);
+    if (formatMatch) {
+      current.formats.push({ range: formatMatch[1].toUpperCase(), numFmt: formatMatch[2].trim() });
+      continue;
+    }
+
+    if (mode === "rows") {
+      if (trimmed === "") {
+        mode = null;
+        continue;
+      }
+      if (!anchor) continue;
+      const parts = line.split("|");
+      parts.forEach((part, i) => {
+        const value = part.trim();
+        if (value === "") return; // leave that cell as it is
+        pushCell(cellKey(anchor.row + rowOffset, anchor.col + i), value);
+      });
+      rowOffset++;
+      continue;
+    }
+
+    // Individual cells are accepted whether or not a CELLS: header preceded them —
+    // the address makes the intent unambiguous.
+    const cellMatch = /^([A-Za-z]+\d+)\s*=\s*(.*)$/.exec(trimmed);
+    if (cellMatch && (mode === "cells" || mode === null)) {
+      pushCell(cellMatch[1].toUpperCase(), cellMatch[2].trim());
+    }
   }
-  return cells.length ? { sheet, cells } : null;
+
+  const filled = sheets.filter((s) => s.cells.length || s.formats.length);
+  return filled.length ? { sheets: filled } : null;
+}
+
+/** Adds an empty sheet to the model. */
+function addSheet(model, name) {
+  const clean = String(name || "").trim() || `Лист${model.sheets.length + 1}`;
+  const existing = model.sheets.find((s) => s.name === clean);
+  if (existing) return existing;
+  const sheet = { name: clean, cells: {}, maxRow: 0, maxCol: 0, merges: [] };
+  model.sheets.push(sheet);
+  return sheet;
+}
+
+function expandRange(range) {
+  const [fromRef, toRef] = String(range).split(":");
+  const from = parseCellKey(fromRef);
+  const to = toRef ? parseCellKey(toRef) : from;
+  if (!from || !to) return [];
+  const keys = [];
+  for (let r = Math.min(from.row, to.row); r <= Math.max(from.row, to.row); r++) {
+    for (let c = Math.min(from.col, to.col); c <= Math.max(from.col, to.col); c++) {
+      keys.push(cellKey(r, c));
+    }
+  }
+  return keys;
+}
+
+/** Sets a number format on a cell that may not carry a value yet. */
+function setNumFmt(model, sheetName, key, numFmt) {
+  const sheet = model.sheets.find((s) => s.name === sheetName);
+  if (!sheet) return;
+  const pos = parseCellKey(key);
+  if (!pos) return;
+  const cell = sheet.cells[key];
+  // A format on an empty cell would otherwise create a phantom entry that saves as
+  // a blank; only style cells that actually hold something.
+  if (!cell) return;
+  cell.numFmt = numFmt;
+}
+
+/**
+ * Applies a parsed agent edit: creates any sheet that doesn't exist yet, writes the
+ * cells, then applies number formats. Returns what was created, so the UI can say so.
+ */
+function applyAgentEdit(model, edit) {
+  const createdSheets = [];
+  for (const segment of edit?.sheets || []) {
+    if (!model.sheets.some((s) => s.name === segment.sheet)) {
+      addSheet(model, segment.sheet);
+      createdSheets.push(segment.sheet);
+    }
+    for (const { cell, value } of segment.cells) setCell(model, segment.sheet, cell, value);
+    for (const { range, numFmt } of segment.formats || []) {
+      for (const key of expandRange(range)) setNumFmt(model, segment.sheet, key, numFmt);
+    }
+  }
+  // Drop the starter sheet if the agent built its tables elsewhere.
+  if (model.sheets.length > 1) {
+    model.sheets = model.sheets.filter((s) => !(s.placeholder && Object.keys(s.cells).length === 0));
+  }
+  return { createdSheets };
+}
+
+// ---------- read-only agent tools ----------
+
+/**
+ * Evaluates a formula against the live workbook without changing anything.
+ * This is what lets the agent actually *check* a number before proposing a table,
+ * instead of doing arithmetic in its head over a truncated text dump.
+ */
+function evaluateFormula(model, formula, sheetName) {
+  const parser = makeParser(model);
+  const sheet = sheetName && model.sheets.some((s) => s.name === sheetName) ? sheetName : model.sheets[0]?.name;
+  const text = normalizeSeparators(String(formula || "").trim().replace(/^=/, ""));
+  try {
+    const result = parser.parse(text, { sheet, row: 1, col: 1 });
+    if (result instanceof FormulaError) return result.toString();
+    return result === undefined || result === null ? "" : result;
+  } catch (e) {
+    return formulaErrorToText(e);
+  }
+}
+
+/** Dumps a range as text lines, for when the sheet in the prompt was truncated. */
+function readRange(model, ref) {
+  const m = /^(?:(.+)!)?([A-Za-z]+\d+(?::[A-Za-z]+\d+)?)$/.exec(String(ref || "").trim());
+  if (!m) return `Не понял адрес: ${ref}`;
+  const sheetName = (m[1] || model.sheets[0]?.name || "").replace(/^'|'$/g, "");
+  const sheet = model.sheets.find((s) => s.name === sheetName);
+  if (!sheet) return `Лист "${sheetName}" не найден.`;
+  const [fromRef, toRef] = m[2].split(":");
+  const from = parseCellKey(fromRef);
+  const to = toRef ? parseCellKey(toRef) : from;
+  if (!from || !to) return `Не понял адрес: ${ref}`;
+  const lines = [];
+  for (let r = Math.min(from.row, to.row); r <= Math.max(from.row, to.row); r++) {
+    const parts = [];
+    for (let c = Math.min(from.col, to.col); c <= Math.max(from.col, to.col); c++) {
+      const key = cellKey(r, c);
+      const cell = sheet.cells[key];
+      if (!cell) continue;
+      const shown = cell.formula ? `=${cell.formula} → ${cell.computed ?? ""}` : cell.value;
+      if (shown === null || shown === undefined || shown === "") continue;
+      parts.push(`${key}: ${shown}`);
+    }
+    if (parts.length) lines.push(parts.join(" | "));
+  }
+  return lines.length ? `${sheetName}!${m[2]}:\n${lines.join("\n")}` : `${sheetName}!${m[2]}: диапазон пуст.`;
+}
+
+/**
+ * Runs the read-only tool block from an assistant reply, if there is one.
+ * Returns text to feed back to the model, or null when the reply asked for nothing.
+ * Errors come back as text rather than exceptions — a bad formula should let the
+ * agent correct itself, not break the conversation.
+ */
+function runAgentTools(model, text) {
+  const match = /===EXCEL TOOL===([\s\S]*?)===EXCEL TOOL END===/.exec(text || "");
+  if (!match) return null;
+  const block = match[1];
+  const sheetName = /^\s*SHEET:\s*(.+)$/im.exec(block)?.[1]?.trim();
+
+  const calc = /^\s*CALC:\s*(.+)$/im.exec(block)?.[1]?.trim();
+  if (calc) {
+    const result = evaluateFormula(model, calc, sheetName);
+    return `Результат вычисления по книге:\n${calc} → ${result}\n\nПродолжай: ответь пользователю или предложи правку.`;
+  }
+
+  const read = /^\s*READ:\s*(.+)$/im.exec(block)?.[1]?.trim();
+  if (read) {
+    return `Содержимое диапазона:\n${readRange(model, read)}\n\nПродолжай: ответь пользователю или предложи правку.`;
+  }
+
+  return "В блоке ===EXCEL TOOL=== не нашлось ни CALC:, ни READ:. Проверь формат и повтори.";
+}
+
+/** A brand-new empty workbook, living only in memory until it's saved somewhere. */
+function createWorkbook(name) {
+  const clean = String(name || "").trim() || "Новая книга.xlsx";
+  return {
+    filePath: null,
+    name: clean.toLowerCase().endsWith(".xlsx") ? clean : `${clean}.xlsx`,
+    // "placeholder" marks the starter sheet: if the agent builds its own named
+    // sheets instead of filling this one, an empty "Лист1" shouldn't be left behind.
+    sheets: [{ name: "Лист1", cells: {}, maxRow: 0, maxCol: 0, merges: [], placeholder: true }],
+  };
 }
 
 module.exports = {
   loadWorkbook,
+  normalizeSeparators,
+  createWorkbook,
   saveWorkbook,
   recalculate,
   setCell,
+  addSheet,
+  setNumFmt,
+  applyAgentEdit,
+  evaluateFormula,
+  readRange,
+  runAgentTools,
   buildAgentPrompt,
   parseAgentEdit,
   toAgentText,

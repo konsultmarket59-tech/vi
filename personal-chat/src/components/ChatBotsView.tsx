@@ -18,7 +18,7 @@ const PLATFORMS: ChatbotPlatform[] = ["telegram", "vk", "max"];
 const EMPTY_ACCOUNTS: ChatbotAccounts = {
   telegram: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
   vk: { token: "", groupId: "", enabled: false, aiEnabled: false, aiProjectId: "" },
-  max: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  max: { token: "", apiBase: "", enabled: false, aiEnabled: false, aiProjectId: "" },
 };
 
 function emptyFunnel(): Funnel {
@@ -134,7 +134,19 @@ export default function ChatBotsView() {
     setTesting(platform);
     try {
       const result = await window.api.testChatbotConnection(platform, accounts[platform]);
-      setTestResult((prev) => ({ ...prev, [platform]: result.ok ? `Подключено: ${result.login} ✓` : `Ошибка: ${result.error}` }));
+      // MAX lives on more than one host; if the test found a working one that isn't the
+      // saved one, fill it in so "Сохранить" keeps it.
+      if (result.ok && platform === "max" && result.switched) {
+        setAccounts((prev) => ({ ...prev, max: { ...prev.max, apiBase: result.switched as string } }));
+      }
+      setTestResult((prev) => ({
+        ...prev,
+        [platform]: result.ok
+          ? `Подключено${result.login ? `: ${result.login}` : ""} ✓${
+              result.switched ? ` (сработал адрес ${result.switched} — нажмите «Сохранить», чтобы запомнить его)` : ""
+            }`
+          : `Ошибка: ${result.error}`,
+      }));
     } finally {
       setTesting(null);
     }
@@ -229,7 +241,7 @@ export default function ChatBotsView() {
                 {status.telegram ? "Остановить" : "Запустить"}
               </button>
             </div>
-            {testResult.telegram && <p className="hint">{testResult.telegram}</p>}
+            {testResult.telegram && <p className="hint chatbot-test-result">{testResult.telegram}</p>}
           </div>
 
           <div className="chatbot-account-card">
@@ -250,13 +262,30 @@ export default function ChatBotsView() {
                 {status.vk ? "Остановить" : "Запустить"}
               </button>
             </div>
-            {testResult.vk && <p className="hint">{testResult.vk}</p>}
+            {testResult.vk && <p className="hint chatbot-test-result">{testResult.vk}</p>}
           </div>
 
           <div className="chatbot-account-card">
             <h3>MAX {status.max && <span className="chatbot-status-dot" />}</h3>
             <label>Токен бота</label>
             <input type="password" value={accounts.max.token} onChange={(e) => setAccounts({ ...accounts, max: { ...accounts.max, token: e.target.value } })} />
+            <label>Адрес API (менять не нужно, если всё работает)</label>
+            <input
+              value={accounts.max.apiBase}
+              placeholder="https://botapi.max.ru"
+              onChange={(e) => setAccounts({ ...accounts, max: { ...accounts.max, apiBase: e.target.value } })}
+            />
+            <p className="hint">
+              У платформы MAX бот-API встречается на разных адресах. «Проверить» само переберёт известные и
+              подставит сюда тот, который ответил. Если появится ошибка про сертификат — Windows не доверяет
+              сертификату сайта: нужно один раз установить «Российский доверенный корневой сертификат»
+              (найдите на{" "}
+              <a href="https://www.gosuslugi.ru/" target="_blank" rel="noreferrer">
+                gosuslugi.ru
+              </a>{" "}
+              страницу «Установка сертификатов») в раздел «Доверенные корневые центры сертификации» и
+              перезапустить приложение.
+            </p>
             {renderAiBlock("max")}
             <div className="settings-actions">
               <button className="btn btn-secondary" onClick={() => testPlatform("max")} disabled={testing === "max"}>
@@ -269,7 +298,7 @@ export default function ChatBotsView() {
                 {status.max ? "Остановить" : "Запустить"}
               </button>
             </div>
-            {testResult.max && <p className="hint">{testResult.max}</p>}
+            {testResult.max && <p className="hint chatbot-test-result">{testResult.max}</p>}
           </div>
         </div>
       )}

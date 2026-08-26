@@ -21,12 +21,43 @@ function colToLetters(col: number): string {
   return s;
 }
 
+/**
+ * Renders a number the way its Excel number format asks for.
+ *
+ * Only the shapes that actually show up in these workbooks are handled — percents,
+ * thousands separators, fixed decimals and a quoted literal like " ₽". Anything more
+ * exotic falls through to the plain number, which is still readable; the real format
+ * code travels with the cell and is what Excel itself will apply on open.
+ */
+function applyNumFmt(value: number, numFmt: string): string | null {
+  const fmt = numFmt.trim();
+  if (!fmt || /^general$/i.test(fmt)) return null;
+
+  const suffix = /"([^"]*)"\s*$/.exec(fmt)?.[1] ?? "";
+  const body = fmt.replace(/"[^"]*"/g, "");
+  const isPercent = body.includes("%");
+  const scaled = isPercent ? value * 100 : value;
+  const decimals = /\.(0+)/.exec(body)?.[1].length ?? 0;
+  const grouped = body.includes("#,#") || body.includes(",##");
+
+  const text = scaled.toLocaleString("ru-RU", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+    useGrouping: grouped,
+  });
+  return `${text}${isPercent ? "%" : ""}${suffix}`;
+}
+
 /** What a cell shows in the grid: the computed result, not the formula. */
-function displayValue(cell: { value?: unknown; computed?: unknown } | undefined): string {
+function displayValue(cell: { value?: unknown; computed?: unknown; numFmt?: string } | undefined): string {
   if (!cell) return "";
   const v = cell.computed !== undefined && cell.computed !== null ? cell.computed : cell.value;
   if (v === null || v === undefined) return "";
   if (typeof v === "number") {
+    if (cell.numFmt) {
+      const formatted = applyNumFmt(v, cell.numFmt);
+      if (formatted !== null) return formatted;
+    }
     // Trim float noise (0.30000000000000004) without hiding genuinely long decimals.
     return Number.isInteger(v) ? String(v) : String(Math.round(v * 1e6) / 1e6);
   }
@@ -59,6 +90,23 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
   useEffect(() => {
     setEditorValue(editValue(sheet?.cells[selected]));
   }, [selected, activeSheet, workbook]);
+
+  async function newWorkbook() {
+    setError(null);
+    setBusy(true);
+    try {
+      const wb = await window.api.newExcelWorkbook("Новая книга.xlsx");
+      setWorkbook(wb);
+      setActiveSheet(wb.sheets[0]?.name ?? "");
+      setSelected("A1");
+      setSavedNote("Книга создана. Она появится на диске, когда вы нажмёте «Сохранить».");
+      setTimeout(() => setSavedNote(null), 6000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function openFile() {
     setError(null);
@@ -140,12 +188,20 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
     setBusy(true);
     setError(null);
     try {
-      setWorkbook(
-        await window.api.setExcelCells(
-          pendingEdit.cells.map((c) => ({ sheet: pendingEdit.sheet, cell: c.cell, value: c.value }))
-        )
-      );
+      const { workbook: updated, createdSheets } = await window.api.applyExcelAgentEdit(pendingEdit);
+      setWorkbook(updated);
+      // Land the user on a sheet the edit actually touched — a freshly built table
+      // is invisible otherwise, because it lives on a tab that isn't open.
+      const target = createdSheets[0] || pendingEdit.sheets[0]?.sheet;
+      if (target && updated.sheets.some((sh) => sh.name === target)) setActiveSheet(target);
       setPendingEdit(null);
+      setMode("grid");
+      setSavedNote(
+        createdSheets.length
+          ? `Готово. Создан${createdSheets.length > 1 ? "ы листы" : " лист"}: ${createdSheets.join(", ")}. Файл на диске меняется только после «Сохранить».`
+          : "Готово. Файл на диске меняется только после «Сохранить»."
+      );
+      setTimeout(() => setSavedNote(null), 8000);
       // The agent's view of the workbook is now stale — rebuild it.
       setAgentPrompt(await window.api.buildExcelAgentPrompt());
     } catch (e) {
@@ -153,6 +209,11 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Total cells a proposal would write, for the confirmation banner. */
+  function editSize(edit: ParsedExcelEdit): number {
+    return edit.sheets.reduce((sum, seg) => sum + seg.cells.length, 0);
   }
 
   const recalcErrors = workbook?.recalc?.errors ?? [];
@@ -170,6 +231,9 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
               <>
                 <button className="btn btn-secondary" onClick={openFile} disabled={busy}>
                   Открыть файл
+                </button>
+                <button className="btn btn-secondary" onClick={newWorkbook} disabled={busy}>
+                  Новая книга
                 </button>
                 {workbook && (
                   <>
@@ -200,6 +264,10 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
                 Откройте файл Excel с компьютера — он останется на своём месте, приложение работает прямо с ним.
                 Формулы пересчитываются по-настоящему: измените ячейку — всё зависимое обновится, включая ссылки
                 на другие листы. «Сохранить» пишет обратно в тот же файл, сохраняя оформление.
+                <br />
+                <br />
+                «Новая книга» создаёт пустую таблицу — дальше можно просто попросить агента построить нужный
+                расчёт, и он соберёт листы и формулы сам.
               </p>
             ) : (
               <>
@@ -290,9 +358,9 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
         {mode === "agent" && (
           <div className="ops-app-body ops-app-agent">
             <p className="hint ops-agent-hint">
-              Спрашивайте про данные книги или просите изменить ячейки — агент предложит точную правку, вы
-              подтверждаете. После применения формулы пересчитываются автоматически; файл на диске меняется
-              только когда вы нажмёте «Сохранить».
+              Агент видит всю книгу, умеет считать по ней (проверяет цифры прямо в таблице, а не «на глаз») и
+              строить целые таблицы с формулами — при необходимости на новых листах. Любое изменение он сначала
+              предлагает, применяете его вы. Файл на диске меняется только когда вы нажмёте «Сохранить».
             </p>
             {!settings.apiKey && (
               <div className="warning-banner">
@@ -301,15 +369,29 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
             )}
             {error && <div className="chat-error">{error}</div>}
             {pendingEdit && (
-              <div className="pending-skill-banner">
-                Предложена правка листа «{pendingEdit.sheet}»:{" "}
-                {pendingEdit.cells.map((c) => `${c.cell} = ${c.value}`).join(", ")}
-                <button className="btn btn-primary" onClick={applyPendingEdit} disabled={busy}>
-                  Применить
-                </button>
-                <button className="btn btn-secondary" onClick={() => setPendingEdit(null)}>
-                  Отклонить
-                </button>
+              <div className="pending-skill-banner excel-pending-edit">
+                <div>
+                  <strong>Предложена правка ({editSize(pendingEdit)} яч.)</strong>
+                  {pendingEdit.sheets.map((seg) => {
+                    const isNew = !workbook?.sheets.some((sh) => sh.name === seg.sheet);
+                    const preview = seg.cells.slice(0, 8).map((c) => `${c.cell} = ${c.value}`).join(", ");
+                    return (
+                      <div key={seg.sheet} className="excel-pending-sheet">
+                        Лист «{seg.sheet}»{isNew && <span className="excel-new-sheet"> — будет создан</span>}:{" "}
+                        {preview}
+                        {seg.cells.length > 8 && ` … и ещё ${seg.cells.length - 8}`}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div>
+                  <button className="btn btn-primary" onClick={applyPendingEdit} disabled={busy}>
+                    Применить
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setPendingEdit(null)}>
+                    Отклонить
+                  </button>
+                </div>
               </div>
             )}
             {agentConv && (
@@ -321,6 +403,8 @@ export default function ExcelView({ settings, onOpenSettings }: Props) {
                 onSave={(conv) => window.api.saveExcelAgentConversation(conv)}
                 emptyHint="Например: «Посчитай маржу по каждому клиенту» или «Поставь оклад Виктории 150000»."
                 onAssistantMessage={(content) => setPendingEdit(parseExcelEdit(content))}
+                extraTools={(text) => window.api.runExcelAgentTools(text)}
+                extraToolLabel="🧮 Считаю по книге…"
               />
             )}
           </div>

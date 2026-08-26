@@ -18,6 +18,14 @@ interface Props {
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
   skills?: Skill[];
+  /**
+   * Extra read-only tools this chat offers, on top of web search. Returns text to
+   * feed back to the model, or null when the reply asked for nothing. The Excel
+   * agent uses it to evaluate formulas and read ranges against the live workbook.
+   */
+  extraTools?: (assistantText: string) => Promise<string | null>;
+  /** What to show while an extraTools call is running. */
+  extraToolLabel?: string;
 }
 
 const WEB_TOOL_ROUND_LIMIT = 4;
@@ -25,10 +33,10 @@ const WEB_TOOL_ROUND_LIMIT = 4;
 /** Short human-readable label of what the assistant just asked the app to look up. */
 function describeWebTool(assistantText: string): string {
   const query = /===WEB SEARCH===[\s\S]*?QUERY:\s*(.*)/.exec(assistantText)?.[1]?.trim();
-  if (query) return `Ищу в интернете: «${query}»…`;
+  if (query) return `🌐 Ищу в интернете: «${query}»…`;
   const url = /===WEB FETCH===[\s\S]*?URL:\s*(\S+)/.exec(assistantText)?.[1]?.trim();
-  if (url) return `Читаю страницу ${url}…`;
-  return "Обращаюсь к интернету…";
+  if (url) return `🌐 Читаю страницу ${url}…`;
+  return "🌐 Обращаюсь к интернету…";
 }
 
 const ATTACHMENT_ICONS: Record<ChatAttachment["kind"], string> = {
@@ -108,6 +116,8 @@ export default function ChatView({
   emptyHint,
   onAssistantMessage,
   skills,
+  extraTools,
+  extraToolLabel,
 }: Props) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -256,9 +266,10 @@ export default function ChatView({
       // through propose-then-confirm — they just run and get fed back, and only
       // the assistant's final prose is what lands in the saved conversation.
       for (let round = 0; round < WEB_TOOL_ROUND_LIMIT; round++) {
-        const toolOutput = await window.api.runWebTools(full);
+        const extraOutput = extraTools ? await extraTools(full) : null;
+        const toolOutput = extraOutput ?? (await window.api.runWebTools(full));
         if (toolOutput == null) break;
-        setWebToolStatus(describeWebTool(full));
+        setWebToolStatus(extraOutput != null ? extraToolLabel || "⏳ Считаю…" : describeWebTool(full));
         apiMessages.push({ role: "assistant", content: full });
         apiMessages.push({ role: "user", content: toolOutput });
         setStreamingText("");
@@ -460,7 +471,7 @@ export default function ChatView({
         {busy && (
           <div className="msg msg-assistant">
             <div className="msg-role">Ассистент</div>
-            {webToolStatus && <div className="web-tool-status">🌐 {webToolStatus}</div>}
+            {webToolStatus && <div className="web-tool-status">{webToolStatus}</div>}
             <Markdown text={streamingText || "…"} accentColor={brand?.accentColor} />
           </div>
         )}

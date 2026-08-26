@@ -181,6 +181,8 @@ export interface VkAccount extends AiBotConfig {
 }
 export interface MaxAccount extends AiBotConfig {
   token: string;
+  /** Bot API host. Empty means "use the app's default"; the test can fill it in. */
+  apiBase: string;
   enabled: boolean;
 }
 
@@ -194,6 +196,8 @@ export interface ChatbotTestResult {
   ok: boolean;
   login?: string;
   error?: string;
+  /** MAX only: the API host that answered, when it differs from the saved one. */
+  switched?: string;
 }
 
 export type ChatbotStatusMap = Record<ChatbotPlatform, boolean>;
@@ -377,6 +381,13 @@ export interface ExcelSheet {
   maxCol: number;
 }
 
+/** One sheet's worth of a change the Excel agent proposed. */
+export interface ExcelEditSegment {
+  sheet: string;
+  cells: { cell: string; value: string }[];
+  formats: { range: string; numFmt: string }[];
+}
+
 export interface ExcelRecalcResult {
   evaluated: number;
   total: number;
@@ -385,15 +396,15 @@ export interface ExcelRecalcResult {
 }
 
 export interface ExcelWorkbook {
-  filePath: string;
+  /** Null until a workbook created inside the app has been saved somewhere. */
+  filePath: string | null;
   name: string;
   sheets: ExcelSheet[];
   recalc: ExcelRecalcResult | null;
 }
 
 export interface ExcelEdit {
-  sheet: string;
-  cells: { cell: string; value: string }[];
+  sheets: ExcelEditSegment[];
 }
 
 export interface ElectronAPI {
@@ -557,6 +568,9 @@ export interface ElectronAPI {
   // Excel workbooks
   pickExcelFile(): Promise<string | null>;
   openExcelFile(filePath: string): Promise<ExcelWorkbook>;
+  newExcelWorkbook(name: string): Promise<ExcelWorkbook>;
+  applyExcelAgentEdit(edit: ExcelEdit): Promise<{ workbook: ExcelWorkbook; createdSheets: string[] }>;
+  runExcelAgentTools(text: string): Promise<string | null>;
   setExcelCells(edits: { sheet: string; cell: string; value: string }[]): Promise<ExcelWorkbook>;
   saveExcelFile(saveAs?: boolean): Promise<string | null>;
   buildExcelAgentPrompt(): Promise<string>;

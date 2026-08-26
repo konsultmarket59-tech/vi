@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld("api", {
   // Excel workbooks
   pickExcelFile: () => ipcRenderer.invoke("excel:pick"),
   openExcelFile: (filePath) => ipcRenderer.invoke("excel:open", filePath),
+  newExcelWorkbook: (name) => ipcRenderer.invoke("excel:new", name),
+  applyExcelAgentEdit: (edit) => ipcRenderer.invoke("excel:applyAgentEdit", edit),
+  runExcelAgentTools: (text) => ipcRenderer.invoke("excel:runAgentTools", text),
   setExcelCells: (edits) => ipcRenderer.invoke("excel:setCells", edits),
   saveExcelFile: (saveAs) => ipcRenderer.invoke("excel:save", saveAs),
   buildExcelAgentPrompt: () => ipcRenderer.invoke("excel:buildAgentPrompt"),

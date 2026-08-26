@@ -41,7 +41,7 @@ const PLATFORMS = ["telegram", "vk", "max"];
 const DEFAULT_ACCOUNTS = {
   telegram: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
   vk: { token: "", groupId: "", enabled: false, aiEnabled: false, aiProjectId: "" },
-  max: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  max: { token: "", apiBase: "", enabled: false, aiEnabled: false, aiProjectId: "" },
 };
 
 // How much of a conversation the bot keeps in mind per person. Long enough to hold
@@ -203,24 +203,105 @@ const vkAdapter = {
   },
 };
 
-const MAX_API_BASE = "https://platform-api2.max.ru";
+// MAX has published its bot platform under more than one host, and which one a given
+// bot token belongs to isn't something we can tell from the token itself. So the host
+// is a setting, and "Проверить" walks these candidates in order until one answers —
+// then the UI offers to keep the one that worked.
+const MAX_API_HOSTS = ["https://botapi.max.ru", "https://platform-api2.max.ru"];
+
+function maxBase(account) {
+  return (account.apiBase || "").trim().replace(/\/+$/, "") || MAX_API_HOSTS[0];
+}
+
+/**
+ * Turns a Chromium network error into something a non-developer can act on.
+ *
+ * The one that actually bit here is ERR_CERT_AUTHORITY_INVALID: a lot of Russian
+ * services are certified by the Russian Trusted Root CA (Минцифры), which Windows
+ * doesn't ship with, so the connection is refused before any HTTP happens. Nothing
+ * in the app can fix that — the certificate has to be installed in Windows — but
+ * saying so beats showing "net::ERR_CERT_AUTHORITY_INVALID".
+ */
+function explainNetworkError(message) {
+  const text = String(message || "");
+  if (text.includes("ERR_CERT_AUTHORITY_INVALID") || text.includes("ERR_CERT_COMMON_NAME_INVALID")) {
+    return (
+      "Windows не доверяет сертификату сайта. Обычно это значит, что сайт использует «Российский " +
+      "доверенный корневой сертификат» — его нужно один раз установить в Windows: на gosuslugi.ru найдите " +
+      "страницу «Установка сертификатов», скачайте корневой сертификат Минцифры, откройте файл → " +
+      "«Установить сертификат» → «Локальный компьютер» → «Доверенные корневые центры сертификации», " +
+      "затем перезапустите приложение. Если вы работаете через корпоративный прокси, тот же приём нужен " +
+      "для его сертификата."
+    );
+  }
+  if (text.includes("ERR_NAME_NOT_RESOLVED")) {
+    return "Такого адреса нет в DNS. Проверьте адрес API и подключение к интернету.";
+  }
+  if (text.includes("ERR_PROXY_CONNECTION_FAILED") || text.includes("ERR_TUNNEL_CONNECTION_FAILED")) {
+    return "Прокси не пропустил запрос. Проверьте настройки прокси в разделе «Настройки».";
+  }
+  if (text.includes("ERR_CONNECTION_REFUSED") || text.includes("ERR_CONNECTION_TIMED_OUT")) {
+    return "Сервер не отвечает. Возможно, он недоступен из вашей сети — попробуйте включить VPN или прокси.";
+  }
+  return text;
+}
+
+/**
+ * MAX accepts the token as an Authorization header on some hosts and as an
+ * access_token query parameter on others. Sending both costs nothing and means one
+ * code path works against either flavour.
+ */
+function maxRequest(base, account, endpoint, options = {}) {
+  const sep = endpoint.includes("?") ? "&" : "?";
+  const url = `${base}${endpoint}${sep}access_token=${encodeURIComponent(account.token)}`;
+  return fetch(url, {
+    ...options,
+    headers: { Authorization: account.token, ...(options.headers || {}) },
+  });
+}
 
 const maxAdapter = {
   async testConnection(account) {
     if (!account.token?.trim()) return { ok: false, error: "Токен не задан." };
-    try {
-      const res = await fetch(`${MAX_API_BASE}/me`, { headers: { Authorization: account.token } });
-      const body = await res.json();
-      if (!res.ok) return { ok: false, error: body.message || "Ошибка MAX API." };
-      return { ok: true, login: body.name || body.username };
-    } catch (e) {
-      return { ok: false, error: e.message };
+    // Try the configured host first, then the other known ones.
+    const configured = maxBase(account);
+    const candidates = [configured, ...MAX_API_HOSTS.filter((h) => h !== configured)];
+    const failures = [];
+    for (const base of candidates) {
+      try {
+        const res = await maxRequest(base, account, "/me");
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          failures.push({
+            host: base.replace(/^https?:\/\//, ""),
+            text: String(body.message || body.error || `${res.status} ${res.statusText}`),
+          });
+          continue;
+        }
+        return {
+          ok: true,
+          login: body.name || body.username || body.first_name || "",
+          apiBase: base,
+          // Only worth mentioning when it isn't the host that's currently saved.
+          switched: base !== configured ? base : undefined,
+        };
+      } catch (e) {
+        const host = base.replace(/^https?:\/\//, "");
+        failures.push({ host, text: explainNetworkError(e.message) });
+      }
     }
+    // Both hosts usually fail for the same reason (no certificate, no network), and
+    // repeating an identical paragraph per host just makes it harder to read.
+    const unique = [...new Set(failures.map((f) => f.text))];
+    if (unique.length === 1) {
+      return { ok: false, error: `Не удалось подключиться (пробовали ${failures.map((f) => f.host).join(", ")}).\n\n${unique[0]}` };
+    }
+    return { ok: false, error: failures.map((f) => `${f.host}: ${f.text}`).join("\n\n") };
   },
   async pollOnce(account, cursor) {
     const marker = cursor?.marker;
-    const url = `${MAX_API_BASE}/updates?limit=100&timeout=25${marker != null ? `&marker=${marker}` : ""}`;
-    const res = await fetch(url, { headers: { Authorization: account.token } });
+    const endpoint = `/updates?limit=100&timeout=25${marker != null ? `&marker=${marker}` : ""}`;
+    const res = await maxRequest(maxBase(account), account, endpoint);
     const body = await res.json();
     if (!res.ok) throw new Error(body.message || "Ошибка MAX API.");
     const events = [];
@@ -237,9 +318,9 @@ const maxAdapter = {
     return { cursor: { marker: body.marker }, events };
   },
   async sendMessage(account, userId, text) {
-    const res = await fetch(`${MAX_API_BASE}/messages?user_id=${encodeURIComponent(userId)}`, {
+    const res = await maxRequest(maxBase(account), account, `/messages?user_id=${encodeURIComponent(userId)}`, {
       method: "POST",
-      headers: { Authorization: account.token, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     const body = await res.json().catch(() => ({}));
@@ -357,7 +438,10 @@ async function pollLoop(root, platform, onMessage, onStatus, aiResponder) {
       }
       onStatus?.(platform, "ok");
     } catch (e) {
-      onStatus?.(platform, "error: " + e.message);
+      // The bare Chromium error ("net::ERR_CERT_AUTHORITY_INVALID") means nothing to
+      // the person reading the status line, so it's translated the same way the
+      // connection test translates it.
+      onStatus?.(platform, "error: " + explainNetworkError(e.message));
       await new Promise((r) => setTimeout(r, 5000));
     }
     const elapsed = Date.now() - iterationStart;

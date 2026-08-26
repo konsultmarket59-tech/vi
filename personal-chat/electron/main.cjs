@@ -1419,6 +1419,30 @@ ipcMain.handle("excel:open", async (_e, filePath) => {
   return workbookPayload(openWorkbook, recalc);
 });
 
+ipcMain.handle("excel:new", async (_e, name) => {
+  openWorkbook = excel.createWorkbook(name);
+  return workbookPayload(openWorkbook, null);
+});
+
+/**
+ * Applies an edit the Excel agent proposed and the user confirmed. Unlike the grid's
+ * setCells this may also create whole sheets, so it reports which ones appeared.
+ */
+ipcMain.handle("excel:applyAgentEdit", async (_e, edit) => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  const { createdSheets } = excel.applyAgentEdit(openWorkbook, edit);
+  const recalc = excel.recalculate(openWorkbook);
+  return { workbook: workbookPayload(openWorkbook, recalc), createdSheets };
+});
+
+// Read-only: evaluates a formula or dumps a range so the agent can check its numbers
+// against the live workbook before proposing anything. Nothing is modified here, so
+// this runs without a confirmation step, like the web-search tools.
+ipcMain.handle("excel:runAgentTools", async (_e, text) => {
+  if (!openWorkbook) return null;
+  return excel.runAgentTools(openWorkbook, text);
+});
+
 ipcMain.handle("excel:setCells", async (_e, edits) => {
   if (!openWorkbook) throw new Error("Файл Excel не открыт.");
   for (const { sheet, cell, value } of edits) excel.setCell(openWorkbook, sheet, cell, value);
@@ -1429,11 +1453,12 @@ ipcMain.handle("excel:setCells", async (_e, edits) => {
 ipcMain.handle("excel:save", async (_e, saveAs) => {
   if (!openWorkbook) throw new Error("Файл Excel не открыт.");
   let target = null;
-  if (saveAs) {
+  // A workbook created in the app has nowhere to save to yet, so it always asks.
+  if (saveAs || !openWorkbook.filePath) {
     const win = BrowserWindow.getFocusedWindow();
     const result = await dialog.showSaveDialog(win, {
       title: "Сохранить как",
-      defaultPath: openWorkbook.filePath,
+      defaultPath: openWorkbook.filePath || openWorkbook.name,
       filters: [{ name: "Excel", extensions: ["xlsx"] }],
     });
     if (result.canceled || !result.filePath) return null;
@@ -1441,6 +1466,8 @@ ipcMain.handle("excel:save", async (_e, saveAs) => {
   }
   const dest = await excel.saveWorkbook(openWorkbook, target);
   if (target) {
+    // After "save as" — or the first save of a new workbook — that file is the one
+    // we're editing from now on.
     // After "save as" the new file becomes the one we're editing.
     openWorkbook.filePath = dest;
     openWorkbook.name = path.basename(dest);

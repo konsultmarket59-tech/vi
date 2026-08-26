@@ -1186,6 +1186,18 @@ body {
 .excel-cell-formula { color: var(--accent-hover); }
 .excel-cell-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+/* A proposed edit can span several sheets and dozens of cells, so it needs room to
+   list them instead of the single-line layout the other pending banners use. */
+.excel-pending-edit {
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  line-height: 1.5;
+}
+.excel-pending-edit strong { display: block; margin-bottom: 4px; }
+.excel-pending-sheet { margin-top: 2px; }
+.excel-new-sheet { font-weight: 600; }
+
 /* GitHub Actions runs */
 .run-list { list-style: none; padding: 0; margin: 10px 0; }
 .run-list li {
@@ -1218,3 +1230,7 @@ body {
 
 .cloud-files .doc-list li { gap: 12px; }
 .cloud-files .doc-name { display: flex; align-items: center; gap: 4px; }
+
+/* Connection diagnostics run to several sentences and carry their own line breaks
+   (e.g. the certificate instructions for MAX), so they must not be collapsed. */
+.chatbot-test-result { white-space: pre-line; }
