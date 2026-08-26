@@ -16,6 +16,8 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [chatModels, setChatModels] = useState<ModelInfo[]>(CURATED_CHAT_MODELS);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [testingProxy, setTestingProxy] = useState(false);
+  const [proxyResult, setProxyResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     window.api.getConfig().then((cfg) => setRootPath(cfg.rootPath));
@@ -31,6 +33,24 @@ export default function SettingsView({ settings, onChange }: Props) {
       setModelsError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingModels(false);
+    }
+  }
+
+  async function testProxy() {
+    setTestingProxy(true);
+    setProxyResult(null);
+    try {
+      // Tests the values currently in the form, so there's no need to save first.
+      const result = await window.api.testProxy(draft);
+      setProxyResult(
+        result.ok
+          ? { ok: true, text: `Соединение работает ✓ (ответ за ${result.ms} мс)` }
+          : { ok: false, text: result.error ?? "Не удалось подключиться." }
+      );
+    } catch (e) {
+      setProxyResult({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setTestingProxy(false);
     }
   }
 
@@ -196,23 +216,64 @@ export default function SettingsView({ settings, onChange }: Props) {
         </>
       )}
 
-      <h2>Логин прокси</h2>
+      <h2>Прокси / VPN</h2>
       <p className="hint">
-        Заполняйте, только если для доступа к интернету у вас используется VPN/прокси с обязательной
-        авторизацией (ошибка «407 Proxy Authentication Required» при отправке сообщений — верный признак
-        этого). Адрес самого прокси приложение берёт из настроек Windows автоматически — здесь нужны только
-        логин и пароль от него.
+        Нужно, только если интернет у вас идёт через прокси. Настройки применяются сразу после сохранения,
+        перезапускать приложение не нужно.
       </p>
-      <label>Логин</label>
-      <input value={draft.proxyUsername ?? ""} onChange={(e) => update("proxyUsername", e.target.value)} />
-      <label>Пароль</label>
-      <div className="key-row">
-        <input
-          type={showKey ? "text" : "password"}
-          value={draft.proxyPassword ?? ""}
-          onChange={(e) => update("proxyPassword", e.target.value)}
-        />
+
+      <label>Откуда брать адрес прокси</label>
+      <select
+        value={draft.proxyMode ?? "system"}
+        onChange={(e) => update("proxyMode", e.target.value as "system" | "manual" | "direct")}
+      >
+        <option value="system">Из настроек Windows (по умолчанию)</option>
+        <option value="manual">Указать адрес вручную</option>
+        <option value="direct">Без прокси, напрямую</option>
+      </select>
+
+      {draft.proxyMode === "manual" && (
+        <>
+          <label>Адрес прокси</label>
+          <input
+            value={draft.proxyUrl ?? ""}
+            onChange={(e) => update("proxyUrl", e.target.value)}
+            placeholder="http://123.45.67.89:8080"
+          />
+          <p className="hint">
+            Формат — <code>http://адрес:порт</code> (или <code>socks5://адрес:порт</code>). Логин и пароль
+            вписывайте в поля ниже, а не в сам адрес: адрес с логином внутри Chromium не принимает.
+            Учтите, что для SOCKS5 авторизация по логину/паролю не поддерживается — для прокси с паролем
+            используйте вариант <code>http://</code>.
+          </p>
+        </>
+      )}
+
+      {draft.proxyMode !== "direct" && (
+        <>
+          <p className="hint">
+            Логин и пароль — только если прокси их требует (признак — ошибка «407 Proxy Authentication
+            Required»). Это данные от прокси, а не от Polza.
+          </p>
+          <label>Логин прокси</label>
+          <input value={draft.proxyUsername ?? ""} onChange={(e) => update("proxyUsername", e.target.value)} />
+          <label>Пароль прокси</label>
+          <div className="key-row">
+            <input
+              type={showKey ? "text" : "password"}
+              value={draft.proxyPassword ?? ""}
+              onChange={(e) => update("proxyPassword", e.target.value)}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="settings-actions">
+        <button className="btn btn-secondary" onClick={testProxy} disabled={testingProxy}>
+          {testingProxy ? "Проверяю…" : "Проверить соединение"}
+        </button>
       </div>
+      {proxyResult && <p className={proxyResult.ok ? "hint" : "chat-error"}>{proxyResult.text}</p>}
 
       <button className="btn btn-primary" onClick={save}>
         Сохранить настройки

@@ -116,6 +116,8 @@ export interface Settings {
   model: string;
   temperature: number;
   maxTokens: number;
+  proxyMode?: "system" | "manual" | "direct";
+  proxyUrl?: string;
   proxyUsername?: string;
   proxyPassword?: string;
   searchEnabled?: boolean;
@@ -129,6 +131,8 @@ export const DEFAULT_SETTINGS: Settings = {
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
   maxTokens: 16000,
+  proxyMode: "system",
+  proxyUrl: "",
   proxyUsername: "",
   proxyPassword: "",
   searchEnabled: true,
@@ -450,6 +454,9 @@ export interface ElectronAPI {
 
   // chat attachments
   pickAttachments(): Promise<ChatAttachment[]>;
+
+  // proxy
+  testProxy(draftSettings: Partial<Settings>): Promise<{ ok: boolean; ms?: number; error?: string }>;
 
   // web search
   runWebTools(text: string): Promise<string | null>;

@@ -60,6 +60,9 @@ contextBridge.exposeInMainWorld("api", {
   // chat attachments
   pickAttachments: () => ipcRenderer.invoke("attachments:pick"),
 
+  // proxy
+  testProxy: (draftSettings) => ipcRenderer.invoke("proxy:test", draftSettings),
+
   // web search
   runWebTools: (text) => ipcRenderer.invoke("web:runTools", text),
   webSearch: (query) => ipcRenderer.invoke("web:search", query),

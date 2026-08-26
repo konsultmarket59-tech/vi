@@ -1,30 +1,52 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const crypto = require("node:crypto");
+const { proxyAwareFetch, setProxyCredentials } = require("./netFetch.cjs");
 
-// Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, etc.)
-// through Electron's own network stack instead of Node's built-in fetch. Node's fetch
-// (undici) doesn't pick up the OS/VPN's configured HTTP(S) proxy at all — requests just
-// go direct — whereas net.fetch shares Chromium's network stack and proxy handling
-// (including the "login" event below, which answers proxy authentication challenges),
-// same as fetch() calls made from the renderer already do automatically.
-global.fetch = net.fetch;
+// Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, web
+// search) through Electron's network stack instead of Node's built-in fetch, which
+// ignores the OS/VPN proxy entirely. See netFetch.cjs for why this isn't just
+// net.fetch: main-process requests can't answer a proxy's auth challenge through it.
+global.fetch = proxyAwareFetch;
 
-// Answers proxy authentication challenges (HTTP 407) with the credentials saved in
-// Settings, if any — needed when the user's VPN/proxy requires a login. Electron has
-// no built-in UI for this (unlike a full browser), so without this handler a 407 just
-// passes straight through to the caller as a failed response. Only ever supplies
-// credentials for isProxy challenges, never for a origin server's own auth (401).
+// Renderer-side requests (the chat itself) are a separate path: those DO belong to a
+// webContents, so they come through here instead. Credentials are read from the cache
+// rather than from disk so this can answer synchronously.
+let cachedProxyAuth = { username: "", password: "" };
+
 app.on("login", (event, _webContents, _details, authInfo, callback) => {
-  if (!authInfo.isProxy) return;
-  loadSettings().then((s) => {
-    if (!s.proxyUsername) return; // no proxy credentials configured — leave default behavior
-    event.preventDefault();
-    callback(s.proxyUsername, s.proxyPassword || "");
-  });
+  // Only proxy challenges — never hand the proxy password to an origin server's 401.
+  if (!authInfo.isProxy || !cachedProxyAuth.username) return;
+  event.preventDefault();
+  callback(cachedProxyAuth.username, cachedProxyAuth.password || "");
 });
+
+/**
+ * Applies the saved proxy configuration to the default session (which both the
+ * renderer and every main-process request go through) and refreshes the cached
+ * credentials used by the two login handlers above.
+ */
+async function applyProxySettings(settings) {
+  cachedProxyAuth = { username: settings.proxyUsername || "", password: settings.proxyPassword || "" };
+  setProxyCredentials(cachedProxyAuth.username, cachedProxyAuth.password);
+
+  const mode = settings.proxyMode || "system";
+  let config;
+  if (mode === "manual" && settings.proxyUrl?.trim()) {
+    config = { proxyRules: settings.proxyUrl.trim() };
+  } else if (mode === "direct") {
+    config = { mode: "direct" };
+  } else {
+    config = { mode: "system" };
+  }
+  try {
+    await session.defaultSession.setProxy(config);
+  } catch (e) {
+    console.error("Не удалось применить настройки прокси:", e);
+  }
+}
 
 // On some Windows setups (observed with a OneDrive-redirected Documents folder)
 // app.getPath() hands back a "\\?\"-prefixed extended-length path. Node's path.join
@@ -50,6 +72,10 @@ const DEFAULT_SETTINGS = {
   searchEnabled: true,
   searchProvider: "duckduckgo",
   searchApiKey: "",
+  proxyMode: "system",
+  proxyUrl: "",
+  proxyUsername: "",
+  proxyPassword: "",
 };
 
 // ---------- low-level helpers ----------
@@ -157,6 +183,8 @@ async function loadSettings() {
 
 async function saveSettingsFile(settings) {
   await writeJson(SETTINGS_PATH, settings);
+  // Proxy changes must take effect immediately, without restarting the app.
+  await applyProxySettings({ ...DEFAULT_SETTINGS, ...settings });
 }
 
 // ---------- document text extraction ----------
@@ -1161,7 +1189,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await applyProxySettings(await loadSettings());
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1354,6 +1383,49 @@ ipcMain.handle("attachments:pick", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return [];
   return buildAttachments(result.filePaths);
+});
+
+ipcMain.handle("proxy:test", async (_e, draftSettings) => {
+  // Apply the settings being tested (not the saved ones) so the button reports on
+  // what's currently typed in the form, then make a real request to the model API —
+  // the destination that actually matters — so DNS, the proxy, its authentication
+  // and TLS are all exercised end to end rather than guessed at.
+  const settings = { ...(await loadSettings()), ...(draftSettings || {}) };
+  await applyProxySettings(settings);
+  // Chromium caches proxy credentials for the session once they work, so without
+  // clearing them a re-test would keep reporting success even after the password
+  // was changed or emptied — exactly when the user most needs an honest answer.
+  await session.defaultSession.clearAuthCache();
+  const url = (settings.baseUrl || DEFAULT_SETTINGS.baseUrl).replace(/\/+$/, "") + "/models";
+  const started = Date.now();
+  try {
+    const res = await fetch(url, { headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {} });
+    const ms = Date.now() - started;
+    if (res.status === 407) {
+      return {
+        ok: false,
+        error:
+          "Прокси требует авторизацию, но логин/пароль не подошли (407). Проверьте их — " +
+          "это логин от прокси, а не от Polza.",
+      };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `Соединение прошло, но сервер ответил ${res.status} ${res.statusText}.`, ms };
+    }
+    return { ok: true, ms };
+  } catch (e) {
+    const msg = String(e.message || e);
+    let hint = "";
+    if (msg.includes("ERR_PROXY_CONNECTION_FAILED")) hint = " Адрес или порт прокси недоступны.";
+    else if (msg.includes("ERR_TOO_MANY_RETRIES")) hint = " Прокси отклоняет логин/пароль.";
+    else if (msg.includes("ERR_NO_SUPPORTED_PROXIES")) hint = " Такой адрес прокси не поддерживается — уберите логин/пароль из адреса и впишите их в поля ниже.";
+    else if (msg.includes("ERR_NAME_NOT_RESOLVED")) hint = " Не удалось определить адрес — проверьте написание.";
+    return { ok: false, error: msg + hint };
+  } finally {
+    // Leave the session on the *saved* settings, so merely testing a draft doesn't
+    // silently change what the rest of the app is using.
+    await applyProxySettings(await loadSettings());
+  }
 });
 
 ipcMain.handle("web:runTools", async (_e, text) => websearch.runTools(text, await loadSettings()));
