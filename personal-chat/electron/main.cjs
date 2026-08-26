@@ -635,6 +635,7 @@ const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
+const exportDocs = require("./exportDocs.cjs");
 const cloud = require("./cloud.cjs");
 
 function broadcast(channel, payload) {
@@ -1098,6 +1099,30 @@ async function exportHtmlToPdf({ html, defaultName, projectId }) {
     await cleanupHiddenWindow(win, tmpFile);
   }
   return result.filePath;
+}
+
+const OFFICE_FORMATS = {
+  docx: { ext: "docx", label: "Документ Word", build: (payload) => exportDocs.buildDocx(payload) },
+  xlsx: { ext: "xlsx", label: "Книга Excel", build: (payload) => exportDocs.buildXlsx(payload) },
+};
+
+/**
+ * Saves a chat (or a single message) as a real Word/Excel file.
+ *
+ * Unlike the PDF/PNG exports this never renders HTML: it takes the messages'
+ * markdown and rebuilds it as document structure, so tables come out editable.
+ */
+async function exportChatToFile({ title, sections, brand, defaultName, projectId }, format) {
+  const spec = OFFICE_FORMATS[format];
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + "." + spec.ext),
+    filters: [{ name: spec.label, extensions: [spec.ext] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const buffer = await spec.build({ title, sections, brand });
+  return exportDocs.writeBuffer(result.filePath, buffer);
 }
 
 async function captureHtmlAsImage(html, { width = 900 } = {}) {
@@ -1603,6 +1628,8 @@ ipcMain.handle("import:pickClaudeExports", async () => {
 });
 ipcMain.handle("import:claudeExports", (_e, filePaths) => importClaudeExport(filePaths));
 
+ipcMain.handle("export:toDocx", (_e, payload) => exportChatToFile(payload, "docx"));
+ipcMain.handle("export:toXlsx", (_e, payload) => exportChatToFile(payload, "xlsx"));
 ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
 ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
 ipcMain.handle("export:toJpg", (_e, payload) => exportHtmlToJpg(payload));

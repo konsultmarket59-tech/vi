@@ -407,6 +407,19 @@ export interface ExcelEdit {
   sheets: ExcelEditSegment[];
 }
 
+/**
+ * What the Word/Excel exports need. Unlike the PDF/PNG exports this carries the
+ * messages themselves rather than rendered HTML — the main process rebuilds them
+ * as document structure so tables stay editable.
+ */
+export interface ChatExportPayload {
+  title: string;
+  sections: { role?: "user" | "assistant"; content: string }[];
+  brand?: { accentColor?: string; contactLines?: string[] };
+  defaultName: string;
+  projectId?: string;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -456,6 +469,8 @@ export interface ElectronAPI {
   importClaudeExports(filePaths: string[]): Promise<Project[]>;
 
   exportToPdf(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
+  exportChatToDocx(payload: ChatExportPayload): Promise<string | null>;
+  exportChatToXlsx(payload: ChatExportPayload): Promise<string | null>;
   exportToPng(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
 
   getSkillCreatorPrompt(): Promise<string>;

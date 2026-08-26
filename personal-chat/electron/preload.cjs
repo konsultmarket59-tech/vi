@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld("api", {
   importClaudeExports: (filePaths) => ipcRenderer.invoke("import:claudeExports", filePaths),
 
   // export
+  exportChatToDocx: (payload) => ipcRenderer.invoke("export:toDocx", payload),
+  exportChatToXlsx: (payload) => ipcRenderer.invoke("export:toXlsx", payload),
   exportToPdf: (payload) => ipcRenderer.invoke("export:toPdf", payload),
   exportToPng: (payload) => ipcRenderer.invoke("export:toPng", payload),
   exportToJpg: (payload) => ipcRenderer.invoke("export:toJpg", payload),

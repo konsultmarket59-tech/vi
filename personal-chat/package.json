@@ -16,6 +16,7 @@
     "electron:build:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
+    "docx": "^9.7.1",
     "dompurify": "^3.4.14",
     "exceljs": "^4.4.0",
     "fast-formula-parser": "^1.0.19",

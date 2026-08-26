@@ -28,6 +28,8 @@ interface Props {
   extraToolLabel?: string;
 }
 
+type ExportFormat = "pdf" | "png" | "docx" | "xlsx";
+
 const WEB_TOOL_ROUND_LIMIT = 4;
 
 /** Short human-readable label of what the assistant just asked the app to look up. */
@@ -317,11 +319,36 @@ export default function ChatView({
     abortRef.current?.abort();
   }
 
-  async function exportMessage(m: ChatMessage, format: "pdf" | "png") {
+  /**
+   * Brand details the Word/Excel exports can use. They lay out their own document,
+   * so they take the colour and contacts rather than the rendered HTML header.
+   */
+  function exportBrand() {
+    if (!brand) return undefined;
+    const contactLines = [brand.companyName, brand.contactPhone, brand.contactEmail].filter(
+      (line): line is string => !!line
+    );
+    return { accentColor: brand.accentColor, contactLines };
+  }
+
+  async function exportMessage(m: ChatMessage, format: ExportFormat) {
     setExportError(null);
     try {
-      const html = buildMessageExportHtml(deriveFileName(m.content), m.content, brand);
-      const payload = { html, defaultName: deriveFileName(m.content), projectId };
+      const defaultName = deriveFileName(m.content);
+      if (format === "docx" || format === "xlsx") {
+        const payload = {
+          title: defaultName,
+          sections: [{ role: m.role, content: m.content }],
+          brand: exportBrand(),
+          defaultName,
+          projectId,
+        };
+        if (format === "docx") await window.api.exportChatToDocx(payload);
+        else await window.api.exportChatToXlsx(payload);
+        return;
+      }
+      const html = buildMessageExportHtml(defaultName, m.content, brand);
+      const payload = { html, defaultName, projectId };
       if (format === "pdf") await window.api.exportToPdf(payload);
       else await window.api.exportToPng(payload);
     } catch (e) {
@@ -329,9 +356,21 @@ export default function ChatView({
     }
   }
 
-  async function exportConversation(format: "pdf" | "png") {
+  async function exportConversation(format: ExportFormat) {
     setExportError(null);
     try {
+      if (format === "docx" || format === "xlsx") {
+        const payload = {
+          title: conversation.title,
+          sections: conversation.messages.map((m) => ({ role: m.role, content: m.content })),
+          brand: exportBrand(),
+          defaultName: conversation.title,
+          projectId,
+        };
+        if (format === "docx") await window.api.exportChatToDocx(payload);
+        else await window.api.exportChatToXlsx(payload);
+        return;
+      }
       const html = buildConversationExportHtml(conversation.title, conversation.messages, brand);
       const payload = { html, defaultName: conversation.title, projectId };
       if (format === "pdf") await window.api.exportToPdf(payload);
@@ -406,6 +445,12 @@ export default function ChatView({
           <button className="link-btn" onClick={() => exportConversation("png")}>
             в PNG
           </button>
+          <button className="link-btn" onClick={() => exportConversation("docx")}>
+            в Word
+          </button>
+          <button className="link-btn" onClick={() => exportConversation("xlsx")}>
+            в Excel
+          </button>
         </div>
       )}
       {pendingMedia && (
@@ -464,6 +509,12 @@ export default function ChatView({
               </button>
               <button className="link-btn" onClick={() => exportMessage(m, "png")}>
                 Экспорт в PNG
+              </button>
+              <button className="link-btn" onClick={() => exportMessage(m, "docx")}>
+                в Word
+              </button>
+              <button className="link-btn" onClick={() => exportMessage(m, "xlsx")}>
+                в Excel
               </button>
             </div>
           </div>

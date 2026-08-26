@@ -370,6 +370,19 @@ body {
 }
 .conv-delete:hover { color: var(--danger); }
 
+/* Rename sits next to delete and shares its quiet look, turning accent on hover so
+   it reads as the safe action of the pair. */
+.conv-rename {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.conv-rename:hover { color: var(--accent); }
+
 .conv-list-section-header {
   display: flex;
   align-items: center;

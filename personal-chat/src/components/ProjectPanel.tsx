@@ -39,6 +39,8 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [tab, setTab] = useState<Tab>("chat");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
+  const [convRenameDraft, setConvRenameDraft] = useState("");
   const [instructionsDraft, setInstructionsDraft] = useState(project.instructions);
   const [nameDraft, setNameDraft] = useState(project.name);
   const [descDraft, setDescDraft] = useState(project.description);
@@ -190,6 +192,24 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     setConversations((prev) => [conv, ...prev]);
     setActiveConvId(conv.id);
     setTab("chat");
+  }
+
+  function startConvRename(conv: Conversation) {
+    setRenamingConvId(conv.id);
+    setConvRenameDraft(conv.title);
+  }
+
+  /**
+   * Saves a renamed chat. The title is part of the conversation file, so this is an
+   * ordinary save — and because ChatView only auto-titles chats still called
+   * "Новый чат", a rename sticks even if the chat is used again afterwards.
+   */
+  async function commitConvRename(conv: Conversation) {
+    const title = convRenameDraft.trim();
+    setRenamingConvId(null);
+    if (!title || title === conv.title) return;
+    const updated = await window.api.saveConversation(project.id, { ...conv, title, updatedAt: Date.now() });
+    updateConversationLocal(updated);
   }
 
   async function removeConversation(id: string) {
@@ -434,14 +454,32 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             <button className="btn btn-primary btn-block" onClick={newConversation}>
               + Новый чат
             </button>
-            {conversations.map((c) => (
-              <div key={c.id} className={c.id === activeConvId ? "conv-item active" : "conv-item"}>
-                <span onClick={() => setActiveConvId(c.id)}>{c.title}</span>
-                <button className="conv-delete" onClick={() => removeConversation(c.id)} title="Удалить">
-                  ×
-                </button>
-              </div>
-            ))}
+            {conversations.map((c) =>
+              renamingConvId === c.id ? (
+                <input
+                  key={c.id}
+                  className="sidebar-item-rename-input"
+                  value={convRenameDraft}
+                  autoFocus
+                  onChange={(e) => setConvRenameDraft(e.target.value)}
+                  onBlur={() => commitConvRename(c)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitConvRename(c);
+                    if (e.key === "Escape") setRenamingConvId(null);
+                  }}
+                />
+              ) : (
+                <div key={c.id} className={c.id === activeConvId ? "conv-item active" : "conv-item"}>
+                  <span onClick={() => setActiveConvId(c.id)}>{c.title}</span>
+                  <button className="conv-rename" onClick={() => startConvRename(c)} title="Переименовать чат">
+                    ✎
+                  </button>
+                  <button className="conv-delete" onClick={() => removeConversation(c.id)} title="Удалить">
+                    ×
+                  </button>
+                </div>
+              )
+            )}
           </div>
           <div className="conv-main">
             {!settings.apiKey && (
