@@ -6,6 +6,7 @@ import type {
   ChatbotStatusMap,
   Funnel,
   Lead,
+  Project,
 } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 
@@ -15,9 +16,9 @@ const PLATFORM_LABEL: Record<ChatbotPlatform, string> = { telegram: "Telegram", 
 const PLATFORMS: ChatbotPlatform[] = ["telegram", "vk", "max"];
 
 const EMPTY_ACCOUNTS: ChatbotAccounts = {
-  telegram: { token: "", enabled: false },
-  vk: { token: "", groupId: "", enabled: false },
-  max: { token: "", enabled: false },
+  telegram: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  vk: { token: "", groupId: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  max: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
 };
 
 function emptyFunnel(): Funnel {
@@ -30,6 +31,53 @@ export default function ChatBotsView() {
   const [status, setStatus] = useState<ChatbotStatusMap>({ telegram: false, vk: false, max: false });
   const [testResult, setTestResult] = useState<Partial<Record<ChatbotPlatform, string>>>({});
   const [testing, setTesting] = useState<ChatbotPlatform | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    window.api.listProjects().then(setProjects).catch(() => setProjects([]));
+  }, []);
+
+  /** The "answer with AI from a project's knowledge base" controls, identical on every platform. */
+  function renderAiBlock(platform: ChatbotPlatform) {
+    const account = accounts[platform];
+    return (
+      <div className="chatbot-ai-block">
+        <label>
+          <input
+            type="checkbox"
+            checked={!!account.aiEnabled}
+            onChange={(e) =>
+              setAccounts({ ...accounts, [platform]: { ...account, aiEnabled: e.target.checked } })
+            }
+          />{" "}
+          Отвечать с помощью ИИ по базе проекта
+        </label>
+        {account.aiEnabled && (
+          <>
+            <label>Проект — база знаний бота</label>
+            <select
+              value={account.aiProjectId ?? ""}
+              onChange={(e) =>
+                setAccounts({ ...accounts, [platform]: { ...account, aiProjectId: e.target.value } })
+              }
+            >
+              <option value="">— выберите проект —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              Бот будет отвечать в рамках инструкций, навыков и документов выбранного проекта и помнить
+              переписку с каждым человеком. Пока проект не выбран, ИИ-ответы не отправляются. В этом режиме
+              воронки для площадки не срабатывают — отвечает только ИИ.
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
 
   const [funnels, setFunnels] = useState<Funnel[]>([]);
   const [editingFunnel, setEditingFunnel] = useState<Funnel | null>(null);
@@ -169,6 +217,7 @@ export default function ChatBotsView() {
               value={accounts.telegram.token}
               onChange={(e) => setAccounts({ ...accounts, telegram: { ...accounts.telegram, token: e.target.value } })}
             />
+            {renderAiBlock("telegram")}
             <div className="settings-actions">
               <button className="btn btn-secondary" onClick={() => testPlatform("telegram")} disabled={testing === "telegram"}>
                 Проверить
@@ -189,6 +238,7 @@ export default function ChatBotsView() {
             <input type="password" value={accounts.vk.token} onChange={(e) => setAccounts({ ...accounts, vk: { ...accounts.vk, token: e.target.value } })} />
             <label>ID сообщества</label>
             <input value={accounts.vk.groupId} onChange={(e) => setAccounts({ ...accounts, vk: { ...accounts.vk, groupId: e.target.value } })} />
+            {renderAiBlock("vk")}
             <div className="settings-actions">
               <button className="btn btn-secondary" onClick={() => testPlatform("vk")} disabled={testing === "vk"}>
                 Проверить
@@ -207,6 +257,7 @@ export default function ChatBotsView() {
             <h3>MAX {status.max && <span className="chatbot-status-dot" />}</h3>
             <label>Токен бота</label>
             <input type="password" value={accounts.max.token} onChange={(e) => setAccounts({ ...accounts, max: { ...accounts.max, token: e.target.value } })} />
+            {renderAiBlock("max")}
             <div className="settings-actions">
               <button className="btn btn-secondary" onClick={() => testPlatform("max")} disabled={testing === "max"}>
                 Проверить
@@ -341,7 +392,7 @@ export default function ChatBotsView() {
             ))}
           </div>
           <div className="chatbot-inbox-layout">
-            <div className="mail-list">
+            <div className="thread-list">
               {leads.length === 0 && <p className="hint">Пока нет обращений.</p>}
               {leads.map((l) => (
                 <div key={l.userId} className={selectedLead?.userId === l.userId ? "conv-item active" : "conv-item"} onClick={() => setSelectedLead(l)}>
@@ -353,7 +404,7 @@ export default function ChatBotsView() {
                 </div>
               ))}
             </div>
-            <div className="mail-reader chatbot-thread">
+            <div className="thread-reader chatbot-thread">
               {selectedLead ? (
                 <>
                   <div className="chatbot-thread-messages">

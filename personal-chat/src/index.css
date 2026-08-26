@@ -838,7 +838,7 @@ body {
 .settings-view a { color: var(--accent-hover); }
 
 /* Operations module */
-.ops-view, .mail-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.ops-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
 .ops-toolbar {
   display: flex;
@@ -852,9 +852,8 @@ body {
 .ops-toolbar h2 { margin: 0; }
 .ops-toolbar div { display: flex; gap: 8px; }
 
-.mail-layout { display: flex; flex: 1; overflow: hidden; }
 
-.mail-list {
+.thread-list {
   width: 240px;
   min-width: 240px;
   border-right: 1px solid var(--border);
@@ -862,7 +861,7 @@ body {
   overflow-y: auto;
 }
 
-.mail-reader {
+.thread-reader {
   flex: 1;
   overflow: auto;
   padding: 16px 24px;
@@ -978,15 +977,9 @@ body {
 .ops-blank-row td { height: 10px; border-left: none; border-right: none; }
 
 /* Mail */
-.mail-list .conv-item { display: block; padding: 10px; margin-bottom: 4px; }
-.mail-list .conv-item span { font-size: 13px; }
+.thread-list .conv-item { display: block; padding: 10px; margin-bottom: 4px; }
+.thread-list .conv-item span { font-size: 13px; }
 
-.mail-host-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.mail-host-row label { margin-top: 0; }
 
 .settings-actions { display: flex; gap: 10px; margin: 14px 0; }
 
@@ -1083,3 +1076,58 @@ body {
 .brand-preview-logo { max-height: 44px; max-width: 140px; }
 .brand-preview-company { font-weight: 700; color: #111; font-size: 15px; }
 .brand-preview-tagline { font-size: 12px; color: #777; margin-top: 2px; }
+
+.web-tool-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border-radius: 8px;
+  padding: 5px 10px;
+  margin-bottom: 8px;
+  display: inline-block;
+}
+
+/* Chat attachments */
+.chat-attachments-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 24px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 6px 4px 10px;
+  font-size: 12px;
+  max-width: 320px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.attachment-chip-error { border-color: var(--danger); }
+.attachment-size { color: var(--text-dim); font-size: 11px; }
+.attachment-error { color: var(--danger); font-size: 11px; }
+
+.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+
+.attach-btn {
+  align-self: flex-end;
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px 14px;
+}
+
+.chatbot-ai-block {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+.chatbot-ai-block label { margin-top: 8px; }
+.chatbot-ai-block > label:first-child { margin-top: 0; }

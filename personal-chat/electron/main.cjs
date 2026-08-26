@@ -47,6 +47,9 @@ const DEFAULT_SETTINGS = {
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
   maxTokens: 16000,
+  searchEnabled: true,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
 };
 
 // ---------- low-level helpers ----------
@@ -594,16 +597,15 @@ async function saveSkillCreatorConversation(conv) {
   return conv;
 }
 
-// ---------- operations module + mail (delegated to sibling modules) ----------
+// ---------- feature modules (delegated to sibling modules) ----------
 
 const ops = require("./ops.cjs");
-const mail = require("./mail.cjs");
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
-const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
+const websearch = require("./websearch.cjs");
 
 function broadcast(channel, payload) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -629,22 +631,6 @@ async function saveOpsAgentConversation(conv) {
   await ensureDir(opsScratchDir(root));
   await writeJson(path.join(opsScratchDir(root), "_agent_chat.json"), conv);
   return conv;
-}
-
-async function getMailAgentConversation() {
-  const root = await getRootPath();
-  return readJson(path.join(mailDirPath(root), "_agent_chat.json"), null);
-}
-
-async function saveMailAgentConversation(conv) {
-  const root = await getRootPath();
-  await ensureDir(mailDirPath(root));
-  await writeJson(path.join(mailDirPath(root), "_agent_chat.json"), conv);
-  return conv;
-}
-
-function mailDirPath(root) {
-  return path.join(root, "mail");
 }
 
 // ---------- system prompt assembly ----------
@@ -676,6 +662,17 @@ async function buildSystemPrompt(projectId) {
     for (const skill of activeSkills) {
       parts.push(
         `\n--- Навык: ${skill.name} ---\n${skill.description ? skill.description + "\n" : ""}${skill.content}`
+      );
+    }
+  }
+
+  if (meta.designSystemPaths?.length) {
+    const designSystem = await readDesignSystem(meta.designSystemPaths);
+    if (designSystem.trim()) {
+      parts.push(
+        "\n\n=== ДИЗАЙН-СИСТЕМА ПРОЕКТА ===\nЭто фирменная дизайн-система проекта — придерживайся её при " +
+          "оформлении любых макетов, постов и документов." +
+          designSystem
       );
     }
   }
@@ -766,10 +763,28 @@ async function runScheduledTask(root, task) {
   const now = Date.now();
   const systemPrompt = await buildSystemPrompt(task.projectId);
   const settings = await loadSettings();
-  const reply = await callModelOnce(settings, [
-    { role: "system", content: systemPrompt },
+
+  // Scheduled tasks are exactly the case that needs web access most ("что нового
+  // у конкурентов", "новости отрасли за неделю") and the one place nobody is
+  // watching, so the tool loop runs unattended here: ask the model, run whatever
+  // search/fetch it requests, feed the result back, repeat until it answers in
+  // plain text or we hit the round limit.
+  const webOn = settings.searchEnabled !== false;
+  const messages = [
+    { role: "system", content: systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
     { role: "user", content: task.prompt },
-  ]);
+  ];
+  let reply = await callModelOnce(settings, messages);
+  if (webOn) {
+    for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
+      const toolOutput = await websearch.runTools(reply, settings);
+      if (toolOutput == null) break;
+      messages.push({ role: "assistant", content: reply });
+      messages.push({ role: "user", content: toolOutput });
+      reply = await callModelOnce(settings, messages);
+    }
+  }
+
   const conv = {
     id: crypto.randomUUID(),
     projectId: task.projectId,
@@ -789,6 +804,175 @@ async function runScheduledTask(root, task) {
     enabled: task.recurrence === "once" ? false : task.enabled,
   });
   broadcast("tasks:ran", { projectId: task.projectId, task: updated, conversationId: conv.id });
+}
+
+
+
+
+/**
+ * Answers an incoming chatbot message as the linked project's assistant: the
+ * project's own system prompt (instructions + skills + documents + design system)
+ * plus that person's recent conversation history, so the bot consults within the
+ * project's knowledge base rather than as a generic model.
+ *
+ * Returns null when the platform isn't linked to a project or the model can't be
+ * reached — the caller treats that as "stay silent" rather than sending a broken
+ * or invented answer to a real customer.
+ */
+async function chatbotAiResponder({ platform, account, lead, messages }) {
+  if (!account.aiProjectId) return null;
+  const settings = await loadSettings();
+  if (!settings.apiKey) {
+    console.error(`ИИ-бот ${platform}: не задан API-ключ, отвечать нечем.`);
+    return null;
+  }
+
+  let projectPrompt;
+  try {
+    projectPrompt = await buildSystemPrompt(account.aiProjectId);
+  } catch (e) {
+    console.error(`ИИ-бот ${platform}: проект ${account.aiProjectId} недоступен:`, e);
+    return null;
+  }
+
+  const webOn = settings.searchEnabled !== false;
+  const botRules =
+    "\n\n=== РЕЖИМ ЧАТ-БОТА ===\n" +
+    `Ты отвечаешь в мессенджере (${platform}) реальному собеседнику по имени ${lead.name || "без имени"}. ` +
+    "Пиши коротко и по-человечески, как в переписке: без markdown-разметки, без заголовков и таблиц, " +
+    "обычно 1–3 абзаца. Опирайся только на информацию из материалов проекта выше. " +
+    "Если чего-то не знаешь или вопрос выходит за рамки проекта — честно скажи об этом и предложи связаться " +
+    "с человеком, не придумывай факты, цены и условия.";
+
+  const apiMessages = [
+    { role: "system", content: projectPrompt + botRules + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
+    ...messages,
+  ];
+
+  let reply = await callModelOnce(settings, apiMessages);
+  if (webOn) {
+    for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
+      const toolOutput = await websearch.runTools(reply, settings);
+      if (toolOutput == null) break;
+      apiMessages.push({ role: "assistant", content: reply });
+      apiMessages.push({ role: "user", content: toolOutput });
+      reply = await callModelOnce(settings, apiMessages);
+    }
+  }
+  return reply;
+}
+
+// ---------- project design system (files/folders living anywhere on the computer) ----------
+
+const MAX_DESIGN_SYSTEM_FILES = 40;
+const MAX_DESIGN_SYSTEM_CHARS = 40000;
+
+/** Expands attached paths (files or folders) into a flat list of readable files. */
+async function collectDesignSystemFiles(paths) {
+  const files = [];
+  for (const p of paths || []) {
+    let stat;
+    try {
+      stat = await fs.stat(p);
+    } catch {
+      files.push({ path: p, name: path.basename(p), missing: true });
+      continue;
+    }
+    if (stat.isDirectory()) {
+      const entries = await fs.readdir(p, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
+        files.push({ path: path.join(p, entry.name), name: entry.name, from: p });
+      }
+    } else {
+      files.push({ path: p, name: path.basename(p) });
+    }
+    if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
+  }
+  return files;
+}
+
+/**
+ * Renders an attached design system as prompt text. Text-ish files are read for
+ * their content (that's where tokens, spacing rules, tone-of-voice notes live);
+ * images and other binaries are listed by name only — they can't be inlined into
+ * a text prompt, but knowing a "logo-primary.svg" exists is still useful context.
+ */
+async function readDesignSystem(paths) {
+  const files = await collectDesignSystemFiles(paths);
+  if (files.length === 0) return "";
+  const parts = [];
+  const listed = [];
+  for (const file of files) {
+    if (file.missing) {
+      listed.push(`${file.name} — файл не найден (перемещён или удалён)`);
+      continue;
+    }
+    const ext = path.extname(file.name).toLowerCase();
+    if (SUPPORTED_DOC_EXTENSIONS.includes(ext) || ext === ".svg") {
+      try {
+        const text = ext === ".svg" ? await fs.readFile(file.path, "utf-8") : await extractDocText(file.path);
+        parts.push(`\n--- ${file.name} ---\n${truncate(text, MAX_DOC_CHARS)}`);
+      } catch (e) {
+        listed.push(`${file.name} — не удалось прочитать (${e.message})`);
+      }
+    } else {
+      listed.push(file.name);
+    }
+  }
+  let out = "";
+  if (listed.length > 0) out += `\nФайлы дизайн-системы (без текстового содержимого): ${listed.join(", ")}`;
+  out += parts.join("\n");
+  return truncate(out, MAX_DESIGN_SYSTEM_CHARS);
+}
+
+// ---------- chat attachments (files picked from anywhere on the computer) ----------
+
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+const VIDEO_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv", ".webm"];
+const AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"];
+
+const MAX_ATTACHMENT_CHARS = 30000;
+
+function attachmentKind(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (IMAGE_EXTENSIONS.includes(ext)) return "image";
+  if (VIDEO_EXTENSIONS.includes(ext)) return "video";
+  if (AUDIO_EXTENSIONS.includes(ext)) return "audio";
+  if (SUPPORTED_DOC_EXTENSIONS.includes(ext)) return "text";
+  return "other";
+}
+
+/**
+ * Turns picked file paths into attachment records for a chat message. Text-ish
+ * documents get their text extracted right here, at attach time, so the saved
+ * conversation stays self-contained and still makes sense later even if the
+ * original file is moved or deleted. Images keep only their path — they're
+ * re-read as a data URL at send time, because base64 image data would bloat
+ * every chat JSON on disk for no benefit.
+ */
+async function buildAttachments(filePaths) {
+  const out = [];
+  for (const filePath of filePaths) {
+    const kind = attachmentKind(filePath);
+    let size = 0;
+    try {
+      size = (await fs.stat(filePath)).size;
+    } catch {
+      // unreadable file: still record it so the user sees what failed
+    }
+    const record = { name: path.basename(filePath), path: filePath, kind, size };
+    if (kind === "text") {
+      try {
+        record.text = truncate(await extractDocText(filePath), MAX_ATTACHMENT_CHARS);
+      } catch (e) {
+        record.error = e.message;
+      }
+    }
+    out.push(record);
+  }
+  return out;
 }
 
 // ---------- import from Claude.ai export ----------
@@ -961,7 +1145,7 @@ function createWindow() {
 
   // Electron denies opening a new window/tab for target="_blank" links by default —
   // without this handler, every external link in the app (GitHub token page, the
-  // Polza.ai model catalog, the mail.ru help article, etc.) does nothing at all when
+  // Polza.ai model catalog, the model catalog, etc.) does nothing at all when
   // clicked. Send them to the user's actual browser instead of trying to open inside
   // the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -1116,6 +1300,69 @@ ipcMain.handle("conversations:list", (_e, projectId) => listConversations(projec
 ipcMain.handle("conversations:save", (_e, projectId, conv) => saveConversation(projectId, conv));
 ipcMain.handle("conversations:delete", (_e, projectId, convId) => deleteConversation(projectId, convId));
 
+ipcMain.handle("projects:pickDesignSystemFiles", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы дизайн-системы",
+    properties: ["openFile", "multiSelections"],
+  });
+  if (result.canceled) return [];
+  return result.filePaths;
+});
+ipcMain.handle("projects:pickDesignSystemFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите папку с дизайн-системой",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:addDesignSystemPaths", async (_e, id, newPaths) => {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, id), "project.json"), null);
+  const existing = meta?.designSystemPaths || [];
+  const merged = [...existing];
+  for (const p of newPaths) if (!merged.includes(p)) merged.push(p);
+  return updateProject(id, { designSystemPaths: merged });
+});
+ipcMain.handle("projects:removeDesignSystemPath", async (_e, id, target) => {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, id), "project.json"), null);
+  const next = (meta?.designSystemPaths || []).filter((p) => p !== target);
+  return updateProject(id, { designSystemPaths: next });
+});
+ipcMain.handle("projects:listDesignSystemFiles", async (_e, id) => {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, id), "project.json"), null);
+  return collectDesignSystemFiles(meta?.designSystemPaths || []);
+});
+
+ipcMain.handle("attachments:pick", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы для чата",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "Все поддерживаемые", extensions: [...SUPPORTED_DOC_EXTENSIONS, ...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS].map((e) => e.slice(1)) },
+      { name: "Документы", extensions: SUPPORTED_DOC_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Изображения", extensions: IMAGE_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Видео", extensions: VIDEO_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Аудио", extensions: AUDIO_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Все файлы", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return [];
+  return buildAttachments(result.filePaths);
+});
+
+ipcMain.handle("web:runTools", async (_e, text) => websearch.runTools(text, await loadSettings()));
+ipcMain.handle("web:search", async (_e, query) => websearch.search(query, await loadSettings()));
+ipcMain.handle("meta:webToolsHint", async () => {
+  const settings = await loadSettings();
+  return settings.searchEnabled === false ? "" : websearch.WEB_TOOLS_HINT;
+});
+
 ipcMain.handle("tasks:list", async (_e, projectId) => tasks.list(await getRootPath(), projectId));
 ipcMain.handle("tasks:save", async (_e, projectId, task) => tasks.save(await getRootPath(), projectId, task));
 ipcMain.handle("tasks:delete", async (_e, projectId, id) => tasks.remove(await getRootPath(), projectId, id));
@@ -1161,18 +1408,6 @@ ipcMain.handle("ops:pickXlsx", async () => {
 });
 ipcMain.handle("ops:importXlsx", async (_e, filePath) => ops.importXlsx(await getRootPath(), filePath));
 
-// ---------- mail IPC ----------
-
-ipcMain.handle("mail:getAccount", async () => mail.getAccount(await getRootPath()));
-ipcMain.handle("mail:saveAccount", async (_e, account) => mail.saveAccount(await getRootPath(), account));
-ipcMain.handle("mail:testConnection", (_e, account) => mail.testConnection(account));
-ipcMain.handle("mail:listMessages", async (_e, opts) => mail.listMessages(await mail.getAccount(await getRootPath()), opts));
-ipcMain.handle("mail:getMessage", async (_e, uid) => mail.getMessage(await mail.getAccount(await getRootPath()), uid));
-ipcMain.handle("mail:sendMail", async (_e, payload) => mail.sendMail(await getRootPath(), payload));
-ipcMain.handle("mail:getAgentConversation", () => getMailAgentConversation());
-ipcMain.handle("mail:saveAgentConversation", (_e, conv) => saveMailAgentConversation(conv));
-ipcMain.handle("meta:mailDraftPrompt", () => MAIL_DRAFT_PROMPT);
-
 // ---------- GitHub IPC ----------
 
 ipcMain.handle("github:getAccount", async () => github.getAccount(await getRootPath()));
@@ -1212,7 +1447,8 @@ ipcMain.handle("chatbots:start", async (_e, platform) => {
     root,
     platform,
     (p, message) => broadcast("chatbots:message", { platform: p, message }),
-    (p, status) => broadcast("chatbots:status", { platform: p, status })
+    (p, status) => broadcast("chatbots:status", { platform: p, status }),
+    chatbotAiResponder
   );
   return chatbots.getStatus();
 });
@@ -1274,11 +1510,15 @@ ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await
 ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
   const root = await getRootPath();
   let brand;
+  let designSystem = "";
   if (projectId) {
     const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
     brand = meta?.brand;
+    if (meta?.designSystemPaths?.length) designSystem = await readDesignSystem(meta.designSystemPaths);
   }
-  return design.buildAgentSystemPrompt(brand);
+  const base = design.buildAgentSystemPrompt(brand);
+  if (!designSystem.trim()) return base;
+  return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
 });
 ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
 ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
@@ -1288,14 +1528,3 @@ ipcMain.handle("design:openFolder", async (_e, projectId) => {
   await ensureDir(dir);
   await shell.openPath(dir);
 });
-
-ipcMain.handle("mail:pickLogo", async () => {
-  const win = BrowserWindow.getFocusedWindow();
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openFile"],
-    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg"] }],
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
-});
-ipcMain.handle("mail:saveSignatureLogo", async (_e, filePath) => mail.saveSignatureLogo(await getRootPath(), filePath));

@@ -16,6 +16,12 @@ function leadsFile(root, platform) {
 function messagesFile(root, platform) {
   return path.join(botsDir(root), "messages", `${platform}.json`);
 }
+function threadFile(root, platform, userId) {
+  // userId comes from the platform (numeric ids in practice), but sanitize anyway —
+  // it ends up in a filename.
+  const safe = String(userId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(botsDir(root), "threads", platform, `${safe}.json`);
+}
 
 async function ensureDir(p) {
   await fs.mkdir(p, { recursive: true });
@@ -33,10 +39,15 @@ async function writeJson(file, data) {
 
 const PLATFORMS = ["telegram", "vk", "max"];
 const DEFAULT_ACCOUNTS = {
-  telegram: { token: "", enabled: false },
-  vk: { token: "", groupId: "", enabled: false },
-  max: { token: "", enabled: false },
+  telegram: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  vk: { token: "", groupId: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  max: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
 };
+
+// How much of a conversation the bot keeps in mind per person. Long enough to hold
+// a real consultation together, short enough that an old thread can't grow without
+// bound and blow past the model's context on every reply.
+const MAX_THREAD_MESSAGES = 20;
 const MAX_MESSAGES_PER_PLATFORM = 1000;
 
 async function getAccounts(root) {
@@ -80,6 +91,17 @@ async function appendMessage(root, platform, msg) {
   while (list.length > MAX_MESSAGES_PER_PLATFORM) list.shift();
   await writeJson(messagesFile(root, platform), list);
   return list;
+}
+
+async function getThread(root, platform, userId) {
+  return readJson(threadFile(root, platform, userId), []);
+}
+
+async function saveThread(root, platform, userId, messages) {
+  await ensureDir(path.join(botsDir(root), "threads", platform));
+  const trimmed = messages.slice(-MAX_THREAD_MESSAGES);
+  await writeJson(threadFile(root, platform, userId), trimmed);
+  return trimmed;
 }
 
 // ---------- platform adapters ----------
@@ -255,7 +277,7 @@ function isRunning(platform) {
   return running.get(platform) === true;
 }
 
-async function processIncoming(root, platform, account, event, onMessage) {
+async function processIncoming(root, platform, account, event, onMessage, aiResponder) {
   const leads = await getLeads(root, platform);
   let lead = leads.find((l) => l.userId === event.userId);
   const isFirst = !lead;
@@ -271,6 +293,38 @@ async function processIncoming(root, platform, account, event, onMessage) {
   const logged = { userId: event.userId, name: lead.name, direction: "in", text: event.text, at: now };
   await appendMessage(root, platform, logged);
   onMessage?.(platform, logged);
+
+  const aiOn = account.aiEnabled && account.aiProjectId && typeof aiResponder === "function";
+
+  if (aiOn) {
+    // AI mode answers on its own, so funnels stay out of the way entirely — otherwise
+    // the same incoming message would trigger both a scripted drip step and a generated
+    // reply, and the person would get two answers talking over each other.
+    await saveLeads(root, platform, leads);
+    const history = await getThread(root, platform, event.userId);
+    const withUser = [...history, { role: "user", content: event.text }];
+    let reply;
+    try {
+      reply = await aiResponder({ platform, account, lead, messages: withUser });
+    } catch (e) {
+      console.error(`ИИ-ответ для ${platform}/${event.userId} не удался:`, e);
+      return;
+    }
+    if (!reply) return;
+    try {
+      await ADAPTERS[platform].sendMessage(account, event.userId, reply);
+    } catch (e) {
+      // Don't persist the exchange if the person never actually received the answer —
+      // otherwise the bot would "remember" saying something it never sent.
+      console.error(`Не удалось отправить ИИ-ответ в ${platform}:`, e);
+      return;
+    }
+    await saveThread(root, platform, event.userId, [...withUser, { role: "assistant", content: reply }]);
+    const outLog = { userId: event.userId, name: lead.name, direction: "out", text: reply, at: Date.now() };
+    await appendMessage(root, platform, outLog);
+    onMessage?.(platform, outLog);
+    return;
+  }
 
   const funnels = await getFunnels(root);
   const funnel = matchFunnel(funnels, platform, event.text, isFirst);
@@ -290,7 +344,7 @@ async function processIncoming(root, platform, account, event, onMessage) {
 // the API.
 const MIN_POLL_INTERVAL_MS = 1000;
 
-async function pollLoop(root, platform, onMessage, onStatus) {
+async function pollLoop(root, platform, onMessage, onStatus, aiResponder) {
   const account = (await getAccounts(root))[platform];
   const adapter = ADAPTERS[platform];
   while (isRunning(platform)) {
@@ -299,7 +353,7 @@ async function pollLoop(root, platform, onMessage, onStatus) {
       const { cursor, events } = await adapter.pollOnce(account, cursors.get(platform));
       cursors.set(platform, cursor);
       for (const event of events) {
-        await processIncoming(root, platform, account, event, onMessage);
+        await processIncoming(root, platform, account, event, onMessage, aiResponder);
       }
       onStatus?.(platform, "ok");
     } catch (e) {
@@ -313,11 +367,11 @@ async function pollLoop(root, platform, onMessage, onStatus) {
   }
 }
 
-async function start(root, platform, onMessage, onStatus) {
+async function start(root, platform, onMessage, onStatus, aiResponder) {
   if (isRunning(platform)) return;
   running.set(platform, true);
   cursors.delete(platform);
-  pollLoop(root, platform, onMessage, onStatus);
+  pollLoop(root, platform, onMessage, onStatus, aiResponder);
 }
 
 function stop(platform) {
@@ -396,6 +450,8 @@ function startScheduler(getRoot, onMessage) {
 
 module.exports = {
   PLATFORMS,
+  getThread,
+  saveThread,
   getAccounts,
   saveAccounts,
   getFunnels,

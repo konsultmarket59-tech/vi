@@ -164,19 +164,3 @@ CONTENT:
 
 Предлагай только один дизайн за раз — если нужно несколько вариантов, предлагай по очереди в отдельных ответах.`;
 
-export interface ParsedMailDraft {
-  to: string;
-  subject: string;
-  body: string;
-}
-
-export function parseMailDraft(text: string): ParsedMailDraft | null {
-  const match = text.match(/===MAIL DRAFT START===([\s\S]*?)===MAIL DRAFT END===/);
-  if (!match) return null;
-  const block = match[1];
-  const to = block.match(/TO:\s*(.*)/)?.[1]?.trim() ?? "";
-  const subject = block.match(/SUBJECT:\s*(.*)/)?.[1]?.trim() ?? "";
-  const bodyMatch = block.match(/BODY:\s*([\s\S]*)/);
-  if (!bodyMatch) return null;
-  return { to, subject, body: bodyMatch[1].trim() };
-}

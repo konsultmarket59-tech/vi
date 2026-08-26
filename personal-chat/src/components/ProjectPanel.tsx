@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Brand, Conversation, DocMeta, Project, ScheduledTask, Settings, Skill, TaskRecurrence } from "../lib/types";
+import type { Brand, Conversation, DesignSystemFile, DocMeta, Project, ScheduledTask, Settings, Skill, TaskRecurrence } from "../lib/types";
 import { DEFAULT_BRAND } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import type { BrandKit } from "../lib/exportHtml";
@@ -46,6 +46,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [externalDocs, setExternalDocs] = useState<DocMeta[]>([]);
   const [externalDocsError, setExternalDocsError] = useState<string | null>(null);
   const [showSystemPromptPreview, setShowSystemPromptPreview] = useState(false);
+  const [designSystemFiles, setDesignSystemFiles] = useState<DesignSystemFile[]>([]);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
   const [docError, setDocError] = useState<string | null>(null);
@@ -78,7 +79,14 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
   useEffect(() => {
     window.api.buildSystemPrompt(project.id).then(setSystemPrompt);
-  }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, docs, tab]);
+  }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, project.designSystemPaths, docs, tab]);
+
+  useEffect(() => {
+    window.api
+      .listDesignSystemFiles(project.id)
+      .then(setDesignSystemFiles)
+      .catch(() => setDesignSystemFiles([]));
+  }, [project.id, project.designSystemPaths]);
 
   useEffect(() => {
     setExternalDocsError(null);
@@ -278,6 +286,22 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   async function clearHeaderImage() {
     const updated = await window.api.clearProjectBrandHeaderImage(project.id);
     onProjectChange(updated);
+  }
+
+  async function addDesignSystemFiles() {
+    const paths = await window.api.pickDesignSystemFiles();
+    if (paths.length === 0) return;
+    onProjectChange(await window.api.addDesignSystemPaths(project.id, paths));
+  }
+
+  async function addDesignSystemFolder() {
+    const folder = await window.api.pickDesignSystemFolder();
+    if (!folder) return;
+    onProjectChange(await window.api.addDesignSystemPaths(project.id, [folder]));
+  }
+
+  async function removeDesignSystemPath(target: string) {
+    onProjectChange(await window.api.removeDesignSystemPath(project.id, target));
   }
 
   async function pickExternalDocsFolder() {
@@ -561,6 +585,45 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             Фирменный стиль проекта: логотип и цвет применяются автоматически к экспортированным документам (PDF/PNG)
             и графикам в чате этого проекта — шапка с логотипом сверху, акцентный цвет в заголовках и таблицах.
           </p>
+
+          <h3>Дизайн-система проекта</h3>
+          <p className="hint">
+            Привяжите к проекту дизайн-систему, которая уже сохранена у вас на компьютере — файлом или целой
+            папкой. Файлы никуда не копируются: приложение читает их прямо оттуда при каждом обращении, поэтому
+            правки в исходниках подхватываются сами. Текстовые файлы (описание системы, правила, токены, .svg)
+            ассистент читает целиком, картинки и прочие бинарные файлы — видит по названиям. Это учитывается и в
+            чате проекта, и в разделе «🖌️ Дизайн».
+          </p>
+          <div className="folder-row">
+            <button className="btn btn-secondary" onClick={addDesignSystemFiles}>
+              Выбрать файлы
+            </button>
+            <button className="btn btn-secondary" onClick={addDesignSystemFolder}>
+              Выбрать папку
+            </button>
+          </div>
+          {(project.designSystemPaths ?? []).length === 0 ? (
+            <p className="hint">Дизайн-система не привязана.</p>
+          ) : (
+            <ul className="doc-list">
+              {(project.designSystemPaths ?? []).map((p) => (
+                <li key={p}>
+                  <span className="doc-name">{p}</span>
+                  <button className="conv-delete" onClick={() => removeDesignSystemPath(p)} title="Отвязать">
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {designSystemFiles.length > 0 && (
+            <p className="hint">
+              Читается файлов: {designSystemFiles.filter((f) => !f.missing).length}
+              {designSystemFiles.some((f) => f.missing) && (
+                <> · не найдено: {designSystemFiles.filter((f) => f.missing).map((f) => f.name).join(", ")}</>
+              )}
+            </p>
+          )}
 
           <h3>Шапка документа</h3>
           <p className="hint">

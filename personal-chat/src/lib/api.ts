@@ -1,8 +1,17 @@
 import type { Settings } from "./types";
 
+/**
+ * OpenAI-compatible multimodal content. A plain string is the ordinary text case;
+ * the array form is what carries attached images alongside the text, and is only
+ * understood by vision-capable models.
+ */
+export type ApiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ApiMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | ApiContentPart[];
 }
 
 export class ApiError extends Error {}

@@ -36,6 +36,8 @@ export interface Project {
   skillIds: string[];
   brand?: Brand;
   externalDocsPath?: string;
+  /** Files/folders on the computer holding this project's design system. */
+  designSystemPaths?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -51,10 +53,31 @@ export interface Skill {
 
 export type Role = "user" | "assistant";
 
+export interface DesignSystemFile {
+  path: string;
+  name: string;
+  from?: string;
+  missing?: boolean;
+}
+
+export type AttachmentKind = "text" | "image" | "video" | "audio" | "other";
+
+export interface ChatAttachment {
+  name: string;
+  path: string;
+  kind: AttachmentKind;
+  size: number;
+  /** Extracted document text, filled in at attach time for text-ish files. */
+  text?: string;
+  /** Set when the file could not be read/extracted. */
+  error?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
+  attachments?: ChatAttachment[];
   createdAt: number;
 }
 
@@ -95,6 +118,9 @@ export interface Settings {
   maxTokens: number;
   proxyUsername?: string;
   proxyPassword?: string;
+  searchEnabled?: boolean;
+  searchProvider?: "duckduckgo" | "tavily";
+  searchApiKey?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -105,6 +131,9 @@ export const DEFAULT_SETTINGS: Settings = {
   maxTokens: 16000,
   proxyUsername: "",
   proxyPassword: "",
+  searchEnabled: true,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
 };
 
 export interface AppConfig {
@@ -128,59 +157,25 @@ export interface OpsEdit {
   values?: CellValue[];
 }
 
-export interface MailSignature {
-  name: string;
-  position: string;
-  company: string;
-  phone: string;
-  email: string;
-  website: string;
-  accentColor: string;
-  logoPath: string;
-}
-
-export interface MailAccount {
-  email: string;
-  password: string;
-  displayName: string;
-  imapHost: string;
-  imapPort: number;
-  smtpHost: string;
-  smtpPort: number;
-  signature: MailSignature;
-}
-
-export interface MailMessageSummary {
-  uid: number;
-  subject: string;
-  from: string;
-  date: number;
-  seen: boolean;
-}
-
-export interface MailMessageFull extends MailMessageSummary {
-  to: string;
-  text: string;
-  html: string | null;
-}
-
-export interface MailTestResult {
-  ok: boolean;
-  errors: { imap?: string; smtp?: string };
-}
-
 export type ChatbotPlatform = "telegram" | "vk" | "max";
 
-export interface TelegramAccount {
+interface AiBotConfig {
+  /** Answer incoming messages with the model instead of scripted funnels. */
+  aiEnabled?: boolean;
+  /** Project whose instructions/skills/documents back the bot's answers. */
+  aiProjectId?: string;
+}
+
+export interface TelegramAccount extends AiBotConfig {
   token: string;
   enabled: boolean;
 }
-export interface VkAccount {
+export interface VkAccount extends AiBotConfig {
   token: string;
   groupId: string;
   enabled: boolean;
 }
-export interface MaxAccount {
+export interface MaxAccount extends AiBotConfig {
   token: string;
   enabled: boolean;
 }
@@ -383,17 +378,6 @@ export interface ElectronAPI {
   importOpsXlsx(filePath: string): Promise<OpsSheet[]>;
 
   // mail
-  getMailAccount(): Promise<MailAccount>;
-  saveMailAccount(account: MailAccount): Promise<MailAccount>;
-  testMailConnection(account: MailAccount): Promise<MailTestResult>;
-  listMailMessages(opts?: { limit?: number }): Promise<MailMessageSummary[]>;
-  getMailMessage(uid: number): Promise<MailMessageFull>;
-  sendMail(payload: { to: string; subject: string; bodyText: string; includeSignature?: boolean }): Promise<string>;
-  getMailAgentConversation(): Promise<Conversation | null>;
-  saveMailAgentConversation(conv: Conversation): Promise<Conversation>;
-  getMailDraftPrompt(): Promise<string>;
-  pickMailLogo(): Promise<string | null>;
-  saveMailSignatureLogo(filePath: string): Promise<MailAccount>;
 
   // chatbots / funnels
   getChatbotAccounts(): Promise<ChatbotAccounts>;
@@ -456,6 +440,21 @@ export interface ElectronAPI {
   // export (shared by chat exports and the design section)
   exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
   exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
+
+  // project design system
+  pickDesignSystemFiles(): Promise<string[]>;
+  pickDesignSystemFolder(): Promise<string | null>;
+  addDesignSystemPaths(id: string, paths: string[]): Promise<Project>;
+  removeDesignSystemPath(id: string, target: string): Promise<Project>;
+  listDesignSystemFiles(id: string): Promise<DesignSystemFile[]>;
+
+  // chat attachments
+  pickAttachments(): Promise<ChatAttachment[]>;
+
+  // web search
+  runWebTools(text: string): Promise<string | null>;
+  webSearch(query: string): Promise<{ title: string; url: string; snippet: string }[]>;
+  getWebToolsHint(): Promise<string>;
 
   // scheduled tasks
   listTasks(projectId: string): Promise<ScheduledTask[]>;

@@ -144,6 +144,58 @@ export default function SettingsView({ settings, onChange }: Props) {
         onChange={(e) => update("maxTokens", Number(e.target.value))}
       />
 
+      <h2>Доступ в интернет</h2>
+      <p className="hint">
+        Разрешает ассистенту искать в интернете и читать страницы по ссылке — он делает это сам, когда для
+        ответа нужны свежие данные (новости, цены, что публикуют конкуренты). Это же работает и в задачах по
+        расписанию, которые выполняются без вас.
+      </p>
+      <label>
+        <input
+          type="checkbox"
+          checked={draft.searchEnabled !== false}
+          onChange={(e) => update("searchEnabled", e.target.checked)}
+        />{" "}
+        Разрешить поиск в интернете
+      </label>
+
+      {draft.searchEnabled !== false && (
+        <>
+          <label>Поисковик</label>
+          <select
+            value={draft.searchProvider ?? "duckduckgo"}
+            onChange={(e) => update("searchProvider", e.target.value as "duckduckgo" | "tavily")}
+          >
+            <option value="duckduckgo">DuckDuckGo — без ключа, работает сразу</option>
+            <option value="tavily">Tavily — нужен ключ, но стабильнее</option>
+          </select>
+          {draft.searchProvider === "tavily" ? (
+            <>
+              <p className="hint">
+                Ключ бесплатно выдаётся на{" "}
+                <a href="https://tavily.com" target="_blank" rel="noreferrer">
+                  tavily.com
+                </a>{" "}
+                — это поисковый сервис, сделанный специально для ИИ-ассистентов.
+              </p>
+              <label>Ключ Tavily</label>
+              <input
+                type={showKey ? "text" : "password"}
+                value={draft.searchApiKey ?? ""}
+                onChange={(e) => update("searchApiKey", e.target.value)}
+                placeholder="tvly-…"
+              />
+            </>
+          ) : (
+            <p className="hint">
+              DuckDuckGo не требует ключа и работает сразу, но это обычная поисковая страница, а не
+              официальный API — иногда может отвечать ошибкой или пустым результатом при частых запросах.
+              Если поиск начнёт подводить, переключитесь на Tavily.
+            </p>
+          )}
+        </>
+      )}
+
       <h2>Логин прокси</h2>
       <p className="hint">
         Заполняйте, только если для доступа к интернету у вас используется VPN/прокси с обязательной

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
+import type { ChatAttachment, ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
 import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
-import { streamChat, listModels, ApiError, type ApiMessage } from "../lib/api";
+import { streamChat, listModels, ApiError, type ApiContentPart, type ApiMessage } from "../lib/api";
 import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
 import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
@@ -18,6 +18,66 @@ interface Props {
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
   skills?: Skill[];
+}
+
+const WEB_TOOL_ROUND_LIMIT = 4;
+
+/** Short human-readable label of what the assistant just asked the app to look up. */
+function describeWebTool(assistantText: string): string {
+  const query = /===WEB SEARCH===[\s\S]*?QUERY:\s*(.*)/.exec(assistantText)?.[1]?.trim();
+  if (query) return `Ищу в интернете: «${query}»…`;
+  const url = /===WEB FETCH===[\s\S]*?URL:\s*(\S+)/.exec(assistantText)?.[1]?.trim();
+  if (url) return `Читаю страницу ${url}…`;
+  return "Обращаюсь к интернету…";
+}
+
+const ATTACHMENT_ICONS: Record<ChatAttachment["kind"], string> = {
+  text: "📄",
+  image: "🖼️",
+  video: "🎬",
+  audio: "🎵",
+  other: "📎",
+};
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+  return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+}
+
+/**
+ * Builds the API message for a user turn that has files attached.
+ *
+ * Text documents are inlined into the prompt (their text was already extracted at
+ * attach time). Images become proper image parts so vision-capable models can
+ * actually look at them. Video and audio can't be sent to a chat model at all, so
+ * they're passed as a named reference — enough for the assistant to reason about
+ * and to hand to the media tools, without pretending it can watch or listen to them.
+ */
+function buildUserContent(text: string, attachments: ChatAttachment[], imageDataUrls: Map<string, string>) {
+  const notes: string[] = [];
+  const imageParts: ApiContentPart[] = [];
+
+  for (const att of attachments) {
+    if (att.error) {
+      notes.push(`--- Файл: ${att.name} ---\n[Не удалось прочитать: ${att.error}]`);
+    } else if (att.kind === "text" && att.text) {
+      notes.push(`--- Файл: ${att.name} ---\n${att.text}`);
+    } else if (att.kind === "image") {
+      const dataUrl = imageDataUrls.get(att.path);
+      if (dataUrl) imageParts.push({ type: "image_url", image_url: { url: dataUrl } });
+      else notes.push(`--- Изображение: ${att.name} (${att.path}) — не удалось прочитать файл ---`);
+    } else {
+      notes.push(
+        `--- ${att.kind === "video" ? "Видеофайл" : att.kind === "audio" ? "Аудиофайл" : "Файл"}: ${att.name} ---\n` +
+          `Путь: ${att.path}, размер ${formatSize(att.size)}. Содержимое такого файла модели напрямую не передаётся — ` +
+          `опирайся на то, что скажет о нём пользователь.`
+      );
+    }
+  }
+
+  const combined = notes.length > 0 ? `${text}\n\n=== ПРИЛОЖЕННЫЕ ФАЙЛЫ ===\n\n${notes.join("\n\n")}` : text;
+  if (imageParts.length === 0) return combined;
+  return [{ type: "text", text: combined } as ApiContentPart, ...imageParts];
 }
 
 function deriveFileName(text: string): string {
@@ -54,6 +114,10 @@ export default function ChatView({
   const [attachedSkillId, setAttachedSkillId] = useState<string | null>(null);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const [chatModels, setChatModels] = useState(CURATED_CHAT_MODELS);
+  const [webToolsHint, setWebToolsHint] = useState("");
+  const [webToolStatus, setWebToolStatus] = useState("");
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [exportError, setExportError] = useState<string | null>(null);
@@ -71,12 +135,30 @@ export default function ChatView({
   }, [conversation.messages, streamingText]);
 
   useEffect(() => {
+    // Empty string when web access is switched off in Settings, which is also what
+    // keeps the hint out of the system prompt entirely in that case.
+    window.api.getWebToolsHint().then(setWebToolsHint).catch(() => setWebToolsHint(""));
+  }, [settings.searchEnabled, settings.searchProvider]);
+
+  useEffect(() => {
     listModels(settings.baseUrl, settings.apiKey, "chat")
       .then((fetched) => setChatModels(mergeModelLists(CURATED_CHAT_MODELS, fetched)))
       .catch(() => {
         // keep the curated shortlist as-is — the picker still works without the live catalog
       });
   }, [settings.baseUrl, settings.apiKey]);
+
+  async function pickAttachments() {
+    setAttaching(true);
+    try {
+      const picked = await window.api.pickAttachments();
+      if (picked.length > 0) setAttachments((prev) => [...prev, ...picked]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAttaching(false);
+    }
+  }
 
   function updateModel(model: string) {
     const updated: Conversation = { ...conversation, model: model || undefined };
@@ -94,16 +176,28 @@ export default function ChatView({
 
   async function send() {
     const text = input.trim();
-    if (!text || busy) return;
+    // Attachments alone are a valid turn ("посмотри этот файл") — don't require typed text.
+    if ((!text && attachments.length === 0) || busy) return;
     setError(null);
     setInput("");
+    const sentAttachments = attachments;
+    setAttachments([]);
 
-    const userMsg: ChatMessage = { id: uid(), role: "user", content: text, createdAt: Date.now() };
+    const userMsg: ChatMessage = {
+      id: uid(),
+      role: "user",
+      content: text,
+      attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
+      createdAt: Date.now(),
+    };
     const withUser: Conversation = {
       ...conversation,
       messages: [...conversation.messages, userMsg],
       updatedAt: Date.now(),
-      title: conversation.title === "Новый чат" ? text.slice(0, 60) : conversation.title,
+      title:
+        conversation.title === "Новый чат"
+          ? (text || sentAttachments.map((a) => a.name).join(", ")).slice(0, 60)
+          : conversation.title,
     };
     onUpdate(withUser);
     await onSave(withUser);
@@ -115,8 +209,29 @@ export default function ChatView({
         }${attachedSkill.content}`
       : "";
     const apiMessages: ApiMessage[] = [
-      { role: "system", content: systemPrompt + skillPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT },
-      ...withUser.messages.map((m) => ({ role: m.role, content: m.content }) as ApiMessage),
+      {
+        role: "system",
+        content:
+          systemPrompt + skillPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT +
+          (webToolsHint ? "\n\n" + webToolsHint : ""),
+      },
+      ...(await Promise.all(
+        withUser.messages.map(async (m) => {
+          if (!m.attachments || m.attachments.length === 0) {
+            return { role: m.role, content: m.content } as ApiMessage;
+          }
+          // Images live on disk, not in the saved chat — read them back now.
+          const imageDataUrls = new Map<string, string>();
+          for (const att of m.attachments.filter((a) => a.kind === "image")) {
+            try {
+              imageDataUrls.set(att.path, await window.api.readFileAsDataUrl(att.path));
+            } catch {
+              // fall through: buildUserContent notes the unreadable image by name
+            }
+          }
+          return { role: m.role, content: buildUserContent(m.content, m.attachments, imageDataUrls) } as ApiMessage;
+        })
+      )),
     ];
 
     setBusy(true);
@@ -129,12 +244,33 @@ export default function ChatView({
       : settings;
 
     try {
-      const full = await streamChat(
+      let full = await streamChat(
         effectiveSettings,
         apiMessages,
         (chunk) => setStreamingText((prev) => prev + chunk),
         controller.signal
       );
+
+      // Web-tool loop. Search and page reads are read-only, so unlike the app's
+      // mutating actions (media generation, file edits, ops edits) they don't go
+      // through propose-then-confirm — they just run and get fed back, and only
+      // the assistant's final prose is what lands in the saved conversation.
+      for (let round = 0; round < WEB_TOOL_ROUND_LIMIT; round++) {
+        const toolOutput = await window.api.runWebTools(full);
+        if (toolOutput == null) break;
+        setWebToolStatus(describeWebTool(full));
+        apiMessages.push({ role: "assistant", content: full });
+        apiMessages.push({ role: "user", content: toolOutput });
+        setStreamingText("");
+        full = await streamChat(
+          effectiveSettings,
+          apiMessages,
+          (chunk) => setStreamingText((prev) => prev + chunk),
+          controller.signal
+        );
+      }
+      setWebToolStatus("");
+
       const assistantMsg: ChatMessage = {
         id: uid(),
         role: "assistant",
@@ -160,6 +296,7 @@ export default function ChatView({
     } finally {
       setBusy(false);
       setStreamingText("");
+      setWebToolStatus("");
       abortRef.current = null;
       setAttachedSkillId(null);
     }
@@ -300,6 +437,15 @@ export default function ChatView({
         {conversation.messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>
             <div className="msg-role">{m.role === "user" ? "Вы" : "Ассистент"}</div>
+            {m.attachments && m.attachments.length > 0 && (
+              <div className="msg-attachments">
+                {m.attachments.map((att, i) => (
+                  <span key={`${att.path}-${i}`} className="attachment-chip">
+                    {ATTACHMENT_ICONS[att.kind]} {att.name}
+                  </span>
+                ))}
+              </div>
+            )}
             <Markdown text={m.content} accentColor={brand?.accentColor} />
             <div className="msg-export-actions">
               <button className="link-btn" onClick={() => exportMessage(m, "pdf")}>
@@ -314,6 +460,7 @@ export default function ChatView({
         {busy && (
           <div className="msg msg-assistant">
             <div className="msg-role">Ассистент</div>
+            {webToolStatus && <div className="web-tool-status">🌐 {webToolStatus}</div>}
             <Markdown text={streamingText || "…"} accentColor={brand?.accentColor} />
           </div>
         )}
@@ -362,7 +509,33 @@ export default function ChatView({
           })()}
         </div>
       )}
+      {attachments.length > 0 && (
+        <div className="chat-attachments-bar">
+          {attachments.map((att, i) => (
+            <span key={`${att.path}-${i}`} className={att.error ? "attachment-chip attachment-chip-error" : "attachment-chip"}>
+              {ATTACHMENT_ICONS[att.kind]} {att.name}
+              <span className="attachment-size">{formatSize(att.size)}</span>
+              {att.error && <span className="attachment-error" title={att.error}>не прочитан</span>}
+              <button
+                className="skill-chip-remove"
+                onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                title="Убрать файл"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="chat-input-bar">
+        <button
+          className="btn btn-secondary attach-btn"
+          onClick={pickAttachments}
+          disabled={busy || attaching}
+          title="Прикрепить файл с компьютера"
+        >
+          {attaching ? "…" : "+"}
+        </button>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -376,7 +549,7 @@ export default function ChatView({
             Остановить
           </button>
         ) : (
-          <button className="btn btn-primary" onClick={send} disabled={!input.trim()}>
+          <button className="btn btn-primary" onClick={send} disabled={!input.trim() && attachments.length === 0}>
             Отправить
           </button>
         )}

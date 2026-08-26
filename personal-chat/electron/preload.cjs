@@ -50,6 +50,21 @@ contextBridge.exposeInMainWorld("api", {
   saveConversation: (projectId, conv) => ipcRenderer.invoke("conversations:save", projectId, conv),
   deleteConversation: (projectId, convId) => ipcRenderer.invoke("conversations:delete", projectId, convId),
 
+  // project design system (files/folders on the computer)
+  pickDesignSystemFiles: () => ipcRenderer.invoke("projects:pickDesignSystemFiles"),
+  pickDesignSystemFolder: () => ipcRenderer.invoke("projects:pickDesignSystemFolder"),
+  addDesignSystemPaths: (id, paths) => ipcRenderer.invoke("projects:addDesignSystemPaths", id, paths),
+  removeDesignSystemPath: (id, target) => ipcRenderer.invoke("projects:removeDesignSystemPath", id, target),
+  listDesignSystemFiles: (id) => ipcRenderer.invoke("projects:listDesignSystemFiles", id),
+
+  // chat attachments
+  pickAttachments: () => ipcRenderer.invoke("attachments:pick"),
+
+  // web search
+  runWebTools: (text) => ipcRenderer.invoke("web:runTools", text),
+  webSearch: (query) => ipcRenderer.invoke("web:search", query),
+  getWebToolsHint: () => ipcRenderer.invoke("meta:webToolsHint"),
+
   // scheduled tasks
   listTasks: (projectId) => ipcRenderer.invoke("tasks:list", projectId),
   saveTask: (projectId, task) => ipcRenderer.invoke("tasks:save", projectId, task),
@@ -132,19 +147,6 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("media:progress", listener);
     return () => ipcRenderer.removeListener("media:progress", listener);
   },
-
-  // mail
-  getMailAccount: () => ipcRenderer.invoke("mail:getAccount"),
-  saveMailAccount: (account) => ipcRenderer.invoke("mail:saveAccount", account),
-  testMailConnection: (account) => ipcRenderer.invoke("mail:testConnection", account),
-  listMailMessages: (opts) => ipcRenderer.invoke("mail:listMessages", opts),
-  getMailMessage: (uid) => ipcRenderer.invoke("mail:getMessage", uid),
-  sendMail: (payload) => ipcRenderer.invoke("mail:sendMail", payload),
-  getMailAgentConversation: () => ipcRenderer.invoke("mail:getAgentConversation"),
-  saveMailAgentConversation: (conv) => ipcRenderer.invoke("mail:saveAgentConversation", conv),
-  getMailDraftPrompt: () => ipcRenderer.invoke("meta:mailDraftPrompt"),
-  pickMailLogo: () => ipcRenderer.invoke("mail:pickLogo"),
-  saveMailSignatureLogo: (filePath) => ipcRenderer.invoke("mail:saveSignatureLogo", filePath),
 
   // design section
   listDesignDocs: (projectId) => ipcRenderer.invoke("design:list", projectId),

@@ -5,7 +5,6 @@ import Sidebar, { type View } from "./components/Sidebar";
 import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
 import OpsView from "./components/OpsView";
-import MailView from "./components/MailView";
 import MediaView from "./components/MediaView";
 import DesignView from "./components/DesignView";
 import GitHubView from "./components/GitHubView";
@@ -108,7 +107,6 @@ export default function App() {
           />
         )}
         {view.kind === "ops" && <OpsView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
-        {view.kind === "mail" && <MailView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
         {view.kind === "media" && (
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
