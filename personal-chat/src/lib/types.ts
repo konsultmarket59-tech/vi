@@ -501,6 +501,8 @@ export interface YandexConnectResult {
   error?: string;
   /** True when the user still has to paste the confirmation code by hand. */
   needsCode?: boolean;
+  /** The account that answered was already in the list, so it was refreshed, not added. */
+  duplicate?: boolean;
 }
 
 export interface CloudEntry {

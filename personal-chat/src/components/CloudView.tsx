@@ -152,14 +152,23 @@ export default function CloudView({ projects }: Props) {
       if (result.accounts) setAccounts(result.accounts);
       if (result.ok) {
         setShowManualCode(false);
-        setShowConnectForm(false);
         setManualCode("");
-        setDraftClientId("");
-        setDraftClientSecret("");
-        setDraftLabel("");
+        // The form stays open on a duplicate: the next thing she needs is another
+        // attempt under a different account, not a closed form and a false sense of
+        // having added one.
+        if (!result.duplicate) {
+          setShowConnectForm(false);
+          setDraftClientId("");
+          setDraftClientSecret("");
+          setDraftLabel("");
+        }
         setTestResult((prev) => ({
           ...prev,
-          yandex: `Подключено${result.login ? `: ${result.login}` : ""} ✓ Токен сохранён на этом компьютере.`,
+          yandex: result.duplicate
+            ? `Это тот же аккаунт, что уже в списке (${result.login}) — он обновлён, новый не добавился. ` +
+              "В окне входа Яндекс подставляет последний использованный аккаунт: нажмите «Подключить» ещё раз " +
+              "и в открывшемся окне выберите «Войти в другой аккаунт» (или сначала выйдите из текущего)."
+            : `Подключено${result.login ? `: ${result.login}` : ""} ✓ Токен сохранён на этом компьютере.`,
         }));
       } else {
         if (result.needsCode) setShowManualCode(true);
@@ -329,8 +338,10 @@ export default function CloudView({ projects }: Props) {
                 onChange={(e) => setDraftClientSecret(e.target.value)}
               />
               <p className="hint">
-                Одно приложение на oauth.yandex.ru подходит для всех трёх аккаунтов — Client ID и secret можно
-                вписать те же самые, различаться будет только аккаунт, под которым вы войдёте в открывшемся окне.
+                Одно приложение на oauth.yandex.ru подходит для всех аккаунтов — Client ID и secret вписывайте
+                те же самые. Различаться будет только аккаунт, под которым вы войдёте в открывшемся окне.
+                Окно каждый раз открывается «с нуля», без запомненного входа, поэтому Яндекс спросит логин.
+                Если он всё же показал уже знакомый аккаунт — выберите в окне «Войти в другой аккаунт».
               </p>
               <div className="settings-actions">
                 <button className="btn btn-primary" onClick={() => connectYandex(false)} disabled={connecting}>

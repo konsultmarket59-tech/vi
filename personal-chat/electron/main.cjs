@@ -1916,7 +1916,16 @@ async function connectYandex({ clientId, clientSecret, manualCode, label }) {
     // A freshly connected account becomes the selected one — that is what the user
     // is about to work with.
     const saved = await cloud.saveAccounts(root, { ...next, yandex: { ...next.yandex, activeId: account.id } });
-    return { ok: true, accounts: saved, login, error: check.ok ? undefined : check.error };
+    return {
+      ok: true,
+      accounts: saved,
+      login,
+      // Reconnecting an account already in the list refreshes it rather than adding
+      // one. Saying so matters: otherwise "подключено ✓" looks like success while the
+      // list still holds a single account, which is exactly how this went wrong.
+      duplicate: !!existing,
+      error: check.ok ? undefined : check.error,
+    };
   } catch (e) {
     return { ok: false, needsCode: true, error: e.message };
   }

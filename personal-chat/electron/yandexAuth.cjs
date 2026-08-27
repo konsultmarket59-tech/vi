@@ -19,7 +19,11 @@ function authorizeUrl(clientId) {
   // No redirect_uri is sent on purpose: Yandex then uses whatever the app itself is
   // configured with, which avoids "redirect_uri mismatch" for an app the user set up
   // without thinking about callbacks.
-  return `${OAUTH_BASE}/authorize?response_type=code&client_id=${encodeURIComponent(id)}`;
+  //
+  // force_confirm=yes makes Yandex show the consent screen even when it has already
+  // been given for this app. Without it, connecting a second account went straight
+  // through with no screen at all — and no chance to notice it was the wrong account.
+  return `${OAUTH_BASE}/authorize?response_type=code&force_confirm=yes&client_id=${encodeURIComponent(id)}`;
 }
 
 /** Pulls the confirmation code out of a callback URL, from the query or the fragment. */
@@ -90,13 +94,22 @@ function refreshToken(clientId, clientSecret, token) {
  */
 function pickCodeInWindow(BrowserWindow, clientId, parent) {
   return new Promise((resolve) => {
+    // Каждое подключение — в собственной чистой сессии.
+    //
+    // Это и была причина, по которой второй аккаунт не добавлялся: окно жило в одной
+    // общей сессии, Яндекс видел куки уже подключённого аккаунта и молча возвращал код
+    // для него же — без экрана входа и без единого вопроса. Имя раздела без префикса
+    // "persist:" означает сессию в памяти, а уникальное имя — что она не делится с
+    // предыдущей попыткой; хранилище дополнительно чистится, чтобы вход начинался с
+    // чистого листа даже в пределах одного запуска приложения.
+    const partition = `yandex-oauth-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const win = new BrowserWindow({
       parent,
       width: 620,
       height: 760,
-      title: "Вход в Яндекс",
+      title: "Вход в Яндекс — войдите под тем аккаунтом, который добавляете",
       autoHideMenuBar: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true, partition: "yandex-oauth" },
+      webPreferences: { nodeIntegration: false, contextIsolation: true, partition },
     });
 
     let settled = false;
@@ -115,7 +128,7 @@ function pickCodeInWindow(BrowserWindow, clientId, parent) {
     win.webContents.on("did-navigate-in-page", onNavigate);
     win.webContents.on("did-redirect-navigation", (_e, url) => onNavigate(null, url));
 
-    // Closing the window by hand means "I'll paste the code myself" (or "never mind").
+    // Закрыли окно руками — значит «вставлю код сам» или «передумала».
     win.on("closed", () => {
       if (!settled) {
         settled = true;
@@ -123,7 +136,12 @@ function pickCodeInWindow(BrowserWindow, clientId, parent) {
       }
     });
 
-    win.loadURL(authorizeUrl(clientId));
+    win.webContents.session
+      .clearStorageData()
+      .catch(() => {})
+      .then(() => {
+        if (!win.isDestroyed()) win.loadURL(authorizeUrl(clientId));
+      });
   });
 }
 
