@@ -60,6 +60,19 @@ contextBridge.exposeInMainWorld("api", {
   // chat attachments
   pickAttachments: () => ipcRenderer.invoke("attachments:pick"),
 
+  // Документы Word
+  pickWordFile: () => ipcRenderer.invoke("word:pick"),
+  openWordFile: (filePath) => ipcRenderer.invoke("word:open", filePath),
+  newWordDocument: (name) => ipcRenderer.invoke("word:new", name),
+  setWordBlockText: (index, text) => ipcRenderer.invoke("word:setBlockText", index, text),
+  deleteWordBlock: (index) => ipcRenderer.invoke("word:deleteBlock", index),
+  insertWordParagraph: (afterIndex, text, style) => ipcRenderer.invoke("word:insertParagraph", afterIndex, text, style),
+  applyWordAgentEdit: (edit) => ipcRenderer.invoke("word:applyAgentEdit", edit),
+  saveWordFile: (saveAs) => ipcRenderer.invoke("word:save", saveAs),
+  buildWordAgentPrompt: () => ipcRenderer.invoke("word:buildAgentPrompt"),
+  getWordAgentConversation: () => ipcRenderer.invoke("word:getAgentConversation"),
+  saveWordAgentConversation: (conv) => ipcRenderer.invoke("word:saveAgentConversation", conv),
+
   // Excel workbooks
   pickExcelFile: () => ipcRenderer.invoke("excel:pick"),
   openExcelFile: (filePath) => ipcRenderer.invoke("excel:open", filePath),
@@ -140,15 +153,6 @@ contextBridge.exposeInMainWorld("api", {
   saveSkillCreatorConversation: (conv) => ipcRenderer.invoke("skillCreator:save", conv),
 
   // operations module
-  listOpsSheets: () => ipcRenderer.invoke("ops:list"),
-  saveOpsSheet: (sheet) => ipcRenderer.invoke("ops:save", sheet),
-  deleteOpsSheet: (id) => ipcRenderer.invoke("ops:delete", id),
-  buildOpsAgentPrompt: () => ipcRenderer.invoke("ops:buildAgentPrompt"),
-  applyOpsEdit: (edit) => ipcRenderer.invoke("ops:applyEdit", edit),
-  getOpsAgentConversation: () => ipcRenderer.invoke("ops:getAgentConversation"),
-  saveOpsAgentConversation: (conv) => ipcRenderer.invoke("ops:saveAgentConversation", conv),
-  pickXlsx: () => ipcRenderer.invoke("ops:pickXlsx"),
-  importOpsXlsx: (filePath) => ipcRenderer.invoke("ops:importXlsx", filePath),
 
   // chatbots / funnels
   getChatbotAccounts: () => ipcRenderer.invoke("chatbots:getAccounts"),

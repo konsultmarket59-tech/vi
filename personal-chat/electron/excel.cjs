@@ -1,10 +1,9 @@
 // Live Excel workbooks: open a real .xlsx from anywhere on disk, edit cells and
 // formulas, recalculate for real, and write the file back in place.
 //
-// This is deliberately different from ops.cjs, which keeps *snapshots* of imported
-// sheets as JSON and never recalculates. Here the file on disk stays the source of
-// truth: we load it with exceljs, keep the workbook object around, and save through
-// it so styles, number formats, column widths and untouched sheets survive.
+// The file on disk stays the source of truth: we load it with exceljs, keep the
+// workbook object around, and save through it so styles, number formats, column
+// widths and untouched sheets survive.
 //
 // Recalculation walks the dependency graph rather than re-evaluating blindly:
 // fast-formula-parser's DepParser reports what each formula reads, so cells can be

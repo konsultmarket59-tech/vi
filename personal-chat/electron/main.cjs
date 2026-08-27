@@ -627,7 +627,6 @@ async function saveSkillCreatorConversation(conv) {
 
 // ---------- feature modules (delegated to sibling modules) ----------
 
-const ops = require("./ops.cjs");
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
@@ -635,6 +634,7 @@ const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
+const word = require("./word.cjs");
 const exportDocs = require("./exportDocs.cjs");
 const motion = require("./motion.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
@@ -651,21 +651,8 @@ function broadcast(channel, payload) {
   }
 }
 
-function opsScratchDir(root) {
-  return path.join(root, "operations");
-}
 
-async function getOpsAgentConversation() {
-  const root = await getRootPath();
-  return readJson(path.join(opsScratchDir(root), "_agent_chat.json"), null);
-}
 
-async function saveOpsAgentConversation(conv) {
-  const root = await getRootPath();
-  await ensureDir(opsScratchDir(root));
-  await writeJson(path.join(opsScratchDir(root), "_agent_chat.json"), conv);
-  return conv;
-}
 
 // ---------- system prompt assembly ----------
 
@@ -1520,6 +1507,95 @@ ipcMain.handle("excel:saveAgentConversation", async (_e, conv) => {
   return conv;
 });
 
+// ---------- Word ----------
+
+let openDocument = null;
+
+ipcMain.handle("word:pick", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите документ Word",
+    properties: ["openFile"],
+    filters: [{ name: "Документы Word", extensions: ["docx"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("word:open", async (_e, filePath) => {
+  openDocument = await word.loadDocument(filePath);
+  return word.documentPayload(openDocument);
+});
+
+ipcMain.handle("word:new", async (_e, name) => {
+  openDocument = await word.createDocument(name);
+  return word.documentPayload(openDocument);
+});
+
+ipcMain.handle("word:setBlockText", async (_e, index, text) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.setBlockText(openDocument, index, text);
+  return word.documentPayload(word.refresh(openDocument));
+});
+
+ipcMain.handle("word:deleteBlock", async (_e, index) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.deleteBlock(openDocument, index);
+  return word.documentPayload(word.refresh(openDocument));
+});
+
+ipcMain.handle("word:insertParagraph", async (_e, afterIndex, text, style) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.insertParagraph(openDocument, afterIndex, text, style);
+  return word.documentPayload(word.refresh(openDocument));
+});
+
+// Правка, предложенная агентом и подтверждённая пользователем.
+ipcMain.handle("word:applyAgentEdit", async (_e, edit) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.applyAgentEdit(openDocument, edit);
+  return word.documentPayload(openDocument);
+});
+
+ipcMain.handle("word:save", async (_e, saveAs) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  let target = null;
+  // У созданного в приложении документа файла ещё нет — он всегда спрашивает куда.
+  if (saveAs || !openDocument.filePath) {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showSaveDialog(win, {
+      title: "Сохранить как",
+      defaultPath: openDocument.filePath || openDocument.name,
+      filters: [{ name: "Документы Word", extensions: ["docx"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    target = result.filePath;
+  }
+  const dest = await word.saveDocument(openDocument, target);
+  if (target) {
+    openDocument.filePath = dest;
+    openDocument.name = path.basename(dest);
+  }
+  return dest;
+});
+
+ipcMain.handle("word:buildAgentPrompt", async () => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  return word.buildAgentPrompt(openDocument);
+});
+
+ipcMain.handle("word:getAgentConversation", async () => {
+  const root = await getRootPath();
+  return readJson(path.join(root, "word", "_agent_chat.json"), null);
+});
+
+ipcMain.handle("word:saveAgentConversation", async (_e, conv) => {
+  const root = await getRootPath();
+  await ensureDir(path.join(root, "word"));
+  await writeJson(path.join(root, "word", "_agent_chat.json"), conv);
+  return conv;
+});
+
 // ---------- Storage report & archiving ----------
 //
 // The thing that actually grows without bound here is chat history: every turn sends
@@ -1962,24 +2038,6 @@ ipcMain.handle("skillCreator:save", (_e, conv) => saveSkillCreatorConversation(c
 
 // ---------- operations IPC ----------
 
-ipcMain.handle("ops:list", async () => ops.listSheets(await getRootPath()));
-ipcMain.handle("ops:save", async (_e, sheet) => ops.saveSheet(await getRootPath(), sheet));
-ipcMain.handle("ops:delete", async (_e, id) => ops.deleteSheet(await getRootPath(), id));
-ipcMain.handle("ops:buildAgentPrompt", async () => ops.buildAgentSystemPrompt(await getRootPath()));
-ipcMain.handle("ops:applyEdit", async (_e, edit) => ops.applyEdit(await getRootPath(), edit));
-ipcMain.handle("ops:getAgentConversation", () => getOpsAgentConversation());
-ipcMain.handle("ops:saveAgentConversation", (_e, conv) => saveOpsAgentConversation(conv));
-
-ipcMain.handle("ops:pickXlsx", async () => {
-  const win = BrowserWindow.getFocusedWindow();
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openFile"],
-    filters: [{ name: "Excel", extensions: ["xlsx"] }],
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
-});
-ipcMain.handle("ops:importXlsx", async (_e, filePath) => ops.importXlsx(await getRootPath(), filePath));
 
 // ---------- GitHub IPC ----------
 

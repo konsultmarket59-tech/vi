@@ -23,39 +23,6 @@ export function uid(): string {
   return crypto.randomUUID();
 }
 
-export interface ParsedOpsEdit {
-  sheet: string;
-  action: "add_row" | "update_row" | "delete_row";
-  rowIndex?: number;
-  values?: (string | number)[];
-}
-
-export function parseOpsEdit(text: string): ParsedOpsEdit | null {
-  const match = text.match(/===OPS EDIT START===([\s\S]*?)===OPS EDIT END===/);
-  if (!match) return null;
-  const block = match[1];
-  const sheet = block.match(/SHEET:\s*(.+)/)?.[1]?.trim();
-  const action = block.match(/ACTION:\s*(add_row|update_row|delete_row)/)?.[1] as ParsedOpsEdit["action"] | undefined;
-  if (!sheet || !action) return null;
-  const rowIndexRaw = block.match(/ROW_INDEX:\s*(\d+)/)?.[1];
-  const valuesRaw = block.match(/VALUES:\s*(\[[\s\S]*?\])/)?.[1];
-  let values: (string | number)[] | undefined;
-  if (valuesRaw) {
-    try {
-      values = JSON.parse(valuesRaw);
-    } catch {
-      return null;
-    }
-  }
-  if ((action === "add_row" || action === "update_row") && !values) return null;
-  if ((action === "update_row" || action === "delete_row") && rowIndexRaw == null) return null;
-  return {
-    sheet,
-    action,
-    rowIndex: rowIndexRaw != null ? Number(rowIndexRaw) : undefined,
-    values,
-  };
-}
 
 export interface ParsedMediaRequest {
   type: "image" | "video" | "audio";
@@ -331,4 +298,38 @@ export interface ParsedDirectAction {
   target: number;
   value?: number;
   why: string;
+}
+
+
+export interface ParsedWordEdit {
+  ops: (
+    | { op: "set"; index: number; text: string }
+    | { op: "insert"; index: number; text: string; style: string }
+    | { op: "delete"; index: number }
+  )[];
+}
+
+/** Mirrors parseAgentEdit in electron/word.cjs — the block the Word agent emits. */
+export function parseWordEdit(text: string): ParsedWordEdit | null {
+  const match = /===WORD EDIT START===([\s\S]*?)===WORD EDIT END===/.exec(text || "");
+  if (!match) return null;
+  const ops: ParsedWordEdit["ops"] = [];
+  for (const rawLine of match[1].split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const set = /^SET\s+(\d+)\s*:\s*([\s\S]*)$/i.exec(line);
+    if (set) {
+      ops.push({ op: "set", index: Number(set[1]), text: set[2].trim() });
+      continue;
+    }
+    const insert = /^INSERT\s+AFTER\s+(-?\d+)\s*(?:\[([^\]]+)\])?\s*:\s*([\s\S]*)$/i.exec(line);
+    if (insert) {
+      ops.push({ op: "insert", index: Number(insert[1]), style: (insert[2] || "").trim(), text: insert[3].trim() });
+      continue;
+    }
+    const del = /^DELETE\s+(\d+)$/i.exec(line);
+    if (del) ops.push({ op: "delete", index: Number(del[1]) });
+  }
+  return ops.length ? { ops } : null;
 }

@@ -170,21 +170,6 @@ export interface AppConfig {
 
 export type CellValue = string | number;
 
-export interface OpsSheet {
-  id: string;
-  name: string;
-  rows: CellValue[][];
-  order: number;
-  updatedAt: number;
-}
-
-export interface OpsEdit {
-  sheet: string;
-  action: "add_row" | "update_row" | "delete_row";
-  rowIndex?: number;
-  values?: CellValue[];
-}
-
 export type ChatbotPlatform = "telegram" | "vk" | "max";
 
 interface AiBotConfig {
@@ -533,6 +518,36 @@ export interface CloudTestResult {
   error?: string;
 }
 
+export type WordBlockKind = "paragraph" | "list" | "table";
+
+export interface WordBlock {
+  index: number;
+  kind: WordBlockKind;
+  text: string;
+  /** Word style name, e.g. Heading1 / ListParagraph; empty for plain body text. */
+  style: string;
+  /** 1–6 for a heading, 0 otherwise. */
+  level: number;
+  /** Table rows; empty for anything that isn't a table. */
+  rows: string[][];
+}
+
+export interface WordDocument {
+  /** Null until a document created in the app has been saved somewhere. */
+  filePath: string | null;
+  name: string;
+  blocks: WordBlock[];
+}
+
+export type WordEditOp =
+  | { op: "set"; index: number; text: string }
+  | { op: "insert"; index: number; text: string; style: string }
+  | { op: "delete"; index: number };
+
+export interface WordEdit {
+  ops: WordEditOp[];
+}
+
 export interface ExcelCell {
   value?: string | number | boolean | null;
   formula?: string;
@@ -651,15 +666,6 @@ export interface ElectronAPI {
   saveSkillCreatorConversation(conv: Conversation): Promise<Conversation>;
 
   // operations module
-  listOpsSheets(): Promise<OpsSheet[]>;
-  saveOpsSheet(sheet: { id?: string | null; name: string; rows: CellValue[][]; order?: number }): Promise<OpsSheet>;
-  deleteOpsSheet(id: string): Promise<void>;
-  buildOpsAgentPrompt(): Promise<string>;
-  applyOpsEdit(edit: OpsEdit): Promise<OpsSheet>;
-  getOpsAgentConversation(): Promise<Conversation | null>;
-  saveOpsAgentConversation(conv: Conversation): Promise<Conversation>;
-  pickXlsx(): Promise<string | null>;
-  importOpsXlsx(filePath: string): Promise<OpsSheet[]>;
 
   // mail
 
@@ -801,6 +807,19 @@ export interface ElectronAPI {
     projectId: string
   ): Promise<{ path: string; size: number }>;
   uploadFileToCloud(provider: CloudProvider, remoteFolder?: string): Promise<{ name?: string; path?: string } | null>;
+
+  // Документы Word
+  pickWordFile(): Promise<string | null>;
+  openWordFile(filePath: string): Promise<WordDocument>;
+  newWordDocument(name: string): Promise<WordDocument>;
+  setWordBlockText(index: number, text: string): Promise<WordDocument>;
+  deleteWordBlock(index: number): Promise<WordDocument>;
+  insertWordParagraph(afterIndex: number, text: string, style?: string): Promise<WordDocument>;
+  applyWordAgentEdit(edit: WordEdit): Promise<WordDocument>;
+  saveWordFile(saveAs?: boolean): Promise<string | null>;
+  buildWordAgentPrompt(): Promise<string>;
+  getWordAgentConversation(): Promise<Conversation | null>;
+  saveWordAgentConversation(conv: Conversation): Promise<Conversation>;
 
   // Excel workbooks
   pickExcelFile(): Promise<string | null>;

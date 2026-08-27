@@ -4,8 +4,8 @@ import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
 import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
-import OpsView from "./components/OpsView";
 import ExcelView from "./components/ExcelView";
+import WordView from "./components/WordView";
 import DirectView from "./components/DirectView";
 import CloudView from "./components/CloudView";
 import MediaView from "./components/MediaView";
@@ -109,7 +109,9 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
-        {view.kind === "ops" && <OpsView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
+        {view.kind === "word" && (
+          <WordView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
         {view.kind === "excel" && (
           <ExcelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}

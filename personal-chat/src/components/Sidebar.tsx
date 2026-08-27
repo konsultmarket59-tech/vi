@@ -4,8 +4,8 @@ import type { Project } from "../lib/types";
 export type View =
   | { kind: "project"; id: string }
   | { kind: "skills" }
-  | { kind: "ops" }
   | { kind: "excel" }
+  | { kind: "word" }
   | { kind: "cloud" }
   | { kind: "direct" }
   | { kind: "media" }
@@ -111,16 +111,16 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           🧩 Навыки
         </button>
         <button
-          className={view.kind === "ops" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "ops" })}
-        >
-          💼 Операционка
-        </button>
-        <button
           className={view.kind === "excel" ? "sidebar-item active" : "sidebar-item"}
           onClick={() => onSelectView({ kind: "excel" })}
         >
           📗 Excel
+        </button>
+        <button
+          className={view.kind === "word" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "word" })}
+        >
+          📘 Word
         </button>
         <button
           className={view.kind === "media" ? "sidebar-item active" : "sidebar-item"}
