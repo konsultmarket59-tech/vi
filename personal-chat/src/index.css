@@ -1,23 +1,75 @@
+/*
+ * Фирменная палитра Агентства Динамика.
+ *
+ * Заданные цвета бренда используются как есть; два оттенка добавлены расчётом,
+ * потому что сами по себе фирменные цвета для этих ролей нечитаемы:
+ *  - --accent-text (#C4004A) — розовый для мелкого ТЕКСТА (ссылки, подписи).
+ *    Фирменный #FF2F6D даёт на светлом фоне контраст 3.3:1 при норме 4.5:1, то есть
+ *    ссылки им набирать нельзя; затемнённый вариант даёт 5.6:1 и остаётся тем же цветом.
+ *  - --text-dim (#5A626B) — приглушённый текст. Оба фирменных текстовых цвета почти
+ *    одинаково тёмные, и подписи ими не отличить от основного текста.
+ * Заливка кнопок тоже слегка притемнена (--grad-button): белый текст на чистом
+ * #FF2F6D — это 3.6:1, на #E01F5C уже 4.7:1.
+ *
+ * Циан (#00D9FF, #7DEBFF) на светлом фоне нечитаем в принципе (1.6:1), поэтому он
+ * работает только как заливка под тёмным текстом и как конец градиента.
+ */
 :root {
   color-scheme: light;
+
+  /* Фирменные акценты */
+  --brand-pink: #ff2f6d;
+  --brand-purple: #b23cc4;
+  --brand-cyan: #00d9ff;
+  --brand-pink-soft: #ff6f9c;
+  --brand-cyan-soft: #7debff;
+
+  --grad-brand: linear-gradient(135deg, #ff2f6d 0%, #b23cc4 55%, #00d9ff 100%);
+  --grad-pink: linear-gradient(135deg, #ff2f6d 0%, #ff6f9c 100%);
+  --grad-cyan: linear-gradient(135deg, #00d9ff 0%, #7debff 100%);
+  --grad-button: linear-gradient(135deg, #e01f5c 0%, #b23cc4 100%);
+
+  /* Фоны */
   --bg: #f7f6f3;
+  --bg-warm: #f7ece7;
   --bg-sidebar: #ffffff;
   --bg-panel: #ffffff;
-  --bg-input: #f0efea;
-  --bg-hover: #efece4;
-  --bg-active: #f7e7db;
-  --border: #ddd9d0;
-  --text: #24221f;
-  --text-dim: #736f67;
-  --accent: #c96442;
-  --accent-hover: #a8502f;
-  --danger: #c0392b;
-  --user-bubble: #e4edf6;
-  --assistant-bubble: #f1f0eb;
+  --bg-input: #f7ece7;
+  --bg-hover: #f2ebe7;
+  --bg-active: rgba(255, 47, 109, 0.1);
+  --border: #e4ded8;
+
+  /* Текст */
+  --text: #0a0a0a;
+  --text-strong: #20262c;
+  --text-dim: #5a626b;
+
+  /* Роли акцента */
+  --accent: #ff2f6d;
+  --accent-text: #c4004a;
+  --accent-hover: #b23cc4;
+  --danger: #b3261e;
+
+  --user-bubble: #eafaff;
+  --assistant-bubble: #f7f6f3;
+
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
+
+/* Кольцо фокуса — фирменное. Браузерное по умолчанию рисуется системным цветом
+   (в Windows оно оранжевое) и выбивается из палитры; убирать его нельзя — по нему
+   ориентируются при работе с клавиатуры. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
 
 html, body, #root { height: 100%; margin: 0; }
 
@@ -61,7 +113,8 @@ body {
 .sidebar {
   width: 260px;
   min-width: 260px;
-  background: var(--bg-sidebar);
+  /* Тёплый фирменный фон — боковая панель, нейтральный — рабочая область. */
+  background: var(--bg-warm);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -70,9 +123,15 @@ body {
 }
 
 .sidebar-title {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 16px;
   padding: 8px 4px 16px;
+  /* Полный фирменный градиент по тексту — единственное место, где он звучит как логотип. */
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: 0.01em;
 }
 
 .sidebar-section { margin-bottom: 16px; }
@@ -104,8 +163,12 @@ body {
   text-overflow: ellipsis;
 }
 
-.sidebar-item:hover { background: var(--bg-hover); }
-.sidebar-item.active { background: var(--bg-active); color: var(--accent-hover); }
+.sidebar-item:hover { background: rgba(255, 47, 109, 0.06); }
+.sidebar-item.active {
+  background: var(--bg-active);
+  color: var(--accent-text);
+  font-weight: 600;
+}
 
 .sidebar-item-project {
   display: flex;
@@ -190,18 +253,24 @@ body {
 }
 
 .btn-block { display: block; width: 100%; margin-bottom: 6px; }
-.btn-primary { background: var(--accent); color: white; }
-.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary {
+  background: var(--grad-button);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:disabled { filter: grayscale(0.5) brightness(1.1); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { background: var(--bg-input); color: var(--text); }
-.btn-secondary:hover { background: #e2ded2; }
+.btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: #fdf3ef; border-color: var(--brand-pink-soft); }
 .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 .btn-danger:hover { background: rgba(192,57,43,0.1); }
 
 .link-btn {
   background: none;
   border: none;
-  color: var(--accent-hover);
+  color: var(--accent-text);
   cursor: pointer;
   padding: 0;
   font-size: 13px;
@@ -271,7 +340,16 @@ body {
   border-bottom: 2px solid transparent;
 }
 
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab.active {
+  color: var(--text);
+  border-bottom-color: transparent;
+  font-weight: 600;
+  /* Градиентная подчёркивающая линия вместо однотонной. */
+  background-image: var(--grad-pink);
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% 2px;
+}
 
 .panel-section {
   padding: 20px 24px;
@@ -357,7 +435,7 @@ body {
 }
 
 .conv-item:hover { background: var(--bg-hover); }
-.conv-item.active { background: var(--bg-active); }
+.conv-item.active { background: var(--bg-active); font-weight: 600; }
 
 .conv-delete {
   background: none;
@@ -381,7 +459,7 @@ body {
   line-height: 1;
   padding: 0 4px;
 }
-.conv-rename:hover { color: var(--accent); }
+.conv-rename:hover { color: var(--accent-text); }
 
 .conv-list-section-header {
   display: flex;
@@ -459,9 +537,9 @@ body {
 }
 
 .warning-banner {
-  background: #fff3df;
-  border-bottom: 1px solid #f0cd94;
-  color: #8a5a15;
+  background: #fff4e8;
+  border-bottom: 1px solid #f2d3b8;
+  color: #8a4a15;
   padding: 8px 16px;
   font-size: 13px;
 }
@@ -511,7 +589,7 @@ body {
   font-size: 13px;
 }
 .media-history-list li:hover { background: var(--bg-hover); }
-.media-history-type { text-transform: uppercase; font-size: 10px; color: var(--accent-hover); letter-spacing: 0.05em; }
+.media-history-type { text-transform: uppercase; font-size: 10px; color: var(--accent-text); letter-spacing: 0.05em; }
 .media-history-prompt { color: var(--text); }
 
 /* Chatbots */
@@ -612,9 +690,9 @@ body {
 .media-result-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 
 .pending-skill-banner {
-  background: #e5f6ec;
-  border: 1px solid #a9dcbd;
-  color: #1f7a49;
+  background: #e6f9ff;
+  border: 1px solid var(--brand-cyan-soft);
+  color: var(--text-strong);
   padding: 10px 14px;
   border-radius: 8px;
   margin: 0 16px 8px;
@@ -698,9 +776,9 @@ body {
 .markdown .pc-chart-pie-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 
 .chat-error {
-  background: #fdeceb;
-  border: 1px solid #f0b3ac;
-  color: #a8341f;
+  background: #fdecee;
+  border: 1px solid #f0b3bd;
+  color: #98221c;
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -735,22 +813,24 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg-active);
+  background: var(--grad-pink);
+  color: #fff;
   border-radius: 14px;
   padding: 4px 6px 4px 12px;
   font-size: 12px;
 }
 
+/* Сидит на розовой заливке чипа, поэтому светлый, а не приглушённо-серый. */
 .skill-chip-remove {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   font-size: 15px;
   line-height: 1;
   padding: 2px 4px;
 }
-.skill-chip-remove:hover { color: var(--danger); }
+.skill-chip-remove:hover { color: #fff; }
 
 .skill-picker-wrap { position: relative; }
 
@@ -846,9 +926,11 @@ body {
 .key-row { display: flex; gap: 8px; }
 .key-row input { flex: 1; }
 
-.saved-note { color: #2f9153; margin-left: 10px; font-size: 13px; }
+.saved-note { color: #1f7a49; margin-left: 10px; font-size: 13px; font-weight: 600; }
 
-.settings-view a { color: var(--accent-hover); }
+/* Ссылки везде — фирменным розовым в читаемом оттенке, а не браузерным синим. */
+a { color: var(--accent-text); }
+a:hover { color: var(--accent-hover); }
 
 /* Operations module */
 .ops-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
@@ -903,6 +985,12 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--bg-sidebar);
   flex-shrink: 0;
+  /* Тонкая фирменная полоса поверх шапки раздела. */
+  box-shadow: inset 0 3px 0 0 transparent;
+  background-image: var(--grad-brand), none;
+  background-repeat: no-repeat;
+  background-size: 100% 3px;
+  background-position: top;
 }
 
 .ops-app-titlebar-title { display: flex; align-items: center; gap: 10px; }
@@ -1092,8 +1180,8 @@ body {
 
 .web-tool-status {
   font-size: 12px;
-  color: var(--text-dim);
-  background: var(--bg-input);
+  color: var(--text-strong);
+  background: var(--grad-cyan);
   border-radius: 8px;
   padding: 5px 10px;
   margin-bottom: 8px;
@@ -1196,7 +1284,7 @@ body {
   white-space: nowrap;
   cursor: cell;
 }
-.excel-cell-formula { color: var(--accent-hover); }
+.excel-cell-formula { color: var(--accent-text); }
 .excel-cell-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* The proposal banner sits above the chat, so it must stay a couple of lines tall:

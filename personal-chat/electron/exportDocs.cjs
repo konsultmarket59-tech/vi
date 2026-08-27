@@ -131,10 +131,36 @@ function normalizeHex(color, fallback) {
   return m ? m[1].toUpperCase() : fallback;
 }
 
+/**
+ * Darkens the brand accent until it is readable — both as text on white and, since
+ * contrast is symmetric, as a fill under white text.
+ *
+ * A brand accent is picked to look good as a fill, not to be read: the agency's
+ * #FF2F6D gives 3.6:1, so a table header in white-on-pink and a 10pt role label in
+ * pink both fail. These documents are also printed and photocopied, where a light
+ * colour fades further. Applies to any accent the user sets, not just this one.
+ */
+function readableAccent(hex) {
+  let [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const contrastOnWhite = () => {
+    const channel = (c) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    return 1.05 / (0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b) + 0.05);
+  };
+  for (let i = 0; i < 40 && contrastOnWhite() < 4.5; i++) {
+    r = Math.round(r * 0.94);
+    g = Math.round(g * 0.94);
+    b = Math.round(b * 0.94);
+  }
+  return [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
 async function buildDocx({ title, sections, brand }) {
   const docx = require("docx");
   const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle } = docx;
-  const accent = normalizeHex(brand?.accentColor, "C96442");
+  const accent = readableAccent(normalizeHex(brand?.accentColor, "FF2F6D"));
 
   const runsToTextRuns = (runs, base = {}) =>
     (runs.length ? runs : [{ text: "" }]).map(
@@ -317,7 +343,7 @@ async function buildXlsx({ title, sections, brand }) {
   const ExcelJS = require("exceljs");
   const workbook = new ExcelJS.Workbook();
   workbook.created = new Date();
-  const accent = normalizeHex(brand?.accentColor, "C96442");
+  const accent = readableAccent(normalizeHex(brand?.accentColor, "FF2F6D"));
   const used = new Set();
 
   const textRows = [];

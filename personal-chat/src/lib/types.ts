@@ -19,7 +19,7 @@ export interface Brand {
 export const DEFAULT_BRAND: Brand = {
   companyName: "",
   tagline: "",
-  accentColor: "#c96442",
+  accentColor: "#ff2f6d",
   footerText: "",
   logoPath: "",
   qrPath: "",

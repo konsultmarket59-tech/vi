@@ -35,7 +35,7 @@ const SVG_ATTR = [
  * are rendered as inline SVG bar/line/pie charts instead of a code block — this is the one
  * "widened" affordance beyond plain markdown, documented to the model via CHART_SYNTAX_HINT.
  */
-export function renderMarkdown(text: string, accentColor = "#c96442"): string {
+export function renderMarkdown(text: string, accentColor = "#ff2f6d"): string {
   const renderer = new marked.Renderer();
   renderer.code = ({ text: code, lang }: Tokens.Code) => {
     if (lang === "chart") {
