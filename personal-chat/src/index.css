@@ -1199,17 +1199,27 @@ body {
 .excel-cell-formula { color: var(--accent-hover); }
 .excel-cell-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* A proposed edit can span several sheets and dozens of cells, so it needs room to
-   list them instead of the single-line layout the other pending banners use. */
+/* The proposal banner sits above the chat, so it must stay a couple of lines tall:
+   the cell-by-cell list is worth having but only on demand, and even expanded it
+   scrolls inside itself rather than eating the working area. */
 .excel-pending-edit {
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  display: block;
   line-height: 1.5;
 }
-.excel-pending-edit strong { display: block; margin-bottom: 4px; }
+.excel-pending-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.excel-pending-details {
+  max-height: 140px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding-right: 6px;
+}
 .excel-pending-sheet { margin-top: 2px; }
-.excel-new-sheet { font-weight: 600; }
+.excel-pending-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 /* GitHub Actions runs */
 .run-list { list-style: none; padding: 0; margin: 10px 0; }
@@ -1247,3 +1257,33 @@ body {
 /* Connection diagnostics run to several sentences and carry their own line breaks
    (e.g. the certificate instructions for MAX), so they must not be collapsed. */
 .chatbot-test-result { white-space: pre-line; }
+
+/* Docked agent: the table keeps most of the width, the conversation gets a column
+   wide enough to read but not so wide the grid becomes useless. Both panes scroll
+   on their own so neither pushes the other off-screen. */
+.excel-split { display: flex; gap: 0; align-items: stretch; overflow: hidden; }
+.excel-grid-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+.excel-agent-pane {
+  width: 420px;
+  min-width: 320px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.excel-ask-btn { white-space: nowrap; }
+
+.direct-date { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.direct-date input { width: auto; margin: 0; }
+
+/* Sits above the export bar and stays visually quiet — it is a nudge, not an error. */
+.chat-fold-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 16px;
+  border-top: 1px solid var(--border);
+}

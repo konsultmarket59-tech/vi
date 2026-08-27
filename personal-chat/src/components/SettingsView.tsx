@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
-import type { Settings } from "../lib/types";
+import type { Settings, StorageReport } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
+  return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+}
 
 interface Props {
   settings: Settings;
@@ -17,6 +23,8 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [testingProxy, setTestingProxy] = useState(false);
+  const [report, setReport] = useState<StorageReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
   const [proxyResult, setProxyResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -33,6 +41,15 @@ export default function SettingsView({ settings, onChange }: Props) {
       setModelsError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingModels(false);
+    }
+  }
+
+  async function loadReport() {
+    setReportLoading(true);
+    try {
+      setReport(await window.api.getStorageReport());
+    } finally {
+      setReportLoading(false);
     }
   }
 
@@ -279,6 +296,59 @@ export default function SettingsView({ settings, onChange }: Props) {
         Сохранить настройки
       </button>
       {saved && <span className="saved-note">Сохранено ✓</span>}
+
+      <h2>Обслуживание</h2>
+      <p className="hint">
+        Данные лежат обычными файлами на вашем компьютере, поэтому «замусориться» приложению особо нечем:
+        место занимают в основном сгенерированные картинки и видео. По-настоящему растёт другое —{" "}
+        <b>длина переписки в чате</b>: модель каждый раз перечитывает диалог целиком, поэтому длинный чат
+        отвечает медленнее и стоит дороже. Приложение само отправляет только последнюю часть переписки, а в
+        самом чате предлагает свернуть раннюю часть в краткое изложение (полный текст при этом сохраняется в
+        файл).
+      </p>
+      <div className="settings-actions">
+        <button className="btn btn-secondary" onClick={loadReport} disabled={reportLoading}>
+          {reportLoading ? "Считаю…" : "Посмотреть, что занимает место"}
+        </button>
+      </div>
+      {report && (
+        <div className="storage-report">
+          <p className="hint">
+            Всего: <b>{formatBytes(report.totalBytes)}</b> в папке <code>{report.rootPath}</code>
+          </p>
+          <ul className="doc-list">
+            {report.folders.map((f) => (
+              <li key={f.name}>
+                <span className="doc-name">{f.name}</span>
+                <span className="doc-size">
+                  {formatBytes(f.bytes)} · {f.files} файл(ов)
+                </span>
+              </li>
+            ))}
+          </ul>
+          {report.heavyChats.length > 0 ? (
+            <>
+              <p className="hint">
+                Длинные чаты — их стоит свернуть прямо в чате кнопкой «Свернуть историю в резюме»:
+              </p>
+              <ul className="doc-list">
+                {report.heavyChats.map((c) => (
+                  <li key={c.convId}>
+                    <span className="doc-name">
+                      {c.projectName} — {c.title}
+                    </span>
+                    <span className="doc-size">
+                      {c.messages} сообщ. · {Math.round(c.chars / 1000)} тыс. симв.
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="hint">Длинных чатов нет — сворачивать пока нечего.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

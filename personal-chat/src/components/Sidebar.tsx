@@ -7,6 +7,7 @@ export type View =
   | { kind: "ops" }
   | { kind: "excel" }
   | { kind: "cloud" }
+  | { kind: "direct" }
   | { kind: "media" }
   | { kind: "design" }
   | { kind: "github" }
@@ -138,6 +139,12 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
           onClick={() => onSelectView({ kind: "cloud" })}
         >
           ☁️ Облако
+        </button>
+        <button
+          className={view.kind === "direct" ? "sidebar-item active" : "sidebar-item"}
+          onClick={() => onSelectView({ kind: "direct" })}
+        >
+          📣 Директ
         </button>
         <button
           className={view.kind === "github" ? "sidebar-item active" : "sidebar-item"}

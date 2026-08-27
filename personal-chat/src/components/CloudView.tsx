@@ -7,7 +7,10 @@ interface Props {
 
 type Tab = "files" | "settings";
 
-const EMPTY_ACCOUNTS: CloudAccounts = { yandex: { token: "" }, google: { token: "" } };
+const EMPTY_ACCOUNTS: CloudAccounts = {
+  yandex: { token: "", clientId: "", clientSecret: "", refreshToken: "", expiresAt: 0 },
+  google: { token: "" },
+};
 
 const PROVIDER_LABEL: Record<CloudProvider, string> = { yandex: "Яндекс Диск", google: "Google Диск" };
 
@@ -34,6 +37,9 @@ export default function CloudView({ projects }: Props) {
   const [provider, setProvider] = useState<CloudProvider>("yandex");
   const [testResult, setTestResult] = useState<Partial<Record<CloudProvider, string>>>({});
   const [testing, setTesting] = useState<CloudProvider | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [manualCode, setManualCode] = useState("");
+  const [showManualCode, setShowManualCode] = useState(false);
 
   const [folder, setFolder] = useState("disk:/");
   const [trail, setTrail] = useState<{ name: string; path: string }[]>([{ name: "Корень", path: "disk:/" }]);
@@ -83,7 +89,11 @@ export default function CloudView({ projects }: Props) {
   async function loadFolder(target: string) {
     if (!accounts[provider].token) {
       setEntries([]);
-      setError(`${PROVIDER_LABEL[provider]} не подключён — вставьте токен на вкладке «Подключение».`);
+      setError(
+        provider === "yandex"
+          ? "Яндекс Диск не подключён — откройте вкладку «Подключение» и нажмите «Подключить Яндекс»."
+          : `${PROVIDER_LABEL[provider]} не подключён — вставьте токен на вкладке «Подключение».`
+      );
       return;
     }
     setLoading(true);
@@ -114,10 +124,42 @@ export default function CloudView({ projects }: Props) {
     showNote("Сохранено", 2500);
   }
 
+  /**
+   * Runs the OAuth exchange. `useManualCode` is the fallback for apps registered so
+   * that Yandex only prints the code on the page instead of putting it in a URL.
+   */
+  async function connectYandex(useManualCode: boolean) {
+    setConnecting(true);
+    setTestResult((prev) => ({ ...prev, yandex: undefined }));
+    try {
+      const result = await window.api.connectYandexCloud({
+        clientId: accounts.yandex.clientId,
+        clientSecret: accounts.yandex.clientSecret,
+        manualCode: useManualCode ? manualCode : "",
+      });
+      if (result.accounts) setAccounts(result.accounts);
+      if (result.ok) {
+        setShowManualCode(false);
+        setManualCode("");
+        setTestResult((prev) => ({
+          ...prev,
+          yandex: `Подключено${result.login ? `: ${result.login}` : ""} ✓ Токен сохранён на этом компьютере.`,
+        }));
+      } else {
+        if (result.needsCode) setShowManualCode(true);
+        setTestResult((prev) => ({ ...prev, yandex: `Ошибка: ${result.error}` }));
+      }
+    } catch (e) {
+      setTestResult((prev) => ({ ...prev, yandex: `Ошибка: ${e instanceof Error ? e.message : String(e)}` }));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   async function testProvider(p: CloudProvider) {
     setTesting(p);
     try {
-      const result = await window.api.testCloudConnection(p, accounts[p].token);
+      const result = await window.api.testCloudConnection(p, p === "yandex" ? "" : accounts[p].token);
       setTestResult((prev) => ({
         ...prev,
         [p]: result.ok ? `Подключено${result.login ? `: ${result.login}` : ""} ✓` : `Ошибка: ${result.error}`,
@@ -175,26 +217,63 @@ export default function CloudView({ projects }: Props) {
         <div className="panel-section">
           <h3>Яндекс Диск</h3>
           <p className="hint">
-            Нужен OAuth-токен. Проще всего получить его так: зайдите на{" "}
+            На{" "}
             <a href="https://oauth.yandex.ru/" target="_blank" rel="noreferrer">
               oauth.yandex.ru
-            </a>
-            , создайте приложение, отметьте права <code>cloud_api:disk.read</code> и{" "}
-            <code>cloud_api:disk.write</code>, затем получите токен для своего аккаунта. Токен хранится только
-            на этом компьютере, как и остальные ключи.
+            </a>{" "}
+            создайте приложение и отметьте права <code>cloud_api:disk.read</code> и{" "}
+            <code>cloud_api:disk.write</code>. Яндекс выдаст <b>Client ID</b> и <b>Client secret</b> — это не
+            токен, а ключи, по которым приложение само получит токен для вашего аккаунта. Впишите их сюда и
+            нажмите «Подключить Яндекс»: откроется окно входа в Яндекс, и после подтверждения токен сохранится
+            здесь, на этом компьютере.
           </p>
-          <label>Токен Яндекс Диска</label>
+          <label>Client ID</label>
+          <input
+            value={accounts.yandex.clientId}
+            onChange={(e) => setAccounts({ ...accounts, yandex: { ...accounts.yandex, clientId: e.target.value } })}
+          />
+          <label>Client secret</label>
           <input
             type="password"
-            value={accounts.yandex.token}
-            onChange={(e) => setAccounts({ ...accounts, yandex: { token: e.target.value } })}
+            value={accounts.yandex.clientSecret}
+            onChange={(e) =>
+              setAccounts({ ...accounts, yandex: { ...accounts.yandex, clientSecret: e.target.value } })
+            }
           />
           <div className="settings-actions">
+            <button className="btn btn-primary" onClick={() => connectYandex(false)} disabled={connecting}>
+              {connecting ? "Подключение…" : "Подключить Яндекс"}
+            </button>
             <button className="btn btn-secondary" onClick={() => testProvider("yandex")} disabled={testing === "yandex"}>
               {testing === "yandex" ? "Проверка…" : "Проверить"}
             </button>
           </div>
-          {testResult.yandex && <p className="hint">{testResult.yandex}</p>}
+
+          {showManualCode && (
+            <>
+              <label>Код подтверждения из Яндекса</label>
+              <input value={manualCode} onChange={(e) => setManualCode(e.target.value)} />
+              <p className="hint">
+                Если Яндекс показал код на странице, а не вернул его автоматически — скопируйте код сюда.
+              </p>
+              <div className="settings-actions">
+                <button className="btn btn-primary" onClick={() => connectYandex(true)} disabled={connecting}>
+                  Обменять код на токен
+                </button>
+              </div>
+            </>
+          )}
+
+          {accounts.yandex.token && (
+            <p className="hint">
+              Токен получен и сохранён
+              {accounts.yandex.expiresAt
+                ? ` (действует до ${new Date(accounts.yandex.expiresAt).toLocaleDateString("ru-RU")}, продлевается автоматически)`
+                : ""}
+              .
+            </p>
+          )}
+          {testResult.yandex && <p className="hint chatbot-test-result">{testResult.yandex}</p>}
 
           <h3>Google Диск</h3>
           <p className="hint">

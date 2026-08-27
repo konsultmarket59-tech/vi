@@ -11,6 +11,8 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
+const yandexAuth = require("./yandexAuth.cjs");
+
 const YANDEX_API = "https://cloud-api.yandex.net/v1/disk";
 const GOOGLE_API = "https://www.googleapis.com/drive/v3";
 const GOOGLE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
@@ -39,7 +41,10 @@ async function writeJson(file, data) {
 }
 
 const DEFAULT_ACCOUNTS = {
-  yandex: { token: "" },
+  // clientId/clientSecret drive the OAuth exchange; the token and refreshToken are
+  // what it produces. A token pasted by hand still works — the OAuth fields simply
+  // stay empty in that case.
+  yandex: { token: "", clientId: "", clientSecret: "", refreshToken: "", expiresAt: 0 },
   google: { token: "" },
 };
 
@@ -53,12 +58,42 @@ async function getAccounts(root) {
 
 async function saveAccounts(root, accounts) {
   await ensureDir(cloudDir(root));
+  const yandex = accounts?.yandex || {};
   const sanitized = {
-    yandex: { token: (accounts?.yandex?.token || "").trim() },
+    yandex: {
+      token: (yandex.token || "").trim(),
+      clientId: (yandex.clientId || "").trim(),
+      clientSecret: (yandex.clientSecret || "").trim(),
+      refreshToken: (yandex.refreshToken || "").trim(),
+      expiresAt: Number(yandex.expiresAt) || 0,
+    },
     google: { token: (accounts?.google?.token || "").trim() },
   };
   await writeJson(accountsFile(root), sanitized);
   return sanitized;
+}
+
+/**
+ * Returns a usable Yandex token, renewing it first if it is expired and we have the
+ * means to. Yandex tokens do expire, and the failure mode without this is a silent
+ * "Не авторизован" months later with no clue as to why.
+ * Returns the (possibly updated) account so the caller can persist it.
+ */
+async function ensureYandexToken(account) {
+  const expired = account.expiresAt && account.expiresAt < Date.now() + 60_000;
+  if (!expired || !account.refreshToken || !account.clientId || !account.clientSecret) {
+    return { account, renewed: false };
+  }
+  const fresh = await yandexAuth.refreshToken(account.clientId, account.clientSecret, account.refreshToken);
+  return {
+    account: {
+      ...account,
+      token: fresh.token,
+      refreshToken: fresh.refreshToken || account.refreshToken,
+      expiresAt: fresh.expiresAt,
+    },
+    renewed: true,
+  };
 }
 
 async function request(url, options = {}) {
@@ -71,8 +106,17 @@ async function request(url, options = {}) {
     // not JSON — download endpoints return raw bytes, handled separately
   }
   if (!res.ok) {
-    const message =
+    let message =
       json?.message || json?.description || json?.error?.message || `${res.status} ${res.statusText}`;
+    if (res.status === 401) {
+      // By far the most common cause: the Client ID from the app page was pasted
+      // where an OAuth token belongs. They look nothing alike but both are opaque
+      // strings, so the API's bare "Не авторизован" leaves no way to tell.
+      message =
+        "Не авторизован. Чаще всего это значит, что вставлен Client ID приложения, а не OAuth-токен — " +
+        "это разные вещи. Заполните Client ID и Client secret и нажмите «Подключить Яндекс»: " +
+        "приложение само получит токен. Если токен раньше работал — возможно, он истёк, подключитесь заново.";
+    }
     throw new Error(message);
   }
   return json;
@@ -257,6 +301,7 @@ async function upload(provider, token, localPath, remote, name) {
 
 module.exports = {
   PROVIDERS,
+  ensureYandexToken,
   getAccounts,
   saveAccounts,
   testConnection,

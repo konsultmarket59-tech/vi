@@ -636,6 +636,8 @@ const tasks = require("./tasks.cjs");
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const exportDocs = require("./exportDocs.cjs");
+const yandexAuth = require("./yandexAuth.cjs");
+const direct = require("./direct.cjs");
 const cloud = require("./cloud.cjs");
 
 function broadcast(channel, payload) {
@@ -1517,33 +1519,281 @@ ipcMain.handle("excel:saveAgentConversation", async (_e, conv) => {
   return conv;
 });
 
+// ---------- Storage report & archiving ----------
+//
+// The thing that actually grows without bound here is chat history: every turn sends
+// the whole conversation to the model, so a long chat gets slower, more expensive and
+// eventually exceeds the model's context. Disk space is a non-issue by comparison —
+// text is tiny; generated media is the only heavy folder. This pair of handlers gives
+// the user the numbers and a safe way to act on them.
+
+async function dirStats(dir) {
+  let bytes = 0;
+  let files = 0;
+  const walk = async (current) => {
+    let entries;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return; // folder not created yet
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else {
+        try {
+          const stat = await fs.stat(full);
+          bytes += stat.size;
+          files++;
+        } catch {
+          // file vanished between listing and stat — nothing to count
+        }
+      }
+    }
+  };
+  await walk(dir);
+  return { bytes, files };
+}
+
+const REPORT_FOLDERS = [
+  ["projects", "Проекты (чаты и документы)"],
+  ["media", "Сгенерированные картинки и видео"],
+  ["design", "Дизайны"],
+  ["skills", "Навыки"],
+  ["cloud", "Загрузки из облака"],
+  ["chatbots", "Чат-боты"],
+  ["ops", "Операционка"],
+  ["excel", "Excel-агент"],
+  ["direct", "Директ"],
+];
+
+/** How long a chat has to get before folding it down is worth suggesting. */
+const HEAVY_CHAT_CHARS = 60000;
+
+ipcMain.handle("storage:report", async () => {
+  const root = await getRootPath();
+  const folders = [];
+  let totalBytes = 0;
+  for (const [dir, name] of REPORT_FOLDERS) {
+    const { bytes, files } = await dirStats(path.join(root, dir));
+    if (files === 0) continue;
+    folders.push({ name, bytes, files });
+    totalBytes += bytes;
+  }
+  folders.sort((a, b) => b.bytes - a.bytes);
+
+  const heavyChats = [];
+  for (const project of await listProjects()) {
+    for (const conv of await listConversations(project.id)) {
+      const chars = (conv.messages || []).reduce((sum, m) => sum + (m.content?.length || 0), 0);
+      if (chars < HEAVY_CHAT_CHARS) continue;
+      heavyChats.push({
+        projectId: project.id,
+        projectName: project.name,
+        convId: conv.id,
+        title: conv.title,
+        messages: conv.messages.length,
+        chars,
+      });
+    }
+  }
+  heavyChats.sort((a, b) => b.chars - a.chars);
+  return { rootPath: root, totalBytes, folders, heavyChats: heavyChats.slice(0, 20) };
+});
+
+// Folding a chat down must never destroy anything: the original messages are written
+// out first, under the chat's own folder, before the conversation keeps only a summary.
+ipcMain.handle("chats:archiveMessages", async (_e, projectId, conv, messages) => {
+  const root = await getRootPath();
+  const dir = path.join(chatsDir(root, projectId), "archive");
+  await ensureDir(dir);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `${conv.id}-${stamp}.json`);
+  await writeJson(file, { title: conv.title, archivedAt: Date.now(), messages });
+  return { path: file };
+});
+
+// ---------- Яндекс Директ ----------
+//
+// Direct rides on the same Yandex OAuth token as the Disk connection, so it has no
+// credentials of its own — only a client login (needed when the account is managed
+// by an agency) and the last date range, kept next to the other module settings.
+
+function directSettingsFile(root) {
+  return path.join(root, "direct", "settings.json");
+}
+
+async function getDirectSettings() {
+  const root = await getRootPath();
+  const stored = await readJson(directSettingsFile(root), {});
+  return { clientLogin: "", ...stored };
+}
+
+async function saveDirectSettings(patch) {
+  const root = await getRootPath();
+  const current = await getDirectSettings();
+  const next = { ...current, ...patch, clientLogin: (patch.clientLogin ?? current.clientLogin ?? "").trim() };
+  await ensureDir(path.join(root, "direct"));
+  await writeJson(directSettingsFile(root), next);
+  return next;
+}
+
+/** Token + client login, the pair every Direct call needs. */
+async function directAuth() {
+  const [token, settings] = await Promise.all([currentProviderToken("yandex"), getDirectSettings()]);
+  if (!token) {
+    throw new Error(
+      "Аккаунт Яндекса не подключён. Откройте «☁️ Облако» → «Подключение» и нажмите «Подключить Яндекс» — " +
+        "тот же токен используется и для Директа (не забудьте отметить права Яндекс.Директа в приложении)."
+    );
+  }
+  return { token, clientLogin: settings.clientLogin };
+}
+
+ipcMain.handle("direct:getSettings", () => getDirectSettings());
+ipcMain.handle("direct:saveSettings", (_e, patch) => saveDirectSettings(patch || {}));
+
+ipcMain.handle("direct:testConnection", async () => {
+  try {
+    const { token, clientLogin } = await directAuth();
+    return direct.testConnection(token, clientLogin);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle("direct:listCampaigns", async () => {
+  const { token, clientLogin } = await directAuth();
+  return direct.listCampaigns(token, clientLogin);
+});
+
+ipcMain.handle("direct:listKeywords", async (_e, campaignIds) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.listKeywords(token, campaignIds, clientLogin);
+});
+
+ipcMain.handle("direct:listAds", async (_e, campaignIds) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.listAds(token, campaignIds, clientLogin);
+});
+
+ipcMain.handle("direct:getStats", async (_e, range) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.getStats(token, { ...range, clientLogin });
+});
+
+// Mutations, run only after the user confirmed the agent's proposal in the UI.
+ipcMain.handle("direct:setCampaignState", async (_e, campaignId, resume) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.setCampaignState(token, campaignId, resume, clientLogin);
+});
+
+ipcMain.handle("direct:setKeywordBid", async (_e, keywordId, bid) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.setKeywordBid(token, keywordId, bid, clientLogin);
+});
+
+ipcMain.handle("direct:buildAgentPrompt", (_e, data) => direct.buildAgentPrompt(data || {}));
+
+ipcMain.handle("direct:getAgentConversation", async () => {
+  const root = await getRootPath();
+  return readJson(path.join(root, "direct", "_agent_chat.json"), null);
+});
+
+ipcMain.handle("direct:saveAgentConversation", async (_e, conv) => {
+  const root = await getRootPath();
+  await ensureDir(path.join(root, "direct"));
+  await writeJson(path.join(root, "direct", "_agent_chat.json"), conv);
+  return conv;
+});
+
 // ---------- Cloud storage (Яндекс Диск / Google Drive) ----------
 
 ipcMain.handle("cloud:getAccounts", async () => cloud.getAccounts(await getRootPath()));
 ipcMain.handle("cloud:saveAccounts", async (_e, accounts) => cloud.saveAccounts(await getRootPath(), accounts));
-ipcMain.handle("cloud:testConnection", (_e, provider, token) => cloud.testConnection(provider, token));
+ipcMain.handle("cloud:testConnection", async (_e, provider, token) => {
+  if (provider !== "yandex") return cloud.testConnection(provider, token);
+  // A blank token in the form means "use the one we already hold" — after the OAuth
+  // exchange there is nothing for the user to paste, so there is nothing to send.
+  return cloud.testConnection("yandex", (token || "").trim() || (await currentProviderToken("yandex")));
+});
+
+/**
+ * The token to use for a provider right now, renewing an expired Yandex one and
+ * writing the renewal back so the next call doesn't repeat the work.
+ */
+async function currentProviderToken(provider) {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  if (provider !== "yandex") return accounts[provider]?.token;
+  const { account, renewed } = await cloud.ensureYandexToken(accounts.yandex || {});
+  if (renewed) await cloud.saveAccounts(root, { ...accounts, yandex: account });
+  return account.token;
+}
+
+/**
+ * Runs the Yandex consent flow and stores the resulting token.
+ * `manualCode` covers apps registered to only print the code on screen, where no
+ * code ever appears in a URL for the window to catch.
+ */
+async function connectYandex({ clientId, clientSecret, manualCode }) {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const id = (clientId || "").trim();
+  const secret = (clientSecret || "").trim();
+  if (!id || !secret) return { ok: false, error: "Заполните Client ID и Client secret." };
+
+  let code = (manualCode || "").trim();
+  if (!code) {
+    code = await yandexAuth.pickCodeInWindow(BrowserWindow, id, BrowserWindow.getFocusedWindow());
+    if (!code) {
+      return {
+        ok: false,
+        needsCode: true,
+        error:
+          "Окно закрыто без кода. Если Яндекс показал код подтверждения на странице — вставьте его в поле ниже " +
+          "и нажмите «Обменять код на токен».",
+      };
+    }
+  }
+
+  try {
+    const issued = await yandexAuth.exchangeCode(id, secret, code);
+    const yandex = {
+      token: issued.token,
+      clientId: id,
+      clientSecret: secret,
+      refreshToken: issued.refreshToken,
+      expiresAt: issued.expiresAt,
+    };
+    const saved = await cloud.saveAccounts(root, { ...accounts, yandex });
+    const check = await cloud.testConnection("yandex", issued.token);
+    return { ok: true, accounts: saved, login: check.login || "", error: check.ok ? undefined : check.error };
+  } catch (e) {
+    return { ok: false, needsCode: true, error: e.message };
+  }
+}
+
+ipcMain.handle("cloud:connectYandex", (_e, payload) => connectYandex(payload || {}));
 
 ipcMain.handle("cloud:list", async (_e, provider, folder) => {
-  const accounts = await cloud.getAccounts(await getRootPath());
-  return cloud.list(provider, accounts[provider]?.token, folder);
+  return cloud.list(provider, await currentProviderToken(provider), folder);
 });
 
 ipcMain.handle("cloud:download", async (_e, provider, remote, fileName) => {
   const root = await getRootPath();
-  const accounts = await cloud.getAccounts(root);
   const dir = path.join(root, "cloud", "downloads");
   await ensureDir(dir);
-  return cloud.download(provider, accounts[provider]?.token, remote, path.join(dir, fileName));
+  return cloud.download(provider, await currentProviderToken(provider), remote, path.join(dir, fileName));
 });
 
 // Downloads straight into a project's docs folder, so a cloud file becomes part of
 // that project's knowledge base in one step.
 ipcMain.handle("cloud:downloadToProject", async (_e, provider, remote, fileName, projectId) => {
   const root = await getRootPath();
-  const accounts = await cloud.getAccounts(root);
   const dir = docsDir(root, projectId);
   await ensureDir(dir);
-  const result = await cloud.download(provider, accounts[provider]?.token, remote, path.join(dir, fileName));
+  const result = await cloud.download(provider, await currentProviderToken(provider), remote, path.join(dir, fileName));
   await updateProject(projectId, {});
   return result;
 });
@@ -1556,11 +1806,10 @@ ipcMain.handle("cloud:uploadFile", async (_e, provider, remoteFolder) => {
   });
   if (picked.canceled || picked.filePaths.length === 0) return null;
   const localPath = picked.filePaths[0];
-  const accounts = await cloud.getAccounts(await getRootPath());
   const name = path.basename(localPath);
   // Яндекс addresses by path, Google by parent folder id — build what each needs.
   const remote = provider === "yandex" ? `${(remoteFolder || "disk:/").replace(/\/$/, "")}/${name}` : remoteFolder;
-  return cloud.upload(provider, accounts[provider]?.token, localPath, remote, name);
+  return cloud.upload(provider, await currentProviderToken(provider), localPath, remote, name);
 });
 
 ipcMain.handle("proxy:test", async (_e, draftSettings) => {

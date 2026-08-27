@@ -26,9 +26,50 @@ interface Props {
   extraTools?: (assistantText: string) => Promise<string | null>;
   /** What to show while an extraTools call is running. */
   extraToolLabel?: string;
+  /**
+   * Text to drop into the input box. Every distinct value is applied once, so the
+   * caller can push the same question twice by bumping the counter alongside it —
+   * used by the Excel grid to ask about whichever cell is selected.
+   */
+  prefill?: { text: string; nonce: number };
 }
 
 type ExportFormat = "pdf" | "png" | "docx" | "xlsx";
+
+/**
+ * How much conversation history is sent to the model, in characters.
+ *
+ * The whole chat used to go up on every turn, which is fine for twenty messages and
+ * ruinous for four hundred: cost grows with the square of the conversation, and past
+ * the model's context window the request simply fails. Roughly two characters per
+ * token for Russian text puts this near 60k tokens of history — generous for any real
+ * conversation, well inside every model's window, and leaving room for the project's
+ * documents in the system prompt.
+ */
+const CONTEXT_CHAR_BUDGET = 120000;
+
+/** Older messages are worth folding into a summary once a chat passes this. */
+const FOLD_SUGGESTION_CHARS = 60000;
+
+function totalChars(messages: ChatMessage[]): number {
+  return messages.reduce((sum, m) => sum + m.content.length, 0);
+}
+
+/**
+ * The newest messages that fit in the budget, oldest-first. At least the last
+ * exchange is always kept, however long it is — sending nothing would be worse than
+ * sending one oversized message.
+ */
+function messagesWithinBudget(messages: ChatMessage[]): ChatMessage[] {
+  const kept: ChatMessage[] = [];
+  let used = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    used += messages[i].content.length;
+    if (used > CONTEXT_CHAR_BUDGET && kept.length >= 2) break;
+    kept.unshift(messages[i]);
+  }
+  return kept;
+}
 
 const WEB_TOOL_ROUND_LIMIT = 4;
 
@@ -120,8 +161,10 @@ export default function ChatView({
   skills,
   extraTools,
   extraToolLabel,
+  prefill,
 }: Props) {
   const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [attachedSkillId, setAttachedSkillId] = useState<string | null>(null);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
@@ -133,6 +176,8 @@ export default function ChatView({
   const [error, setError] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [exportError, setExportError] = useState<string | null>(null);
+  const [trimmedCount, setTrimmedCount] = useState(0);
+  const [folding, setFolding] = useState(false);
   const [pendingMedia, setPendingMedia] = useState<ParsedMediaRequest | null>(null);
   const [mediaGenerating, setMediaGenerating] = useState(false);
   const [mediaStatus, setMediaStatus] = useState("");
@@ -141,6 +186,14 @@ export default function ChatView({
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Applied per nonce rather than per text, so asking about the same cell twice in
+  // a row still puts the question back in the box.
+  useEffect(() => {
+    if (!prefill) return;
+    setInput(prefill.text);
+    inputRef.current?.focus();
+  }, [prefill?.nonce]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -220,15 +273,30 @@ export default function ChatView({
           attachedSkill.description ? attachedSkill.description + "\n" : ""
         }${attachedSkill.content}`
       : "";
+    // Only the tail of a long chat travels with each request; anything folded away
+    // earlier is represented by its summary, and anything merely over budget is
+    // reported to the user rather than dropped silently.
+    const sentMessages = messagesWithinBudget(withUser.messages);
+    const droppedCount = withUser.messages.length - sentMessages.length;
+    setTrimmedCount(droppedCount);
+
+    const historyNote = withUser.summary
+      ? `\n\n--- Что было раньше в этом чате (краткое изложение) ---\n${withUser.summary}`
+      : "";
+    const dropNote = droppedCount
+      ? `\n\n(Примечание: ${droppedCount} более ранних сообщений этого чата не переданы — они не поместились в контекст. ` +
+        "Если пользователь ссылается на что-то, чего ты не видишь, попроси напомнить.)"
+      : "";
+
     const apiMessages: ApiMessage[] = [
       {
         role: "system",
         content:
           systemPrompt + skillPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT +
-          (webToolsHint ? "\n\n" + webToolsHint : ""),
+          (webToolsHint ? "\n\n" + webToolsHint : "") + historyNote + dropNote,
       },
       ...(await Promise.all(
-        withUser.messages.map(async (m) => {
+        sentMessages.map(async (m) => {
           if (!m.attachments || m.attachments.length === 0) {
             return { role: m.role, content: m.content } as ApiMessage;
           }
@@ -329,6 +397,70 @@ export default function ChatView({
       (line): line is string => !!line
     );
     return { accentColor: brand.accentColor, contactLines };
+  }
+
+  /**
+   * Folds the older half of a long chat into a written summary.
+   *
+   * The originals are archived to a file *before* anything is removed, so this is
+   * lossless from the user's point of view: the chat gets light again, the model
+   * keeps the gist, and the full text stays on disk. The most recent exchanges are
+   * left intact — those are the ones still being worked on.
+   */
+  async function foldHistory() {
+    const messages = conversation.messages;
+    if (messages.length < 8) return;
+    const keepFrom = Math.max(2, messages.length - 6);
+    const older = messages.slice(0, keepFrom);
+    const recent = messages.slice(keepFrom);
+    if (!confirm(`Свернуть ${older.length} ранних сообщений в краткое изложение? Полный текст сохранится в файл.`)) {
+      return;
+    }
+
+    setFolding(true);
+    setError(null);
+    try {
+      const { path: archivePath } = await window.api.archiveConversationMessages(
+        projectId ?? "",
+        conversation,
+        older
+      );
+
+      const transcript = older
+        .map((m) => `${m.role === "user" ? "Пользователь" : "Ассистент"}: ${m.content}`)
+        .join("\n\n");
+      const summary = await streamChat(
+        settings,
+        [
+          {
+            role: "system",
+            content:
+              "Ты сжимаешь переписку так, чтобы по изложению можно было продолжить работу. Сохрани: принятые " +
+              "решения, готовые формулировки и цифры, договорённости, открытые вопросы. Убери приветствия, " +
+              "повторы и рассуждения. Пиши по-русски, структурировано, до 400 слов.",
+          },
+          { role: "user", content: (conversation.summary ? conversation.summary + "\n\n" : "") + transcript },
+        ],
+        () => {},
+        undefined
+      );
+
+      const folded: Conversation = {
+        ...conversation,
+        summary,
+        messages: recent,
+        updatedAt: Date.now(),
+      };
+      onUpdate(folded);
+      await onSave(folded);
+      setTrimmedCount(0);
+      setExportError(null);
+      alert(`Готово. Полная переписка сохранена: ${archivePath}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFolding(false);
+    }
   }
 
   async function exportMessage(m: ChatMessage, format: ExportFormat) {
@@ -436,6 +568,26 @@ export default function ChatView({
           </button>
         )}
       </div>
+      {(trimmedCount > 0 || totalChars(conversation.messages) > FOLD_SUGGESTION_CHARS) && (
+        <div className="chat-fold-bar">
+          <span className="hint">
+            {trimmedCount > 0
+              ? `Чат длинный: ${trimmedCount} ранних сообщений уже не помещаются в память модели.`
+              : `Чат разросся (${Math.round(totalChars(conversation.messages) / 1000)} тыс. симв.) — каждый ответ обходится дороже и медленнее.`}
+          </span>
+          <button className="link-btn" onClick={foldHistory} disabled={folding || busy}>
+            {folding ? "Сворачиваю…" : "Свернуть историю в резюме"}
+          </button>
+        </div>
+      )}
+      {conversation.summary && (
+        <div className="chat-fold-bar">
+          <span className="hint">
+            📝 Ранняя часть переписки свёрнута в изложение — ассистент её помнит, полный текст в папке
+            чата (<code>archive</code>).
+          </span>
+        </div>
+      )}
       {conversation.messages.length > 0 && (
         <div className="chat-export-bar">
           <span className="hint">Экспорт всего чата:</span>
@@ -599,6 +751,7 @@ export default function ChatView({
           {attaching ? "…" : "+"}
         </button>
         <textarea
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}

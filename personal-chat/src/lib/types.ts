@@ -87,6 +87,16 @@ export interface Conversation {
   title: string;
   messages: ChatMessage[];
   model?: string;
+  /**
+   * Agent chats only: the assistant message whose proposed change was already
+   * applied or rejected, so the confirmation banner doesn't come back on reopen.
+   */
+  handledEditId?: string;
+  /**
+   * Condensed account of messages that were folded away, sent to the model in place
+   * of them. Set by "свернуть историю"; the originals go to an archive file.
+   */
+  summary?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -139,6 +149,20 @@ export const DEFAULT_SETTINGS: Settings = {
   searchProvider: "duckduckgo",
   searchApiKey: "",
 };
+
+export interface StorageEntry {
+  name: string;
+  bytes: number;
+  files: number;
+}
+
+export interface StorageReport {
+  rootPath: string;
+  totalBytes: number;
+  folders: StorageEntry[];
+  /** Chats whose history is long enough to be worth folding down. */
+  heavyChats: { projectId: string; projectName: string; convId: string; title: string; messages: number; chars: number }[];
+}
 
 export interface AppConfig {
   rootPath: string;
@@ -347,9 +371,93 @@ export interface DesignDoc {
 
 export type CloudProvider = "yandex" | "google";
 
+export interface DirectSettings {
+  /** Needed only when an agency account acts for a client; empty otherwise. */
+  clientLogin: string;
+}
+
+export interface DirectTestResult {
+  ok: boolean;
+  login?: string;
+  info?: string;
+  currency?: string;
+  error?: string;
+}
+
+export interface DirectCampaign {
+  id: number;
+  name: string;
+  type: string;
+  status: string;
+  state: string;
+  statusPayment: string;
+  /** In account currency; the API's micro-units are converted on the way in. */
+  dailyBudget: number;
+  startDate: string;
+}
+
+export interface DirectKeyword {
+  id: number;
+  keyword: string;
+  adGroupId: number;
+  status: string;
+  state: string;
+  bid: number;
+}
+
+export interface DirectAd {
+  id: number;
+  campaignId: number;
+  adGroupId: number;
+  status: string;
+  state: string;
+  title: string;
+  title2: string;
+  text: string;
+  href: string;
+}
+
+/** One row of the campaign performance report; keys are the API's field names. */
+export interface DirectStatRow {
+  CampaignId: number;
+  CampaignName: string;
+  Impressions: number;
+  Clicks: number;
+  Ctr: number;
+  Cost: number;
+  AvgCpc: number;
+  Conversions: number | string;
+}
+
+export interface DirectAction {
+  action: "suspend" | "resume" | "bid";
+  target: number;
+  value?: number;
+  why: string;
+}
+
+export interface YandexAccount {
+  token: string;
+  /** From the app you create at oauth.yandex.ru — used to obtain the token. */
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  /** Epoch ms when the access token stops working; 0 when unknown. */
+  expiresAt: number;
+}
+
 export interface CloudAccounts {
-  yandex: { token: string };
+  yandex: YandexAccount;
   google: { token: string };
+}
+
+export interface YandexConnectResult {
+  ok: boolean;
+  accounts?: CloudAccounts;
+  login?: string;
+  error?: string;
+  /** True when the user still has to paste the confirmation code by hand. */
+  needsCode?: boolean;
 }
 
 export interface CloudEntry {
@@ -462,6 +570,13 @@ export interface ElectronAPI {
   importSkillFromFolder(folderPath: string): Promise<{ name: string; description: string; content: string }>;
 
   listConversations(projectId: string): Promise<Conversation[]>;
+  /** Writes messages being folded away to a dated file, so nothing is ever lost. */
+  archiveConversationMessages(
+    projectId: string,
+    conv: Conversation,
+    messages: ChatMessage[]
+  ): Promise<{ path: string }>;
+  getStorageReport(): Promise<StorageReport>;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
   deleteConversation(projectId: string, convId: string): Promise<void>;
 
@@ -569,6 +684,29 @@ export interface ElectronAPI {
   // cloud storage
   getCloudAccounts(): Promise<CloudAccounts>;
   saveCloudAccounts(accounts: CloudAccounts): Promise<CloudAccounts>;
+  // Яндекс Директ
+  getDirectSettings(): Promise<DirectSettings>;
+  saveDirectSettings(patch: Partial<DirectSettings>): Promise<DirectSettings>;
+  testDirectConnection(): Promise<DirectTestResult>;
+  listDirectCampaigns(): Promise<DirectCampaign[]>;
+  listDirectKeywords(campaignIds: number[]): Promise<DirectKeyword[]>;
+  listDirectAds(campaignIds: number[]): Promise<DirectAd[]>;
+  getDirectStats(range: { dateFrom: string; dateTo: string }): Promise<DirectStatRow[]>;
+  setDirectCampaignState(id: number, resume: boolean): Promise<{ id: number; state: string }>;
+  setDirectKeywordBid(id: number, bid: number): Promise<{ id: number; bid: number }>;
+  buildDirectAgentPrompt(data: {
+    campaigns?: DirectCampaign[];
+    stats?: DirectStatRow[];
+    keywords?: DirectKeyword[];
+  }): Promise<string>;
+  getDirectAgentConversation(): Promise<Conversation | null>;
+  saveDirectAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  connectYandexCloud(payload: {
+    clientId: string;
+    clientSecret: string;
+    manualCode?: string;
+  }): Promise<YandexConnectResult>;
   testCloudConnection(provider: CloudProvider, token: string): Promise<CloudTestResult>;
   listCloudFiles(provider: CloudProvider, folder?: string): Promise<CloudEntry[]>;
   downloadCloudFile(provider: CloudProvider, remote: string, fileName: string): Promise<{ path: string; size: number }>;

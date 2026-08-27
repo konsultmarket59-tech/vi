@@ -273,3 +273,31 @@ export function parseExcelEdit(text: string): ParsedExcelEdit | null {
   const filled = sheets.filter((s) => s.cells.length || s.formats.length);
   return filled.length ? { sheets: filled } : null;
 }
+
+
+/** Mirrors parseAgentAction in electron/direct.cjs — the block the Direct agent emits. */
+export function parseDirectAction(text: string): ParsedDirectAction | null {
+  const match = /===DIRECT ACTION START===([\s\S]*?)===DIRECT ACTION END===/.exec(text || "");
+  if (!match) return null;
+  const block = match[1];
+  const action = /ACTION:\s*(\w+)/i.exec(block)?.[1]?.toLowerCase();
+  const target = /TARGET:\s*(\d+)/i.exec(block)?.[1];
+  const value = /VALUE:\s*([\d.,]+)/i.exec(block)?.[1];
+  const why = /WHY:\s*(.+)/i.exec(block)?.[1]?.trim() || "";
+  if (!action || !target) return null;
+  if (action !== "suspend" && action !== "resume" && action !== "bid") return null;
+  if (action === "bid" && !value) return null;
+  return {
+    action,
+    target: Number(target),
+    value: value ? Number(value.replace(",", ".")) : undefined,
+    why,
+  };
+}
+
+export interface ParsedDirectAction {
+  action: "suspend" | "resume" | "bid";
+  target: number;
+  value?: number;
+  why: string;
+}

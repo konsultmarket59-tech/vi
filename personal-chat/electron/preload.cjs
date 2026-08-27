@@ -75,6 +75,25 @@ contextBridge.exposeInMainWorld("api", {
   // cloud storage
   getCloudAccounts: () => ipcRenderer.invoke("cloud:getAccounts"),
   saveCloudAccounts: (accounts) => ipcRenderer.invoke("cloud:saveAccounts", accounts),
+  archiveConversationMessages: (projectId, conv, messages) =>
+    ipcRenderer.invoke("chats:archiveMessages", projectId, conv, messages),
+  getStorageReport: () => ipcRenderer.invoke("storage:report"),
+
+  // Яндекс Директ
+  getDirectSettings: () => ipcRenderer.invoke("direct:getSettings"),
+  saveDirectSettings: (patch) => ipcRenderer.invoke("direct:saveSettings", patch),
+  testDirectConnection: () => ipcRenderer.invoke("direct:testConnection"),
+  listDirectCampaigns: () => ipcRenderer.invoke("direct:listCampaigns"),
+  listDirectKeywords: (campaignIds) => ipcRenderer.invoke("direct:listKeywords", campaignIds),
+  listDirectAds: (campaignIds) => ipcRenderer.invoke("direct:listAds", campaignIds),
+  getDirectStats: (range) => ipcRenderer.invoke("direct:getStats", range),
+  setDirectCampaignState: (id, resume) => ipcRenderer.invoke("direct:setCampaignState", id, resume),
+  setDirectKeywordBid: (id, bid) => ipcRenderer.invoke("direct:setKeywordBid", id, bid),
+  buildDirectAgentPrompt: (data) => ipcRenderer.invoke("direct:buildAgentPrompt", data),
+  getDirectAgentConversation: () => ipcRenderer.invoke("direct:getAgentConversation"),
+  saveDirectAgentConversation: (conv) => ipcRenderer.invoke("direct:saveAgentConversation", conv),
+
+  connectYandexCloud: (payload) => ipcRenderer.invoke("cloud:connectYandex", payload),
   testCloudConnection: (provider, token) => ipcRenderer.invoke("cloud:testConnection", provider, token),
   listCloudFiles: (provider, folder) => ipcRenderer.invoke("cloud:list", provider, folder),
   downloadCloudFile: (provider, remote, fileName) => ipcRenderer.invoke("cloud:download", provider, remote, fileName),

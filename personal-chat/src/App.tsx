@@ -6,6 +6,7 @@ import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
 import OpsView from "./components/OpsView";
 import ExcelView from "./components/ExcelView";
+import DirectView from "./components/DirectView";
 import CloudView from "./components/CloudView";
 import MediaView from "./components/MediaView";
 import DesignView from "./components/DesignView";
@@ -109,8 +110,13 @@ export default function App() {
           />
         )}
         {view.kind === "ops" && <OpsView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
-        {view.kind === "excel" && <ExcelView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
+        {view.kind === "excel" && (
+          <ExcelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
         {view.kind === "cloud" && <CloudView projects={projects} />}
+        {view.kind === "direct" && (
+          <DirectView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
         {view.kind === "media" && (
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
