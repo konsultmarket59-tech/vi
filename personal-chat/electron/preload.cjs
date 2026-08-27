@@ -94,6 +94,9 @@ contextBridge.exposeInMainWorld("api", {
   saveDirectAgentConversation: (conv) => ipcRenderer.invoke("direct:saveAgentConversation", conv),
 
   connectYandexCloud: (payload) => ipcRenderer.invoke("cloud:connectYandex", payload),
+  setActiveYandexAccount: (id) => ipcRenderer.invoke("cloud:setActiveYandex", id),
+  removeYandexAccount: (id) => ipcRenderer.invoke("cloud:removeYandex", id),
+  renameYandexAccount: (id, label) => ipcRenderer.invoke("cloud:renameYandex", id, label),
   testCloudConnection: (provider, token) => ipcRenderer.invoke("cloud:testConnection", provider, token),
   listCloudFiles: (provider, folder) => ipcRenderer.invoke("cloud:list", provider, folder),
   downloadCloudFile: (provider, remote, fileName) => ipcRenderer.invoke("cloud:download", provider, remote, fileName),

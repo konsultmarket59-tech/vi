@@ -1375,3 +1375,14 @@ a:hover { color: var(--accent-hover); }
   padding: 6px 16px;
   border-top: 1px solid var(--border);
 }
+
+/* Список Яндекс-аккаунтов: активный подсвечен, чтобы было видно, с чьим Диском и
+   Директом вы сейчас работаете — это же и определяет, что покажет раздел «Директ». */
+.account-list .account-row { gap: 10px; align-items: center; flex-wrap: wrap; }
+.account-row.active { background: var(--bg-active); border-radius: 8px; }
+.account-pick { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px; cursor: pointer; }
+.account-pick input { width: auto; margin: 0; }
+
+/* Переключатель аккаунта стоит прямо в шапке раздела: он определяет, чьи кампании
+   вы видите, и это должно быть видно всегда, а не только на вкладке подключения. */
+.direct-account-picker { width: auto; margin: 0 0 0 6px; padding: 4px 8px; font-size: 13px; }

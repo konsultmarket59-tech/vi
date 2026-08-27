@@ -40,37 +40,104 @@ async function writeJson(file, data) {
   await fs.writeFile(file, JSON.stringify(data, null, 2), "utf-8");
 }
 
-const DEFAULT_ACCOUNTS = {
-  // clientId/clientSecret drive the OAuth exchange; the token and refreshToken are
-  // what it produces. A token pasted by hand still works — the OAuth fields simply
-  // stay empty in that case.
-  yandex: { token: "", clientId: "", clientSecret: "", refreshToken: "", expiresAt: 0 },
-  google: { token: "" },
+/**
+ * Яндекс-аккаунтов может быть несколько: у агентства обычно отдельный аккаунт на
+ * каждый бизнес, и Директ у каждого свой. Поэтому хранится список аккаунтов и id
+ * активного; Диск и Директ всегда работают с активным.
+ */
+const EMPTY_YANDEX_ACCOUNT = {
+  id: "",
+  label: "",
+  /** Логин, который вернул сам Яндекс при подключении — его и показываем. */
+  login: "",
+  token: "",
+  clientId: "",
+  clientSecret: "",
+  refreshToken: "",
+  expiresAt: 0,
+  /** Логин клиента для Директа — нужен только агентским аккаунтам. */
+  directClientLogin: "",
 };
+
+function newAccountId() {
+  return "ya_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function normalizeYandexAccount(raw) {
+  return {
+    ...EMPTY_YANDEX_ACCOUNT,
+    ...raw,
+    id: raw.id || newAccountId(),
+    label: (raw.label || "").trim(),
+    login: (raw.login || "").trim(),
+    token: (raw.token || "").trim(),
+    clientId: (raw.clientId || "").trim(),
+    clientSecret: (raw.clientSecret || "").trim(),
+    refreshToken: (raw.refreshToken || "").trim(),
+    expiresAt: Number(raw.expiresAt) || 0,
+    directClientLogin: (raw.directClientLogin || "").trim(),
+  };
+}
+
+/**
+ * Reads the stored file into the current shape.
+ *
+ * The single-account form written by earlier versions is upgraded here rather than
+ * anywhere else, so an account connected before this change keeps working without
+ * the user reconnecting it — the one thing that would be unforgivable about this
+ * refactor.
+ */
+function migrateYandex(stored) {
+  const raw = stored?.yandex;
+  if (Array.isArray(raw?.accounts)) {
+    const accounts = raw.accounts.map(normalizeYandexAccount);
+    const activeId = accounts.some((a) => a.id === raw.activeId) ? raw.activeId : accounts[0]?.id || "";
+    return { activeId, accounts };
+  }
+  if (raw && (raw.token || raw.clientId)) {
+    const migrated = normalizeYandexAccount({ ...raw, label: raw.label || "Основной" });
+    return { activeId: migrated.id, accounts: [migrated] };
+  }
+  return { activeId: "", accounts: [] };
+}
 
 async function getAccounts(root) {
   const stored = await readJson(accountsFile(root), {});
   return {
-    yandex: { ...DEFAULT_ACCOUNTS.yandex, ...(stored.yandex || {}) },
-    google: { ...DEFAULT_ACCOUNTS.google, ...(stored.google || {}) },
+    yandex: migrateYandex(stored),
+    google: { token: (stored.google?.token || "").trim() },
   };
 }
 
 async function saveAccounts(root, accounts) {
   await ensureDir(cloudDir(root));
-  const yandex = accounts?.yandex || {};
+  const incoming = accounts?.yandex || {};
+  const list = (Array.isArray(incoming.accounts) ? incoming.accounts : []).map(normalizeYandexAccount);
+  const activeId = list.some((a) => a.id === incoming.activeId) ? incoming.activeId : list[0]?.id || "";
   const sanitized = {
-    yandex: {
-      token: (yandex.token || "").trim(),
-      clientId: (yandex.clientId || "").trim(),
-      clientSecret: (yandex.clientSecret || "").trim(),
-      refreshToken: (yandex.refreshToken || "").trim(),
-      expiresAt: Number(yandex.expiresAt) || 0,
-    },
+    yandex: { activeId, accounts: list },
     google: { token: (accounts?.google?.token || "").trim() },
   };
   await writeJson(accountsFile(root), sanitized);
   return sanitized;
+}
+
+/** The Yandex account everything currently works against, or null if none. */
+function activeYandex(accounts) {
+  const { activeId, accounts: list } = accounts.yandex;
+  return list.find((a) => a.id === activeId) || list[0] || null;
+}
+
+/** Replaces one account in the set, keeping the rest and the active selection. */
+function withYandexAccount(accounts, account) {
+  const list = accounts.yandex.accounts.slice();
+  const at = list.findIndex((a) => a.id === account.id);
+  if (at >= 0) list[at] = account;
+  else list.push(account);
+  return {
+    ...accounts,
+    yandex: { activeId: accounts.yandex.activeId || account.id, accounts: list },
+  };
 }
 
 /**
@@ -302,6 +369,10 @@ async function upload(provider, token, localPath, remote, name) {
 module.exports = {
   PROVIDERS,
   ensureYandexToken,
+  activeYandex,
+  withYandexAccount,
+  normalizeYandexAccount,
+  newAccountId,
   getAccounts,
   saveAccounts,
   testConnection,

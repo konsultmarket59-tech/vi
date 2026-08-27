@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  CloudAccounts,
   Conversation,
   DirectCampaign,
   DirectKeyword,
@@ -41,6 +42,10 @@ function money(value: number): string {
 export default function DirectView({ settings, skills, onOpenSettings }: Props) {
   const [tab, setTab] = useState<Tab>("campaigns");
   const [clientLogin, setClientLogin] = useState("");
+  const [cloudAccounts, setCloudAccounts] = useState<CloudAccounts>({
+    yandex: { activeId: "", accounts: [] },
+    google: { token: "" },
+  });
   const [connection, setConnection] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
 
@@ -57,9 +62,40 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
   const [agentConv, setAgentConv] = useState<Conversation | null>(null);
   const [pendingAction, setPendingAction] = useState<ParsedDirectAction | null>(null);
 
+  /** Re-reads whichever Yandex account is selected, and its Direct settings. */
+  async function reloadAccount() {
+    const [accounts, settings] = await Promise.all([
+      window.api.getCloudAccounts(),
+      window.api.getDirectSettings(),
+    ]);
+    setCloudAccounts(accounts);
+    setClientLogin(settings.clientLogin);
+  }
+
   useEffect(() => {
-    window.api.getDirectSettings().then((s) => setClientLogin(s.clientLogin));
+    reloadAccount();
   }, []);
+
+  /**
+   * Switching the Yandex account switches the Direct account with it, so everything
+   * already on screen belongs to the previous one and has to go — otherwise last
+   * account's campaigns would sit under the new account's name.
+   */
+  async function switchAccount(id: string) {
+    await window.api.setActiveYandexAccount(id);
+    setCampaigns([]);
+    setStats([]);
+    setKeywords([]);
+    setPendingAction(null);
+    setAgentConv(null);
+    setConnection(null);
+    setError(null);
+    await reloadAccount();
+  }
+
+  const activeAccount =
+    cloudAccounts.yandex.accounts.find((a) => a.id === cloudAccounts.yandex.activeId) ??
+    cloudAccounts.yandex.accounts[0];
 
   async function saveClientLogin() {
     const saved = await window.api.saveDirectSettings({ clientLogin });
@@ -184,6 +220,20 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
           <div className="ops-app-titlebar-title">
             <span className="ops-app-icon">📣</span>
             <h2>Яндекс Директ</h2>
+            {cloudAccounts.yandex.accounts.length > 0 && (
+              <select
+                className="direct-account-picker"
+                value={activeAccount?.id ?? ""}
+                onChange={(e) => switchAccount(e.target.value)}
+                title="Аккаунт Яндекса — у каждого свой Директ"
+              >
+                {cloudAccounts.yandex.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label || a.login || "Без названия"}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="project-tabs">
             <button className={tab === "campaigns" ? "tab active" : "tab"} onClick={() => setTab("campaigns")}>
@@ -201,11 +251,20 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
         {tab === "settings" && (
           <div className="panel-section">
             <p className="hint">
-              Директ работает на том же токене Яндекса, что и «☁️ Облако». Если вы ещё не подключались —
-              откройте «☁️ Облако» → «Подключение» и нажмите «Подключить Яндекс». Важно: в приложении на
-              oauth.yandex.ru должны быть отмечены права <b>Яндекс.Директа</b> (вы их уже отметили) —
-              иначе Директ вернёт ошибку доступа, даже если Диск работает.
+              Директ работает на токене того аккаунта Яндекса, который выбран сверху — у каждого аккаунта
+              свой Директ. Аккаунты добавляются в разделе «☁️ Облако» → «Подключение»; там же их можно
+              переименовать и отключить. Важно: в приложении на oauth.yandex.ru должны быть отмечены права{" "}
+              <b>Яндекс.Директа</b> — иначе Директ вернёт ошибку доступа, даже если Диск работает.
             </p>
+            {activeAccount ? (
+              <p className="hint">
+                Сейчас выбран аккаунт: <b>{activeAccount.label || activeAccount.login || "без названия"}</b>
+                {activeAccount.login && activeAccount.label !== activeAccount.login ? ` (${activeAccount.login})` : ""}.
+                Настройка ниже относится именно к нему.
+              </p>
+            ) : (
+              <div className="warning-banner">Ни один аккаунт Яндекса не подключён — добавьте его в «☁️ Облако».</div>
+            )}
             <label>Логин клиента (только для агентских аккаунтов)</label>
             <input
               value={clientLogin}

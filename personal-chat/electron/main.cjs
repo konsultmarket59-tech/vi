@@ -1616,42 +1616,47 @@ ipcMain.handle("chats:archiveMessages", async (_e, projectId, conv, messages) =>
 // ---------- Яндекс Директ ----------
 //
 // Direct rides on the same Yandex OAuth token as the Disk connection, so it has no
-// credentials of its own — only a client login (needed when the account is managed
-// by an agency) and the last date range, kept next to the other module settings.
+// credentials of its own. Everything it needs — the token and the agency client
+// login — lives on the selected Yandex account, which is why switching accounts in
+// «Облако» switches the Direct account too: у каждого аккаунта свой Директ.
 
-function directSettingsFile(root) {
-  return path.join(root, "direct", "settings.json");
-}
-
-async function getDirectSettings() {
-  const root = await getRootPath();
-  const stored = await readJson(directSettingsFile(root), {});
-  return { clientLogin: "", ...stored };
-}
-
-async function saveDirectSettings(patch) {
-  const root = await getRootPath();
-  const current = await getDirectSettings();
-  const next = { ...current, ...patch, clientLogin: (patch.clientLogin ?? current.clientLogin ?? "").trim() };
-  await ensureDir(path.join(root, "direct"));
-  await writeJson(directSettingsFile(root), next);
-  return next;
+/** Per-account, so one account's analysis never shows up under another's name. */
+function directChatFile(root, accountId) {
+  return path.join(root, "direct", `_agent_chat${accountId ? "-" + accountId : ""}.json`);
 }
 
 /** Token + client login, the pair every Direct call needs. */
 async function directAuth() {
-  const [token, settings] = await Promise.all([currentProviderToken("yandex"), getDirectSettings()]);
-  if (!token) {
+  const account = await currentYandexAccount();
+  if (!account.token) {
     throw new Error(
       "Аккаунт Яндекса не подключён. Откройте «☁️ Облако» → «Подключение» и нажмите «Подключить Яндекс» — " +
         "тот же токен используется и для Директа (не забудьте отметить права Яндекс.Директа в приложении)."
     );
   }
-  return { token, clientLogin: settings.clientLogin };
+  return { token: account.token, clientLogin: account.directClientLogin, accountId: account.id };
 }
 
-ipcMain.handle("direct:getSettings", () => getDirectSettings());
-ipcMain.handle("direct:saveSettings", (_e, patch) => saveDirectSettings(patch || {}));
+// The client login belongs to the account, not to the Direct module: a different
+// Yandex account means a different Direct, quite possibly a non-agency one.
+ipcMain.handle("direct:getSettings", async () => {
+  const account = await currentYandexAccount();
+  return {
+    clientLogin: account.directClientLogin || "",
+    accountId: account.id || "",
+    accountLabel: account.label || account.login || "",
+  };
+});
+
+ipcMain.handle("direct:saveSettings", async (_e, patch) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const active = cloud.activeYandex(accounts);
+  if (!active) return { clientLogin: "", accountId: "", accountLabel: "" };
+  const updated = { ...active, directClientLogin: String(patch?.clientLogin ?? "").trim() };
+  await cloud.saveAccounts(root, cloud.withYandexAccount(accounts, updated));
+  return { clientLogin: updated.directClientLogin, accountId: updated.id, accountLabel: updated.label || updated.login };
+});
 
 ipcMain.handle("direct:testConnection", async () => {
   try {
@@ -1697,13 +1702,25 @@ ipcMain.handle("direct:buildAgentPrompt", (_e, data) => direct.buildAgentPrompt(
 
 ipcMain.handle("direct:getAgentConversation", async () => {
   const root = await getRootPath();
-  return readJson(path.join(root, "direct", "_agent_chat.json"), null);
+  const account = await currentYandexAccount();
+  const own = await readJson(directChatFile(root, account.id), null);
+  if (own) return own;
+  // Before accounts were a list there was one shared conversation. Hand it to the
+  // account in use and move the file, so an existing Direct chat isn't orphaned.
+  const legacyFile = path.join(root, "direct", "_agent_chat.json");
+  const legacy = await readJson(legacyFile, null);
+  if (legacy && account.id) {
+    await writeJson(directChatFile(root, account.id), legacy);
+    await fs.rm(legacyFile, { force: true }).catch(() => {});
+  }
+  return legacy;
 });
 
 ipcMain.handle("direct:saveAgentConversation", async (_e, conv) => {
   const root = await getRootPath();
+  const account = await currentYandexAccount();
   await ensureDir(path.join(root, "direct"));
-  await writeJson(path.join(root, "direct", "_agent_chat.json"), conv);
+  await writeJson(directChatFile(root, account.id), conv);
   return conv;
 });
 
@@ -1720,23 +1737,66 @@ ipcMain.handle("cloud:testConnection", async (_e, provider, token) => {
 
 /**
  * The token to use for a provider right now, renewing an expired Yandex one and
- * writing the renewal back so the next call doesn't repeat the work.
+ * writing the renewal back so the next call doesn't repeat the work. For Yandex
+ * this is always the account currently selected.
  */
 async function currentProviderToken(provider) {
-  const root = await getRootPath();
-  const accounts = await cloud.getAccounts(root);
-  if (provider !== "yandex") return accounts[provider]?.token;
-  const { account, renewed } = await cloud.ensureYandexToken(accounts.yandex || {});
-  if (renewed) await cloud.saveAccounts(root, { ...accounts, yandex: account });
-  return account.token;
+  if (provider !== "yandex") {
+    const accounts = await cloud.getAccounts(await getRootPath());
+    return accounts[provider]?.token;
+  }
+  return (await currentYandexAccount()).token;
 }
 
 /**
- * Runs the Yandex consent flow and stores the resulting token.
+ * The selected Yandex account, with its token refreshed if it had expired.
+ * Everything Yandex-shaped — Disk and Direct alike — goes through here, which is
+ * what makes switching accounts a single setting rather than a per-module one.
+ */
+async function currentYandexAccount() {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const active = cloud.activeYandex(accounts);
+  if (!active) return { token: "", directClientLogin: "" };
+  const { account, renewed } = await cloud.ensureYandexToken(active);
+  if (renewed) await cloud.saveAccounts(root, cloud.withYandexAccount(accounts, account));
+  return account;
+}
+
+ipcMain.handle("cloud:setActiveYandex", async (_e, id) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  return cloud.saveAccounts(root, { ...accounts, yandex: { ...accounts.yandex, activeId: id } });
+});
+
+ipcMain.handle("cloud:removeYandex", async (_e, id) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const list = accounts.yandex.accounts.filter((a) => a.id !== id);
+  const activeId = accounts.yandex.activeId === id ? list[0]?.id || "" : accounts.yandex.activeId;
+  // The account's Direct conversation goes with it; leaving it behind would surface
+  // one account's analysis under another's name if an id were ever reused.
+  await fs.rm(directChatFile(root, id), { force: true }).catch(() => {});
+  return cloud.saveAccounts(root, { ...accounts, yandex: { activeId, accounts: list } });
+});
+
+ipcMain.handle("cloud:renameYandex", async (_e, id, label) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const account = accounts.yandex.accounts.find((a) => a.id === id);
+  if (!account) return accounts;
+  return cloud.saveAccounts(root, cloud.withYandexAccount(accounts, { ...account, label: String(label || "").trim() }));
+});
+
+/**
+ * Runs the Yandex consent flow and stores the result as a new account (or updates an
+ * existing one, matched by the login Yandex reports — reconnecting the same account
+ * should refresh it, not add a duplicate).
+ *
  * `manualCode` covers apps registered to only print the code on screen, where no
  * code ever appears in a URL for the window to catch.
  */
-async function connectYandex({ clientId, clientSecret, manualCode }) {
+async function connectYandex({ clientId, clientSecret, manualCode, label }) {
   const root = await getRootPath();
   const accounts = await cloud.getAccounts(root);
   const id = (clientId || "").trim();
@@ -1759,16 +1819,27 @@ async function connectYandex({ clientId, clientSecret, manualCode }) {
 
   try {
     const issued = await yandexAuth.exchangeCode(id, secret, code);
-    const yandex = {
+    const check = await cloud.testConnection("yandex", issued.token);
+    const login = check.login || "";
+
+    const existing = login ? accounts.yandex.accounts.find((a) => a.login === login) : null;
+    const account = cloud.normalizeYandexAccount({
+      ...(existing || {}),
+      id: existing?.id || cloud.newAccountId(),
+      label: (label || "").trim() || existing?.label || login || "Яндекс",
+      login,
       token: issued.token,
       clientId: id,
       clientSecret: secret,
       refreshToken: issued.refreshToken,
       expiresAt: issued.expiresAt,
-    };
-    const saved = await cloud.saveAccounts(root, { ...accounts, yandex });
-    const check = await cloud.testConnection("yandex", issued.token);
-    return { ok: true, accounts: saved, login: check.login || "", error: check.ok ? undefined : check.error };
+    });
+
+    const next = cloud.withYandexAccount(accounts, account);
+    // A freshly connected account becomes the selected one — that is what the user
+    // is about to work with.
+    const saved = await cloud.saveAccounts(root, { ...next, yandex: { ...next.yandex, activeId: account.id } });
+    return { ok: true, accounts: saved, login, error: check.ok ? undefined : check.error };
   } catch (e) {
     return { ok: false, needsCode: true, error: e.message };
   }

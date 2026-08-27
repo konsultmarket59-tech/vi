@@ -374,6 +374,9 @@ export type CloudProvider = "yandex" | "google";
 export interface DirectSettings {
   /** Needed only when an agency account acts for a client; empty otherwise. */
   clientLogin: string;
+  /** Which Yandex account these settings belong to — Direct follows the active one. */
+  accountId: string;
+  accountLabel: string;
 }
 
 export interface DirectTestResult {
@@ -437,6 +440,10 @@ export interface DirectAction {
 }
 
 export interface YandexAccount {
+  id: string;
+  /** What the user calls this account; defaults to the login Yandex reported. */
+  label: string;
+  login: string;
   token: string;
   /** From the app you create at oauth.yandex.ru — used to obtain the token. */
   clientId: string;
@@ -444,10 +451,13 @@ export interface YandexAccount {
   refreshToken: string;
   /** Epoch ms when the access token stops working; 0 when unknown. */
   expiresAt: number;
+  /** Direct's agency client login — belongs to the account, since each has its own. */
+  directClientLogin: string;
 }
 
 export interface CloudAccounts {
-  yandex: YandexAccount;
+  /** Several Yandex accounts; Disk and Direct both follow the active one. */
+  yandex: { activeId: string; accounts: YandexAccount[] };
   google: { token: string };
 }
 
@@ -706,7 +716,11 @@ export interface ElectronAPI {
     clientId: string;
     clientSecret: string;
     manualCode?: string;
+    label?: string;
   }): Promise<YandexConnectResult>;
+  setActiveYandexAccount(id: string): Promise<CloudAccounts>;
+  removeYandexAccount(id: string): Promise<CloudAccounts>;
+  renameYandexAccount(id: string, label: string): Promise<CloudAccounts>;
   testCloudConnection(provider: CloudProvider, token: string): Promise<CloudTestResult>;
   listCloudFiles(provider: CloudProvider, folder?: string): Promise<CloudEntry[]>;
   downloadCloudFile(provider: CloudProvider, remote: string, fileName: string): Promise<{ path: string; size: number }>;

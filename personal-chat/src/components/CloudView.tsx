@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CloudAccounts, CloudEntry, CloudProvider, Project } from "../lib/types";
+import type { CloudAccounts, CloudEntry, CloudProvider, Project, YandexAccount } from "../lib/types";
 
 interface Props {
   projects: Project[];
@@ -7,10 +7,12 @@ interface Props {
 
 type Tab = "files" | "settings";
 
-const EMPTY_ACCOUNTS: CloudAccounts = {
-  yandex: { token: "", clientId: "", clientSecret: "", refreshToken: "", expiresAt: 0 },
-  google: { token: "" },
-};
+const EMPTY_ACCOUNTS: CloudAccounts = { yandex: { activeId: "", accounts: [] }, google: { token: "" } };
+
+/** What to call an account in the UI when it has no label of its own. */
+function accountName(account: YandexAccount): string {
+  return account.label || account.login || "Без названия";
+}
 
 const PROVIDER_LABEL: Record<CloudProvider, string> = { yandex: "Яндекс Диск", google: "Google Диск" };
 
@@ -40,6 +42,12 @@ export default function CloudView({ projects }: Props) {
   const [connecting, setConnecting] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [showManualCode, setShowManualCode] = useState(false);
+  // The connect form is its own draft: credentials belong to the account being added,
+  // not to whichever account happens to be selected right now.
+  const [draftClientId, setDraftClientId] = useState("");
+  const [draftClientSecret, setDraftClientSecret] = useState("");
+  const [draftLabel, setDraftLabel] = useState("");
+  const [showConnectForm, setShowConnectForm] = useState(false);
 
   const [folder, setFolder] = useState("disk:/");
   const [trail, setTrail] = useState<{ name: string; path: string }[]>([{ name: "Корень", path: "disk:/" }]);
@@ -72,6 +80,8 @@ export default function CloudView({ projects }: Props) {
     if (noteTimer.current) clearTimeout(noteTimer.current);
   }, []);
 
+  const yandexAccounts = accounts.yandex.accounts;
+
   useEffect(() => {
     window.api.getCloudAccounts().then(setAccounts);
   }, []);
@@ -87,11 +97,12 @@ export default function CloudView({ projects }: Props) {
   }, [tab, provider, folder]);
 
   async function loadFolder(target: string) {
-    if (!accounts[provider].token) {
+    const connected = provider === "yandex" ? yandexAccounts.length > 0 : !!accounts.google.token;
+    if (!connected) {
       setEntries([]);
       setError(
         provider === "yandex"
-          ? "Яндекс Диск не подключён — откройте вкладку «Подключение» и нажмите «Подключить Яндекс»."
+          ? "Яндекс Диск не подключён — откройте вкладку «Подключение» и добавьте аккаунт."
           : `${PROVIDER_LABEL[provider]} не подключён — вставьте токен на вкладке «Подключение».`
       );
       return;
@@ -133,14 +144,19 @@ export default function CloudView({ projects }: Props) {
     setTestResult((prev) => ({ ...prev, yandex: undefined }));
     try {
       const result = await window.api.connectYandexCloud({
-        clientId: accounts.yandex.clientId,
-        clientSecret: accounts.yandex.clientSecret,
+        clientId: draftClientId,
+        clientSecret: draftClientSecret,
+        label: draftLabel,
         manualCode: useManualCode ? manualCode : "",
       });
       if (result.accounts) setAccounts(result.accounts);
       if (result.ok) {
         setShowManualCode(false);
+        setShowConnectForm(false);
         setManualCode("");
+        setDraftClientId("");
+        setDraftClientSecret("");
+        setDraftLabel("");
         setTestResult((prev) => ({
           ...prev,
           yandex: `Подключено${result.login ? `: ${result.login}` : ""} ✓ Токен сохранён на этом компьютере.`,
@@ -154,6 +170,27 @@ export default function CloudView({ projects }: Props) {
     } finally {
       setConnecting(false);
     }
+  }
+
+  async function switchAccount(id: string) {
+    setAccounts(await window.api.setActiveYandexAccount(id));
+    setTestResult((prev) => ({ ...prev, yandex: undefined }));
+    // The folder listing belongs to the old account — start over at its root.
+    setTrail([{ name: "Корень", path: "disk:/" }]);
+    setFolder("disk:/");
+  }
+
+  async function removeAccount(account: YandexAccount) {
+    if (!confirm(`Отключить аккаунт «${accountName(account)}»? Токен и переписка агента Директа по нему будут удалены.`)) {
+      return;
+    }
+    setAccounts(await window.api.removeYandexAccount(account.id));
+  }
+
+  async function renameAccount(account: YandexAccount) {
+    const label = prompt("Название аккаунта", accountName(account));
+    if (label === null) return;
+    setAccounts(await window.api.renameYandexAccount(account.id, label));
   }
 
   async function testProvider(p: CloudProvider) {
@@ -215,64 +252,109 @@ export default function CloudView({ projects }: Props) {
 
       {tab === "settings" && (
         <div className="panel-section">
-          <h3>Яндекс Диск</h3>
+          <h3>Яндекс — аккаунты</h3>
           <p className="hint">
-            На{" "}
-            <a href="https://oauth.yandex.ru/" target="_blank" rel="noreferrer">
-              oauth.yandex.ru
-            </a>{" "}
-            создайте приложение и отметьте права <code>cloud_api:disk.read</code> и{" "}
-            <code>cloud_api:disk.write</code>. Яндекс выдаст <b>Client ID</b> и <b>Client secret</b> — это не
-            токен, а ключи, по которым приложение само получит токен для вашего аккаунта. Впишите их сюда и
-            нажмите «Подключить Яндекс»: откроется окно входа в Яндекс, и после подтверждения токен сохранится
-            здесь, на этом компьютере.
+            Аккаунтов может быть несколько: у каждого свой Диск и <b>свой Директ</b>. Выбранный аккаунт —
+            тот, с которым работают и «Файлы» здесь, и раздел «📣 Директ».
           </p>
-          <label>Client ID</label>
-          <input
-            value={accounts.yandex.clientId}
-            onChange={(e) => setAccounts({ ...accounts, yandex: { ...accounts.yandex, clientId: e.target.value } })}
-          />
-          <label>Client secret</label>
-          <input
-            type="password"
-            value={accounts.yandex.clientSecret}
-            onChange={(e) =>
-              setAccounts({ ...accounts, yandex: { ...accounts.yandex, clientSecret: e.target.value } })
-            }
-          />
+
+          {yandexAccounts.length > 0 ? (
+            <ul className="doc-list account-list">
+              {yandexAccounts.map((a) => (
+                <li key={a.id} className={a.id === accounts.yandex.activeId ? "account-row active" : "account-row"}>
+                  <label className="account-pick">
+                    <input
+                      type="radio"
+                      name="yandex-account"
+                      checked={a.id === accounts.yandex.activeId}
+                      onChange={() => switchAccount(a.id)}
+                    />
+                    <span className="doc-name">
+                      {accountName(a)}
+                      {a.login && a.label && a.label !== a.login && <span className="hint"> · {a.login}</span>}
+                      {a.directClientLogin && <span className="hint"> · Директ: {a.directClientLogin}</span>}
+                    </span>
+                  </label>
+                  <span className="doc-size">
+                    {a.expiresAt ? `до ${new Date(a.expiresAt).toLocaleDateString("ru-RU")}` : ""}
+                  </span>
+                  <button className="btn btn-secondary" onClick={() => renameAccount(a)}>
+                    Переименовать
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => removeAccount(a)}>
+                    Отключить
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">Пока ни одного аккаунта не подключено.</p>
+          )}
+
           <div className="settings-actions">
-            <button className="btn btn-primary" onClick={() => connectYandex(false)} disabled={connecting}>
-              {connecting ? "Подключение…" : "Подключить Яндекс"}
+            <button className="btn btn-primary" onClick={() => setShowConnectForm((v) => !v)}>
+              {showConnectForm ? "Скрыть форму" : "+ Подключить аккаунт Яндекса"}
             </button>
-            <button className="btn btn-secondary" onClick={() => testProvider("yandex")} disabled={testing === "yandex"}>
-              {testing === "yandex" ? "Проверка…" : "Проверить"}
-            </button>
+            {yandexAccounts.length > 0 && (
+              <button className="btn btn-secondary" onClick={() => testProvider("yandex")} disabled={testing === "yandex"}>
+                {testing === "yandex" ? "Проверка…" : "Проверить выбранный"}
+              </button>
+            )}
           </div>
 
-          {showManualCode && (
+          {showConnectForm && (
             <>
-              <label>Код подтверждения из Яндекса</label>
-              <input value={manualCode} onChange={(e) => setManualCode(e.target.value)} />
               <p className="hint">
-                Если Яндекс показал код на странице, а не вернул его автоматически — скопируйте код сюда.
+                На{" "}
+                <a href="https://oauth.yandex.ru/" target="_blank" rel="noreferrer">
+                  oauth.yandex.ru
+                </a>{" "}
+                создайте приложение и отметьте права <code>cloud_api:disk.read</code>,{" "}
+                <code>cloud_api:disk.write</code> и Яндекс.Директа. Яндекс выдаст <b>Client ID</b> и{" "}
+                <b>Client secret</b> — это не токен, а ключи, по которым приложение само получит токен.
+                Нажмите «Подключить»: откроется окно входа — <b>войдите в тот аккаунт, который добавляете</b>.
+              </p>
+              <label>Название (как вам удобно называть этот аккаунт)</label>
+              <input
+                value={draftLabel}
+                placeholder="например, Динамика или Сверху"
+                onChange={(e) => setDraftLabel(e.target.value)}
+              />
+              <label>Client ID</label>
+              <input value={draftClientId} onChange={(e) => setDraftClientId(e.target.value)} />
+              <label>Client secret</label>
+              <input
+                type="password"
+                value={draftClientSecret}
+                onChange={(e) => setDraftClientSecret(e.target.value)}
+              />
+              <p className="hint">
+                Одно приложение на oauth.yandex.ru подходит для всех трёх аккаунтов — Client ID и secret можно
+                вписать те же самые, различаться будет только аккаунт, под которым вы войдёте в открывшемся окне.
               </p>
               <div className="settings-actions">
-                <button className="btn btn-primary" onClick={() => connectYandex(true)} disabled={connecting}>
-                  Обменять код на токен
+                <button className="btn btn-primary" onClick={() => connectYandex(false)} disabled={connecting}>
+                  {connecting ? "Подключение…" : "Подключить"}
                 </button>
               </div>
+
+              {showManualCode && (
+                <>
+                  <label>Код подтверждения из Яндекса</label>
+                  <input value={manualCode} onChange={(e) => setManualCode(e.target.value)} />
+                  <p className="hint">
+                    Если Яндекс показал код на странице, а не вернул его автоматически — скопируйте код сюда.
+                  </p>
+                  <div className="settings-actions">
+                    <button className="btn btn-primary" onClick={() => connectYandex(true)} disabled={connecting}>
+                      Обменять код на токен
+                    </button>
+                  </div>
+                </>
+              )}
             </>
           )}
 
-          {accounts.yandex.token && (
-            <p className="hint">
-              Токен получен и сохранён
-              {accounts.yandex.expiresAt
-                ? ` (действует до ${new Date(accounts.yandex.expiresAt).toLocaleDateString("ru-RU")}, продлевается автоматически)`
-                : ""}
-              .
-            </p>
-          )}
           {testResult.yandex && <p className="hint chatbot-test-result">{testResult.yandex}</p>}
 
           <h3>Google Диск</h3>
