@@ -5,6 +5,8 @@ import type {
   DesignAssetKind,
   DesignDoc,
   DesignProject,
+  DesignSystem,
+  DesignSystemAssetKind,
   DesignType,
   Project,
   Settings,
@@ -14,6 +16,7 @@ import { DESIGN_SYNTAX_HINT, parseDesignDraft, uid, type ParsedDesignDraft } fro
 import { buildDesignExportHtml } from "../lib/exportHtml";
 import { sanitizeDesignHtml, sanitizeDesignSvg } from "../lib/sanitizeDesign";
 import ChatView from "./ChatView";
+import NamePrompt, { type NamePromptRequest } from "./NamePrompt";
 
 interface Props {
   projects: Project[];
@@ -22,7 +25,7 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-type Mode = "gallery" | "creator" | "project";
+type Mode = "gallery" | "creator" | "project" | "systems";
 
 const TYPE_LABELS: Record<DesignType, string> = {
   post: "Пост",
@@ -55,30 +58,51 @@ const ASSET_HINTS: Record<DesignAssetKind, string> = {
 
 const ASSET_ORDER: DesignAssetKind[] = ["logos", "fonts", "sources", "references", "system"];
 
+const SYSTEM_ASSET_ORDER: DesignSystemAssetKind[] = ["fonts", "logos", "rules"];
+
+const SYSTEM_ASSET_LABELS: Record<DesignSystemAssetKind, string> = {
+  fonts: "Шрифты",
+  logos: "Логотипы",
+  rules: "Правила (цвета, отступы, типографика)",
+};
+
+const SYSTEM_ASSET_HINTS: Record<DesignSystemAssetKind, string> = {
+  fonts: "Заголовки набираются ими. Шрифт вшивается прямо в экспорт — файл уносит гарнитуру с собой.",
+  logos: "Ассистент вставляет их в макеты как есть.",
+  rules: "Файл с правилами: цвета, отступы, типографика. Ассистент читает его целиком и обязан соблюдать.",
+};
+
 function normalizeType(raw: string): DesignType {
   return (Object.keys(TYPE_LABELS) as DesignType[]).includes(raw as DesignType) ? (raw as DesignType) : "other";
 }
 
 /**
- * Preview of one design. `projectId` makes it resolve the project's assets, so a
- * card in the gallery shows the real logo rather than a broken image — the stored
- * markup only holds references to them.
+ * Preview of one design. `hasAssets` makes it resolve the project's materials, so a
+ * card shows the real logo and the real typeface — the stored markup only holds
+ * references to them.
+ *
+ * It deliberately does not decide by looking for an ASSET: reference in the markup.
+ * A design that merely sets font-family to the brand face has no such reference, so
+ * that test skipped the substitution and with it the @font-face rule — the design
+ * quietly fell back to a system serif, which is exactly how "шрифт не подхватывается"
+ * looked.
  */
 function DesignPreview({
   content,
   format,
   projectId,
+  hasAssets,
 }: {
   content: string;
   format: "html" | "svg";
   projectId?: string;
+  hasAssets?: boolean;
 }) {
   const [resolved, setResolved] = useState(content);
 
   useEffect(() => {
     let cancelled = false;
-    const needsAssets = projectId && /ASSET:[a-z]+-\d+/i.test(content);
-    if (!needsAssets) {
+    if (!projectId || !hasAssets) {
       setResolved(content);
       return;
     }
@@ -88,7 +112,7 @@ function DesignPreview({
     return () => {
       cancelled = true;
     };
-  }, [content, projectId]);
+  }, [content, projectId, hasAssets]);
 
   if (format === "svg") {
     return <div className="design-svg-preview" dangerouslySetInnerHTML={{ __html: sanitizeDesignSvg(resolved) }} />;
@@ -103,6 +127,9 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
   const [designProjects, setDesignProjects] = useState<DesignProject[]>([]);
   const [projectId, setProjectId] = useState("");
   const [assets, setAssets] = useState<DesignAsset[]>([]);
+  const [systems, setSystems] = useState<DesignSystem[]>([]);
+  const [namePrompt, setNamePrompt] = useState<NamePromptRequest | null>(null);
+  const [activeSystemId, setActiveSystemId] = useState("");
   const [docs, setDocs] = useState<DesignDoc[]>([]);
   const [selected, setSelected] = useState<DesignDoc | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -123,7 +150,16 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
       setDesignProjects(list);
       setProjectId((current) => (list.some((p) => p.id === current) ? current : list[0]?.id ?? ""));
     });
+    refreshSystems();
   }, []);
+
+  async function refreshSystems() {
+    const list = await window.api.listDesignSystems();
+    setSystems(list);
+    setActiveSystemId((current) => (list.some((x) => x.id === current) ? current : list[0]?.id ?? ""));
+  }
+
+  const activeSystem = systems.find((x) => x.id === activeSystemId);
 
   useEffect(() => {
     refreshDocs();
@@ -201,21 +237,30 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
 
   // ---------- проекты ----------
 
-  async function createProject() {
-    const name = prompt("Название проекта дизайна", "Новый проект");
-    if (!name) return;
-    const created = await window.api.createDesignProject(name);
-    setDesignProjects(await window.api.listDesignProjects());
-    setProjectId(created.id);
-    setMode("project");
+  function createProject() {
+    setNamePrompt({
+      title: "Название проекта дизайна",
+      initial: "Новый проект",
+      confirmLabel: "Создать",
+      onSubmit: async (name) => {
+        const created = await window.api.createDesignProject(name);
+        setDesignProjects(await window.api.listDesignProjects());
+        setProjectId(created.id);
+        setMode("project");
+      },
+    });
   }
 
-  async function renameProject() {
+  function renameProject() {
     if (!project) return;
-    const name = prompt("Название проекта", project.name);
-    if (!name) return;
-    await window.api.updateDesignProject(project.id, { name });
-    setDesignProjects(await window.api.listDesignProjects());
+    setNamePrompt({
+      title: "Название проекта",
+      initial: project.name,
+      onSubmit: async (name) => {
+        await window.api.updateDesignProject(project.id, { name });
+        setDesignProjects(await window.api.listDesignProjects());
+      },
+    });
   }
 
   async function deleteProject() {
@@ -231,6 +276,72 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
     if (!project) return;
     await window.api.updateDesignProject(project.id, { linkedProjectId });
     setDesignProjects(await window.api.listDesignProjects());
+  }
+
+  /** Which design system this project works in. Its fonts and logos come with it. */
+  async function useSystem(systemId: string) {
+    if (!project) return;
+    await window.api.updateDesignProject(project.id, { systemId });
+    setDesignProjects(await window.api.listDesignProjects());
+    await refreshAssets();
+  }
+
+  // ---------- дизайн-системы ----------
+
+  function createSystem() {
+    setNamePrompt({
+      title: "Название дизайн-системы",
+      initial: "Новая дизайн-система",
+      confirmLabel: "Создать",
+      onSubmit: async (name) => {
+        const created = await window.api.createDesignSystem(name);
+        await refreshSystems();
+        setActiveSystemId(created.id);
+        setMode("systems");
+      },
+    });
+  }
+
+  function renameSystem() {
+    if (!activeSystem) return;
+    setNamePrompt({
+      title: "Название дизайн-системы",
+      initial: activeSystem.name,
+      onSubmit: async (name) => {
+        await window.api.updateDesignSystem(activeSystem.id, { name });
+        await refreshSystems();
+      },
+    });
+  }
+
+  async function deleteSystem() {
+    if (!activeSystem) return;
+    if (!confirm(`Удалить дизайн-систему «${activeSystem.name}»? Файлы на компьютере останутся.`)) return;
+    await window.api.removeDesignSystem(activeSystem.id);
+    await refreshSystems();
+    setDesignProjects(await window.api.listDesignProjects());
+    await refreshAssets();
+  }
+
+  async function saveSystemNotes(notes: string) {
+    if (!activeSystem) return;
+    await window.api.updateDesignSystem(activeSystem.id, { notes });
+    await refreshSystems();
+  }
+
+  async function addSystemAssets(kind: DesignSystemAssetKind) {
+    if (!activeSystem) return;
+    const updated = await window.api.pickDesignSystemAssets(activeSystem.id, kind);
+    if (!updated) return;
+    await refreshSystems();
+    await refreshAssets();
+  }
+
+  async function dropSystemAsset(kind: DesignSystemAssetKind, assetPath: string) {
+    if (!activeSystem) return;
+    await window.api.removeDesignSystemAsset(activeSystem.id, kind, assetPath);
+    await refreshSystems();
+    await refreshAssets();
   }
 
   async function addAssets(kind: DesignAssetKind) {
@@ -369,6 +480,7 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
 
   return (
     <div className="design-view">
+      <NamePrompt request={namePrompt} onClose={() => setNamePrompt(null)} />
       <div className="ops-toolbar">
         <h2>Дизайн</h2>
         <div>
@@ -387,6 +499,12 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
             onClick={() => setMode(mode === "project" ? "gallery" : "project")}
           >
             ⚙️ Материалы проекта
+          </button>
+          <button
+            className={mode === "systems" ? "btn btn-primary" : "btn btn-secondary"}
+            onClick={() => setMode(mode === "systems" ? "gallery" : "systems")}
+          >
+            🎨 Дизайн-системы
           </button>
           <button className="btn btn-secondary" onClick={() => window.api.openDesignFolder(projectId || undefined)}>
             📁 Папка
@@ -410,6 +528,20 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
               Удалить проект
             </button>
           </div>
+
+          <label>Дизайн-система проекта</label>
+          <select value={project.systemId} onChange={(e) => useSystem(e.target.value)}>
+            <option value="">— без дизайн-системы —</option>
+            {systems.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+          <p className="hint">
+            Её шрифты, логотипы и правила ассистент получает вместе с проектом и обязан соблюдать. Систем может
+            быть несколько — свои и клиентские; заводятся они на вкладке «🎨 Дизайн-системы».
+          </p>
 
           <label>Фирменный стиль из проекта приложения</label>
           <select value={project.linkedProjectId} onChange={(e) => linkToApp(e.target.value)}>
@@ -461,6 +593,93 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
         </div>
       )}
 
+      {mode === "systems" && (
+        <div className="panel-section design-project-panel">
+          <div className="folder-row">
+            <select value={activeSystemId} onChange={(e) => setActiveSystemId(e.target.value)}>
+              {systems.length === 0 && <option value="">— пока ни одной —</option>}
+              {systems.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+            <button className="btn btn-primary" onClick={createSystem}>
+              + Дизайн-система
+            </button>
+            {activeSystem && (
+              <>
+                <button className="btn btn-secondary" onClick={renameSystem}>
+                  Переименовать
+                </button>
+                <button className="btn btn-secondary" onClick={deleteSystem}>
+                  Удалить
+                </button>
+              </>
+            )}
+          </div>
+
+          {!activeSystem ? (
+            <p className="hint">
+              Дизайн-система — это шрифты, логотипы и правила одного бренда. Их может быть несколько: своя и по
+              одной на каждого клиента. Проект в разделе «Материалы проекта» выбирает, в какой системе он
+              делается.
+            </p>
+          ) : (
+            <>
+              <p className="hint">
+                Проектов, работающих в этой системе:{" "}
+                {designProjects.filter((p) => p.systemId === activeSystem.id).map((p) => p.name).join(", ") || "пока нет"}.
+              </p>
+
+              <label>Правила текстом — цвета, отступы, тон</label>
+              <textarea
+                key={activeSystem.id}
+                defaultValue={activeSystem.notes}
+                rows={5}
+                placeholder="Например: акцент #FF2F6D, фон #F7F6F3, заголовки 96px, отступы кратны 8, без теней."
+                onBlur={(e) => saveSystemNotes(e.target.value)}
+              />
+              <p className="hint">
+                Это самый быстрый способ задать систему — ассистент читает текст целиком и обязан ему следовать.
+                Файлы ниже дополняют его.
+              </p>
+
+              {SYSTEM_ASSET_ORDER.map((kind) => (
+                <div key={kind} className="design-asset-group">
+                  <h3>{SYSTEM_ASSET_LABELS[kind]}</h3>
+                  <p className="hint">{SYSTEM_ASSET_HINTS[kind]}</p>
+                  <ul className="doc-list">
+                    {activeSystem.assets[kind].length === 0 && <p className="hint">Пока пусто.</p>}
+                    {activeSystem.assets[kind].map((assetPath) => {
+                      const asset = assets.find((a) => a.path === assetPath && String(a.kind).startsWith("system:"));
+                      return (
+                        <li key={assetPath}>
+                          <span className="doc-name">
+                            {asset?.missing ? "⚠️ " : kind === "fonts" ? "🔤 " : "🖼️ "}
+                            {assetPath.split(/[\\/]/).pop()}
+                            {asset?.isFont && !asset.missing && (
+                              <span className="hint"> · font-family: {asset.fontFamily}</span>
+                            )}
+                            {asset?.missing && <span className="hint"> · файл не найден по прежнему пути</span>}
+                          </span>
+                          <button className="conv-delete" onClick={() => dropSystemAsset(kind, assetPath)} title="Убрать">
+                            ×
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <button className="btn btn-secondary" onClick={() => addSystemAssets(kind)}>
+                    + Добавить файлы
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {mode === "gallery" && (
         <div className="design-layout">
           <div className="design-gallery">
@@ -474,7 +693,7 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
               {docs.map((d) => (
                 <li key={d.id} className={selected?.id === d.id ? "design-card active" : "design-card"} onClick={() => setSelected(d)}>
                   <div className="design-card-preview">
-                    <DesignPreview content={d.content} format={d.format} projectId={projectId || undefined} />
+                    <DesignPreview content={d.content} format={d.format} projectId={projectId || undefined} hasAssets={assets.length > 0} />
                   </div>
                   <div className="design-card-meta">
                     <span className="design-card-title">{d.title}</span>
@@ -498,7 +717,12 @@ export default function DesignView({ projects, skills, settings, onOpenSettings 
                 {selected.type === "motion" && selected.durationSec ? ` · ${selected.durationSec} с` : ""}
               </p>
               <div className="design-viewer-preview">
-                <DesignPreview content={selected.content} format={selected.format} projectId={projectId || undefined} />
+                <DesignPreview
+                  content={selected.content}
+                  format={selected.format}
+                  projectId={projectId || undefined}
+                  hasAssets={assets.length > 0}
+                />
               </div>
               {exportError && <div className="chat-error">{exportError}</div>}
               {renderStatus && <p className="hint">{renderStatus}</p>}

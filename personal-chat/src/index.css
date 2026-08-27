@@ -1445,3 +1445,24 @@ a:hover { color: var(--accent-hover); }
 .word-list .word-block-text { padding-left: 18px; position: relative; }
 .word-list .word-block-text::before { content: "•"; position: absolute; left: 4px; color: var(--text-dim); }
 .word-block-table { margin: 4px 0; width: auto; }
+
+/* Диалог ввода названия: замена window.prompt(), которого в Electron нет. */
+.name-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.name-prompt {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  width: min(420px, 90vw);
+  box-shadow: 0 12px 40px rgba(10, 10, 10, 0.18);
+}
+.name-prompt label { display: block; margin-bottom: 6px; font-size: 13px; }
+.name-prompt input { width: 100%; margin: 0 0 12px; }

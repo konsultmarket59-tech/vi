@@ -47,6 +47,9 @@ function designRoot(root) {
 function projectsFile(root) {
   return path.join(designRoot(root), "projects.json");
 }
+function systemsFile(root) {
+  return path.join(designRoot(root), "systems.json");
+}
 
 /** Папка макетов проекта. Пустой id — общая папка, как было до появления проектов. */
 function designDir(root, projectId) {
@@ -80,6 +83,46 @@ function emptyAssets() {
   return Object.fromEntries(ASSET_KINDS.map((k) => [k, []]));
 }
 
+/**
+ * Дизайн-система — самостоятельная сущность, а не свойство проекта.
+ *
+ * Систем у агентства несколько: своя и по одной у каждого клиента, и один проект
+ * вполне может делаться в чужой системе. Поэтому системы живут отдельным списком, а
+ * проект просто указывает, какая из них сейчас в работе.
+ */
+const SYSTEM_ASSET_KINDS = ["fonts", "logos", "rules"];
+
+const SYSTEM_ASSET_LABELS = {
+  fonts: "Шрифты",
+  logos: "Логотипы",
+  rules: "Правила (цвета, отступы, типографика)",
+};
+
+function emptySystemAssets() {
+  return Object.fromEntries(SYSTEM_ASSET_KINDS.map((k) => [k, []]));
+}
+
+function systemId() {
+  return `ds-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function normalizeSystem(raw) {
+  const assets = emptySystemAssets();
+  for (const kind of SYSTEM_ASSET_KINDS) {
+    const list = raw?.assets?.[kind];
+    if (Array.isArray(list)) assets[kind] = list.filter((p) => typeof p === "string" && p.trim());
+  }
+  return {
+    id: raw.id || systemId(),
+    name: (raw.name || "Без названия").trim(),
+    /** Палитра и правила текстом — то, что быстрее вписать, чем прикладывать файлом. */
+    notes: raw.notes || "",
+    assets,
+    createdAt: raw.createdAt || Date.now(),
+    updatedAt: raw.updatedAt || Date.now(),
+  };
+}
+
 function normalizeProject(raw) {
   const assets = emptyAssets();
   for (const kind of ASSET_KINDS) {
@@ -91,6 +134,8 @@ function normalizeProject(raw) {
     name: (raw.name || "Без названия").trim(),
     /** Необязательная привязка к проекту приложения — ради его фирменного стиля. */
     linkedProjectId: raw.linkedProjectId || "",
+    /** Какая дизайн-система сейчас в работе; пусто — ни одна. */
+    systemId: raw.systemId || "",
     notes: raw.notes || "",
     assets,
     createdAt: raw.createdAt || Date.now(),
@@ -153,6 +198,62 @@ async function removeAsset(root, id, kind, assetPath) {
   if (!project) return null;
   return updateProject(root, id, {
     assets: { ...project.assets, [kind]: project.assets[kind].filter((p) => p !== assetPath) },
+  });
+}
+
+// ---------- дизайн-системы ----------
+
+async function listSystems(root) {
+  const stored = await readJson(systemsFile(root), null);
+  return Array.isArray(stored) ? stored.map(normalizeSystem) : [];
+}
+
+async function saveSystems(root, systems) {
+  await ensureDir(designRoot(root));
+  const list = systems.map(normalizeSystem);
+  await writeJson(systemsFile(root), list);
+  return list;
+}
+
+async function createSystem(root, name) {
+  const systems = await listSystems(root);
+  const system = normalizeSystem({ name: name || "Новая дизайн-система" });
+  await saveSystems(root, [...systems, system]);
+  return system;
+}
+
+async function updateSystem(root, id, patch) {
+  const systems = await listSystems(root);
+  const next = systems.map((x) => (x.id === id ? normalizeSystem({ ...x, ...patch, id, updatedAt: Date.now() }) : x));
+  await saveSystems(root, next);
+  return next.find((x) => x.id === id) || null;
+}
+
+async function removeSystem(root, id) {
+  const systems = await listSystems(root);
+  await saveSystems(root, systems.filter((x) => x.id !== id));
+  // Проекты, работавшие в этой системе, остаются без неё, а не со ссылкой в пустоту.
+  const projects = await listProjects(root);
+  const cleaned = projects.map((p) => (p.systemId === id ? { ...p, systemId: "" } : p));
+  await saveProjects(root, cleaned);
+}
+
+async function addSystemAssets(root, id, kind, paths) {
+  if (!SYSTEM_ASSET_KINDS.includes(kind)) throw new Error(`Неизвестный тип материала: ${kind}`);
+  const systems = await listSystems(root);
+  const system = systems.find((x) => x.id === id);
+  if (!system) throw new Error("Дизайн-система не найдена.");
+  const existing = new Set(system.assets[kind]);
+  const merged = [...system.assets[kind], ...paths.filter((p) => !existing.has(p))];
+  return updateSystem(root, id, { assets: { ...system.assets, [kind]: merged } });
+}
+
+async function removeSystemAsset(root, id, kind, assetPath) {
+  const systems = await listSystems(root);
+  const system = systems.find((x) => x.id === id);
+  if (!system) return null;
+  return updateSystem(root, id, {
+    assets: { ...system.assets, [kind]: system.assets[kind].filter((p) => p !== assetPath) },
   });
 }
 
@@ -245,10 +346,104 @@ function applyAssets(html, assets) {
   return faces ? `<style>\n${faces}\n</style>\n${out}` : out;
 }
 
+/**
+ * Материалы дизайн-системы, в том же виде, что и ассеты проекта.
+ * Идентификаторы с приставкой sys, чтобы не столкнуться с ассетами проекта.
+ */
+async function readSystemAssets(root, id, { withData = false } = {}) {
+  const systems = await listSystems(root);
+  const system = systems.find((x) => x.id === id);
+  if (!system) return [];
+
+  const out = [];
+  for (const kind of SYSTEM_ASSET_KINDS) {
+    const paths = system.assets[kind];
+    for (let i = 0; i < paths.length; i++) {
+      const filePath = paths[i];
+      const ext = path.extname(filePath).toLowerCase();
+      const asset = {
+        id: `sys${kind}-${i + 1}`,
+        kind: `system:${kind}`,
+        systemName: system.name,
+        path: filePath,
+        name: path.basename(filePath),
+        ext,
+        missing: false,
+        isFont: FONT_EXTS.has(ext),
+        isImage: IMAGE_EXTS.has(ext),
+        fontFamily: FONT_EXTS.has(ext) ? fontFamilyFor(filePath) : "",
+      };
+      try {
+        const stat = await fs.stat(filePath);
+        asset.size = stat.size;
+      } catch {
+        asset.missing = true;
+        out.push(asset);
+        continue;
+      }
+      if (TEXT_EXTS.has(ext) && !asset.isImage) {
+        asset.text = (await fs.readFile(filePath, "utf-8").catch(() => "")).slice(0, MAX_TEXT_ASSET_CHARS);
+      }
+      if (withData && (asset.isFont || asset.isImage)) {
+        const buffer = await fs.readFile(filePath).catch(() => null);
+        if (buffer) {
+          asset.dataUrl = `data:${MIME_BY_EXT[ext] || "application/octet-stream"};base64,${buffer.toString("base64")}`;
+        }
+      }
+      out.push(asset);
+    }
+  }
+  return out;
+}
+
+/**
+ * Всё, чем располагает проект: его собственные материалы плюс материалы выбранной
+ * дизайн-системы. Одна функция на оба применения — и промпт, и подстановку — чтобы
+ * ассистенту нельзя было пообещать шрифт, который потом не подставится.
+ */
+async function collectAssets(root, id, options = {}) {
+  const projects = await listProjects(root);
+  const project = projects.find((p) => p.id === id);
+  const own = await readAssets(root, id, options);
+  const system = project?.systemId ? await readSystemAssets(root, project.systemId, options) : [];
+  return [...system, ...own];
+}
+
 /** Текстовая опись ассетов для системного промпта. */
 function describeAssets(assets) {
   if (assets.length === 0) return "";
-  const lines = ["\n=== АССЕТЫ ПРОЕКТА ==="];
+  const lines = [];
+
+  const systemAssets = assets.filter((a) => String(a.kind).startsWith("system:"));
+  if (systemAssets.length) {
+    lines.push(`\n=== ДИЗАЙН-СИСТЕМА «${systemAssets[0].systemName}» — СОБЛЮДАТЬ ОБЯЗАТЕЛЬНО ===`);
+    for (const kind of SYSTEM_ASSET_KINDS) {
+      const group = systemAssets.filter((a) => a.kind === `system:${kind}`);
+      if (!group.length) continue;
+      lines.push(`\n${SYSTEM_ASSET_LABELS[kind]}:`);
+      for (const asset of group) {
+        if (asset.missing) {
+          lines.push(`- ${asset.name} — ФАЙЛ НЕ НАЙДЕН, не используй его`);
+          continue;
+        }
+        if (asset.isFont) {
+          lines.push(
+            `- ${asset.name} — ФИРМЕННЫЙ ШРИФТ. Заголовки набирай именно им: ` +
+              `font-family: '${asset.fontFamily}'. @font-face приложение добавит само, подключать не нужно.`
+          );
+        } else if (asset.isImage) {
+          lines.push(`- ${asset.name} — вставляй как <img src="ASSET:${asset.id}"> или background-image:url(ASSET:${asset.id})`);
+        } else {
+          lines.push(`- ${asset.name}`);
+        }
+        if (asset.text) lines.push(`  Содержимое:\n${asset.text}`);
+      }
+    }
+  }
+
+  const projectAssets = assets.filter((a) => !String(a.kind).startsWith("system:"));
+  if (projectAssets.length) lines.push("\n=== МАТЕРИАЛЫ ПРОЕКТА ===");
+  assets = projectAssets;
   for (const kind of ASSET_KINDS) {
     const group = assets.filter((a) => a.kind === kind);
     if (group.length === 0) continue;
@@ -259,7 +454,10 @@ function describeAssets(assets) {
         continue;
       }
       if (asset.isFont) {
-        lines.push(`- ${asset.name} — шрифт, подключай как font-family: '${asset.fontFamily}'`);
+        lines.push(
+          `- ${asset.name} — ФИРМЕННЫЙ ШРИФТ. Заголовки набирай именно им: ` +
+            `font-family: '${asset.fontFamily}'. @font-face приложение добавит само.`
+        );
       } else if (kind === "references") {
         // Референс — ориентир, а не материал: подсказывать способ вставки нельзя,
         // иначе ассистент вклеит его в макет вместо того, чтобы сделать своё.
@@ -381,13 +579,20 @@ async function migrateLegacy(root, appProjects) {
 
 // ---------- промпт ассистента ----------
 
-function buildAgentSystemPrompt(brand, project, assets) {
+function buildAgentSystemPrompt(brand, project, assets, system) {
   const parts = [
     "Ты — дизайн-ассистент. Помогаешь создавать посты для соцсетей, макеты документов, слайды презентаций, " +
       "дизайн-системы, черновики страниц сайта, простую векторную графику (логотипы, иконки) и анимационные " +
       "ролики (моушн-дизайн).",
   ];
   if (project?.name) parts.push(`\nПроект: «${project.name}».`);
+  if (system?.name) {
+    parts.push(
+      `Дизайн-система проекта: «${system.name}». Это не пожелание, а рамка: цвета, шрифты, отступы и ` +
+        "типографику бери из неё и не придумывай своих."
+    );
+    if (system.notes) parts.push(`Правила системы:\n${system.notes}`);
+  }
   if (project?.notes) parts.push(`Заметки по проекту: ${project.notes}`);
   if (brand && (brand.companyName || brand.accentColor)) {
     parts.push(
@@ -417,6 +622,16 @@ function buildAgentSystemPrompt(brand, project, assets) {
 module.exports = {
   ASSET_KINDS,
   ASSET_KIND_LABELS,
+  SYSTEM_ASSET_KINDS,
+  SYSTEM_ASSET_LABELS,
+  listSystems,
+  createSystem,
+  updateSystem,
+  removeSystem,
+  addSystemAssets,
+  removeSystemAsset,
+  readSystemAssets,
+  collectAssets,
   list,
   save,
   remove,

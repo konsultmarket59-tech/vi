@@ -1495,17 +1495,38 @@ ipcMain.handle("excel:buildAgentPrompt", async () => {
   return excel.buildAgentPrompt(openWorkbook);
 });
 
-ipcMain.handle("excel:getAgentConversation", async () => {
-  const root = await getRootPath();
-  return readJson(path.join(root, "excel", "_agent_chat.json"), null);
-});
+/**
+ * Разговор с агентом привязан к открытому документу.
+ *
+ * Иначе получается то, на что и наткнулись: открываешь другую таблицу, а агент
+ * продолжает обсуждать предыдущую — он видит новые данные, но помнит старый разговор
+ * и уверенно ссылается на файл, которого уже нет на экране. Ключ — путь к файлу (для
+ * несохранённого документа его имя); при несовпадении переписка начинается с чистого
+ * листа. Прошлые разговоры не копятся: файл всегда один и перезаписывается.
+ */
+function documentChatKey(model) {
+  return model ? model.filePath || `__new__:${model.name}` : "";
+}
 
-ipcMain.handle("excel:saveAgentConversation", async (_e, conv) => {
+async function readDocumentChat(folder, key) {
   const root = await getRootPath();
-  await ensureDir(path.join(root, "excel"));
-  await writeJson(path.join(root, "excel", "_agent_chat.json"), conv);
-  return conv;
-});
+  const stored = await readJson(path.join(root, folder, "_agent_chat.json"), null);
+  if (!stored || stored.key !== key) return null;
+  return stored.conversation || null;
+}
+
+async function writeDocumentChat(folder, key, conversation) {
+  const root = await getRootPath();
+  await ensureDir(path.join(root, folder));
+  await writeJson(path.join(root, folder, "_agent_chat.json"), { key, conversation });
+  return conversation;
+}
+
+ipcMain.handle("excel:getAgentConversation", () => readDocumentChat("excel", documentChatKey(openWorkbook)));
+
+ipcMain.handle("excel:saveAgentConversation", (_e, conv) =>
+  writeDocumentChat("excel", documentChatKey(openWorkbook), conv)
+);
 
 // ---------- Word ----------
 
@@ -1584,17 +1605,11 @@ ipcMain.handle("word:buildAgentPrompt", async () => {
   return word.buildAgentPrompt(openDocument);
 });
 
-ipcMain.handle("word:getAgentConversation", async () => {
-  const root = await getRootPath();
-  return readJson(path.join(root, "word", "_agent_chat.json"), null);
-});
+ipcMain.handle("word:getAgentConversation", () => readDocumentChat("word", documentChatKey(openDocument)));
 
-ipcMain.handle("word:saveAgentConversation", async (_e, conv) => {
-  const root = await getRootPath();
-  await ensureDir(path.join(root, "word"));
-  await writeJson(path.join(root, "word", "_agent_chat.json"), conv);
-  return conv;
-});
+ipcMain.handle("word:saveAgentConversation", (_e, conv) =>
+  writeDocumentChat("word", documentChatKey(openDocument), conv)
+);
 
 // ---------- Storage report & archiving ----------
 //
@@ -2201,7 +2216,38 @@ ipcMain.handle("design:removeAsset", async (_e, id, kind, assetPath) =>
   design.removeAsset(await getRootPath(), id, kind, assetPath)
 );
 
-ipcMain.handle("design:listAssets", async (_e, id) => design.readAssets(await getRootPath(), id));
+ipcMain.handle("design:listAssets", async (_e, id) => design.collectAssets(await getRootPath(), id));
+
+// ---- дизайн-системы ----
+
+ipcMain.handle("design:listSystems", async () => design.listSystems(await getRootPath()));
+ipcMain.handle("design:createSystem", async (_e, name) => design.createSystem(await getRootPath(), name));
+ipcMain.handle("design:updateSystem", async (_e, id, patch) => design.updateSystem(await getRootPath(), id, patch));
+ipcMain.handle("design:removeSystem", async (_e, id) => {
+  await design.removeSystem(await getRootPath(), id);
+  return design.listSystems(await getRootPath());
+});
+
+ipcMain.handle("design:pickSystemAssets", async (_e, id, kind) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const filters =
+    kind === "fonts"
+      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
+      : kind === "rules"
+        ? [{ name: "Правила", extensions: ["md", "txt", "json", "css", "svg"] }]
+        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }];
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы дизайн-системы",
+    properties: ["openFile", "multiSelections"],
+    filters,
+  });
+  if (picked.canceled || picked.filePaths.length === 0) return null;
+  return design.addSystemAssets(await getRootPath(), id, kind, picked.filePaths);
+});
+
+ipcMain.handle("design:removeSystemAsset", async (_e, id, kind, assetPath) =>
+  design.removeSystemAsset(await getRootPath(), id, kind, assetPath)
+);
 
 /**
  * Подставляет ассеты в разметку. Renderer вызывает это и для предпросмотра, и перед
@@ -2209,7 +2255,7 @@ ipcMain.handle("design:listAssets", async (_e, id) => design.readAssets(await ge
  */
 ipcMain.handle("design:applyAssets", async (_e, id, html) => {
   if (!id) return html;
-  const assets = await design.readAssets(await getRootPath(), id, { withData: true });
+  const assets = await design.collectAssets(await getRootPath(), id, { withData: true });
   return design.applyAssets(html, assets);
 });
 
@@ -2232,8 +2278,10 @@ ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
     if (meta?.designSystemPaths?.length) designSystem = await readDesignSystem(meta.designSystemPaths);
   }
 
-  const assets = projectId ? await design.readAssets(root, projectId) : [];
-  const base = design.buildAgentSystemPrompt(brand, project, assets);
+  const assets = projectId ? await design.collectAssets(root, projectId) : [];
+  const systems = await design.listSystems(root);
+  const system = systems.find((x) => x.id === project?.systemId) || null;
+  const base = design.buildAgentSystemPrompt(brand, project, assets, system);
   if (!designSystem.trim()) return base;
   return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРИВЯЗАННОГО ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
 });
@@ -2258,7 +2306,7 @@ ipcMain.handle("design:render", async (_e, payload) => {
   if (result.canceled || !result.filePath) return null;
 
   const root = await getRootPath();
-  const assets = projectId ? await design.readAssets(root, projectId, { withData: true }) : [];
+  const assets = projectId ? await design.collectAssets(root, projectId, { withData: true }) : [];
   const ready = design.applyAssets(html, assets);
 
   const send = (progress) => {

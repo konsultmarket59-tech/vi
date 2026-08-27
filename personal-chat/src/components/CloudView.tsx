@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CloudAccounts, CloudEntry, CloudProvider, Project, YandexAccount } from "../lib/types";
+import NamePrompt, { type NamePromptRequest } from "./NamePrompt";
 
 interface Props {
   projects: Project[];
@@ -48,6 +49,7 @@ export default function CloudView({ projects }: Props) {
   const [draftClientSecret, setDraftClientSecret] = useState("");
   const [draftLabel, setDraftLabel] = useState("");
   const [showConnectForm, setShowConnectForm] = useState(false);
+  const [namePrompt, setNamePrompt] = useState<NamePromptRequest | null>(null);
 
   const [folder, setFolder] = useState("disk:/");
   const [trail, setTrail] = useState<{ name: string; path: string }[]>([{ name: "Корень", path: "disk:/" }]);
@@ -196,10 +198,12 @@ export default function CloudView({ projects }: Props) {
     setAccounts(await window.api.removeYandexAccount(account.id));
   }
 
-  async function renameAccount(account: YandexAccount) {
-    const label = prompt("Название аккаунта", accountName(account));
-    if (label === null) return;
-    setAccounts(await window.api.renameYandexAccount(account.id, label));
+  function renameAccount(account: YandexAccount) {
+    setNamePrompt({
+      title: "Название аккаунта",
+      initial: accountName(account),
+      onSubmit: async (label) => setAccounts(await window.api.renameYandexAccount(account.id, label)),
+    });
   }
 
   async function testProvider(p: CloudProvider) {
@@ -247,6 +251,7 @@ export default function CloudView({ projects }: Props) {
 
   return (
     <div className="ops-view">
+      <NamePrompt request={namePrompt} onClose={() => setNamePrompt(null)} />
       <div className="ops-toolbar">
         <h2>☁️ Облако</h2>
         <div className="project-tabs">

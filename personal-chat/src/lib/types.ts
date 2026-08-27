@@ -372,15 +372,33 @@ export interface DesignProject {
   name: string;
   /** Optional link to an app project, purely to inherit its brand kit. */
   linkedProjectId: string;
+  /** Which design system the project works in; empty for none. */
+  systemId: string;
   notes: string;
   assets: Record<DesignAssetKind, string[]>;
   createdAt: number;
   updatedAt: number;
 }
 
+export type DesignSystemAssetKind = "fonts" | "logos" | "rules";
+
+/** A brand's design system — several can exist, and a project picks one. */
+export interface DesignSystem {
+  id: string;
+  name: string;
+  /** Palette and rules as text, for what is quicker to type than to attach. */
+  notes: string;
+  assets: Record<DesignSystemAssetKind, string[]>;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DesignAsset {
   id: string;
-  kind: DesignAssetKind;
+  /** A project's own kind, or "system:fonts" etc. for design-system material. */
+  kind: DesignAssetKind | string;
+  /** Set on design-system material: which system it came from. */
+  systemName?: string;
   path: string;
   name: string;
   ext: string;
@@ -725,6 +743,12 @@ export interface ElectronAPI {
   pickDesignAssets(id: string, kind: DesignAssetKind): Promise<DesignProject | null>;
   removeDesignAsset(id: string, kind: DesignAssetKind, assetPath: string): Promise<DesignProject | null>;
   listDesignAssets(id: string): Promise<DesignAsset[]>;
+  listDesignSystems(): Promise<DesignSystem[]>;
+  createDesignSystem(name: string): Promise<DesignSystem>;
+  updateDesignSystem(id: string, patch: Partial<DesignSystem>): Promise<DesignSystem | null>;
+  removeDesignSystem(id: string): Promise<DesignSystem[]>;
+  pickDesignSystemAssets(id: string, kind: DesignSystemAssetKind): Promise<DesignSystem | null>;
+  removeDesignSystemAsset(id: string, kind: DesignSystemAssetKind, assetPath: string): Promise<DesignSystem | null>;
   /** Replaces ASSET:… references with embedded data and adds @font-face rules. */
   applyDesignAssets(id: string, html: string): Promise<string>;
   renderDesign(payload: {

@@ -129,6 +129,21 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
     setEditorValue(editValue(sheet?.cells[selected]));
   }, [selected, activeSheet, workbook]);
 
+  /**
+   * Forgets the conversation about the previous file.
+   *
+   * The agent's chat belongs to the document that is open: leaving it on screen after
+   * opening another workbook meant the assistant kept discussing a file that was no
+   * longer there. If the agent panel is open, it reloads for the new document.
+   */
+  async function resetAgentForNewDocument() {
+    setAgentConv(null);
+    setPendingEdit(null);
+    setEditExpanded(false);
+    handledEditIdRef.current = null;
+    if (mode !== "grid") await openAgent(mode);
+  }
+
   async function newWorkbook() {
     setError(null);
     setBusy(true);
@@ -137,6 +152,7 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
       setWorkbook(wb);
       setActiveSheet(wb.sheets[0]?.name ?? "");
       setSelected("A1");
+      await resetAgentForNewDocument();
       setSavedNote("Книга создана. Она появится на диске, когда вы нажмёте «Сохранить».");
       setTimeout(() => setSavedNote(null), 6000);
     } catch (e) {
@@ -156,6 +172,7 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
       setWorkbook(wb);
       setActiveSheet(wb.sheets[0]?.name ?? "");
       setSelected("A1");
+      await resetAgentForNewDocument();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

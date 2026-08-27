@@ -55,6 +55,15 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
     setTimeout(() => setNote(null), ms);
   }
 
+  /** Same reasoning as in Excel: the conversation belongs to the open document. */
+  async function resetAgentForNewDocument() {
+    setAgentConv(null);
+    setPendingEdit(null);
+    setEditExpanded(false);
+    handledEditIdRef.current = null;
+    if (mode !== "doc") await openAgent(mode);
+  }
+
   async function openFile() {
     setError(null);
     const filePath = await window.api.pickWordFile();
@@ -64,6 +73,7 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
       const opened = await window.api.openWordFile(filePath);
       setDoc(opened);
       setSelected(opened.blocks[0]?.index ?? 0);
+      await resetAgentForNewDocument();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -78,6 +88,7 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
       const created = await window.api.newWordDocument("Новый документ.docx");
       setDoc(created);
       setSelected(0);
+      await resetAgentForNewDocument();
       showNote("Документ создан. Он появится на диске, когда вы нажмёте «Сохранить».");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
