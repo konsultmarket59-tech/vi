@@ -121,7 +121,12 @@ export default function App() {
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {view.kind === "design" && (
-          <DesignView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
+          <DesignView
+            projects={projects}
+            skills={skills}
+            settings={settings}
+            onOpenSettings={() => setView({ kind: "settings" })}
+          />
         )}
         {view.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />

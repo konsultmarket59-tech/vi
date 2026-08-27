@@ -202,6 +202,22 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
   },
 
   // design section
+  // Проекты дизайна и их ассеты
+  listDesignProjects: () => ipcRenderer.invoke("design:listProjects"),
+  createDesignProject: (name) => ipcRenderer.invoke("design:createProject", name),
+  updateDesignProject: (id, patch) => ipcRenderer.invoke("design:updateProject", id, patch),
+  removeDesignProject: (id) => ipcRenderer.invoke("design:removeProject", id),
+  pickDesignAssets: (id, kind) => ipcRenderer.invoke("design:pickAssets", id, kind),
+  removeDesignAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeAsset", id, kind, assetPath),
+  listDesignAssets: (id) => ipcRenderer.invoke("design:listAssets", id),
+  applyDesignAssets: (id, html) => ipcRenderer.invoke("design:applyAssets", id, html),
+  renderDesign: (payload) => ipcRenderer.invoke("design:render", payload),
+  onDesignRenderProgress: (callback) => {
+    const listener = (_e, progress) => callback(progress);
+    ipcRenderer.on("design:renderProgress", listener);
+    return () => ipcRenderer.removeListener("design:renderProgress", listener);
+  },
+
   listDesignDocs: (projectId) => ipcRenderer.invoke("design:list", projectId),
   saveDesignDoc: (payload) => ipcRenderer.invoke("design:save", payload.projectId, payload),
   deleteDesignDoc: (id, projectId) => ipcRenderer.invoke("design:delete", projectId, id),

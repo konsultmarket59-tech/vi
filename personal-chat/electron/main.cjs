@@ -636,6 +636,7 @@ const tasks = require("./tasks.cjs");
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const exportDocs = require("./exportDocs.cjs");
+const motion = require("./motion.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
 const cloud = require("./cloud.cjs");
@@ -2093,24 +2094,125 @@ ipcMain.handle("media:pickReferenceImage", async () => {
 
 // ---------- design section IPC ----------
 
+// ---------- Дизайн ----------
+
+/** Проекты дизайна, с одноразовым переносом старых макетов при первом обращении. */
+async function designProjects() {
+  const root = await getRootPath();
+  const existing = await design.listProjects(root);
+  if (existing.length > 0) return existing;
+  return design.migrateLegacy(root, await listProjects());
+}
+
+ipcMain.handle("design:listProjects", () => designProjects());
+ipcMain.handle("design:createProject", async (_e, name) => design.createProject(await getRootPath(), name));
+ipcMain.handle("design:updateProject", async (_e, id, patch) => design.updateProject(await getRootPath(), id, patch));
+ipcMain.handle("design:removeProject", async (_e, id) => {
+  await design.removeProject(await getRootPath(), id);
+  return designProjects();
+});
+
+// Ассеты выбираются диалогом: пути к файлам на компьютере, файлы не копируются.
+ipcMain.handle("design:pickAssets", async (_e, id, kind) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const filters =
+    kind === "fonts"
+      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
+      : kind === "system"
+        ? [{ name: "Файлы дизайн-системы", extensions: ["md", "txt", "json", "css", "svg", "png", "jpg", "jpeg"] }]
+        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp", "gif", "avif"] }];
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы",
+    properties: ["openFile", "multiSelections"],
+    filters,
+  });
+  if (picked.canceled || picked.filePaths.length === 0) return null;
+  return design.addAssets(await getRootPath(), id, kind, picked.filePaths);
+});
+
+ipcMain.handle("design:removeAsset", async (_e, id, kind, assetPath) =>
+  design.removeAsset(await getRootPath(), id, kind, assetPath)
+);
+
+ipcMain.handle("design:listAssets", async (_e, id) => design.readAssets(await getRootPath(), id));
+
+/**
+ * Подставляет ассеты в разметку. Renderer вызывает это и для предпросмотра, и перед
+ * экспортом — чтобы то, что видно на экране, совпадало с тем, что уйдёт в файл.
+ */
+ipcMain.handle("design:applyAssets", async (_e, id, html) => {
+  if (!id) return html;
+  const assets = await design.readAssets(await getRootPath(), id, { withData: true });
+  return design.applyAssets(html, assets);
+});
+
 ipcMain.handle("design:list", async (_e, projectId) => design.list(await getRootPath(), projectId));
 ipcMain.handle("design:save", async (_e, projectId, doc) => design.save(await getRootPath(), projectId, doc));
 ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await getRootPath(), projectId, id));
+
 ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
   const root = await getRootPath();
+  const projects = await designProjects();
+  const project = projects.find((p) => p.id === projectId) || null;
+
+  // Фирменный стиль берётся из проекта приложения, если дизайн-проект к нему привязан.
   let brand;
   let designSystem = "";
-  if (projectId) {
-    const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  const linked = project?.linkedProjectId;
+  if (linked) {
+    const meta = await readJson(path.join(projectDir(root, linked), "project.json"), null);
     brand = meta?.brand;
     if (meta?.designSystemPaths?.length) designSystem = await readDesignSystem(meta.designSystemPaths);
   }
-  const base = design.buildAgentSystemPrompt(brand);
+
+  const assets = projectId ? await design.readAssets(root, projectId) : [];
+  const base = design.buildAgentSystemPrompt(brand, project, assets);
   if (!designSystem.trim()) return base;
-  return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
+  return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРИВЯЗАННОГО ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
 });
+
 ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
 ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
+
+/**
+ * Экспорт макета в точный размер (PNG) или ролика (MP4).
+ *
+ * Оба идут не через общий HTML-экспорт, а через motion.cjs: тот рендерит полосами,
+ * поэтому макет выше экрана не обрезается — см. комментарий в самом модуле.
+ */
+ipcMain.handle("design:render", async (_e, payload) => {
+  const { kind, html, width, height, fps, durationSec, defaultName, projectId } = payload || {};
+  const win = BrowserWindow.getFocusedWindow();
+  const ext = kind === "mp4" ? "mp4" : "png";
+  const result = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(await resolveExportDir(), sanitizeFileName(defaultName || "design") + "." + ext),
+    filters: [{ name: kind === "mp4" ? "Видео MP4" : "PNG", extensions: [ext] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+
+  const root = await getRootPath();
+  const assets = projectId ? await design.readAssets(root, projectId, { withData: true }) : [];
+  const ready = design.applyAssets(html, assets);
+
+  const send = (progress) => {
+    if (!win.isDestroyed()) win.webContents.send("design:renderProgress", progress);
+  };
+
+  if (kind === "mp4") {
+    const out = await motion.renderMp4({
+      html: ready,
+      width,
+      height,
+      fps,
+      durationSec,
+      outPath: result.filePath,
+      onProgress: send,
+    });
+    return out;
+  }
+  return motion.renderPng({ html: ready, width, height, outPath: result.filePath });
+});
+
 ipcMain.handle("design:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
   const dir = design.designDir(root, projectId);

@@ -355,7 +355,15 @@ export interface MediaGenerationResult {
   costRub?: number;
 }
 
-export type DesignType = "post" | "document" | "presentation" | "design-system" | "website" | "graphic" | "other";
+export type DesignType =
+  | "post"
+  | "document"
+  | "presentation"
+  | "design-system"
+  | "website"
+  | "graphic"
+  | "motion"
+  | "other";
 export type DesignFormat = "html" | "svg";
 
 export interface DesignDoc {
@@ -364,9 +372,49 @@ export interface DesignDoc {
   type: DesignType;
   format: DesignFormat;
   content: string;
+  /** Motion designs only: how long the clip runs, as declared by the assistant. */
+  durationSec?: number;
   projectId?: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** The kinds of material a design project can point at on the computer. */
+export type DesignAssetKind = "logos" | "fonts" | "sources" | "references" | "system";
+
+export interface DesignProject {
+  id: string;
+  name: string;
+  /** Optional link to an app project, purely to inherit its brand kit. */
+  linkedProjectId: string;
+  notes: string;
+  assets: Record<DesignAssetKind, string[]>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DesignAsset {
+  id: string;
+  kind: DesignAssetKind;
+  path: string;
+  name: string;
+  ext: string;
+  size?: number;
+  missing: boolean;
+  isFont: boolean;
+  isImage: boolean;
+  /** CSS family name for a font asset; empty otherwise. */
+  fontFamily: string;
+  text?: string;
+}
+
+export interface DesignRenderResult {
+  path: string;
+  width?: number;
+  height?: number;
+  frames?: number;
+  fps?: number;
+  durationSec?: number;
 }
 
 export type CloudProvider = "yandex" | "google";
@@ -662,6 +710,27 @@ export interface ElectronAPI {
   onMediaProgress(callback: (status: string) => void): () => void;
 
   // design section
+  listDesignProjects(): Promise<DesignProject[]>;
+  createDesignProject(name: string): Promise<DesignProject>;
+  updateDesignProject(id: string, patch: Partial<DesignProject>): Promise<DesignProject | null>;
+  removeDesignProject(id: string): Promise<DesignProject[]>;
+  pickDesignAssets(id: string, kind: DesignAssetKind): Promise<DesignProject | null>;
+  removeDesignAsset(id: string, kind: DesignAssetKind, assetPath: string): Promise<DesignProject | null>;
+  listDesignAssets(id: string): Promise<DesignAsset[]>;
+  /** Replaces ASSET:… references with embedded data and adds @font-face rules. */
+  applyDesignAssets(id: string, html: string): Promise<string>;
+  renderDesign(payload: {
+    kind: "png" | "mp4";
+    html: string;
+    width: number;
+    height: number;
+    fps?: number;
+    durationSec?: number;
+    defaultName: string;
+    projectId?: string;
+  }): Promise<DesignRenderResult | null>;
+  onDesignRenderProgress(callback: (progress: { frame: number; total: number }) => void): () => void;
+
   listDesignDocs(projectId?: string): Promise<DesignDoc[]>;
   saveDesignDoc(payload: {
     id?: string | null;
@@ -669,6 +738,7 @@ export interface ElectronAPI {
     type: DesignType;
     format: DesignFormat;
     content: string;
+    durationSec?: number;
     projectId?: string;
   }): Promise<DesignDoc>;
   deleteDesignDoc(id: string, projectId?: string): Promise<void>;

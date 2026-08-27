@@ -1386,3 +1386,20 @@ a:hover { color: var(--accent-hover); }
 /* Переключатель аккаунта стоит прямо в шапке раздела: он определяет, чьи кампании
    вы видите, и это должно быть видно всегда, а не только на вкладке подключения. */
 .direct-account-picker { width: auto; margin: 0 0 0 6px; padding: 4px 8px; font-size: 13px; }
+
+/* Материалы проекта дизайна: группы ассетов идут списком, каждая со своей подписью,
+   потому что смысл у них разный — исходники вставляются, референсы нет. */
+.design-project-panel .design-asset-group { margin-top: 18px; }
+.design-project-panel .design-asset-group h3 { margin-bottom: 2px; }
+
+/* Плашка предложенного дизайна: слева что это, справа — что с ним можно сделать.
+   Экспорт стоит прямо здесь, чтобы сохранить результат, не заводя его в галерею. */
+.design-pending-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.design-pending-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.design-pending-actions .design-export-actions { margin: 0; }

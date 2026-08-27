@@ -16,10 +16,29 @@ import DOMPurify from "dompurify";
  * <iframe sandbox=""> where scripts can't run at all, and DOMPurify still strips
  * script/event-handler content regardless.
  */
+/**
+ * DOMPurify's default scheme list with "asset:" added.
+ *
+ * A design refers to a project's logo or photo as src="ASSET:logos-1", and the app
+ * swaps those for the real file only when the design is shown or exported — that
+ * indirection is what lets an edited logo on disk appear in designs made months ago.
+ * Without this the reference is stripped as an unknown scheme and the link to the
+ * project's materials is lost at the first sanitize. It grants nothing: an
+ * unsubstituted asset: URL is simply an image that fails to load, and no scheme can
+ * execute script in an <iframe sandbox=""> anyway.
+ */
+const ALLOWED_URI_REGEXP =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|asset):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
 export function sanitizeDesignHtml(html: string): string {
-  return DOMPurify.sanitize(html, { ADD_TAGS: ["style"], FORCE_BODY: true, WHOLE_DOCUMENT: false });
+  return DOMPurify.sanitize(html, {
+    ADD_TAGS: ["style"],
+    FORCE_BODY: true,
+    WHOLE_DOCUMENT: false,
+    ALLOWED_URI_REGEXP,
+  });
 }
 
 export function sanitizeDesignSvg(svg: string): string {
-  return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
+  return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true }, ALLOWED_URI_REGEXP });
 }
