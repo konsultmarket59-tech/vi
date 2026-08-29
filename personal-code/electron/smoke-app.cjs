@@ -225,6 +225,31 @@ app.whenReady().then(async () => {
     const settingsText = await win.webContents.executeJavaScript(text(".settings-view"));
     check("есть раздел прокси", settingsText.includes("Прокси"), "");
     check("есть поле ключа Polza", settingsText.includes("Polza"), "");
+    // Те же разделы, что и в «Личном чате»: человек ходит между двумя
+    // приложениями и не должен искать одну и ту же настройку в разных местах.
+    check("есть раздел «Папка с данными»", settingsText.includes("Папка с данными"), "");
+    check("папка показана путём", await win.webContents.executeJavaScript(
+      `(document.querySelector(".folder-path")||{}).textContent.length > 3`
+    ));
+    check("есть раздел «Доступ в интернет»", settingsText.includes("Доступ в интернет"), "");
+    check("есть раздел «Обслуживание»", settingsText.includes("Обслуживание"), "");
+
+    // Поисковик прячется, пока поиск не разрешён, и появляется, когда разрешён.
+    check("выбор поисковика скрыт, пока поиск выключен", !settingsText.includes("DuckDuckGo"), "");
+    await win.webContents.executeJavaScript(
+      `document.querySelector(".checkbox-row input[type=checkbox]").click()`
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    check(
+      "после разрешения появляется выбор поисковика",
+      (await win.webContents.executeJavaScript(text(".settings-view"))).includes("DuckDuckGo")
+    );
+    await win.webContents.executeJavaScript(
+      `document.querySelector(".checkbox-row input[type=checkbox]").click()`
+    );
+
+    const report = await win.webContents.executeJavaScript(`window.api.storageReport()`);
+    check("отчёт о месте считается", typeof report.totalBytes === "number", JSON.stringify(report));
     await win.webContents.capturePage().then((img) =>
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-settings.png"), img.toPNG())
     );

@@ -17,6 +17,7 @@ const agent = require("./agent.cjs");
 const blueprints = require("./blueprints.cjs");
 const demoAccess = require("./demoAccess.cjs");
 const pluginArchive = require("./pluginArchive.cjs");
+const websearch = require("./websearch.cjs");
 
 let mainWindow = null;
 
@@ -56,6 +57,80 @@ async function openWorkspace(dir) {
   currentRoot = path.resolve(dir);
   const recent = await rememberWorkspace(currentRoot);
   return { root: currentRoot, isRepo: git.isRepo(currentRoot), recent };
+}
+
+// ---------- data folder ----------
+
+// Архив плагинов живёт в «Документы\\Личный код», пока не выбрана другая папка.
+// Одно место, которое об этом знает, чтобы настройка и запуск не разошлись.
+function dataRootOf(settings) {
+  const chosen = (settings?.dataRoot || "").trim();
+  return chosen || settingsStore.stripWindowsExtendedPrefix(app.getPath("documents"));
+}
+
+async function applyDataRoot() {
+  const settings = await settingsStore.load();
+  const root = dataRootOf(settings);
+  pluginArchive.init(root);
+  return root;
+}
+
+function conversationsDir() {
+  return path.join(settingsStore.stripWindowsExtendedPrefix(app.getPath("userData")), "conversations");
+}
+
+/** Размер папки и число файлов в ней — для раздела «Обслуживание». */
+async function folderSize(dir) {
+  let bytes = 0;
+  let files = 0;
+  async function walk(current) {
+    const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) {
+        const stat = await fs.stat(full).catch(() => null);
+        if (stat) {
+          bytes += stat.size;
+          files++;
+        }
+      }
+    }
+  }
+  await walk(dir);
+  return { bytes, files };
+}
+
+/**
+ * Что занимает место. У этого приложения ответ короткий: архив плагинов (там
+ * лежат версии, которые намеренно не перезаписываются) и переписка с агентом по
+ * каждой открытой папке.
+ */
+async function storageReport() {
+  const settings = await settingsStore.load();
+  const archiveRoot = path.join(dataRootOf(settings), "Личный код", "Плагины");
+  const folders = [];
+
+  const plugins = await fs.readdir(archiveRoot, { withFileTypes: true }).catch(() => []);
+  for (const entry of plugins) {
+    if (!entry.isDirectory()) continue;
+    const { bytes, files } = await folderSize(path.join(archiveRoot, entry.name));
+    const versions = (await fs.readdir(path.join(archiveRoot, entry.name), { withFileTypes: true }).catch(() => []))
+      .filter((v) => v.isDirectory() && /^v\d+$/.test(v.name)).length;
+    folders.push({ name: `Плагин «${entry.name}»`, bytes, files, versions });
+  }
+
+  const conversations = await folderSize(conversationsDir());
+  if (conversations.files) {
+    folders.push({ name: "Переписка с агентом", bytes: conversations.bytes, files: conversations.files, versions: 0 });
+  }
+
+  folders.sort((a, b) => b.bytes - a.bytes);
+  return {
+    rootPath: archiveRoot,
+    totalBytes: folders.reduce((sum, f) => sum + f.bytes, 0),
+    folders,
+  };
 }
 
 // ---------- agent conversations ----------
@@ -115,8 +190,11 @@ async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
   const context = await agent.buildContext(root, { openFile });
 
   const history = trimHistory(conversation.messages);
+  // Поиск в интернете — такой же читающий инструмент, как чтение файла: ничего
+  // не меняет, поэтому выполняется сразу, без подтверждения.
+  const webAllowed = settings.searchEnabled === true;
   const messages = [
-    { role: "system", content: agent.SYSTEM_PROMPT },
+    { role: "system", content: agent.SYSTEM_PROMPT + (webAllowed ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
     { role: "system", content: "Текущий проект.\n" + context },
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: "user", content: userMessage },
@@ -126,7 +204,8 @@ async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
   let reply = await settingsStore.callModel(settings, messages);
 
   for (let round = 0; round < agent.TOOL_ROUND_LIMIT; round++) {
-    const toolOutput = await agent.runReadTools(root, reply);
+    const toolOutput =
+      (await agent.runReadTools(root, reply)) ?? (webAllowed ? await websearch.runTools(reply, settings) : null);
     if (toolOutput == null) break;
     transcript.push({ role: "assistant", content: reply });
     transcript.push({ role: "user", content: toolOutput });
@@ -188,7 +267,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   settingsStore.init();
   demoAccess.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("userData")));
-  pluginArchive.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("documents")));
+  await applyDataRoot();
   await settingsStore.applyProxy(await settingsStore.load());
   const saved = await settingsStore.readSection("workspace", "");
   if (saved && fsSync.existsSync(saved)) currentRoot = saved;
@@ -208,7 +287,34 @@ app.on("window-all-closed", () => {
 function registerHandlers() {
   // settings
   ipcMain.handle("settings:get", () => settingsStore.load());
-  ipcMain.handle("settings:save", (_e, patch) => settingsStore.save(patch));
+  ipcMain.handle("settings:save", async (_e, patch) => {
+    const saved = await settingsStore.save(patch);
+    // Папка с данными могла смениться — архив плагинов должен смотреть туда же,
+    // куда указывают настройки, не дожидаясь перезапуска.
+    await applyDataRoot();
+    return saved;
+  });
+  ipcMain.handle("settings:dataFolder", async () => {
+    const settings = await settingsStore.load();
+    return path.join(dataRootOf(settings), "Личный код");
+  });
+  ipcMain.handle("settings:chooseDataFolder", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Где хранить данные «Личного кода»",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const saved = await settingsStore.save({ dataRoot: result.filePaths[0] });
+    await applyDataRoot();
+    return { settings: saved, folder: path.join(dataRootOf(saved), "Личный код") };
+  });
+  ipcMain.handle("settings:openDataFolder", async () => {
+    const settings = await settingsStore.load();
+    const dir = path.join(dataRootOf(settings), "Личный код");
+    await fs.mkdir(dir, { recursive: true });
+    return shell.openPath(dir);
+  });
+  ipcMain.handle("settings:storageReport", () => storageReport());
   ipcMain.handle("settings:testProxy", (_e, draft) => settingsStore.testProxy(draft || {}));
   ipcMain.handle("models:list", (_e, draft) => settingsStore.listModels(draft));
 

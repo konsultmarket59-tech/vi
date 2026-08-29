@@ -33,6 +33,14 @@ const DEFAULT_SETTINGS = {
   // repository.
   gitToken: "",
   gitTokenUser: "",
+  // Доступ агента в интернет — тот же набор, что и в «Личном чате», чтобы
+  // настройка называлась и вела себя одинаково в обоих приложениях.
+  searchEnabled: false,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
+  // Папка, где лежит архив плагинов. Пустая строка — «Документы», как по
+  // умолчанию; пользователь может перенести её на другой диск.
+  dataRoot: "",
 };
 
 let configPath = null;

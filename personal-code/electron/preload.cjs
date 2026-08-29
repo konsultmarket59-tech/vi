@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld("api", {
   saveSettings: (patch) => ipcRenderer.invoke("settings:save", patch),
   testProxy: (draft) => ipcRenderer.invoke("settings:testProxy", draft),
   listModels: (draft) => ipcRenderer.invoke("models:list", draft),
+  dataFolder: () => ipcRenderer.invoke("settings:dataFolder"),
+  chooseDataFolder: () => ipcRenderer.invoke("settings:chooseDataFolder"),
+  openDataFolder: () => ipcRenderer.invoke("settings:openDataFolder"),
+  storageReport: () => ipcRenderer.invoke("settings:storageReport"),
 
   // workspace
   pickWorkspace: () => ipcRenderer.invoke("workspace:pick"),

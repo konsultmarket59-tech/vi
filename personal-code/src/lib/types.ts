@@ -12,6 +12,10 @@ export interface Settings {
   gitUserEmail: string;
   gitToken: string;
   gitTokenUser: string;
+  searchEnabled: boolean;
+  searchProvider: "duckduckgo" | "tavily";
+  searchApiKey: string;
+  dataRoot: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +32,10 @@ export const DEFAULT_SETTINGS: Settings = {
   gitUserEmail: "",
   gitToken: "",
   gitTokenUser: "",
+  searchEnabled: false,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
+  dataRoot: "",
 };
 
 export interface TreeNode {
@@ -196,6 +204,12 @@ export interface SearchMatch {
   text: string;
 }
 
+export interface StorageReport {
+  rootPath: string;
+  totalBytes: number;
+  folders: { name: string; bytes: number; files: number; versions: number }[];
+}
+
 declare global {
   interface Window {
     api: {
@@ -203,6 +217,10 @@ declare global {
       saveSettings(patch: Partial<Settings>): Promise<Settings>;
       testProxy(draft: Partial<Settings>): Promise<{ ok: boolean; message: string }>;
       listModels(draft?: Partial<Settings>): Promise<{ id: string; name: string }[]>;
+      dataFolder(): Promise<string>;
+      chooseDataFolder(): Promise<{ settings: Settings; folder: string } | null>;
+      openDataFolder(): Promise<string>;
+      storageReport(): Promise<StorageReport>;
 
       pickWorkspace(): Promise<WorkspaceInfo | null>;
       openWorkspace(dir: string): Promise<WorkspaceInfo>;
