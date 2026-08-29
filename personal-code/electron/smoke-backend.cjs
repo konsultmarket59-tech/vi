@@ -11,6 +11,7 @@ const workspace = require("./workspace.cjs");
 const git = require("./git.cjs");
 const agent = require("./agent.cjs");
 const blueprints = require("./blueprints.cjs");
+const demoAccess = require("./demoAccess.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -71,6 +72,32 @@ function writeSample(rel, content) {
   await expectThrows("выход за пределы папки запрещён", () => workspace.readFile(root, "../../etc/passwd"), /выходит за пределы/);
   await expectThrows("абсолютный путь тоже не выпускает", () => workspace.readFile(root, "/etc/passwd"), /выходит за пределы|не найден|ENOENT/);
   await expectThrows("двоичный файл не открывается как текст", () => workspace.readFile(root, "logo.png"), /двоичный/);
+
+  // Ссылка внутри папки — обход границы, который «..» не ловит: путь остаётся
+  // внутри, а открывается то, на что ссылка показывает.
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-outside-"));
+  fs.writeFileSync(path.join(outside, "secret.txt"), "чужие данные\n", "utf-8");
+  let linksSupported = true;
+  try {
+    fs.symlinkSync(outside, path.join(root, "ссылка"), "dir");
+  } catch {
+    linksSupported = false; // Windows без прав на создание ссылок
+  }
+  if (linksSupported) {
+    await expectThrows(
+      "чтение через ссылку наружу отклоняется",
+      () => workspace.readFile(root, "ссылка/secret.txt"),
+      /за пределы/
+    );
+    await expectThrows(
+      "запись через ссылку наружу отклоняется",
+      () => workspace.writeFile(root, "ссылка/подсунуто.txt", "нет"),
+      /за пределы/
+    );
+    check("файл за ссылкой не изменён", !fs.existsSync(path.join(outside, "подсунуто.txt")));
+    fs.unlinkSync(path.join(root, "ссылка"));
+  }
+  fs.rmSync(outside, { recursive: true, force: true });
 
   const found = await workspace.search(root, "greet");
   check("поиск находит совпадения", found.matches.some((m) => m.path === "src/app.js"), JSON.stringify(found.matches));
@@ -213,6 +240,68 @@ function writeSample(rel, content) {
     /выходит за пределы/
   );
 
+  // Правка показывается человеку и применяется отдельным действием. За это время
+  // файл на диске мог измениться — тогда «после» из предпросмотра затёрло бы
+  // чужую правку целиком.
+  writeSample("src/stale.js", "const a = 1;\n");
+  const staleProposal = await agent.buildProposal(
+    root,
+    [
+      "===CODE EDIT START===",
+      "FILE: src/stale.js",
+      "ACTION: replace",
+      "<<<<<<< НАЙТИ",
+      "const a = 1;",
+      "=======",
+      "const a = 2;",
+      ">>>>>>> ЗАМЕНИТЬ",
+      "===CODE EDIT END===",
+    ].join("\n")
+  );
+  writeSample("src/stale.js", "const a = 1;\nconst b = 3; // правка человека\n");
+  await expectThrows(
+    "устаревшая правка не применяется",
+    () => agent.applyProposal(root, staleProposal),
+    /изменился на диске/
+  );
+  check(
+    "правка человека на месте",
+    fs.readFileSync(path.join(root, "src/stale.js"), "utf-8").includes("правка человека")
+  );
+
+  // И то же самое для блока из нескольких файлов: один устаревший файл не должен
+  // оставить проект применённым наполовину.
+  writeSample("src/first.js", "const first = 1;\n");
+  writeSample("src/second.js", "const second = 1;\n");
+  const pair = await agent.buildProposal(
+    root,
+    [
+      "===CODE EDIT START===",
+      "FILE: src/first.js",
+      "ACTION: replace",
+      "<<<<<<< НАЙТИ",
+      "const first = 1;",
+      "=======",
+      "const first = 2;",
+      ">>>>>>> ЗАМЕНИТЬ",
+      "FILE: src/second.js",
+      "ACTION: replace",
+      "<<<<<<< НАЙТИ",
+      "const second = 1;",
+      "=======",
+      "const second = 2;",
+      ">>>>>>> ЗАМЕНИТЬ",
+      "===CODE EDIT END===",
+    ].join("\n")
+  );
+  writeSample("src/second.js", "const second = 99;\n");
+  await expectThrows("блок с устаревшим файлом отклоняется целиком", () => agent.applyProposal(root, pair), /изменился/);
+  check(
+    "первый файл не тронут",
+    fs.readFileSync(path.join(root, "src/first.js"), "utf-8") === "const first = 1;\n",
+    fs.readFileSync(path.join(root, "src/first.js"), "utf-8")
+  );
+
   console.log("\nagent: команды");
   const command = agent.parseRunBlock("Запусти тесты.\n===RUN START===\nnode -e \"console.log(1+1)\"\n===RUN END===");
   check("команда разобрана", command?.command === 'node -e "console.log(1+1)"', JSON.stringify(command));
@@ -232,6 +321,25 @@ function writeSample(rel, content) {
   check("plugins.json записан", fs.existsSync(exported.file));
   const parsed = JSON.parse(fs.readFileSync(exported.file, "utf-8"));
   check("записанный конфиг читается", parsed.productName === "Тексты" && parsed.modules.word === true);
+
+  console.log("\nдемо-доступ: таблица цен");
+  // Цену пишут по-русски, с запятой. Если считать запятую разделителем колонок,
+  // «300,5 1500» превращается в «300» и «5» — и расход показывается втрое-в-сотни
+  // раз меньше настоящего, молча.
+  const decimal = demoAccess.parsePrices("модель 300,5 1500");
+  check(
+    "десятичная запятая — это цена, а не разделитель",
+    decimal.prices["модель"]?.input === 300.5 && decimal.prices["модель"]?.output === 1500,
+    JSON.stringify(decimal)
+  );
+  const spaced = demoAccess.parsePrices("модель 300 1500");
+  check("пробелы по-прежнему разделяют", spaced.prices["модель"]?.output === 1500, JSON.stringify(spaced));
+  const csv = demoAccess.parsePrices("модель,300,1500");
+  check("запятые как разделители тоже понимаются", csv.prices["модель"]?.output === 1500, JSON.stringify(csv));
+  const spacedCsv = demoAccess.parsePrices("модель, 300, 1500");
+  check("запятая с пробелом — тоже разделитель", spacedCsv.prices["модель"]?.output === 1500, JSON.stringify(spacedCsv));
+  const broken = demoAccess.parsePrices("модель 300");
+  check("неполная строка объясняется, а не молчит", broken.problems.length === 1, JSON.stringify(broken));
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   fs.rmSync(root, { recursive: true, force: true });

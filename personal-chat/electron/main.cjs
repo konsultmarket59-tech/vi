@@ -473,7 +473,13 @@ async function removeDoc(projectId, fileName) {
   await shell.trashItem(filePath).catch(async () => {
     await fs.rm(filePath, { force: true });
   });
-  await updateProject(projectId, {});
+  // Снятая галочка «отдавать ассистенту» помнится по имени файла. Если её не
+  // убрать вместе с документом, документ с тем же именем, добавленный позже,
+  // молча не попадёт в контекст — и понять, почему ассистент его не видит,
+  // будет неоткуда.
+  const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  const excludedDocs = (meta?.excludedDocs || []).filter((key) => key !== `docs/${fileName}`);
+  await updateProject(projectId, { excludedDocs });
   return listDocs(projectId);
 }
 
