@@ -1497,6 +1497,18 @@ a:hover { color: var(--accent-hover); }
 }
 
 .licence-heading { margin: 6px 0 14px; font-size: 22px; }
+
+/* Условие копии: рамка слева, чтобы читалось как условие, а не как подпись. */
+.licence-terms {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
 .licence-message { margin: 0 0 16px; line-height: 1.6; }
 .licence-step { margin: 18px 0 8px; }
 
