@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Settings, StorageReport } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
+import ProblemReport from "./ProblemReport";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
@@ -296,6 +297,8 @@ export default function SettingsView({ settings, onChange }: Props) {
         Сохранить настройки
       </button>
       {saved && <span className="saved-note">Сохранено ✓</span>}
+
+      <ProblemReport />
 
       <h2>Обслуживание</h2>
       <p className="hint">

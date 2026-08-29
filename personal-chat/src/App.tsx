@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PluginConfig, Project, Settings, Skill } from "./lib/types";
+import type { LicenceStatus, PluginConfig, Project, Settings, Skill } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
 import ProjectPanel from "./components/ProjectPanel";
@@ -13,6 +13,7 @@ import DesignView from "./components/DesignView";
 import GitHubView from "./components/GitHubView";
 import ChatBotsView from "./components/ChatBotsView";
 import SettingsView from "./components/SettingsView";
+import LicenceGate from "./components/LicenceGate";
 
 const STARTUP_SLOW_MS = 10000;
 
@@ -23,6 +24,7 @@ export default function App() {
   // Every module is on until plugins.json says otherwise, so a build without the
   // file behaves exactly as before.
   const [plugins, setPlugins] = useState<PluginConfig>({ productName: "Личный чат", modules: {}, source: "" });
+  const [licence, setLicence] = useState<LicenceStatus | null>(null);
   const [view, setView] = useState<View>({ kind: "settings" });
   const [loaded, setLoaded] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -32,6 +34,15 @@ export default function App() {
     const slowTimer = setTimeout(() => setStartupSlow(true), STARTUP_SLOW_MS);
     (async () => {
       try {
+        // Checked first and on its own: a demo build that is not activated must
+        // not go on to read projects and settings behind the gate.
+        const lic = await window.api.licenceStatus();
+        setLicence(lic);
+        if (lic.gated && !lic.ok) {
+          setLoaded(true);
+          return;
+        }
+
         const [p, s, cfg, pluginCfg] = await Promise.all([
           window.api.listProjects(),
           window.api.listSkills(),
@@ -91,6 +102,20 @@ export default function App() {
     );
   }
 
+  if (licence?.gated && !licence.ok) {
+    return (
+      <LicenceGate
+        status={licence}
+        onActivated={(next) => {
+          setLicence(next);
+          // Everything the app needs was skipped while the gate was up, so the
+          // simplest correct thing after activation is a clean start.
+          if (next.ok) window.location.reload();
+        }}
+      />
+    );
+  }
+
   // A module switched off in this build must not render even if some other code
   // path selects its view.
   const enabled = (id: string) => plugins.modules[id] !== false;
@@ -108,6 +133,13 @@ export default function App() {
         onProjectsChange={setProjects}
       />
       <main className="main-area">
+        {licence?.gated && licence.ok && typeof licence.daysLeft === "number" && licence.daysLeft <= 7 && (
+          <div className="licence-banner">
+            Демо-доступ заканчивается через {licence.daysLeft}{" "}
+            {licence.daysLeft === 1 ? "день" : licence.daysLeft < 5 ? "дня" : "дней"}
+            {licence.tester ? ` · ${licence.tester}` : ""}
+          </div>
+        )}
         {activeView.kind === "project" && activeProject && (
           <ProjectPanel
             project={activeProject}

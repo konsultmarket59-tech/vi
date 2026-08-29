@@ -15,6 +15,7 @@ const workspace = require("./workspace.cjs");
 const git = require("./git.cjs");
 const agent = require("./agent.cjs");
 const blueprints = require("./blueprints.cjs");
+const demoAccess = require("./demoAccess.cjs");
 
 let mainWindow = null;
 
@@ -185,6 +186,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   settingsStore.init();
+  demoAccess.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("userData")));
   await settingsStore.applyProxy(await settingsStore.load());
   const saved = await settingsStore.readSection("workspace", "");
   if (saved && fsSync.existsSync(saved)) currentRoot = saved;
@@ -310,6 +312,58 @@ function registerHandlers() {
     });
     if (result.canceled || !result.filePaths[0]) return null;
     return blueprints.exportTo(blueprint, result.filePaths[0]);
+  });
+
+  // demo access
+  const testers = () => settingsStore.readSection("testers", []);
+  ipcMain.handle("demo:keyInfo", () => demoAccess.keyInfo());
+  ipcMain.handle("demo:createKeys", () => demoAccess.createKeys());
+  ipcMain.handle("demo:list", async () => demoAccess.list(await testers()));
+  ipcMain.handle("demo:save", async (_e, tester) => {
+    const { all, saved } = demoAccess.save(await testers(), tester);
+    await settingsStore.writeSection("testers", all);
+    return { all, saved };
+  });
+  ipcMain.handle("demo:delete", async (_e, id) => {
+    const all = demoAccess.remove(await testers(), id);
+    await settingsStore.writeSection("testers", all);
+    return all;
+  });
+  ipcMain.handle("demo:setRevoked", async (_e, id, revoked) => {
+    const all = demoAccess.setRevoked(await testers(), id, revoked);
+    await settingsStore.writeSection("testers", all);
+    return all;
+  });
+  ipcMain.handle("demo:issue", async (_e, id, options) => {
+    const result = await demoAccess.issue(await testers(), id, options || {});
+    const target = await dialog.showSaveDialog(mainWindow, {
+      title: "Куда сохранить файл активации",
+      defaultPath: result.fileName,
+      filters: [{ name: "Файл активации", extensions: ["lic"] }],
+    });
+    if (target.canceled || !target.filePath) return null;
+    await fs.writeFile(target.filePath, result.contents, "utf-8");
+    await settingsStore.writeSection("testers", result.all);
+    return { all: result.all, tester: result.tester, file: target.filePath };
+  });
+  ipcMain.handle("demo:exportRevocations", async () => {
+    const contents = await demoAccess.revocationList(await testers());
+    const target = await dialog.showSaveDialog(mainWindow, {
+      title: "Куда сохранить список отзыва",
+      defaultPath: "revoked.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (target.canceled || !target.filePath) return null;
+    await fs.writeFile(target.filePath, contents, "utf-8");
+    return { file: target.filePath, contents };
+  });
+  ipcMain.handle("demo:exportConfig", async (_e, options) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Папка исходников «Личного чата»",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return demoAccess.exportConfig(result.filePaths[0], options || {});
   });
 
   ipcMain.handle("app:openExternal", (_e, url) => {

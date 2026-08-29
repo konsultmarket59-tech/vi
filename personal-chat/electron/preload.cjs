@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld("api", {
 
   // settings
   getPlugins: () => ipcRenderer.invoke("plugins:get"),
+  reportInfo: () => ipcRenderer.invoke("report:info"),
+  writeReport: (description) => ipcRenderer.invoke("report:write", description),
+  revealReport: (file) => ipcRenderer.invoke("report:reveal", file),
+  licenceStatus: (options) => ipcRenderer.invoke("licence:status", options),
+  activateLicence: (contents) => ipcRenderer.invoke("licence:activate", contents),
+  pickLicenceFile: () => ipcRenderer.invoke("licence:pickFile"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
 
@@ -236,4 +242,15 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
   getDesignAgentConversation: (projectId) => ipcRenderer.invoke("design:getAgentConversation", projectId),
   saveDesignAgentConversation: (projectId, conv) => ipcRenderer.invoke("design:saveAgentConversation", projectId, conv),
   openDesignFolder: (projectId) => ipcRenderer.invoke("design:openFolder", projectId),
+});
+
+// Errors thrown in the window never reach the main process on their own, so a
+// crash a tester describes as "просто пропало" would leave nothing in the
+// report. Forwarding them is what makes the report worth reading.
+window.addEventListener("error", (event) => {
+  ipcRenderer.invoke("report:log", "error", `${event.message} (${event.filename}:${event.lineno})`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  ipcRenderer.invoke("report:log", "error", reason?.stack || String(reason));
 });

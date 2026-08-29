@@ -145,6 +145,25 @@ export interface Blueprint {
   updatedAt: number;
 }
 
+export interface DemoKeyInfo {
+  exists: boolean;
+  publicKey: string;
+  createdAt: string;
+  path: string;
+}
+
+export interface Tester {
+  id: string;
+  name: string;
+  machineCode: string;
+  note: string;
+  revoked: boolean;
+  licenceId: string;
+  issuedAt: string;
+  expiresAt: string;
+  createdAt: number;
+}
+
 export interface SearchMatch {
   path: string;
   line: number;
@@ -204,6 +223,19 @@ declare global {
       saveBlueprint(blueprint: Partial<Blueprint>): Promise<{ all: Blueprint[]; saved: Blueprint }>;
       deleteBlueprint(id: string): Promise<Blueprint[]>;
       exportBlueprint(blueprint: Blueprint): Promise<{ file: string; productName: string; enabledCount: number; disabled: string[] } | null>;
+
+      demoKeyInfo(): Promise<DemoKeyInfo>;
+      demoCreateKeys(): Promise<DemoKeyInfo>;
+      listTesters(): Promise<Tester[]>;
+      saveTester(tester: Partial<Tester>): Promise<{ all: Tester[]; saved: Tester }>;
+      deleteTester(id: string): Promise<Tester[]>;
+      setTesterRevoked(id: string, revoked: boolean): Promise<Tester[]>;
+      issueLicence(
+        id: string,
+        options: { days: number; productName: string; revocationUrl: string }
+      ): Promise<{ all: Tester[]; tester: Tester; file: string } | null>;
+      exportRevocations(): Promise<{ file: string; contents: string } | null>;
+      exportLicenceConfig(options: { revocationUrl: string; productName: string }): Promise<{ file: string } | null>;
 
       openExternal(url: string): Promise<void>;
     };

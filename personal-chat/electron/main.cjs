@@ -633,6 +633,10 @@ const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
 const plugins = require("./plugins.cjs");
+const licence = require("./licence.cjs");
+licence.init(USER_DATA_PATH);
+const report = require("./report.cjs");
+report.install();
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
@@ -1246,6 +1250,49 @@ ipcMain.handle("config:openRootPath", async () => {
 });
 
 ipcMain.handle("plugins:get", () => plugins.load(app));
+
+ipcMain.handle("report:info", async () => {
+  const cfg = plugins.load(app);
+  const lic = await licence.status({ allowNetwork: false });
+  return {
+    version: app.getVersion(),
+    productName: cfg.productName,
+    tester: lic.tester || "",
+    expiresAt: lic.expiresAt || "",
+    gated: lic.gated,
+    log: report.summary(),
+  };
+});
+ipcMain.handle("report:log", (_e, level, message) => report.recordFromRenderer(level, message));
+ipcMain.handle("report:write", async (_e, description) => {
+  const cfg = plugins.load(app);
+  const lic = await licence.status({ allowNetwork: false });
+  const written = await report.write({
+    description,
+    version: app.getVersion(),
+    productName: cfg.productName,
+    tester: lic.tester || "",
+    extra: { модули: cfg.modules },
+  });
+  return written;
+});
+ipcMain.handle("report:reveal", (_e, file) => {
+  shell.showItemInFolder(file);
+  return true;
+});
+
+ipcMain.handle("licence:status", (_e, options) => licence.status(options || {}));
+ipcMain.handle("licence:activate", (_e, contents) => licence.activate(contents));
+ipcMain.handle("licence:pickFile", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Выберите файл активации",
+    filters: [{ name: "Файл активации", extensions: ["lic", "json"] }],
+    properties: ["openFile"],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return licence.activate(await fs.readFile(result.filePaths[0], "utf-8"));
+});
+
 ipcMain.handle("settings:get", () => loadSettings());
 ipcMain.handle("settings:save", (_e, settings) => saveSettingsFile(settings));
 

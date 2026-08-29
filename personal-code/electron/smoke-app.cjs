@@ -186,6 +186,26 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-blueprints.png"), img.toPNG())
     );
 
+    console.log("\nвкладка Демо-доступ");
+    await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо-доступ").click()`
+    );
+    await waitFor(win, `!!document.querySelector(".view-title")`, "раздел открылся");
+    const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("предлагает создать ключ подписи", demoText.includes("Создать ключ"), demoText.slice(0, 200));
+    check("честно описывает предел защиты", demoText.includes("не от целенаправленного взлома"), "");
+    // Issuing must be impossible before a key exists, or a half-configured
+    // build could be handed out with unsignable licences.
+    check(
+      "без ключа выгрузка настроек недоступна",
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".btn")].find(b=>b.textContent.includes("Записать настройки"))?.disabled === true`
+      )
+    );
+    await win.webContents.capturePage().then((img) =>
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-demo.png"), img.toPNG())
+    );
+
     console.log("\nвкладка Настройки");
     await win.webContents.executeJavaScript(
       `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Настройки").click()`

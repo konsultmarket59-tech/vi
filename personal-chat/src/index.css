@@ -1466,3 +1466,64 @@ a:hover { color: var(--accent-hover); }
 }
 .name-prompt label { display: block; margin-bottom: 6px; font-size: 13px; }
 .name-prompt input { width: 100%; margin: 0 0 12px; }
+
+/* ---------- Экран активации демо-версии ----------
+   Показывается вместо приложения, когда демо-сборка не активирована. Задача
+   экрана ровно одна — отдать код компьютера и принять файл активации, поэтому
+   на нём нет ничего, кроме этих двух шагов. */
+
+.licence-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px;
+  background: var(--bg);
+}
+
+.licence-card {
+  width: min(560px, 100%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 30px;
+}
+
+.licence-product {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.licence-heading { margin: 6px 0 14px; font-size: 22px; }
+.licence-message { margin: 0 0 16px; line-height: 1.6; }
+.licence-step { margin: 18px 0 8px; }
+
+.licence-code-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.licence-code {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+
+.licence-error { margin-top: 14px; }
+.licence-footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* Напоминание об окончании срока — появляется только на последней неделе,
+   чтобы не мозолить глаза весь период тестирования. */
+.licence-banner {
+  padding: 7px 16px;
+  background: var(--bg-warm);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-strong);
+}

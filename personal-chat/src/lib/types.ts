@@ -631,12 +631,43 @@ export interface PluginConfig {
   source: string;
 }
 
+/**
+ * Demo access. `gated: false` means this build ships no public key and has no
+ * licensing at all — the ordinary build the author uses herself.
+ */
+export interface LicenceStatus {
+  gated: boolean;
+  ok: boolean;
+  reason: "" | "missing" | "machine" | "expired" | "revoked" | "signature" | "config";
+  message?: string;
+  machineCode: string;
+  tester?: string;
+  expiresAt?: string;
+  daysLeft?: number;
+  productName?: string;
+}
+
+export interface ReportInfo {
+  version: string;
+  productName: string;
+  tester: string;
+  expiresAt: string;
+  gated: boolean;
+  log: { total: number; errors: number; since: string };
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
   openRootPath(): Promise<void>;
 
   getPlugins(): Promise<PluginConfig>;
+  reportInfo(): Promise<ReportInfo>;
+  writeReport(description: string): Promise<{ file: string; entries: number }>;
+  revealReport(file: string): Promise<boolean>;
+  licenceStatus(options?: { allowNetwork?: boolean }): Promise<LicenceStatus>;
+  activateLicence(contents: string): Promise<LicenceStatus>;
+  pickLicenceFile(): Promise<LicenceStatus | null>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
 

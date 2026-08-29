@@ -60,5 +60,16 @@ contextBridge.exposeInMainWorld("api", {
   deleteBlueprint: (id) => ipcRenderer.invoke("blueprints:delete", id),
   exportBlueprint: (blueprint) => ipcRenderer.invoke("blueprints:export", blueprint),
 
+  // demo access
+  demoKeyInfo: () => ipcRenderer.invoke("demo:keyInfo"),
+  demoCreateKeys: () => ipcRenderer.invoke("demo:createKeys"),
+  listTesters: () => ipcRenderer.invoke("demo:list"),
+  saveTester: (tester) => ipcRenderer.invoke("demo:save", tester),
+  deleteTester: (id) => ipcRenderer.invoke("demo:delete", id),
+  setTesterRevoked: (id, revoked) => ipcRenderer.invoke("demo:setRevoked", id, revoked),
+  issueLicence: (id, options) => ipcRenderer.invoke("demo:issue", id, options),
+  exportRevocations: () => ipcRenderer.invoke("demo:exportRevocations"),
+  exportLicenceConfig: (options) => ipcRenderer.invoke("demo:exportConfig", options),
+
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
 });
