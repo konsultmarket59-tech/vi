@@ -85,6 +85,43 @@ function isProbablyText(rel, size) {
 }
 
 /**
+ * Second half of the boundary check: the path is textually inside the root, but
+ * a symbolic link inside the folder can still point anywhere on disk. Node opens
+ * links transparently, so "ссылка/id_rsa" would be read from the link's target
+ * without this. Checked against the real path of the nearest ancestor that
+ * exists, because a file being created does not exist yet.
+ */
+function assertNoLinkEscape(root, absolute, rel) {
+  let realRoot;
+  try {
+    realRoot = fsSync.realpathSync(path.resolve(root));
+  } catch {
+    // The folder itself is gone — the operation below will fail on its own with
+    // a clearer message than anything we could invent here.
+    return;
+  }
+  let probe = absolute;
+  for (;;) {
+    let real;
+    try {
+      real = fsSync.realpathSync(probe);
+    } catch (e) {
+      if (e.code !== "ENOENT") return; // unreadable, not an escape — let the caller fail
+      const parent = path.dirname(probe);
+      if (parent === probe) return;
+      probe = parent;
+      continue;
+    }
+    const rest = path.relative(probe, absolute);
+    const target = rest ? path.resolve(real, rest) : real;
+    if (target !== realRoot && !target.startsWith(realRoot + path.sep)) {
+      throw new Error(`Путь «${rel}» ведёт по ссылке за пределы открытой папки — отказано.`);
+    }
+    return;
+  }
+}
+
+/**
  * Turns a workspace-relative path into an absolute one, refusing anything that
  * escapes the workspace root. This is the security boundary of the whole app —
  * both IPC handlers and the agent's file tools go through it.
@@ -99,6 +136,7 @@ function resolveInside(root, rel) {
   if (absolute !== path.resolve(root) && !absolute.startsWith(rootWithSep)) {
     throw new Error(`Путь «${rel}» выходит за пределы открытой папки — отказано.`);
   }
+  assertNoLinkEscape(root, absolute, rel);
   return absolute;
 }
 
