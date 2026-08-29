@@ -1,13 +1,15 @@
 // Blueprints: named configurations of a customised «Личный чат».
 //
-// A blueprint says what a particular build of the chat app is called and which
-// of its modules it ships with. Exporting one writes a plugins.json that the
-// chat app reads at startup, so the configuration made here has a real effect
-// on a real build rather than being a description of one.
+// A blueprint is everything one copy of the chat app needs to exist: its name,
+// the modules it ships with, the folder and branch it is built from, the model
+// key baked in for that copy, the skills that travel inside it, and whether it
+// asks for activation. Building one (build.cjs) reads exactly this and nothing
+// else, so what the Сборки tab shows is what the installer contains.
 //
-// Deliberately NOT implemented here: issuing or revoking licence keys. That is
-// waiting on the legal form of the product; see README. Nothing in this file
-// pretends to do it.
+// Deliberately NOT here: selling licences. A blueprint can gate a copy and the
+// demo tab can cancel one, which is control over copies given away — not a sale,
+// and it needs no legal form. Issuing licence keys as a product still does; see
+// README.
 
 const path = require("node:path");
 const fs = require("node:fs/promises");
@@ -38,9 +40,16 @@ const MODULES = [
 
 const CORE_IDS = MODULES.filter((m) => m.core).map((m) => m.id);
 
+// Ветка, в которой лежит канонический код «Личного чата»: сборка идёт из неё,
+// а не из того, что осталось в рабочей копии.
+const DEFAULT_BRANCH = "claude/personal-claude-chat-docs-untwa4";
+
 function normalize(blueprint) {
   const known = new Set(MODULES.map((m) => m.id));
   const chosen = (blueprint.modules || []).filter((id) => known.has(id));
+  const skills = (blueprint.skills || [])
+    .map((s) => ({ id: String(s.id || ""), version: Number(s.version) || 0 }))
+    .filter((s) => s.id && s.version > 0);
   return {
     id: blueprint.id || crypto.randomUUID(),
     name: (blueprint.name || "Новая сборка").trim(),
@@ -48,6 +57,26 @@ function normalize(blueprint) {
     description: (blueprint.description || "").trim(),
     // Core modules are always present: a build with no projects is not a build.
     modules: [...new Set([...CORE_IDS, ...chosen])],
+
+    // Откуда собирать: папка исходников и ветка с каноническим кодом.
+    sourcePath: (blueprint.sourcePath || "").trim(),
+    branch: blueprint.branch === undefined ? DEFAULT_BRANCH : String(blueprint.branch).trim(),
+
+    // Доступ к моделям именно для этой копии. Пустой ключ — обычная сборка, где
+    // ключ вводит сам пользователь.
+    apiKey: (blueprint.apiKey || "").trim(),
+    baseUrl: (blueprint.baseUrl || "https://polza.ai/api/v1").trim(),
+    model: (blueprint.model || "anthropic/claude-sonnet-5").trim(),
+    pricesText: String(blueprint.pricesText || ""),
+    currency: (blueprint.currency || "₽").trim(),
+
+    // Навыки из архива плагинов, которые уезжают внутрь сборки.
+    skills,
+
+    // Демо-доступ: активация по файлу и постоянная ссылка на список отзыва.
+    demoGated: blueprint.demoGated === true,
+    revocationUrl: (blueprint.revocationUrl || "").trim(),
+
     createdAt: blueprint.createdAt || Date.now(),
     updatedAt: Date.now(),
   };
@@ -101,4 +130,4 @@ async function exportTo(blueprint, targetDir) {
   };
 }
 
-module.exports = { MODULES, CORE_IDS, normalize, list, save, remove, toConfig, exportTo };
+module.exports = { MODULES, CORE_IDS, DEFAULT_BRANCH, normalize, list, save, remove, toConfig, exportTo };

@@ -18,6 +18,7 @@ const blueprints = require("./blueprints.cjs");
 const demoAccess = require("./demoAccess.cjs");
 const pluginArchive = require("./pluginArchive.cjs");
 const websearch = require("./websearch.cjs");
+const buildPipeline = require("./build.cjs");
 
 let mainWindow = null;
 
@@ -413,6 +414,32 @@ function registerHandlers() {
     await settingsStore.writeSection("blueprints", all);
     return all;
   });
+  ipcMain.handle("blueprints:pickSource", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Папка с исходниками «Личного чата»",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const dir = result.filePaths[0];
+    // Проверяем сразу, а не в момент сборки: ошибиться папкой легко, а узнать об
+    // этом через десять минут сборки — обидно.
+    await buildPipeline.assertChatSources(dir);
+    return dir;
+  });
+  ipcMain.handle("blueprints:build", async (event, blueprint, options) => {
+    const send = (line) => {
+      if (!event.sender.isDestroyed()) event.sender.send("blueprints:buildLog", line);
+    };
+    try {
+      const result = await buildPipeline.build(blueprint, { onLog: send, ...(options || {}) });
+      send("");
+      return { ok: true, ...result };
+    } catch (e) {
+      send(`Сборка остановлена: ${e.message}`);
+      return { ok: false, message: e.message };
+    }
+  });
+  ipcMain.handle("blueprints:openRelease", (_e, dir) => shell.openPath(dir));
   ipcMain.handle("blueprints:export", async (_e, blueprint) => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "Куда положить plugins.json (папка исходников «Личного чата»)",

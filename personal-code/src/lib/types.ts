@@ -149,8 +149,30 @@ export interface Blueprint {
   productName: string;
   description: string;
   modules: string[];
+  sourcePath: string;
+  branch: string;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  pricesText: string;
+  currency: string;
+  skills: { id: string; version: number }[];
+  demoGated: boolean;
+  revocationUrl: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface BuildResult {
+  ok: boolean;
+  message?: string;
+  releaseDir?: string;
+  installers?: { name: string; path: string; bytes: number }[];
+  installerBuilt?: boolean;
+  branch?: { branch: string; switched: boolean };
+  modules?: { enabledCount: number; disabled: string[] };
+  demo?: { managed: boolean; file: string; managedFile: string } | null;
+  skills?: { included: { id: string; version: number; skills: number }[]; missing: string[] };
 }
 
 export interface DemoKeyInfo {
@@ -267,6 +289,10 @@ declare global {
       saveBlueprint(blueprint: Partial<Blueprint>): Promise<{ all: Blueprint[]; saved: Blueprint }>;
       deleteBlueprint(id: string): Promise<Blueprint[]>;
       exportBlueprint(blueprint: Blueprint): Promise<{ file: string; productName: string; enabledCount: number; disabled: string[] } | null>;
+      pickChatSources(): Promise<string | null>;
+      buildBlueprint(blueprint: Blueprint, options?: { skipInstaller?: boolean }): Promise<BuildResult>;
+      openReleaseFolder(dir: string): Promise<string>;
+      onBuildLog(handler: (line: string) => void): () => void;
 
       demoKeyInfo(): Promise<DemoKeyInfo>;
       demoCreateKeys(): Promise<DemoKeyInfo>;

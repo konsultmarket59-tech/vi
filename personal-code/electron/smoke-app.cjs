@@ -176,6 +176,27 @@ app.whenReady().then(async () => {
     await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "список модулей загружен");
     const moduleCount = await win.webContents.executeJavaScript(`document.querySelectorAll(".module-card").length`);
     check("модулей показано 10", moduleCount === 10, String(moduleCount));
+    // Всё, что нужно для одной копии, вводится на этой же вкладке — иначе
+    // порядок шагов приходится помнить, и пропущенный шаг тихо уезжает в сборку.
+    const buildText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("есть выбор папки исходников", buildText.includes("Откуда собирать"), "");
+    check("есть ветка репозитория", buildText.includes("Ветка репозитория"), "");
+    check("есть ключ Polza для копии", buildText.includes("Ключ Polza для этой копии"), "");
+    check("есть таблица цен", buildText.includes("Цены моделей"), "");
+    check("есть выбор навыков", buildText.includes("Навыки, вшитые в сборку"), "");
+    check("есть переключатель активации", buildText.includes("Копия требует файл активации"), "");
+    check(
+      "кнопка «Собрать» на месте",
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".btn")].some(b=>b.textContent==="Собрать")`
+      )
+    );
+    check(
+      "ветка по умолчанию — каноническая",
+      (await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".input")].map(i=>i.value).join("|")`
+      )).includes("claude/personal-claude-chat-docs-untwa4")
+    );
     check(
       "ядро нельзя отключить",
       await win.webContents.executeJavaScript(

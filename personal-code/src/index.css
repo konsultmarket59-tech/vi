@@ -405,3 +405,11 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 }
 .storage-list li:last-child { border-bottom: none; }
 .storage-size { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+
+/* Ход сборки: моноширинный лог, который читают глазами по мере появления. */
+.build-log {
+  max-height: 320px; overflow: auto; margin: 0;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-hover); font-family: var(--mono); font-size: 12px;
+  line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
