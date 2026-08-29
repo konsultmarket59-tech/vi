@@ -621,11 +621,22 @@ export interface ChatExportPayload {
   projectId?: string;
 }
 
+/**
+ * Which modules this build ships with, from plugins.json. A build without the
+ * file has every module on — see electron/plugins.cjs.
+ */
+export interface PluginConfig {
+  productName: string;
+  modules: Record<string, boolean>;
+  source: string;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
   openRootPath(): Promise<void>;
 
+  getPlugins(): Promise<PluginConfig>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
 

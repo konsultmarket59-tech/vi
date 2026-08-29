@@ -632,6 +632,7 @@ const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
+const plugins = require("./plugins.cjs");
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
@@ -1244,6 +1245,7 @@ ipcMain.handle("config:openRootPath", async () => {
   await shell.openPath(root);
 });
 
+ipcMain.handle("plugins:get", () => plugins.load(app));
 ipcMain.handle("settings:get", () => loadSettings());
 ipcMain.handle("settings:save", (_e, settings) => saveSettingsFile(settings));
 

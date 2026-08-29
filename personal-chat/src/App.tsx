@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Project, Settings, Skill } from "./lib/types";
+import type { PluginConfig, Project, Settings, Skill } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
 import ProjectPanel from "./components/ProjectPanel";
@@ -20,6 +20,9 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // Every module is on until plugins.json says otherwise, so a build without the
+  // file behaves exactly as before.
+  const [plugins, setPlugins] = useState<PluginConfig>({ productName: "Личный чат", modules: {}, source: "" });
   const [view, setView] = useState<View>({ kind: "settings" });
   const [loaded, setLoaded] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -29,14 +32,17 @@ export default function App() {
     const slowTimer = setTimeout(() => setStartupSlow(true), STARTUP_SLOW_MS);
     (async () => {
       try {
-        const [p, s, cfg] = await Promise.all([
+        const [p, s, cfg, pluginCfg] = await Promise.all([
           window.api.listProjects(),
           window.api.listSkills(),
           window.api.getSettings(),
+          window.api.getPlugins(),
         ]);
         setProjects(p);
         setSkills(s);
         setSettings(cfg);
+        setPlugins(pluginCfg);
+        document.title = pluginCfg.productName;
         setView(p.length > 0 ? { kind: "project", id: p[0].id } : { kind: "settings" });
         setLoaded(true);
       } catch (e) {
@@ -85,11 +91,24 @@ export default function App() {
     );
   }
 
+  // A module switched off in this build must not render even if some other code
+  // path selects its view.
+  const enabled = (id: string) => plugins.modules[id] !== false;
+  const activeView =
+    view.kind === "project" || view.kind === "settings" || enabled(view.kind) ? view : { kind: "settings" as const };
+
   return (
     <div className="app-shell">
-      <Sidebar projects={projects} view={view} onSelectView={setView} onProjectsChange={setProjects} />
+      <Sidebar
+        projects={projects}
+        view={activeView}
+        modules={plugins.modules}
+        productName={plugins.productName}
+        onSelectView={setView}
+        onProjectsChange={setProjects}
+      />
       <main className="main-area">
-        {view.kind === "project" && activeProject && (
+        {activeView.kind === "project" && activeProject && (
           <ProjectPanel
             project={activeProject}
             skills={skills}
@@ -98,10 +117,10 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
-        {view.kind === "project" && !activeProject && (
+        {activeView.kind === "project" && !activeProject && (
           <div className="empty-state">Проект не найден.</div>
         )}
-        {view.kind === "skills" && (
+        {activeView.kind === "skills" && (
           <SkillsView
             skills={skills}
             settings={settings}
@@ -109,20 +128,20 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
-        {view.kind === "word" && (
+        {activeView.kind === "word" && (
           <WordView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "excel" && (
+        {activeView.kind === "excel" && (
           <ExcelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "cloud" && <CloudView projects={projects} />}
-        {view.kind === "direct" && (
+        {activeView.kind === "cloud" && <CloudView projects={projects} />}
+        {activeView.kind === "direct" && (
           <DirectView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "media" && (
+        {activeView.kind === "media" && (
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "design" && (
+        {activeView.kind === "design" && (
           <DesignView
             projects={projects}
             skills={skills}
@@ -130,11 +149,11 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
-        {view.kind === "github" && (
+        {activeView.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "chatbots" && <ChatBotsView />}
-        {view.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
+        {activeView.kind === "chatbots" && <ChatBotsView />}
+        {activeView.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>
     </div>
   );

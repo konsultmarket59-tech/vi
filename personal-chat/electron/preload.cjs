@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("api", {
   openRootPath: () => ipcRenderer.invoke("config:openRootPath"),
 
   // settings
+  getPlugins: () => ipcRenderer.invoke("plugins:get"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
 
