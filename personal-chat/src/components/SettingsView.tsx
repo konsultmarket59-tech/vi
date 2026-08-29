@@ -3,6 +3,7 @@ import type { Settings, StorageReport } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
 import ProblemReport from "./ProblemReport";
+import UsagePanel from "./UsagePanel";
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
@@ -106,29 +107,38 @@ export default function SettingsView({ settings, onChange }: Props) {
         </button>
       </div>
 
-      <h2>Настройки подключения</h2>
-      <p className="hint">
-        Подключение к модели через Polza.ai (или любой другой OpenAI-совместимый сервис). Ключ хранится только на
-        этом компьютере и никуда не отправляется, кроме указанного адреса API.
-      </p>
+      {/* В сборке с предустановленным ключом адрес и ключ не показываются: их
+          задаёт автор сборки. Вместо них — расход по моделям. Выбор модели
+          остаётся: это часть базовой функциональности. */}
+      {draft.managed ? (
+        <UsagePanel />
+      ) : (
+        <>
+          <h2>Настройки подключения</h2>
+          <p className="hint">
+            Подключение к модели через Polza.ai (или любой другой OpenAI-совместимый сервис). Ключ хранится только на
+            этом компьютере и никуда не отправляется, кроме указанного адреса API.
+          </p>
 
-      <label>Base URL</label>
-      <input value={draft.baseUrl} onChange={(e) => update("baseUrl", e.target.value)} />
+          <label>Base URL</label>
+          <input value={draft.baseUrl} onChange={(e) => update("baseUrl", e.target.value)} />
 
-      <label>API-ключ</label>
-      <div className="key-row">
-        <input
-          type={showKey ? "text" : "password"}
-          value={draft.apiKey}
-          onChange={(e) => update("apiKey", e.target.value)}
-          placeholder="sk-..."
-        />
-        <button className="btn btn-secondary" onClick={() => setShowKey((v) => !v)}>
-          {showKey ? "Скрыть" : "Показать"}
-        </button>
-      </div>
+          <label>API-ключ</label>
+          <div className="key-row">
+            <input
+              type={showKey ? "text" : "password"}
+              value={draft.apiKey}
+              onChange={(e) => update("apiKey", e.target.value)}
+              placeholder="sk-..."
+            />
+            <button className="btn btn-secondary" onClick={() => setShowKey((v) => !v)}>
+              {showKey ? "Скрыть" : "Показать"}
+            </button>
+          </div>
+        </>
+      )}
 
-      <label>Модель</label>
+      <h2>Модель</h2>
       <div className="key-row">
         <input
           value={draft.model}

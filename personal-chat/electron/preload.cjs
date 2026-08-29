@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("api", {
 
   // settings
   getPlugins: () => ipcRenderer.invoke("plugins:get"),
+  recordUsage: (entry) => ipcRenderer.invoke("usage:record", entry),
+  usageSummary: (period) => ipcRenderer.invoke("usage:summary", period),
   reportInfo: () => ipcRenderer.invoke("report:info"),
   writeReport: (description) => ipcRenderer.invoke("report:write", description),
   revealReport: (file) => ipcRenderer.invoke("report:reveal", file),

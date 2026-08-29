@@ -16,8 +16,13 @@ const userData = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gate-data-"));
 const issuerData = fs.mkdtempSync(path.join(os.tmpdir(), "gate-issuer-"));
 const configFile = path.join(__dirname, "..", "licence-config.json");
+const managedFile = path.join(__dirname, "..", "managed-config.json");
+const skillsDir = path.join(__dirname, "..", "bundled-skills");
 const hadConfig = fs.existsSync(configFile);
 const previousConfig = hadConfig ? fs.readFileSync(configFile, "utf-8") : null;
+const hadManaged = fs.existsSync(managedFile);
+const previousManaged = hadManaged ? fs.readFileSync(managedFile, "utf-8") : null;
+const hadSkills = fs.existsSync(skillsDir);
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -31,6 +36,9 @@ function check(label, condition, detail = "") {
 function cleanup() {
   if (hadConfig) fs.writeFileSync(configFile, previousConfig);
   else fs.rmSync(configFile, { force: true });
+  if (hadManaged) fs.writeFileSync(managedFile, previousManaged);
+  else fs.rmSync(managedFile, { force: true });
+  if (!hadSkills) fs.rmSync(skillsDir, { recursive: true, force: true });
   for (const dir of [userData, dataRoot, issuerData]) fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -56,6 +64,23 @@ async function waitFor(win, expression, label, timeout = 20000) {
   fs.writeFileSync(
     configFile,
     JSON.stringify({ publicKey: keys.publicKey, revocationUrl: "", productName: "Личный чат" }, null, 2)
+  );
+
+  // Управляемая сборка: ключ предустановлен, цена задана только для одной модели.
+  fs.writeFileSync(
+    managedFile,
+    JSON.stringify({
+      apiKey: "ключ-автора-для-теста",
+      baseUrl: "https://polza.ai/api/v1",
+      model: "anthropic/claude-sonnet-5",
+      currency: "₽",
+      prices: { "anthropic/claude-sonnet-5": { input: 300, output: 1500 } },
+    })
+  );
+  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillsDir, "preset.json"),
+    JSON.stringify({ name: "Метод Динамики", description: "Тексты для ВК", content: "СЕКРЕТНАЯ МЕТОДИКА АВТОРА" })
   );
 
   app.setPath("userData", userData);
@@ -93,7 +118,11 @@ async function waitFor(win, expression, label, timeout = 20000) {
       );
 
       console.log("\nвыдача и активация");
-      const { all } = demoAccess.save([], { name: "Мария Тестова", machineCode: shown });
+      const { all } = demoAccess.save([], {
+        name: "Мария Тестова",
+        displayName: "Личный чат Марии",
+        machineCode: shown,
+      });
       const issued = await demoAccess.issue(all, all[0].id, { days: 30, productName: "Личный чат" });
       const licFile = path.join(issuerData, "test.lic");
       fs.writeFileSync(licFile, issued.contents);
@@ -113,6 +142,52 @@ async function waitFor(win, expression, label, timeout = 20000) {
         "экран активации больше не показывается",
         !(await win.webContents.executeJavaScript(`!!document.querySelector(".licence-gate")`))
       );
+
+      console.log("\nимя копии");
+      const sidebarTitle = await win.webContents.executeJavaScript(
+        `(document.querySelector(".sidebar-title")||{}).textContent || ""`
+      );
+      check("копия подписана именем из лицензии", sidebarTitle.trim() === "Личный чат Марии", sidebarTitle);
+      check(
+        "заголовок окна тоже",
+        (await win.webContents.executeJavaScript("document.title")) === "Личный чат Марии"
+      );
+
+      console.log("\nуправляемая сборка");
+      const settings = await win.webContents.executeJavaScript(`window.api.getSettings()`);
+      check("сборка помечена управляемой", settings.managed === true, JSON.stringify(settings.managed));
+      const settingsText = await win.webContents.executeJavaScript(`
+        (async () => {
+          [...document.querySelectorAll(".sidebar-item")].find(b => b.textContent.includes("Настройки")).click();
+          await new Promise(r => setTimeout(r, 600));
+          return (document.querySelector(".settings-view")||{}).textContent || "";
+        })()
+      `);
+      check("поля ключа Polza нет", !settingsText.includes("API-ключ"), settingsText.slice(0, 200));
+      check("вместо него показан расход", settingsText.includes("Расход моделей"), settingsText.slice(0, 200));
+      check("выбор модели остался", settingsText.includes("Модель"), "");
+      await win.webContents.capturePage().then((img) =>
+        fs.writeFileSync(path.join(os.tmpdir(), "chat-usage.png"), img.toPNG())
+      );
+
+      console.log("\nпредустановленные навыки");
+      const skills = await win.webContents.executeJavaScript(`window.api.listSkills()`);
+      const preset = skills.find((s) => s.bundled);
+      check("предустановленный навык виден по названию", preset?.name === "Метод Динамики", JSON.stringify(skills));
+      check("его текст в окно не пришёл", preset?.content === "", JSON.stringify(preset));
+      check(
+        "секретный текст отсутствует во всём списке",
+        !JSON.stringify(skills).includes("СЕКРЕТНАЯ МЕТОДИКА АВТОРА")
+      );
+      let refused = "";
+      try {
+        await win.webContents.executeJavaScript(
+          `window.api.saveSkill(${JSON.stringify({ id: preset?.id, name: "Подмена", content: "мой текст" })})`
+        );
+      } catch (e) {
+        refused = e.message;
+      }
+      check("изменить предустановленный навык нельзя", /нельзя изменить/.test(refused), refused);
 
       console.log("\nотчёт о проблеме");
       const info = await win.webContents.executeJavaScript(`window.api.reportInfo()`);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { DemoKeyInfo, Tester } from "../lib/types";
 
-const EMPTY: Partial<Tester> = { name: "", machineCode: "", note: "" };
+const EMPTY: Partial<Tester> = { name: "", displayName: "", machineCode: "", note: "" };
 
 function formatDate(iso: string): string {
   if (!iso) return "";
@@ -23,6 +23,9 @@ export default function DemoAccessView() {
   const [days, setDays] = useState(30);
   const [productName, setProductName] = useState("Личный чат");
   const [revocationUrl, setRevocationUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("https://polza.ai/api/v1");
+  const [pricesText, setPricesText] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -117,14 +120,60 @@ export default function DemoAccessView() {
           12 часов; если ссылка недоступна, копия продолжает работать до конца срока.
         </p>
 
+        <label className="field-label">Ключ Polza для тестовой группы</label>
+        <input
+          className="input"
+          type="password"
+          placeholder="оставьте пустым, чтобы каждый вводил свой ключ"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+        <p className="hint">
+          Если ключ задан, в демо-сборке поле ключа не показывается — вместо него тестировщик
+          видит свой расход по моделям. Заведите для группы <strong>отдельный ключ с небольшим
+          балансом</strong>: ключ физически лежит внутри приложения на чужом компьютере, и тот, кто
+          умеет распаковывать установщик, его достанет. Возможность отозвать такой ключ — и есть
+          настоящая защита, а не то, что поле спрятано.
+        </p>
+
+        <label className="field-label">Адрес API</label>
+        <input className="input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+
+        <label className="field-label">Цены моделей (по строке на модель)</label>
+        <textarea
+          className="textarea"
+          rows={4}
+          placeholder={"anthropic/claude-sonnet-5 300 1500\nopenai/gpt-5 250 1000"}
+          value={pricesText}
+          onChange={(e) => setPricesText(e.target.value)}
+        />
+        <p className="hint">
+          Формат: модель, цена за миллион входящих токенов, цена за миллион исходящих. Модель без
+          цены показывается тестировщику с токенами, но без суммы — придумывать стоимость нельзя.
+        </p>
+
         <button
           type="button"
           className="btn"
           disabled={busy || !hasKey}
           onClick={() =>
             act(async () => {
-              const result = await window.api.exportLicenceConfig({ revocationUrl, productName });
-              if (result) setNotice(`Записан ${result.file}. Теперь соберите «Личный чат» заново.`);
+              const result = await window.api.exportLicenceConfig({
+                revocationUrl,
+                productName,
+                apiKey,
+                baseUrl,
+                pricesText,
+              });
+              if (!result) return;
+              if (result.priceProblems?.length) {
+                setError("Цены разобраны не полностью:\n" + result.priceProblems.join("\n"));
+              }
+              setNotice(
+                `Записан ${result.file}.` +
+                  (result.managed ? " Ключ встроен в сборку." : " Ключ не задан — каждый вводит свой.") +
+                  " Теперь соберите «Личный чат» заново."
+              );
             })
           }
         >
@@ -144,6 +193,7 @@ export default function DemoAccessView() {
             <div key={tester.id} className="tester-row">
               <div className="tester-main">
                 <strong>{tester.name}</strong>
+                {tester.displayName && <span className="hint">копия: {tester.displayName}</span>}
                 <code className="tester-code">{(tester.machineCode.match(/.{1,5}/g) || []).join("-")}</code>
                 <span className="hint">
                   {!tester.licenceId && "файл активации ещё не выдан"}
@@ -258,6 +308,17 @@ export default function DemoAccessView() {
           value={draft.name ?? ""}
           onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))}
         />
+
+        <label className="field-label">Название копии</label>
+        <input
+          className="input"
+          placeholder={`${productName} ${draft.name || "Виктории"}`}
+          value={draft.displayName ?? ""}
+          onChange={(e) => setDraft((p) => ({ ...p, displayName: e.target.value }))}
+        />
+        <p className="hint">
+          Так копия будет подписана у тестировщика в окне. Пусто — соберём из названия и имени.
+        </p>
 
         <label className="field-label">Код компьютера</label>
         <input

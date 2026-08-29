@@ -155,6 +155,8 @@ export interface DemoKeyInfo {
 export interface Tester {
   id: string;
   name: string;
+  /** Как копия подписана у тестировщика: «Личный чат Виктории». */
+  displayName: string;
   machineCode: string;
   note: string;
   revoked: boolean;
@@ -162,6 +164,30 @@ export interface Tester {
   issuedAt: string;
   expiresAt: string;
   createdAt: number;
+}
+
+export interface PluginSkill {
+  name: string;
+  description: string;
+  content: string;
+}
+
+export interface PluginVersion {
+  version: number;
+  dir: string;
+  note: string;
+  createdAt: string;
+  skills: number;
+  sources: number;
+}
+
+export interface ArchivedPlugin {
+  id: string;
+  name: string;
+  description: string;
+  dir: string;
+  latest: number;
+  versions: PluginVersion[];
 }
 
 export interface SearchMatch {
@@ -235,7 +261,30 @@ declare global {
         options: { days: number; productName: string; revocationUrl: string }
       ): Promise<{ all: Tester[]; tester: Tester; file: string } | null>;
       exportRevocations(): Promise<{ file: string; contents: string } | null>;
-      exportLicenceConfig(options: { revocationUrl: string; productName: string }): Promise<{ file: string } | null>;
+      exportLicenceConfig(options: {
+        revocationUrl: string;
+        productName: string;
+        apiKey: string;
+        baseUrl: string;
+        pricesText: string;
+      }): Promise<{ file: string; managed: boolean; priceProblems: string[] } | null>;
+
+      listPlugins(): Promise<ArchivedPlugin[]>;
+      addPluginVersion(payload: {
+        pluginId: string;
+        name: string;
+        description: string;
+        note: string;
+        skills: PluginSkill[];
+        sourcePaths: string[];
+      }): Promise<{ id: string; version: number; dir: string; skills: number; sources: number }>;
+      removePlugin(id: string): Promise<boolean>;
+      openPluginFolder(dir: string): Promise<boolean>;
+      pickPluginSources(): Promise<string[]>;
+      pickPluginSkillFiles(): Promise<PluginSkill[]>;
+      exportPluginsToBuild(
+        selections: { id: string; version: number }[]
+      ): Promise<{ targetDir: string; included: { id: string; version: number; skills: number }[]; missing: string[] } | null>;
 
       openExternal(url: string): Promise<void>;
     };

@@ -186,6 +186,17 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-blueprints.png"), img.toPNG())
     );
 
+    console.log("\nвкладка Плагины");
+    await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Плагины").click()`
+    );
+    await waitFor(win, `!!document.querySelector(".view-title")`, "архив плагинов открылся");
+    const pluginsText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("объясняет, что версии не перезаписываются", pluginsText.includes("новой версией"), pluginsText.slice(0, 200));
+    await win.webContents.capturePage().then((img) =>
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-plugins.png"), img.toPNG())
+    );
+
     console.log("\nвкладка Демо-доступ");
     await win.webContents.executeJavaScript(
       `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо-доступ").click()`

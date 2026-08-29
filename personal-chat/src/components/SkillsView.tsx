@@ -146,17 +146,28 @@ export default function SkillsView({ skills, settings, onSkillsChange, onOpenSet
             {skills.map((s) => (
               <li key={s.id} className="skill-card">
                 <div>
-                  <h3>{s.name}</h3>
+                  <h3>
+                    {s.name}
+                    {s.bundled && <span className="skill-badge">предустановлен</span>}
+                  </h3>
                   <p>{s.description}</p>
                 </div>
-                <div className="skill-card-actions">
-                  <button className="btn btn-secondary" onClick={() => openEdit(s)}>
-                    Изменить
-                  </button>
-                  <button className="btn btn-danger" onClick={() => removeSkill(s.id)}>
-                    Удалить
-                  </button>
-                </div>
+                {/* У предустановленного навыка текст не приходит в окно вовсе,
+                    поэтому и открывать его в редакторе нечего. */}
+                {s.bundled ? (
+                  <div className="skill-card-actions">
+                    <span className="hint">Подключается к проекту, редактированию не подлежит.</span>
+                  </div>
+                ) : (
+                  <div className="skill-card-actions">
+                    <button className="btn btn-secondary" onClick={() => openEdit(s)}>
+                      Изменить
+                    </button>
+                    <button className="btn btn-danger" onClick={() => removeSkill(s.id)}>
+                      Удалить
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

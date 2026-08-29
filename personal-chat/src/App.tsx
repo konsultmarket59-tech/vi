@@ -53,7 +53,9 @@ export default function App() {
         setSkills(s);
         setSettings(cfg);
         setPlugins(pluginCfg);
-        document.title = pluginCfg.productName;
+        // Имя копии из лицензии важнее названия сборки: одна и та же сборка
+        // у разных людей называется по-разному.
+        document.title = lic.displayName || pluginCfg.productName;
         setView(p.length > 0 ? { kind: "project", id: p[0].id } : { kind: "settings" });
         setLoaded(true);
       } catch (e) {
@@ -128,7 +130,7 @@ export default function App() {
         projects={projects}
         view={activeView}
         modules={plugins.modules}
-        productName={plugins.productName}
+        productName={licence?.displayName || plugins.productName}
         onSelectView={setView}
         onProjectsChange={setProjects}
       />

@@ -46,7 +46,11 @@ export interface Skill {
   id: string;
   name: string;
   description: string;
+  /** У предустановленного навыка пусто: текст не передаётся в окно приложения. */
   content: string;
+  /** Навык, вшитый в сборку автором: виден по названию, не редактируется. */
+  bundled?: boolean;
+  contentHidden?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -133,6 +137,8 @@ export interface Settings {
   searchEnabled?: boolean;
   searchProvider?: "duckduckgo" | "tavily";
   searchApiKey?: string;
+  /** Сборка с предустановленным ключом: поле ключа скрыто, показывается расход. */
+  managed?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -645,6 +651,42 @@ export interface LicenceStatus {
   expiresAt?: string;
   daysLeft?: number;
   productName?: string;
+  /** Название именно этой копии: «Личный чат Виктории». */
+  displayName?: string;
+}
+
+export type UsagePeriod = "day" | "week" | "month";
+
+export interface UsageEntry {
+  model: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  exact: boolean;
+  source: string;
+}
+
+export interface UsageModelRow {
+  model: string;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  tokens: number;
+  /** null — цена для этой модели не задана в сборке. */
+  cost: number | null;
+  exact: boolean;
+}
+
+export interface UsageSummary {
+  period: UsagePeriod;
+  from: string;
+  models: UsageModelRow[];
+  totals: {
+    calls: number;
+    tokens: number;
+    cost: number | null;
+    currency: string;
+    estimated: boolean;
+  } | null;
 }
 
 export interface ReportInfo {
@@ -662,6 +704,8 @@ export interface ElectronAPI {
   openRootPath(): Promise<void>;
 
   getPlugins(): Promise<PluginConfig>;
+  recordUsage(entry: UsageEntry): Promise<unknown>;
+  usageSummary(period: UsagePeriod): Promise<UsageSummary>;
   reportInfo(): Promise<ReportInfo>;
   writeReport(description: string): Promise<{ file: string; entries: number }>;
   revealReport(file: string): Promise<boolean>;

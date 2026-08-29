@@ -54,7 +54,11 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "bundled-skills/**/*",
+      "plugins.json",
+      "licence-config.json",
+      "managed-config.json"
     ],
     "directories": {
       "output": "release"

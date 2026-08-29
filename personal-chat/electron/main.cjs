@@ -178,7 +178,7 @@ async function loadSettings() {
   // never touched the slider, not that they deliberately chose the smallest setting — so
   // carry them forward to the new, more generous default.
   if (s.maxTokens === OLD_DEFAULT_MAX_TOKENS) s.maxTokens = DEFAULT_SETTINGS.maxTokens;
-  return { ...DEFAULT_SETTINGS, ...s };
+  return managed.apply({ ...DEFAULT_SETTINGS, ...s });
 }
 
 async function saveSettingsFile(settings) {
@@ -496,10 +496,15 @@ async function listSkills() {
     skills.push({ id: entry.name.replace(/\.json$/, ""), ...data });
   }
   skills.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
-  return skills;
+  // Предустановленные автором навыки идут первыми: они одинаковы у всех и
+  // задают основу, а собственные навыки пользователя — уже поверх неё.
+  return [...(await bundledSkills.load()), ...skills];
 }
 
 async function saveSkill(skill) {
+  if (bundledSkills.isBundled(skill?.id)) {
+    throw new Error("Это предустановленный навык — его нельзя изменить. Скопируйте его в свой навык.");
+  }
   const root = await getRootPath();
   const dir = skillsDir(root);
   await ensureDir(dir);
@@ -573,6 +578,7 @@ async function importSkillFromFolder(folderPath) {
 }
 
 async function deleteSkill(id) {
+  if (bundledSkills.isBundled(id)) throw new Error("Это предустановленный навык — его нельзя удалить.");
   const root = await getRootPath();
   const filePath = path.join(skillsDir(root), id + ".json");
   await shell.trashItem(filePath).catch(async () => {
@@ -637,6 +643,10 @@ const licence = require("./licence.cjs");
 licence.init(USER_DATA_PATH);
 const report = require("./report.cjs");
 report.install();
+const managed = require("./managed.cjs");
+const bundledSkills = require("./bundledSkills.cjs");
+const usage = require("./usage.cjs");
+usage.init(USER_DATA_PATH);
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
@@ -776,6 +786,26 @@ async function callModelOnce(settings, messages) {
   const body = await res.json();
   const content = body?.choices?.[0]?.message?.content;
   if (!content) throw new Error("Модель вернула пустой ответ.");
+  // Задачи по расписанию и агенты тоже тратят баланс, поэтому попадают в тот же
+  // счётчик, что и обычный чат.
+  const reported = body?.usage;
+  if (reported?.prompt_tokens || reported?.completion_tokens) {
+    await usage.record({
+      model: settings.model,
+      promptTokens: reported.prompt_tokens,
+      completionTokens: reported.completion_tokens,
+      exact: true,
+      source: "фон",
+    });
+  } else {
+    await usage.record({
+      model: settings.model,
+      promptTokens: usage.estimateTokens(messages.map((m) => m.content).join("\n")),
+      completionTokens: usage.estimateTokens(content),
+      exact: false,
+      source: "фон",
+    });
+  }
   return content;
 }
 
@@ -1251,6 +1281,9 @@ ipcMain.handle("config:openRootPath", async () => {
 
 ipcMain.handle("plugins:get", () => plugins.load(app));
 
+ipcMain.handle("usage:record", (_e, entry) => usage.record(entry));
+ipcMain.handle("usage:summary", (_e, period) => usage.summary(period, managed.prices()));
+
 ipcMain.handle("report:info", async () => {
   const cfg = plugins.load(app);
   const lic = await licence.status({ allowNetwork: false });
@@ -1370,7 +1403,7 @@ ipcMain.handle("docs:pickFiles", async () => {
   return result.filePaths;
 });
 
-ipcMain.handle("skills:list", () => listSkills());
+ipcMain.handle("skills:list", async () => bundledSkills.stripForRenderer(await listSkills()));
 ipcMain.handle("skills:save", (_e, skill) => saveSkill(skill));
 ipcMain.handle("skills:delete", (_e, id) => deleteSkill(id));
 ipcMain.handle("skills:pickImportFile", async () => {

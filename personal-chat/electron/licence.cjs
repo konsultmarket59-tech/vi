@@ -296,6 +296,7 @@ async function status({ allowNetwork = true } = {}) {
       tester: licence.tester,
       expiresAt: licence.expiresAt,
       productName: config.productName,
+      displayName: licence.displayName || "",
     };
   }
 
@@ -325,6 +326,7 @@ async function status({ allowNetwork = true } = {}) {
       machineCode: activationCode(),
       tester: licence.tester,
       productName: config.productName,
+      displayName: licence.displayName || "",
     };
   }
 
@@ -338,6 +340,9 @@ async function status({ allowNetwork = true } = {}) {
     expiresAt: licence.expiresAt,
     daysLeft,
     productName: config.productName,
+    // Заголовок именно этой копии: «Личный чат Виктории». Приходит в лицензии,
+    // поэтому одна и та же сборка у разных людей подписана по-разному.
+    displayName: licence.displayName || "",
   };
 }
 

@@ -8,9 +8,10 @@ import GitPanel from "./components/GitPanel";
 import SettingsView from "./components/SettingsView";
 import BlueprintsView from "./components/BlueprintsView";
 import DemoAccessView from "./components/DemoAccessView";
+import PluginArchiveView from "./components/PluginArchiveView";
 import Prompt from "./components/Prompt";
 
-type Tab = "code" | "git" | "blueprints" | "demo" | "settings";
+type Tab = "code" | "git" | "blueprints" | "plugins" | "demo" | "settings";
 
 /** The tail of a path is what identifies a project; the full path is in the tooltip. */
 function shortenPath(full: string): string {
@@ -171,6 +172,13 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={tab === "plugins" ? "tab tab-active" : "tab"}
+            onClick={() => setTab("plugins")}
+          >
+            Плагины
+          </button>
+          <button
+            type="button"
             className={tab === "demo" ? "tab tab-active" : "tab"}
             onClick={() => setTab("demo")}
           >
@@ -281,6 +289,7 @@ export default function App() {
         {tab === "git" && hasWorkspace && <GitPanel isRepo={workspace.isRepo} onChanged={refreshTree} />}
 
         {tab === "blueprints" && <BlueprintsView />}
+        {tab === "plugins" && <PluginArchiveView />}
         {tab === "demo" && <DemoAccessView />}
         {tab === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>

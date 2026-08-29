@@ -25,8 +25,11 @@ const MODULE_IDS = [
   "chatbots",
 ];
 
-// Without projects there is no app, so it stays on whatever the file says.
-const ALWAYS_ON = ["projects"];
+// The base every build shares: chat with a model picker, projects and
+// instructions, skills, scheduled tasks, files from the computer, saving
+// results, and design. These stay on whatever the file says; everything else is
+// an optional plugin.
+const ALWAYS_ON = ["projects", "skills", "design"];
 
 function candidatePaths(app) {
   const paths = [path.join(__dirname, "..", "plugins.json")];

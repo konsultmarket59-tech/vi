@@ -16,6 +16,7 @@ const git = require("./git.cjs");
 const agent = require("./agent.cjs");
 const blueprints = require("./blueprints.cjs");
 const demoAccess = require("./demoAccess.cjs");
+const pluginArchive = require("./pluginArchive.cjs");
 
 let mainWindow = null;
 
@@ -187,6 +188,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   settingsStore.init();
   demoAccess.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("userData")));
+  pluginArchive.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("documents")));
   await settingsStore.applyProxy(await settingsStore.load());
   const saved = await settingsStore.readSection("workspace", "");
   if (saved && fsSync.existsSync(saved)) currentRoot = saved;
@@ -363,7 +365,74 @@ function registerHandlers() {
       properties: ["openDirectory"],
     });
     if (result.canceled || !result.filePaths[0]) return null;
-    return demoAccess.exportConfig(result.filePaths[0], options || {});
+    const { pricesText, ...rest } = options || {};
+    const { prices, problems } = demoAccess.parsePrices(pricesText);
+    const written = await demoAccess.exportConfig(result.filePaths[0], { ...rest, prices });
+    return { ...written, priceProblems: problems };
+  });
+
+  // plugin archive
+  ipcMain.handle("plugins:list", () => pluginArchive.list());
+  ipcMain.handle("plugins:addVersion", (_e, payload) => pluginArchive.addVersion(payload || {}));
+  ipcMain.handle("plugins:remove", (_e, id) => pluginArchive.removePlugin(id));
+  ipcMain.handle("plugins:openFolder", async (_e, dir) => {
+    await shell.openPath(dir || pluginArchive.root());
+    return true;
+  });
+  ipcMain.handle("plugins:pickSources", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Файлы или папки плагина",
+      properties: ["openFile", "openDirectory", "multiSelections"],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+  ipcMain.handle("plugins:pickSkillFiles", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Файлы навыков (.md, .json)",
+      filters: [{ name: "Навыки", extensions: ["md", "json", "txt", "skill"] }],
+      properties: ["openFile", "multiSelections"],
+    });
+    if (result.canceled) return [];
+    const skills = [];
+    for (const file of result.filePaths) {
+      const raw = await fs.readFile(file, "utf-8");
+      if (file.endsWith(".json")) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.name && typeof parsed.content === "string") {
+            skills.push({ name: parsed.name, description: parsed.description || "", content: parsed.content });
+            continue;
+          }
+        } catch {
+          // не JSON-навык — разберём как текст ниже
+        }
+      }
+      // Markdown-навык: заголовки name/description во frontmatter, остальное — тело.
+      const front = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
+      let name = path.basename(file).replace(/\.[^.]+$/, "");
+      let description = "";
+      let content = raw;
+      if (front) {
+        content = raw.slice(front[0].length);
+        for (const line of front[1].split("\n")) {
+          const m = /^(name|description):\s*(.+)$/.exec(line.trim());
+          if (m) {
+            if (m[1] === "name") name = m[2].trim().replace(/^["']|["']$/g, "");
+            else description = m[2].trim().replace(/^["']|["']$/g, "");
+          }
+        }
+      }
+      skills.push({ name, description, content: content.trim() });
+    }
+    return skills;
+  });
+  ipcMain.handle("plugins:exportToBuild", async (_e, selections) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Папка исходников «Личного чата»",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return pluginArchive.exportToBuild(result.filePaths[0], selections || []);
   });
 
   ipcMain.handle("app:openExternal", (_e, url) => {

@@ -71,5 +71,14 @@ contextBridge.exposeInMainWorld("api", {
   exportRevocations: () => ipcRenderer.invoke("demo:exportRevocations"),
   exportLicenceConfig: (options) => ipcRenderer.invoke("demo:exportConfig", options),
 
+  // архив плагинов
+  listPlugins: () => ipcRenderer.invoke("plugins:list"),
+  addPluginVersion: (payload) => ipcRenderer.invoke("plugins:addVersion", payload),
+  removePlugin: (id) => ipcRenderer.invoke("plugins:remove", id),
+  openPluginFolder: (dir) => ipcRenderer.invoke("plugins:openFolder", dir),
+  pickPluginSources: () => ipcRenderer.invoke("plugins:pickSources"),
+  pickPluginSkillFiles: () => ipcRenderer.invoke("plugins:pickSkillFiles"),
+  exportPluginsToBuild: (selections) => ipcRenderer.invoke("plugins:exportToBuild", selections),
+
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
 });
