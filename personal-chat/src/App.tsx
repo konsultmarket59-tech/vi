@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
-import type { Project, Settings, Skill } from "./lib/types";
+import type { LicenceStatus, PluginConfig, Project, Settings, Skill } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
 import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
-import OpsView from "./components/OpsView";
-import MailView from "./components/MailView";
+import ExcelView from "./components/ExcelView";
+import WordView from "./components/WordView";
+import DirectView from "./components/DirectView";
+import CloudView from "./components/CloudView";
 import MediaView from "./components/MediaView";
 import DesignView from "./components/DesignView";
 import GitHubView from "./components/GitHubView";
 import ChatBotsView from "./components/ChatBotsView";
 import SettingsView from "./components/SettingsView";
+import LicenceGate from "./components/LicenceGate";
 
 const STARTUP_SLOW_MS = 10000;
 
@@ -18,6 +21,10 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // Every module is on until plugins.json says otherwise, so a build without the
+  // file behaves exactly as before.
+  const [plugins, setPlugins] = useState<PluginConfig>({ productName: "Личный чат", modules: {}, source: "" });
+  const [licence, setLicence] = useState<LicenceStatus | null>(null);
   const [view, setView] = useState<View>({ kind: "settings" });
   const [loaded, setLoaded] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -27,14 +34,28 @@ export default function App() {
     const slowTimer = setTimeout(() => setStartupSlow(true), STARTUP_SLOW_MS);
     (async () => {
       try {
-        const [p, s, cfg] = await Promise.all([
+        // Checked first and on its own: a demo build that is not activated must
+        // not go on to read projects and settings behind the gate.
+        const lic = await window.api.licenceStatus();
+        setLicence(lic);
+        if (lic.gated && !lic.ok) {
+          setLoaded(true);
+          return;
+        }
+
+        const [p, s, cfg, pluginCfg] = await Promise.all([
           window.api.listProjects(),
           window.api.listSkills(),
           window.api.getSettings(),
+          window.api.getPlugins(),
         ]);
         setProjects(p);
         setSkills(s);
         setSettings(cfg);
+        setPlugins(pluginCfg);
+        // Имя копии из лицензии важнее названия сборки: одна и та же сборка
+        // у разных людей называется по-разному.
+        document.title = lic.displayName || pluginCfg.productName;
         setView(p.length > 0 ? { kind: "project", id: p[0].id } : { kind: "settings" });
         setLoaded(true);
       } catch (e) {
@@ -83,11 +104,45 @@ export default function App() {
     );
   }
 
+  if (licence?.gated && !licence.ok) {
+    return (
+      <LicenceGate
+        status={licence}
+        onActivated={(next) => {
+          setLicence(next);
+          // Everything the app needs was skipped while the gate was up, so the
+          // simplest correct thing after activation is a clean start.
+          if (next.ok) window.location.reload();
+        }}
+      />
+    );
+  }
+
+  // A module switched off in this build must not render even if some other code
+  // path selects its view.
+  const enabled = (id: string) => plugins.modules[id] !== false;
+  const activeView =
+    view.kind === "project" || view.kind === "settings" || enabled(view.kind) ? view : { kind: "settings" as const };
+
   return (
     <div className="app-shell">
-      <Sidebar projects={projects} view={view} onSelectView={setView} onProjectsChange={setProjects} />
+      <Sidebar
+        projects={projects}
+        view={activeView}
+        modules={plugins.modules}
+        productName={licence?.displayName || plugins.productName}
+        onSelectView={setView}
+        onProjectsChange={setProjects}
+      />
       <main className="main-area">
-        {view.kind === "project" && activeProject && (
+        {licence?.gated && licence.ok && typeof licence.daysLeft === "number" && licence.daysLeft <= 7 && (
+          <div className="licence-banner">
+            Демо-доступ заканчивается через {licence.daysLeft}{" "}
+            {licence.daysLeft === 1 ? "день" : licence.daysLeft < 5 ? "дня" : "дней"}
+            {licence.tester ? ` · ${licence.tester}` : ""}
+          </div>
+        )}
+        {activeView.kind === "project" && activeProject && (
           <ProjectPanel
             project={activeProject}
             skills={skills}
@@ -96,10 +151,10 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
-        {view.kind === "project" && !activeProject && (
+        {activeView.kind === "project" && !activeProject && (
           <div className="empty-state">Проект не найден.</div>
         )}
-        {view.kind === "skills" && (
+        {activeView.kind === "skills" && (
           <SkillsView
             skills={skills}
             settings={settings}
@@ -107,19 +162,32 @@ export default function App() {
             onOpenSettings={() => setView({ kind: "settings" })}
           />
         )}
-        {view.kind === "ops" && <OpsView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
-        {view.kind === "mail" && <MailView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />}
-        {view.kind === "media" && (
+        {activeView.kind === "word" && (
+          <WordView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "excel" && (
+          <ExcelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "cloud" && <CloudView projects={projects} />}
+        {activeView.kind === "direct" && (
+          <DirectView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "media" && (
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "design" && (
-          <DesignView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
+        {activeView.kind === "design" && (
+          <DesignView
+            projects={projects}
+            skills={skills}
+            settings={settings}
+            onOpenSettings={() => setView({ kind: "settings" })}
+          />
         )}
-        {view.kind === "github" && (
+        {activeView.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
-        {view.kind === "chatbots" && <ChatBotsView />}
-        {view.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
+        {activeView.kind === "chatbots" && <ChatBotsView />}
+        {activeView.kind === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>
     </div>
   );

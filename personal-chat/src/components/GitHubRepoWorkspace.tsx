@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Conversation, GitHubRepo, GitHubTree, Settings } from "../lib/types";
+import type { Conversation, GitHubBranch, GitHubRepo, GitHubTree, GitHubWorkflow, GitHubWorkflowRun, Settings } from "../lib/types";
 import { FILE_EDIT_SYNTAX_HINT, parseFileEdit, uid, type ParsedFileEdit } from "../lib/promptBuilder";
 import ChatView from "./ChatView";
 
@@ -8,6 +8,25 @@ interface Props {
   settings: Settings;
   onBack: () => void;
   onOpenSettings: () => void;
+}
+
+type WorkspaceTab = "code" | "actions";
+
+const RUN_POLL_MS = 6000;
+
+function runLabel(run: GitHubWorkflowRun): string {
+  if (run.status !== "completed") return run.status === "queued" ? "в очереди" : "выполняется";
+  if (run.conclusion === "success") return "успешно";
+  if (run.conclusion === "failure") return "ошибка";
+  if (run.conclusion === "cancelled") return "отменён";
+  return run.conclusion ?? "завершён";
+}
+
+function runClass(run: GitHubWorkflowRun): string {
+  if (run.status !== "completed") return "run-status run-running";
+  if (run.conclusion === "success") return "run-status run-success";
+  if (run.conclusion === "failure") return "run-status run-failure";
+  return "run-status";
 }
 
 const MAX_FILE_CHARS = 40000;
@@ -27,10 +46,75 @@ export default function GitHubRepoWorkspace({ repo, settings, onBack, onOpenSett
   const [commitOk, setCommitOk] = useState<string | null>(null);
   const [showEditPreview, setShowEditPreview] = useState(false);
 
+  const [tab, setTab] = useState<WorkspaceTab>("code");
+  const [workflows, setWorkflows] = useState<GitHubWorkflow[]>([]);
+  const [branches, setBranches] = useState<GitHubBranch[]>([]);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<number | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [runs, setRuns] = useState<GitHubWorkflowRun[]>([]);
+  const [actionsError, setActionsError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [actionsNote, setActionsNote] = useState<string | null>(null);
+
   useEffect(() => {
     loadTree();
     loadConversation();
   }, [repo.owner, repo.name]);
+
+  useEffect(() => {
+    if (tab === "actions") loadActions();
+  }, [tab, repo.owner, repo.name]);
+
+  // While a run is in flight, keep the list fresh so the result shows up without
+  // the user having to click anything.
+  useEffect(() => {
+    if (tab !== "actions") return;
+    if (!runs.some((r) => r.status !== "completed")) return;
+    const timer = setInterval(() => refreshRuns(), RUN_POLL_MS);
+    return () => clearInterval(timer);
+  }, [tab, runs, selectedWorkflow]);
+
+  async function loadActions() {
+    setActionsError(null);
+    try {
+      const [wfs, brs] = await Promise.all([
+        window.api.listGitHubWorkflows(repo.owner, repo.name),
+        window.api.listGitHubBranches(repo.owner, repo.name),
+      ]);
+      setWorkflows(wfs);
+      setBranches(brs);
+      setSelectedWorkflow((prev) => prev ?? wfs[0]?.id ?? null);
+      setSelectedBranch((prev) => prev || repo.defaultBranch || brs[0]?.name || "");
+      setRuns(await window.api.listGitHubWorkflowRuns(repo.owner, repo.name, wfs[0]?.id, 10));
+    } catch (e) {
+      setActionsError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function refreshRuns(workflowId?: number) {
+    try {
+      setRuns(await window.api.listGitHubWorkflowRuns(repo.owner, repo.name, workflowId ?? selectedWorkflow ?? undefined, 10));
+    } catch (e) {
+      setActionsError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function startWorkflow() {
+    if (!selectedWorkflow || !selectedBranch) return;
+    setStarting(true);
+    setActionsError(null);
+    setActionsNote(null);
+    try {
+      await window.api.runGitHubWorkflow(repo.owner, repo.name, selectedWorkflow, selectedBranch);
+      setActionsNote(`Запущено на ветке ${selectedBranch}. Сборка занимает пару минут.`);
+      // GitHub needs a moment before the new run appears in the list.
+      setTimeout(() => refreshRuns(), 3000);
+    } catch (e) {
+      setActionsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStarting(false);
+    }
+  }
 
   async function loadTree() {
     setLoadingTree(true);
@@ -149,9 +233,19 @@ export default function GitHubRepoWorkspace({ repo, settings, onBack, onOpenSett
           </button>
           <h2>{repo.fullName}</h2>
         </div>
-        <button className="btn btn-secondary" onClick={loadTree} disabled={loadingTree}>
-          {loadingTree ? "Загрузка…" : "Обновить дерево"}
-        </button>
+        <div className="project-tabs">
+          <button className={tab === "code" ? "tab active" : "tab"} onClick={() => setTab("code")}>
+            Код
+          </button>
+          <button className={tab === "actions" ? "tab active" : "tab"} onClick={() => setTab("actions")}>
+            Сборка (Actions)
+          </button>
+          {tab === "code" && (
+            <button className="btn btn-secondary" onClick={loadTree} disabled={loadingTree}>
+              {loadingTree ? "Загрузка…" : "Обновить дерево"}
+            </button>
+          )}
+        </div>
       </div>
 
       {!settings.apiKey && (
@@ -160,7 +254,78 @@ export default function GitHubRepoWorkspace({ repo, settings, onBack, onOpenSett
         </div>
       )}
 
-      <div className="github-layout">
+      {tab === "actions" && (
+        <div className="panel-section">
+          <p className="hint">
+            Здесь запускаются рабочие процессы (workflows) репозитория — например сборка нового установочного
+            файла приложения. Запуск всегда берёт последний коммит выбранной ветки; это именно «Run workflow»,
+            а не «Re-run» старого запуска (тот пересобрал бы старый код).
+          </p>
+          {actionsError && <div className="chat-error">{actionsError}</div>}
+          {workflows.length === 0 && !actionsError && <p className="hint">В репозитории нет workflow-файлов.</p>}
+
+          {workflows.length > 0 && (
+            <>
+              <label>Процесс</label>
+              <select
+                value={selectedWorkflow ?? ""}
+                onChange={(e) => {
+                  const id = Number(e.target.value);
+                  setSelectedWorkflow(id);
+                  refreshRuns(id);
+                }}
+              >
+                {workflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} ({w.path.replace(".github/workflows/", "")})
+                  </option>
+                ))}
+              </select>
+
+              <label>Ветка</label>
+              <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)}>
+                {branches.map((b) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="settings-actions">
+                <button className="btn btn-primary" onClick={startWorkflow} disabled={starting || !selectedWorkflow}>
+                  {starting ? "Запускаю…" : "▶ Запустить"}
+                </button>
+                <button className="btn btn-secondary" onClick={() => refreshRuns()}>
+                  Обновить список
+                </button>
+              </div>
+              {actionsNote && <p className="hint">{actionsNote}</p>}
+
+              <h3>Последние запуски</h3>
+              {runs.length === 0 && <p className="hint">Запусков пока не было.</p>}
+              <ul className="run-list">
+                {runs.map((r) => (
+                  <li key={r.id}>
+                    <span className={runClass(r)}>{runLabel(r)}</span>
+                    <span className="run-main">
+                      <span className="run-title">
+                        #{r.runNumber} · {r.branch}
+                      </span>
+                      <span className="run-commit">{r.headCommitMessage}</span>
+                    </span>
+                    <span className="run-date">{new Date(r.createdAt).toLocaleString("ru-RU")}</span>
+                    <a href={r.htmlUrl} target="_blank" rel="noreferrer" className="link-btn">
+                      открыть ↗
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="github-layout" style={{ display: tab === "code" ? undefined : "none" }}>
         <div className="github-tree">
           <p className="hint">Отметьте файлы, чтобы агент видел их содержимое.</p>
           {treeError && <div className="chat-error">{treeError}</div>}

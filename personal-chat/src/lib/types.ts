@@ -19,7 +19,7 @@ export interface Brand {
 export const DEFAULT_BRAND: Brand = {
   companyName: "",
   tagline: "",
-  accentColor: "#c96442",
+  accentColor: "#ff2f6d",
   footerText: "",
   logoPath: "",
   qrPath: "",
@@ -36,6 +36,13 @@ export interface Project {
   skillIds: string[];
   brand?: Brand;
   externalDocsPath?: string;
+  /** Files/folders on the computer holding this project's design system. */
+  designSystemPaths?: string[];
+  /**
+   * Документы, снятые с галочки «в контексте»: ключи вида `docs/имя.pdf` и
+   * `external/имя.docx`. Файл остаётся в проекте, но не уходит в каждый запрос.
+   */
+  excludedDocs?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -44,17 +51,42 @@ export interface Skill {
   id: string;
   name: string;
   description: string;
+  /** У предустановленного навыка пусто: текст не передаётся в окно приложения. */
   content: string;
+  /** Навык, вшитый в сборку автором: виден по названию, не редактируется. */
+  bundled?: boolean;
+  contentHidden?: boolean;
   createdAt: number;
   updatedAt: number;
 }
 
 export type Role = "user" | "assistant";
 
+export interface DesignSystemFile {
+  path: string;
+  name: string;
+  from?: string;
+  missing?: boolean;
+}
+
+export type AttachmentKind = "text" | "image" | "video" | "audio" | "other";
+
+export interface ChatAttachment {
+  name: string;
+  path: string;
+  kind: AttachmentKind;
+  size: number;
+  /** Extracted document text, filled in at attach time for text-ish files. */
+  text?: string;
+  /** Set when the file could not be read/extracted. */
+  error?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
   content: string;
+  attachments?: ChatAttachment[];
   createdAt: number;
 }
 
@@ -64,6 +96,16 @@ export interface Conversation {
   title: string;
   messages: ChatMessage[];
   model?: string;
+  /**
+   * Agent chats only: the assistant message whose proposed change was already
+   * applied or rejected, so the confirmation banner doesn't come back on reopen.
+   */
+  handledEditId?: string;
+  /**
+   * Condensed account of messages that were folded away, sent to the model in place
+   * of them. Set by "свернуть историю"; the originals go to an archive file.
+   */
+  summary?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -93,8 +135,15 @@ export interface Settings {
   model: string;
   temperature: number;
   maxTokens: number;
+  proxyMode?: "system" | "manual" | "direct";
+  proxyUrl?: string;
   proxyUsername?: string;
   proxyPassword?: string;
+  searchEnabled?: boolean;
+  searchProvider?: "duckduckgo" | "tavily";
+  searchApiKey?: string;
+  /** Сборка с предустановленным ключом: поле ключа скрыто, показывается расход. */
+  managed?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -103,9 +152,28 @@ export const DEFAULT_SETTINGS: Settings = {
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
   maxTokens: 16000,
+  proxyMode: "system",
+  proxyUrl: "",
   proxyUsername: "",
   proxyPassword: "",
+  searchEnabled: true,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
 };
+
+export interface StorageEntry {
+  name: string;
+  bytes: number;
+  files: number;
+}
+
+export interface StorageReport {
+  rootPath: string;
+  totalBytes: number;
+  folders: StorageEntry[];
+  /** Chats whose history is long enough to be worth folding down. */
+  heavyChats: { projectId: string; projectName: string; convId: string; title: string; messages: number; chars: number }[];
+}
 
 export interface AppConfig {
   rootPath: string;
@@ -113,75 +181,28 @@ export interface AppConfig {
 
 export type CellValue = string | number;
 
-export interface OpsSheet {
-  id: string;
-  name: string;
-  rows: CellValue[][];
-  order: number;
-  updatedAt: number;
-}
-
-export interface OpsEdit {
-  sheet: string;
-  action: "add_row" | "update_row" | "delete_row";
-  rowIndex?: number;
-  values?: CellValue[];
-}
-
-export interface MailSignature {
-  name: string;
-  position: string;
-  company: string;
-  phone: string;
-  email: string;
-  website: string;
-  accentColor: string;
-  logoPath: string;
-}
-
-export interface MailAccount {
-  email: string;
-  password: string;
-  displayName: string;
-  imapHost: string;
-  imapPort: number;
-  smtpHost: string;
-  smtpPort: number;
-  signature: MailSignature;
-}
-
-export interface MailMessageSummary {
-  uid: number;
-  subject: string;
-  from: string;
-  date: number;
-  seen: boolean;
-}
-
-export interface MailMessageFull extends MailMessageSummary {
-  to: string;
-  text: string;
-  html: string | null;
-}
-
-export interface MailTestResult {
-  ok: boolean;
-  errors: { imap?: string; smtp?: string };
-}
-
 export type ChatbotPlatform = "telegram" | "vk" | "max";
 
-export interface TelegramAccount {
+interface AiBotConfig {
+  /** Answer incoming messages with the model instead of scripted funnels. */
+  aiEnabled?: boolean;
+  /** Project whose instructions/skills/documents back the bot's answers. */
+  aiProjectId?: string;
+}
+
+export interface TelegramAccount extends AiBotConfig {
   token: string;
   enabled: boolean;
 }
-export interface VkAccount {
+export interface VkAccount extends AiBotConfig {
   token: string;
   groupId: string;
   enabled: boolean;
 }
-export interface MaxAccount {
+export interface MaxAccount extends AiBotConfig {
   token: string;
+  /** Bot API host. Empty means "use the app's default"; the test can fill it in. */
+  apiBase: string;
   enabled: boolean;
 }
 
@@ -195,6 +216,8 @@ export interface ChatbotTestResult {
   ok: boolean;
   login?: string;
   error?: string;
+  /** MAX only: the API host that answered, when it differs from the saved one. */
+  switched?: string;
 }
 
 export type ChatbotStatusMap = Record<ChatbotPlatform, boolean>;
@@ -280,6 +303,32 @@ export interface GitHubTestResult {
   error?: string;
 }
 
+export interface GitHubWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+  runNumber: number;
+  status: string;
+  conclusion: string | null;
+  branch: string;
+  headSha: string;
+  createdAt: string;
+  updatedAt: string;
+  htmlUrl: string;
+  headCommitMessage: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+  sha?: string;
+}
+
 export type MediaType = "image" | "video" | "audio";
 
 export interface MediaGenerationRequest {
@@ -302,7 +351,15 @@ export interface MediaGenerationResult {
   costRub?: number;
 }
 
-export type DesignType = "post" | "document" | "presentation" | "design-system" | "website" | "graphic" | "other";
+export type DesignType =
+  | "post"
+  | "document"
+  | "presentation"
+  | "design-system"
+  | "website"
+  | "graphic"
+  | "motion"
+  | "other";
 export type DesignFormat = "html" | "svg";
 
 export interface DesignDoc {
@@ -311,9 +368,339 @@ export interface DesignDoc {
   type: DesignType;
   format: DesignFormat;
   content: string;
+  /** Motion designs only: how long the clip runs, as declared by the assistant. */
+  durationSec?: number;
   projectId?: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** The kinds of material a design project can point at on the computer. */
+export type DesignAssetKind = "logos" | "fonts" | "sources" | "references" | "system";
+
+export interface DesignProject {
+  id: string;
+  name: string;
+  /** Optional link to an app project, purely to inherit its brand kit. */
+  linkedProjectId: string;
+  /** Which design system the project works in; empty for none. */
+  systemId: string;
+  notes: string;
+  assets: Record<DesignAssetKind, string[]>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type DesignSystemAssetKind = "fonts" | "logos" | "rules";
+
+/** A brand's design system — several can exist, and a project picks one. */
+export interface DesignSystem {
+  id: string;
+  name: string;
+  /** Palette and rules as text, for what is quicker to type than to attach. */
+  notes: string;
+  assets: Record<DesignSystemAssetKind, string[]>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DesignAsset {
+  id: string;
+  /** A project's own kind, or "system:fonts" etc. for design-system material. */
+  kind: DesignAssetKind | string;
+  /** Set on design-system material: which system it came from. */
+  systemName?: string;
+  path: string;
+  name: string;
+  ext: string;
+  size?: number;
+  missing: boolean;
+  isFont: boolean;
+  isImage: boolean;
+  /** CSS family name for a font asset; empty otherwise. */
+  fontFamily: string;
+  text?: string;
+}
+
+export interface DesignRenderResult {
+  path: string;
+  width?: number;
+  height?: number;
+  frames?: number;
+  fps?: number;
+  durationSec?: number;
+}
+
+export type CloudProvider = "yandex" | "google";
+
+export interface DirectSettings {
+  /** Needed only when an agency account acts for a client; empty otherwise. */
+  clientLogin: string;
+  /** Which Yandex account these settings belong to — Direct follows the active one. */
+  accountId: string;
+  accountLabel: string;
+}
+
+export interface DirectTestResult {
+  ok: boolean;
+  login?: string;
+  info?: string;
+  currency?: string;
+  error?: string;
+}
+
+export interface DirectCampaign {
+  id: number;
+  name: string;
+  type: string;
+  status: string;
+  state: string;
+  statusPayment: string;
+  /** In account currency; the API's micro-units are converted on the way in. */
+  dailyBudget: number;
+  startDate: string;
+}
+
+export interface DirectKeyword {
+  id: number;
+  keyword: string;
+  adGroupId: number;
+  status: string;
+  state: string;
+  bid: number;
+}
+
+export interface DirectAd {
+  id: number;
+  campaignId: number;
+  adGroupId: number;
+  status: string;
+  state: string;
+  title: string;
+  title2: string;
+  text: string;
+  href: string;
+}
+
+/** One row of the campaign performance report; keys are the API's field names. */
+export interface DirectStatRow {
+  CampaignId: number;
+  CampaignName: string;
+  Impressions: number;
+  Clicks: number;
+  Ctr: number;
+  Cost: number;
+  AvgCpc: number;
+  Conversions: number | string;
+}
+
+export interface DirectAction {
+  action: "suspend" | "resume" | "bid";
+  target: number;
+  value?: number;
+  why: string;
+}
+
+export interface YandexAccount {
+  id: string;
+  /** What the user calls this account; defaults to the login Yandex reported. */
+  label: string;
+  login: string;
+  token: string;
+  /** From the app you create at oauth.yandex.ru — used to obtain the token. */
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+  /** Epoch ms when the access token stops working; 0 when unknown. */
+  expiresAt: number;
+  /** Direct's agency client login — belongs to the account, since each has its own. */
+  directClientLogin: string;
+}
+
+export interface CloudAccounts {
+  /** Several Yandex accounts; Disk and Direct both follow the active one. */
+  yandex: { activeId: string; accounts: YandexAccount[] };
+  google: { token: string };
+}
+
+export interface YandexConnectResult {
+  ok: boolean;
+  accounts?: CloudAccounts;
+  login?: string;
+  error?: string;
+  /** True when the user still has to paste the confirmation code by hand. */
+  needsCode?: boolean;
+  /** The account that answered was already in the list, so it was refreshed, not added. */
+  duplicate?: boolean;
+}
+
+export interface CloudEntry {
+  name: string;
+  path: string;
+  isFolder: boolean;
+  size: number;
+  modified: number;
+  mimeType: string;
+}
+
+export interface CloudTestResult {
+  ok: boolean;
+  login?: string;
+  error?: string;
+}
+
+export type WordBlockKind = "paragraph" | "list" | "table";
+
+export interface WordBlock {
+  index: number;
+  kind: WordBlockKind;
+  text: string;
+  /** Word style name, e.g. Heading1 / ListParagraph; empty for plain body text. */
+  style: string;
+  /** 1–6 for a heading, 0 otherwise. */
+  level: number;
+  /** Table rows; empty for anything that isn't a table. */
+  rows: string[][];
+}
+
+export interface WordDocument {
+  /** Null until a document created in the app has been saved somewhere. */
+  filePath: string | null;
+  name: string;
+  blocks: WordBlock[];
+}
+
+export type WordEditOp =
+  | { op: "set"; index: number; text: string }
+  | { op: "insert"; index: number; text: string; style: string }
+  | { op: "delete"; index: number };
+
+export interface WordEdit {
+  ops: WordEditOp[];
+}
+
+export interface ExcelCell {
+  value?: string | number | boolean | null;
+  formula?: string;
+  computed?: string | number | boolean | null;
+  numFmt?: string;
+}
+
+export interface ExcelSheet {
+  name: string;
+  cells: Record<string, ExcelCell>;
+  maxRow: number;
+  maxCol: number;
+}
+
+/** One sheet's worth of a change the Excel agent proposed. */
+export interface ExcelEditSegment {
+  sheet: string;
+  cells: { cell: string; value: string }[];
+  formats: { range: string; numFmt: string }[];
+}
+
+export interface ExcelRecalcResult {
+  evaluated: number;
+  total: number;
+  errors: { cell: string; error: string }[];
+  circular: string[];
+}
+
+export interface ExcelWorkbook {
+  /** Null until a workbook created inside the app has been saved somewhere. */
+  filePath: string | null;
+  name: string;
+  sheets: ExcelSheet[];
+  recalc: ExcelRecalcResult | null;
+}
+
+export interface ExcelEdit {
+  sheets: ExcelEditSegment[];
+}
+
+/**
+ * What the Word/Excel exports need. Unlike the PDF/PNG exports this carries the
+ * messages themselves rather than rendered HTML — the main process rebuilds them
+ * as document structure so tables stay editable.
+ */
+export interface ChatExportPayload {
+  title: string;
+  sections: { role?: "user" | "assistant"; content: string }[];
+  brand?: { accentColor?: string; contactLines?: string[] };
+  defaultName: string;
+  projectId?: string;
+}
+
+/**
+ * Which modules this build ships with, from plugins.json. A build without the
+ * file has every module on — see electron/plugins.cjs.
+ */
+export interface PluginConfig {
+  productName: string;
+  modules: Record<string, boolean>;
+  source: string;
+}
+
+/**
+ * Demo access. `gated: false` means this build ships no public key and has no
+ * licensing at all — the ordinary build the author uses herself.
+ */
+export interface LicenceStatus {
+  gated: boolean;
+  ok: boolean;
+  reason: "" | "missing" | "machine" | "expired" | "revoked" | "signature" | "config";
+  message?: string;
+  machineCode: string;
+  tester?: string;
+  expiresAt?: string;
+  daysLeft?: number;
+  productName?: string;
+  /** Название именно этой копии: «Личный чат Виктории». */
+  displayName?: string;
+}
+
+export type UsagePeriod = "day" | "week" | "month";
+
+export interface UsageEntry {
+  model: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  exact: boolean;
+  source: string;
+}
+
+export interface UsageModelRow {
+  model: string;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  tokens: number;
+  /** null — цена для этой модели не задана в сборке. */
+  cost: number | null;
+  exact: boolean;
+}
+
+export interface UsageSummary {
+  period: UsagePeriod;
+  from: string;
+  models: UsageModelRow[];
+  totals: {
+    calls: number;
+    tokens: number;
+    cost: number | null;
+    currency: string;
+    estimated: boolean;
+  } | null;
+}
+
+export interface ReportInfo {
+  version: string;
+  productName: string;
+  tester: string;
+  expiresAt: string;
+  gated: boolean;
+  log: { total: number; errors: number; since: string };
 }
 
 export interface ElectronAPI {
@@ -321,6 +708,15 @@ export interface ElectronAPI {
   chooseRootPath(): Promise<string | null>;
   openRootPath(): Promise<void>;
 
+  getPlugins(): Promise<PluginConfig>;
+  recordUsage(entry: UsageEntry): Promise<unknown>;
+  usageSummary(period: UsagePeriod): Promise<UsageSummary>;
+  reportInfo(): Promise<ReportInfo>;
+  writeReport(description: string): Promise<{ file: string; entries: number }>;
+  revealReport(file: string): Promise<boolean>;
+  licenceStatus(options?: { allowNetwork?: boolean }): Promise<LicenceStatus>;
+  activateLicence(contents: string): Promise<LicenceStatus>;
+  pickLicenceFile(): Promise<LicenceStatus | null>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
 
@@ -358,6 +754,13 @@ export interface ElectronAPI {
   importSkillFromFolder(folderPath: string): Promise<{ name: string; description: string; content: string }>;
 
   listConversations(projectId: string): Promise<Conversation[]>;
+  /** Writes messages being folded away to a dated file, so nothing is ever lost. */
+  archiveConversationMessages(
+    projectId: string,
+    conv: Conversation,
+    messages: ChatMessage[]
+  ): Promise<{ path: string }>;
+  getStorageReport(): Promise<StorageReport>;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
   deleteConversation(projectId: string, convId: string): Promise<void>;
 
@@ -365,6 +768,8 @@ export interface ElectronAPI {
   importClaudeExports(filePaths: string[]): Promise<Project[]>;
 
   exportToPdf(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
+  exportChatToDocx(payload: ChatExportPayload): Promise<string | null>;
+  exportChatToXlsx(payload: ChatExportPayload): Promise<string | null>;
   exportToPng(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
 
   getSkillCreatorPrompt(): Promise<string>;
@@ -372,28 +777,8 @@ export interface ElectronAPI {
   saveSkillCreatorConversation(conv: Conversation): Promise<Conversation>;
 
   // operations module
-  listOpsSheets(): Promise<OpsSheet[]>;
-  saveOpsSheet(sheet: { id?: string | null; name: string; rows: CellValue[][]; order?: number }): Promise<OpsSheet>;
-  deleteOpsSheet(id: string): Promise<void>;
-  buildOpsAgentPrompt(): Promise<string>;
-  applyOpsEdit(edit: OpsEdit): Promise<OpsSheet>;
-  getOpsAgentConversation(): Promise<Conversation | null>;
-  saveOpsAgentConversation(conv: Conversation): Promise<Conversation>;
-  pickXlsx(): Promise<string | null>;
-  importOpsXlsx(filePath: string): Promise<OpsSheet[]>;
 
   // mail
-  getMailAccount(): Promise<MailAccount>;
-  saveMailAccount(account: MailAccount): Promise<MailAccount>;
-  testMailConnection(account: MailAccount): Promise<MailTestResult>;
-  listMailMessages(opts?: { limit?: number }): Promise<MailMessageSummary[]>;
-  getMailMessage(uid: number): Promise<MailMessageFull>;
-  sendMail(payload: { to: string; subject: string; bodyText: string; includeSignature?: boolean }): Promise<string>;
-  getMailAgentConversation(): Promise<Conversation | null>;
-  saveMailAgentConversation(conv: Conversation): Promise<Conversation>;
-  getMailDraftPrompt(): Promise<string>;
-  pickMailLogo(): Promise<string | null>;
-  saveMailSignatureLogo(filePath: string): Promise<MailAccount>;
 
   // chatbots / funnels
   getChatbotAccounts(): Promise<ChatbotAccounts>;
@@ -427,6 +812,10 @@ export interface ElectronAPI {
     sha?: string,
     branch?: string
   ): Promise<GitHubCommitResult>;
+  listGitHubWorkflows(owner: string, repo: string): Promise<GitHubWorkflow[]>;
+  runGitHubWorkflow(owner: string, repo: string, workflowId: number, ref: string): Promise<{ started: boolean }>;
+  listGitHubWorkflowRuns(owner: string, repo: string, workflowId?: number, limit?: number): Promise<GitHubWorkflowRun[]>;
+  listGitHubBranches(owner: string, repo: string): Promise<GitHubBranch[]>;
   getGitHubAgentConversation(owner: string, repo: string): Promise<Conversation | null>;
   saveGitHubAgentConversation(owner: string, repo: string, conv: Conversation): Promise<Conversation>;
 
@@ -438,6 +827,33 @@ export interface ElectronAPI {
   onMediaProgress(callback: (status: string) => void): () => void;
 
   // design section
+  listDesignProjects(): Promise<DesignProject[]>;
+  createDesignProject(name: string): Promise<DesignProject>;
+  updateDesignProject(id: string, patch: Partial<DesignProject>): Promise<DesignProject | null>;
+  removeDesignProject(id: string): Promise<DesignProject[]>;
+  pickDesignAssets(id: string, kind: DesignAssetKind): Promise<DesignProject | null>;
+  removeDesignAsset(id: string, kind: DesignAssetKind, assetPath: string): Promise<DesignProject | null>;
+  listDesignAssets(id: string): Promise<DesignAsset[]>;
+  listDesignSystems(): Promise<DesignSystem[]>;
+  createDesignSystem(name: string): Promise<DesignSystem>;
+  updateDesignSystem(id: string, patch: Partial<DesignSystem>): Promise<DesignSystem | null>;
+  removeDesignSystem(id: string): Promise<DesignSystem[]>;
+  pickDesignSystemAssets(id: string, kind: DesignSystemAssetKind): Promise<DesignSystem | null>;
+  removeDesignSystemAsset(id: string, kind: DesignSystemAssetKind, assetPath: string): Promise<DesignSystem | null>;
+  /** Replaces ASSET:… references with embedded data and adds @font-face rules. */
+  applyDesignAssets(id: string, html: string): Promise<string>;
+  renderDesign(payload: {
+    kind: "png" | "mp4";
+    html: string;
+    width: number;
+    height: number;
+    fps?: number;
+    durationSec?: number;
+    defaultName: string;
+    projectId?: string;
+  }): Promise<DesignRenderResult | null>;
+  onDesignRenderProgress(callback: (progress: { frame: number; total: number }) => void): () => void;
+
   listDesignDocs(projectId?: string): Promise<DesignDoc[]>;
   saveDesignDoc(payload: {
     id?: string | null;
@@ -445,6 +861,7 @@ export interface ElectronAPI {
     type: DesignType;
     format: DesignFormat;
     content: string;
+    durationSec?: number;
     projectId?: string;
   }): Promise<DesignDoc>;
   deleteDesignDoc(id: string, projectId?: string): Promise<void>;
@@ -456,6 +873,90 @@ export interface ElectronAPI {
   // export (shared by chat exports and the design section)
   exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
   exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
+
+  // project design system
+  pickDesignSystemFiles(): Promise<string[]>;
+  pickDesignSystemFolder(): Promise<string | null>;
+  addDesignSystemPaths(id: string, paths: string[]): Promise<Project>;
+  removeDesignSystemPath(id: string, target: string): Promise<Project>;
+  listDesignSystemFiles(id: string): Promise<DesignSystemFile[]>;
+
+  // chat attachments
+  pickAttachments(): Promise<ChatAttachment[]>;
+
+  // cloud storage
+  getCloudAccounts(): Promise<CloudAccounts>;
+  saveCloudAccounts(accounts: CloudAccounts): Promise<CloudAccounts>;
+  // Яндекс Директ
+  getDirectSettings(): Promise<DirectSettings>;
+  saveDirectSettings(patch: Partial<DirectSettings>): Promise<DirectSettings>;
+  testDirectConnection(): Promise<DirectTestResult>;
+  listDirectCampaigns(): Promise<DirectCampaign[]>;
+  listDirectKeywords(campaignIds: number[]): Promise<DirectKeyword[]>;
+  listDirectAds(campaignIds: number[]): Promise<DirectAd[]>;
+  getDirectStats(range: { dateFrom: string; dateTo: string }): Promise<DirectStatRow[]>;
+  setDirectCampaignState(id: number, resume: boolean): Promise<{ id: number; state: string }>;
+  setDirectKeywordBid(id: number, bid: number): Promise<{ id: number; bid: number }>;
+  buildDirectAgentPrompt(data: {
+    campaigns?: DirectCampaign[];
+    stats?: DirectStatRow[];
+    keywords?: DirectKeyword[];
+  }): Promise<string>;
+  getDirectAgentConversation(): Promise<Conversation | null>;
+  saveDirectAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  connectYandexCloud(payload: {
+    clientId: string;
+    clientSecret: string;
+    manualCode?: string;
+    label?: string;
+  }): Promise<YandexConnectResult>;
+  setActiveYandexAccount(id: string): Promise<CloudAccounts>;
+  removeYandexAccount(id: string): Promise<CloudAccounts>;
+  renameYandexAccount(id: string, label: string): Promise<CloudAccounts>;
+  testCloudConnection(provider: CloudProvider, token: string): Promise<CloudTestResult>;
+  listCloudFiles(provider: CloudProvider, folder?: string): Promise<CloudEntry[]>;
+  downloadCloudFile(provider: CloudProvider, remote: string, fileName: string): Promise<{ path: string; size: number }>;
+  downloadCloudFileToProject(
+    provider: CloudProvider,
+    remote: string,
+    fileName: string,
+    projectId: string
+  ): Promise<{ path: string; size: number }>;
+  uploadFileToCloud(provider: CloudProvider, remoteFolder?: string): Promise<{ name?: string; path?: string } | null>;
+
+  // Документы Word
+  pickWordFile(): Promise<string | null>;
+  openWordFile(filePath: string): Promise<WordDocument>;
+  newWordDocument(name: string): Promise<WordDocument>;
+  setWordBlockText(index: number, text: string): Promise<WordDocument>;
+  deleteWordBlock(index: number): Promise<WordDocument>;
+  insertWordParagraph(afterIndex: number, text: string, style?: string): Promise<WordDocument>;
+  applyWordAgentEdit(edit: WordEdit): Promise<WordDocument>;
+  saveWordFile(saveAs?: boolean): Promise<string | null>;
+  buildWordAgentPrompt(): Promise<string>;
+  getWordAgentConversation(): Promise<Conversation | null>;
+  saveWordAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  // Excel workbooks
+  pickExcelFile(): Promise<string | null>;
+  openExcelFile(filePath: string): Promise<ExcelWorkbook>;
+  newExcelWorkbook(name: string): Promise<ExcelWorkbook>;
+  applyExcelAgentEdit(edit: ExcelEdit): Promise<{ workbook: ExcelWorkbook; createdSheets: string[] }>;
+  runExcelAgentTools(text: string): Promise<string | null>;
+  setExcelCells(edits: { sheet: string; cell: string; value: string }[]): Promise<ExcelWorkbook>;
+  saveExcelFile(saveAs?: boolean): Promise<string | null>;
+  buildExcelAgentPrompt(): Promise<string>;
+  getExcelAgentConversation(): Promise<Conversation | null>;
+  saveExcelAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  // proxy
+  testProxy(draftSettings: Partial<Settings>): Promise<{ ok: boolean; ms?: number; error?: string }>;
+
+  // web search
+  runWebTools(text: string): Promise<string | null>;
+  webSearch(query: string): Promise<{ title: string; url: string; snippet: string }[]>;
+  getWebToolsHint(): Promise<string>;
 
   // scheduled tasks
   listTasks(projectId: string): Promise<ScheduledTask[]>;

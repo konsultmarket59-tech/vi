@@ -4,22 +4,41 @@ import type { Project } from "../lib/types";
 export type View =
   | { kind: "project"; id: string }
   | { kind: "skills" }
-  | { kind: "ops" }
-  | { kind: "mail" }
+  | { kind: "excel" }
+  | { kind: "word" }
+  | { kind: "cloud" }
+  | { kind: "direct" }
   | { kind: "media" }
   | { kind: "design" }
   | { kind: "github" }
   | { kind: "chatbots" }
   | { kind: "settings" };
 
+// Order here is the order in the menu. Which of these actually appear depends on
+// the build's plugins.json — see electron/plugins.cjs. Настройки is not in the
+// list because it can never be switched off.
+const MODULE_ITEMS = [
+  { id: "skills", label: "🧩 Навыки" },
+  { id: "excel", label: "📗 Excel" },
+  { id: "word", label: "📘 Word" },
+  { id: "media", label: "🎨 Медиа" },
+  { id: "design", label: "🖌️ Дизайн" },
+  { id: "cloud", label: "☁️ Облако" },
+  { id: "direct", label: "📣 Директ" },
+  { id: "github", label: "🐙 GitHub" },
+  { id: "chatbots", label: "🤖 Чат-боты" },
+] as const;
+
 interface Props {
   projects: Project[];
   view: View;
+  modules: Record<string, boolean>;
+  productName: string;
   onSelectView: (v: View) => void;
   onProjectsChange: (projects: Project[]) => void;
 }
 
-export default function Sidebar({ projects, view, onSelectView, onProjectsChange }: Props) {
+export default function Sidebar({ projects, view, modules, productName, onSelectView, onProjectsChange }: Props) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -56,7 +75,7 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
 
   return (
     <div className="sidebar">
-      <div className="sidebar-title">Личный чат</div>
+      <div className="sidebar-title">{productName}</div>
 
       <div className="sidebar-section">
         <button className="btn btn-primary btn-block" onClick={createEmptyProject}>
@@ -102,48 +121,15 @@ export default function Sidebar({ projects, view, onSelectView, onProjectsChange
       </div>
 
       <div className="sidebar-section sidebar-footer">
-        <button
-          className={view.kind === "skills" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "skills" })}
-        >
-          🧩 Навыки
-        </button>
-        <button
-          className={view.kind === "ops" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "ops" })}
-        >
-          💼 Операционка
-        </button>
-        <button
-          className={view.kind === "mail" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "mail" })}
-        >
-          ✉️ Почта
-        </button>
-        <button
-          className={view.kind === "media" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "media" })}
-        >
-          🎨 Медиа
-        </button>
-        <button
-          className={view.kind === "design" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "design" })}
-        >
-          🖌️ Дизайн
-        </button>
-        <button
-          className={view.kind === "github" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "github" })}
-        >
-          🐙 GitHub
-        </button>
-        <button
-          className={view.kind === "chatbots" ? "sidebar-item active" : "sidebar-item"}
-          onClick={() => onSelectView({ kind: "chatbots" })}
-        >
-          🤖 Чат-боты
-        </button>
+        {MODULE_ITEMS.filter((item) => modules[item.id] !== false).map((item) => (
+          <button
+            key={item.id}
+            className={view.kind === item.id ? "sidebar-item active" : "sidebar-item"}
+            onClick={() => onSelectView({ kind: item.id } as View)}
+          >
+            {item.label}
+          </button>
+        ))}
         <button
           className={view.kind === "settings" ? "sidebar-item active" : "sidebar-item"}
           onClick={() => onSelectView({ kind: "settings" })}

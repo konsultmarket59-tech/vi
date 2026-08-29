@@ -1,30 +1,52 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const crypto = require("node:crypto");
+const { proxyAwareFetch, setProxyCredentials } = require("./netFetch.cjs");
 
-// Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, etc.)
-// through Electron's own network stack instead of Node's built-in fetch. Node's fetch
-// (undici) doesn't pick up the OS/VPN's configured HTTP(S) proxy at all — requests just
-// go direct — whereas net.fetch shares Chromium's network stack and proxy handling
-// (including the "login" event below, which answers proxy authentication challenges),
-// same as fetch() calls made from the renderer already do automatically.
-global.fetch = net.fetch;
+// Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, web
+// search) through Electron's network stack instead of Node's built-in fetch, which
+// ignores the OS/VPN proxy entirely. See netFetch.cjs for why this isn't just
+// net.fetch: main-process requests can't answer a proxy's auth challenge through it.
+global.fetch = proxyAwareFetch;
 
-// Answers proxy authentication challenges (HTTP 407) with the credentials saved in
-// Settings, if any — needed when the user's VPN/proxy requires a login. Electron has
-// no built-in UI for this (unlike a full browser), so without this handler a 407 just
-// passes straight through to the caller as a failed response. Only ever supplies
-// credentials for isProxy challenges, never for a origin server's own auth (401).
+// Renderer-side requests (the chat itself) are a separate path: those DO belong to a
+// webContents, so they come through here instead. Credentials are read from the cache
+// rather than from disk so this can answer synchronously.
+let cachedProxyAuth = { username: "", password: "" };
+
 app.on("login", (event, _webContents, _details, authInfo, callback) => {
-  if (!authInfo.isProxy) return;
-  loadSettings().then((s) => {
-    if (!s.proxyUsername) return; // no proxy credentials configured — leave default behavior
-    event.preventDefault();
-    callback(s.proxyUsername, s.proxyPassword || "");
-  });
+  // Only proxy challenges — never hand the proxy password to an origin server's 401.
+  if (!authInfo.isProxy || !cachedProxyAuth.username) return;
+  event.preventDefault();
+  callback(cachedProxyAuth.username, cachedProxyAuth.password || "");
 });
+
+/**
+ * Applies the saved proxy configuration to the default session (which both the
+ * renderer and every main-process request go through) and refreshes the cached
+ * credentials used by the two login handlers above.
+ */
+async function applyProxySettings(settings) {
+  cachedProxyAuth = { username: settings.proxyUsername || "", password: settings.proxyPassword || "" };
+  setProxyCredentials(cachedProxyAuth.username, cachedProxyAuth.password);
+
+  const mode = settings.proxyMode || "system";
+  let config;
+  if (mode === "manual" && settings.proxyUrl?.trim()) {
+    config = { proxyRules: settings.proxyUrl.trim() };
+  } else if (mode === "direct") {
+    config = { mode: "direct" };
+  } else {
+    config = { mode: "system" };
+  }
+  try {
+    await session.defaultSession.setProxy(config);
+  } catch (e) {
+    console.error("Не удалось применить настройки прокси:", e);
+  }
+}
 
 // On some Windows setups (observed with a OneDrive-redirected Documents folder)
 // app.getPath() hands back a "\\?\"-prefixed extended-length path. Node's path.join
@@ -47,6 +69,13 @@ const DEFAULT_SETTINGS = {
   model: "anthropic/claude-sonnet-5",
   temperature: 0.7,
   maxTokens: 16000,
+  searchEnabled: true,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
+  proxyMode: "system",
+  proxyUrl: "",
+  proxyUsername: "",
+  proxyPassword: "",
 };
 
 // ---------- low-level helpers ----------
@@ -149,11 +178,13 @@ async function loadSettings() {
   // never touched the slider, not that they deliberately chose the smallest setting — so
   // carry them forward to the new, more generous default.
   if (s.maxTokens === OLD_DEFAULT_MAX_TOKENS) s.maxTokens = DEFAULT_SETTINGS.maxTokens;
-  return { ...DEFAULT_SETTINGS, ...s };
+  return managed.apply({ ...DEFAULT_SETTINGS, ...s });
 }
 
 async function saveSettingsFile(settings) {
   await writeJson(SETTINGS_PATH, settings);
+  // Proxy changes must take effect immediately, without restarting the app.
+  await applyProxySettings({ ...DEFAULT_SETTINGS, ...settings });
 }
 
 // ---------- document text extraction ----------
@@ -178,7 +209,34 @@ function sheetToText(worksheet) {
   return lines.join("\n");
 }
 
+// Разобранный текст документа, пока файл не изменился. Системный промпт
+// пересобирается при каждом переключении вкладки и при каждой правке проекта, а
+// разбор .docx/.pdf/.xlsx — самая дорогая часть этой сборки: без кэша одни и те же
+// файлы разбираются заново десятки раз за сеанс.
+const extractCache = new Map();
+const EXTRACT_CACHE_LIMIT = 64;
+
 async function extractDocText(filePath) {
+  let key = "";
+  try {
+    const stat = await fs.stat(filePath);
+    key = `${filePath}:${stat.mtimeMs}:${stat.size}`;
+    const hit = extractCache.get(key);
+    if (hit !== undefined) return hit;
+  } catch {
+    // Файла нет — пусть об этом скажет сам разбор ниже, с понятной ошибкой.
+  }
+  const text = await extractDocTextUncached(filePath);
+  if (key) {
+    // Простое ограничение: выбрасываем самую старую запись. Кэш нужен на время
+    // сеанса, а не как хранилище.
+    if (extractCache.size >= EXTRACT_CACHE_LIMIT) extractCache.delete(extractCache.keys().next().value);
+    extractCache.set(key, text);
+  }
+  return text;
+}
+
+async function extractDocTextUncached(filePath) {
   const ext = path.extname(filePath).toLowerCase();
 
   if (TEXT_EXTENSIONS.includes(ext)) {
@@ -452,16 +510,28 @@ async function listSkills() {
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
   const skills = [];
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    // "_"-prefixed files in this folder are scratch state, not skills — e.g. the Skill
+    // Creator's own conversation is saved right alongside real skills as
+    // "_creator_chat.json". It has no `name` field (it's a Conversation, not a Skill),
+    // so without this exclusion it used to get picked up here and crash the sort below
+    // with "Cannot read properties of undefined (reading 'localeCompare')" — which,
+    // since this list loads at startup, took down the entire app the moment anyone had
+    // ever opened the Skill Creator once.
+    if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name.startsWith("_")) continue;
     const data = await readJson(path.join(dir, entry.name), null);
     if (!data) continue;
     skills.push({ id: entry.name.replace(/\.json$/, ""), ...data });
   }
-  skills.sort((a, b) => a.name.localeCompare(b.name, "ru"));
-  return skills;
+  skills.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+  // Предустановленные автором навыки идут первыми: они одинаковы у всех и
+  // задают основу, а собственные навыки пользователя — уже поверх неё.
+  return [...(await bundledSkills.load()), ...skills];
 }
 
 async function saveSkill(skill) {
+  if (bundledSkills.isBundled(skill?.id)) {
+    throw new Error("Это предустановленный навык — его нельзя изменить. Скопируйте его в свой навык.");
+  }
   const root = await getRootPath();
   const dir = skillsDir(root);
   await ensureDir(dir);
@@ -535,6 +605,7 @@ async function importSkillFromFolder(folderPath) {
 }
 
 async function deleteSkill(id) {
+  if (bundledSkills.isBundled(id)) throw new Error("Это предустановленный навык — его нельзя удалить.");
   const root = await getRootPath();
   const filePath = path.join(skillsDir(root), id + ".json");
   await shell.trashItem(filePath).catch(async () => {
@@ -587,16 +658,30 @@ async function saveSkillCreatorConversation(conv) {
   return conv;
 }
 
-// ---------- operations module + mail (delegated to sibling modules) ----------
+// ---------- feature modules (delegated to sibling modules) ----------
 
-const ops = require("./ops.cjs");
-const mail = require("./mail.cjs");
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
-const MAIL_DRAFT_PROMPT = require("./mailDraftPrompt.cjs");
+const plugins = require("./plugins.cjs");
+const licence = require("./licence.cjs");
+licence.init(USER_DATA_PATH);
+const report = require("./report.cjs");
+report.install();
+const managed = require("./managed.cjs");
+const bundledSkills = require("./bundledSkills.cjs");
+const usage = require("./usage.cjs");
+usage.init(USER_DATA_PATH);
+const websearch = require("./websearch.cjs");
+const excel = require("./excel.cjs");
+const word = require("./word.cjs");
+const exportDocs = require("./exportDocs.cjs");
+const motion = require("./motion.cjs");
+const yandexAuth = require("./yandexAuth.cjs");
+const direct = require("./direct.cjs");
+const cloud = require("./cloud.cjs");
 
 function broadcast(channel, payload) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -608,37 +693,8 @@ function broadcast(channel, payload) {
   }
 }
 
-function opsScratchDir(root) {
-  return path.join(root, "operations");
-}
 
-async function getOpsAgentConversation() {
-  const root = await getRootPath();
-  return readJson(path.join(opsScratchDir(root), "_agent_chat.json"), null);
-}
 
-async function saveOpsAgentConversation(conv) {
-  const root = await getRootPath();
-  await ensureDir(opsScratchDir(root));
-  await writeJson(path.join(opsScratchDir(root), "_agent_chat.json"), conv);
-  return conv;
-}
-
-async function getMailAgentConversation() {
-  const root = await getRootPath();
-  return readJson(path.join(mailDirPath(root), "_agent_chat.json"), null);
-}
-
-async function saveMailAgentConversation(conv) {
-  const root = await getRootPath();
-  await ensureDir(mailDirPath(root));
-  await writeJson(path.join(mailDirPath(root), "_agent_chat.json"), conv);
-  return conv;
-}
-
-function mailDirPath(root) {
-  return path.join(root, "mail");
-}
 
 // ---------- system prompt assembly ----------
 
@@ -658,6 +714,10 @@ async function buildSystemPrompt(projectId) {
   if (!meta) throw new Error("Проект не найден: " + projectId);
 
   const parts = [];
+  // Документы, снятые с галочки в проекте: они остаются на месте, но не уезжают
+  // в каждый запрос. Вся база знаний в контексте — главная причина, почему ответ
+  // начинается не сразу: модель перечитывает её перед каждым сообщением.
+  const excluded = new Set(meta.excludedDocs || []);
   if (meta.instructions?.trim()) parts.push(meta.instructions.trim());
 
   const allSkills = await listSkills();
@@ -673,10 +733,22 @@ async function buildSystemPrompt(projectId) {
     }
   }
 
+  if (meta.designSystemPaths?.length) {
+    const designSystem = await readDesignSystem(meta.designSystemPaths);
+    if (designSystem.trim()) {
+      parts.push(
+        "\n\n=== ДИЗАЙН-СИСТЕМА ПРОЕКТА ===\nЭто фирменная дизайн-система проекта — придерживайся её при " +
+          "оформлении любых макетов, постов и документов." +
+          designSystem
+      );
+    }
+  }
+
   const docs = await listDocs(projectId);
   if (docs.length > 0) {
     parts.push("\n\n=== ДОКУМЕНТЫ ПРОЕКТА (база знаний) ===");
     for (const doc of docs) {
+      if (excluded.has(`docs/${doc.name}`)) continue;
       const filePath = path.join(docsDir(root, projectId), doc.name);
       let content;
       try {
@@ -694,6 +766,7 @@ async function buildSystemPrompt(projectId) {
       if (externalDocs.length > 0) {
         parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
         for (const doc of externalDocs) {
+          if (excluded.has(`external/${doc.name}`)) continue;
           const filePath = path.join(meta.externalDocsPath, doc.name);
           let content;
           try {
@@ -746,6 +819,26 @@ async function callModelOnce(settings, messages) {
   const body = await res.json();
   const content = body?.choices?.[0]?.message?.content;
   if (!content) throw new Error("Модель вернула пустой ответ.");
+  // Задачи по расписанию и агенты тоже тратят баланс, поэтому попадают в тот же
+  // счётчик, что и обычный чат.
+  const reported = body?.usage;
+  if (reported?.prompt_tokens || reported?.completion_tokens) {
+    await usage.record({
+      model: settings.model,
+      promptTokens: reported.prompt_tokens,
+      completionTokens: reported.completion_tokens,
+      exact: true,
+      source: "фон",
+    });
+  } else {
+    await usage.record({
+      model: settings.model,
+      promptTokens: usage.estimateTokens(messages.map((m) => m.content).join("\n")),
+      completionTokens: usage.estimateTokens(content),
+      exact: false,
+      source: "фон",
+    });
+  }
   return content;
 }
 
@@ -759,10 +852,28 @@ async function runScheduledTask(root, task) {
   const now = Date.now();
   const systemPrompt = await buildSystemPrompt(task.projectId);
   const settings = await loadSettings();
-  const reply = await callModelOnce(settings, [
-    { role: "system", content: systemPrompt },
+
+  // Scheduled tasks are exactly the case that needs web access most ("что нового
+  // у конкурентов", "новости отрасли за неделю") and the one place nobody is
+  // watching, so the tool loop runs unattended here: ask the model, run whatever
+  // search/fetch it requests, feed the result back, repeat until it answers in
+  // plain text or we hit the round limit.
+  const webOn = settings.searchEnabled !== false;
+  const messages = [
+    { role: "system", content: systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
     { role: "user", content: task.prompt },
-  ]);
+  ];
+  let reply = await callModelOnce(settings, messages);
+  if (webOn) {
+    for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
+      const toolOutput = await websearch.runTools(reply, settings);
+      if (toolOutput == null) break;
+      messages.push({ role: "assistant", content: reply });
+      messages.push({ role: "user", content: toolOutput });
+      reply = await callModelOnce(settings, messages);
+    }
+  }
+
   const conv = {
     id: crypto.randomUUID(),
     projectId: task.projectId,
@@ -782,6 +893,175 @@ async function runScheduledTask(root, task) {
     enabled: task.recurrence === "once" ? false : task.enabled,
   });
   broadcast("tasks:ran", { projectId: task.projectId, task: updated, conversationId: conv.id });
+}
+
+
+
+
+/**
+ * Answers an incoming chatbot message as the linked project's assistant: the
+ * project's own system prompt (instructions + skills + documents + design system)
+ * plus that person's recent conversation history, so the bot consults within the
+ * project's knowledge base rather than as a generic model.
+ *
+ * Returns null when the platform isn't linked to a project or the model can't be
+ * reached — the caller treats that as "stay silent" rather than sending a broken
+ * or invented answer to a real customer.
+ */
+async function chatbotAiResponder({ platform, account, lead, messages }) {
+  if (!account.aiProjectId) return null;
+  const settings = await loadSettings();
+  if (!settings.apiKey) {
+    console.error(`ИИ-бот ${platform}: не задан API-ключ, отвечать нечем.`);
+    return null;
+  }
+
+  let projectPrompt;
+  try {
+    projectPrompt = await buildSystemPrompt(account.aiProjectId);
+  } catch (e) {
+    console.error(`ИИ-бот ${platform}: проект ${account.aiProjectId} недоступен:`, e);
+    return null;
+  }
+
+  const webOn = settings.searchEnabled !== false;
+  const botRules =
+    "\n\n=== РЕЖИМ ЧАТ-БОТА ===\n" +
+    `Ты отвечаешь в мессенджере (${platform}) реальному собеседнику по имени ${lead.name || "без имени"}. ` +
+    "Пиши коротко и по-человечески, как в переписке: без markdown-разметки, без заголовков и таблиц, " +
+    "обычно 1–3 абзаца. Опирайся только на информацию из материалов проекта выше. " +
+    "Если чего-то не знаешь или вопрос выходит за рамки проекта — честно скажи об этом и предложи связаться " +
+    "с человеком, не придумывай факты, цены и условия.";
+
+  const apiMessages = [
+    { role: "system", content: projectPrompt + botRules + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
+    ...messages,
+  ];
+
+  let reply = await callModelOnce(settings, apiMessages);
+  if (webOn) {
+    for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
+      const toolOutput = await websearch.runTools(reply, settings);
+      if (toolOutput == null) break;
+      apiMessages.push({ role: "assistant", content: reply });
+      apiMessages.push({ role: "user", content: toolOutput });
+      reply = await callModelOnce(settings, apiMessages);
+    }
+  }
+  return reply;
+}
+
+// ---------- project design system (files/folders living anywhere on the computer) ----------
+
+const MAX_DESIGN_SYSTEM_FILES = 40;
+const MAX_DESIGN_SYSTEM_CHARS = 40000;
+
+/** Expands attached paths (files or folders) into a flat list of readable files. */
+async function collectDesignSystemFiles(paths) {
+  const files = [];
+  for (const p of paths || []) {
+    let stat;
+    try {
+      stat = await fs.stat(p);
+    } catch {
+      files.push({ path: p, name: path.basename(p), missing: true });
+      continue;
+    }
+    if (stat.isDirectory()) {
+      const entries = await fs.readdir(p, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
+        files.push({ path: path.join(p, entry.name), name: entry.name, from: p });
+      }
+    } else {
+      files.push({ path: p, name: path.basename(p) });
+    }
+    if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
+  }
+  return files;
+}
+
+/**
+ * Renders an attached design system as prompt text. Text-ish files are read for
+ * their content (that's where tokens, spacing rules, tone-of-voice notes live);
+ * images and other binaries are listed by name only — they can't be inlined into
+ * a text prompt, but knowing a "logo-primary.svg" exists is still useful context.
+ */
+async function readDesignSystem(paths) {
+  const files = await collectDesignSystemFiles(paths);
+  if (files.length === 0) return "";
+  const parts = [];
+  const listed = [];
+  for (const file of files) {
+    if (file.missing) {
+      listed.push(`${file.name} — файл не найден (перемещён или удалён)`);
+      continue;
+    }
+    const ext = path.extname(file.name).toLowerCase();
+    if (SUPPORTED_DOC_EXTENSIONS.includes(ext) || ext === ".svg") {
+      try {
+        const text = ext === ".svg" ? await fs.readFile(file.path, "utf-8") : await extractDocText(file.path);
+        parts.push(`\n--- ${file.name} ---\n${truncate(text, MAX_DOC_CHARS)}`);
+      } catch (e) {
+        listed.push(`${file.name} — не удалось прочитать (${e.message})`);
+      }
+    } else {
+      listed.push(file.name);
+    }
+  }
+  let out = "";
+  if (listed.length > 0) out += `\nФайлы дизайн-системы (без текстового содержимого): ${listed.join(", ")}`;
+  out += parts.join("\n");
+  return truncate(out, MAX_DESIGN_SYSTEM_CHARS);
+}
+
+// ---------- chat attachments (files picked from anywhere on the computer) ----------
+
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
+const VIDEO_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv", ".webm"];
+const AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"];
+
+const MAX_ATTACHMENT_CHARS = 30000;
+
+function attachmentKind(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (IMAGE_EXTENSIONS.includes(ext)) return "image";
+  if (VIDEO_EXTENSIONS.includes(ext)) return "video";
+  if (AUDIO_EXTENSIONS.includes(ext)) return "audio";
+  if (SUPPORTED_DOC_EXTENSIONS.includes(ext)) return "text";
+  return "other";
+}
+
+/**
+ * Turns picked file paths into attachment records for a chat message. Text-ish
+ * documents get their text extracted right here, at attach time, so the saved
+ * conversation stays self-contained and still makes sense later even if the
+ * original file is moved or deleted. Images keep only their path — they're
+ * re-read as a data URL at send time, because base64 image data would bloat
+ * every chat JSON on disk for no benefit.
+ */
+async function buildAttachments(filePaths) {
+  const out = [];
+  for (const filePath of filePaths) {
+    const kind = attachmentKind(filePath);
+    let size = 0;
+    try {
+      size = (await fs.stat(filePath)).size;
+    } catch {
+      // unreadable file: still record it so the user sees what failed
+    }
+    const record = { name: path.basename(filePath), path: filePath, kind, size };
+    if (kind === "text") {
+      try {
+        record.text = truncate(await extractDocText(filePath), MAX_ATTACHMENT_CHARS);
+      } catch (e) {
+        record.error = e.message;
+      }
+    }
+    out.push(record);
+  }
+  return out;
 }
 
 // ---------- import from Claude.ai export ----------
@@ -879,6 +1159,30 @@ async function exportHtmlToPdf({ html, defaultName, projectId }) {
   return result.filePath;
 }
 
+const OFFICE_FORMATS = {
+  docx: { ext: "docx", label: "Документ Word", build: (payload) => exportDocs.buildDocx(payload) },
+  xlsx: { ext: "xlsx", label: "Книга Excel", build: (payload) => exportDocs.buildXlsx(payload) },
+};
+
+/**
+ * Saves a chat (or a single message) as a real Word/Excel file.
+ *
+ * Unlike the PDF/PNG exports this never renders HTML: it takes the messages'
+ * markdown and rebuilds it as document structure, so tables come out editable.
+ */
+async function exportChatToFile({ title, sections, brand, defaultName, projectId }, format) {
+  const spec = OFFICE_FORMATS[format];
+  const parentWin = BrowserWindow.getFocusedWindow();
+  const defaultDir = await resolveExportDir(projectId);
+  const result = await dialog.showSaveDialog(parentWin, {
+    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + "." + spec.ext),
+    filters: [{ name: spec.label, extensions: [spec.ext] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const buffer = await spec.build({ title, sections, brand });
+  return exportDocs.writeBuffer(result.filePath, buffer);
+}
+
 async function captureHtmlAsImage(html, { width = 900 } = {}) {
   const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width });
   try {
@@ -954,7 +1258,7 @@ function createWindow() {
 
   // Electron denies opening a new window/tab for target="_blank" links by default —
   // without this handler, every external link in the app (GitHub token page, the
-  // Polza.ai model catalog, the mail.ru help article, etc.) does nothing at all when
+  // Polza.ai model catalog, the model catalog, etc.) does nothing at all when
   // clicked. Send them to the user's actual browser instead of trying to open inside
   // the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -970,7 +1274,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await applyProxySettings(await loadSettings());
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1005,6 +1310,53 @@ ipcMain.handle("config:chooseRootPath", async () => {
 ipcMain.handle("config:openRootPath", async () => {
   const root = await getRootPath();
   await shell.openPath(root);
+});
+
+ipcMain.handle("plugins:get", () => plugins.load(app));
+
+ipcMain.handle("usage:record", (_e, entry) => usage.record(entry));
+ipcMain.handle("usage:summary", (_e, period) => usage.summary(period, managed.prices()));
+
+ipcMain.handle("report:info", async () => {
+  const cfg = plugins.load(app);
+  const lic = await licence.status({ allowNetwork: false });
+  return {
+    version: app.getVersion(),
+    productName: cfg.productName,
+    tester: lic.tester || "",
+    expiresAt: lic.expiresAt || "",
+    gated: lic.gated,
+    log: report.summary(),
+  };
+});
+ipcMain.handle("report:log", (_e, level, message) => report.recordFromRenderer(level, message));
+ipcMain.handle("report:write", async (_e, description) => {
+  const cfg = plugins.load(app);
+  const lic = await licence.status({ allowNetwork: false });
+  const written = await report.write({
+    description,
+    version: app.getVersion(),
+    productName: cfg.productName,
+    tester: lic.tester || "",
+    extra: { модули: cfg.modules },
+  });
+  return written;
+});
+ipcMain.handle("report:reveal", (_e, file) => {
+  shell.showItemInFolder(file);
+  return true;
+});
+
+ipcMain.handle("licence:status", (_e, options) => licence.status(options || {}));
+ipcMain.handle("licence:activate", (_e, contents) => licence.activate(contents));
+ipcMain.handle("licence:pickFile", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Выберите файл активации",
+    filters: [{ name: "Файл активации", extensions: ["lic", "json"] }],
+    properties: ["openFile"],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return licence.activate(await fs.readFile(result.filePaths[0], "utf-8"));
 });
 
 ipcMain.handle("settings:get", () => loadSettings());
@@ -1084,7 +1436,7 @@ ipcMain.handle("docs:pickFiles", async () => {
   return result.filePaths;
 });
 
-ipcMain.handle("skills:list", () => listSkills());
+ipcMain.handle("skills:list", async () => bundledSkills.stripForRenderer(await listSkills()));
 ipcMain.handle("skills:save", (_e, skill) => saveSkill(skill));
 ipcMain.handle("skills:delete", (_e, id) => deleteSkill(id));
 ipcMain.handle("skills:pickImportFile", async () => {
@@ -1109,6 +1461,694 @@ ipcMain.handle("conversations:list", (_e, projectId) => listConversations(projec
 ipcMain.handle("conversations:save", (_e, projectId, conv) => saveConversation(projectId, conv));
 ipcMain.handle("conversations:delete", (_e, projectId, convId) => deleteConversation(projectId, convId));
 
+ipcMain.handle("projects:pickDesignSystemFiles", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы дизайн-системы",
+    properties: ["openFile", "multiSelections"],
+  });
+  if (result.canceled) return [];
+  return result.filePaths;
+});
+ipcMain.handle("projects:pickDesignSystemFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите папку с дизайн-системой",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+ipcMain.handle("projects:addDesignSystemPaths", async (_e, id, newPaths) => {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, id), "project.json"), null);
+  const existing = meta?.designSystemPaths || [];
+  const merged = [...existing];
+  for (const p of newPaths) if (!merged.includes(p)) merged.push(p);
+  return updateProject(id, { designSystemPaths: merged });
+});
+ipcMain.handle("projects:removeDesignSystemPath", async (_e, id, target) => {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, id), "project.json"), null);
+  const next = (meta?.designSystemPaths || []).filter((p) => p !== target);
+  return updateProject(id, { designSystemPaths: next });
+});
+ipcMain.handle("projects:listDesignSystemFiles", async (_e, id) => {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, id), "project.json"), null);
+  return collectDesignSystemFiles(meta?.designSystemPaths || []);
+});
+
+ipcMain.handle("attachments:pick", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы для чата",
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      { name: "Все поддерживаемые", extensions: [...SUPPORTED_DOC_EXTENSIONS, ...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS].map((e) => e.slice(1)) },
+      { name: "Документы", extensions: SUPPORTED_DOC_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Изображения", extensions: IMAGE_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Видео", extensions: VIDEO_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Аудио", extensions: AUDIO_EXTENSIONS.map((e) => e.slice(1)) },
+      { name: "Все файлы", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || result.filePaths.length === 0) return [];
+  return buildAttachments(result.filePaths);
+});
+
+// ---------- Excel workbooks (live files on disk) ----------
+
+// One workbook is open at a time, kept in memory between IPC calls so edits and
+// recalculation don't re-read the file on every keystroke.
+let openWorkbook = null;
+
+function workbookPayload(model, recalcResult) {
+  return {
+    filePath: model.filePath,
+    name: model.name,
+    sheets: model.sheets.map((s) => ({ name: s.name, cells: s.cells, maxRow: s.maxRow, maxCol: s.maxCol })),
+    recalc: recalcResult || null,
+  };
+}
+
+ipcMain.handle("excel:pick", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите файл Excel",
+    properties: ["openFile"],
+    filters: [{ name: "Excel", extensions: ["xlsx", "xlsm"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("excel:open", async (_e, filePath) => {
+  openWorkbook = await excel.loadWorkbook(filePath);
+  const recalc = excel.recalculate(openWorkbook);
+  return workbookPayload(openWorkbook, recalc);
+});
+
+ipcMain.handle("excel:new", async (_e, name) => {
+  openWorkbook = excel.createWorkbook(name);
+  return workbookPayload(openWorkbook, null);
+});
+
+/**
+ * Applies an edit the Excel agent proposed and the user confirmed. Unlike the grid's
+ * setCells this may also create whole sheets, so it reports which ones appeared.
+ */
+ipcMain.handle("excel:applyAgentEdit", async (_e, edit) => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  const { createdSheets } = excel.applyAgentEdit(openWorkbook, edit);
+  const recalc = excel.recalculate(openWorkbook);
+  return { workbook: workbookPayload(openWorkbook, recalc), createdSheets };
+});
+
+// Read-only: evaluates a formula or dumps a range so the agent can check its numbers
+// against the live workbook before proposing anything. Nothing is modified here, so
+// this runs without a confirmation step, like the web-search tools.
+ipcMain.handle("excel:runAgentTools", async (_e, text) => {
+  if (!openWorkbook) return null;
+  return excel.runAgentTools(openWorkbook, text);
+});
+
+ipcMain.handle("excel:setCells", async (_e, edits) => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  for (const { sheet, cell, value } of edits) excel.setCell(openWorkbook, sheet, cell, value);
+  const recalc = excel.recalculate(openWorkbook);
+  return workbookPayload(openWorkbook, recalc);
+});
+
+ipcMain.handle("excel:save", async (_e, saveAs) => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  let target = null;
+  // A workbook created in the app has nowhere to save to yet, so it always asks.
+  if (saveAs || !openWorkbook.filePath) {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showSaveDialog(win, {
+      title: "Сохранить как",
+      defaultPath: openWorkbook.filePath || openWorkbook.name,
+      filters: [{ name: "Excel", extensions: ["xlsx"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    target = result.filePath;
+  }
+  const dest = await excel.saveWorkbook(openWorkbook, target);
+  if (target) {
+    // After "save as" — or the first save of a new workbook — that file is the one
+    // we're editing from now on.
+    // After "save as" the new file becomes the one we're editing.
+    openWorkbook.filePath = dest;
+    openWorkbook.name = path.basename(dest);
+  }
+  return dest;
+});
+
+ipcMain.handle("excel:buildAgentPrompt", async () => {
+  if (!openWorkbook) throw new Error("Файл Excel не открыт.");
+  return excel.buildAgentPrompt(openWorkbook);
+});
+
+/**
+ * Разговор с агентом привязан к открытому документу.
+ *
+ * Иначе получается то, на что и наткнулись: открываешь другую таблицу, а агент
+ * продолжает обсуждать предыдущую — он видит новые данные, но помнит старый разговор
+ * и уверенно ссылается на файл, которого уже нет на экране. Ключ — путь к файлу (для
+ * несохранённого документа его имя); при несовпадении переписка начинается с чистого
+ * листа. Прошлые разговоры не копятся: файл всегда один и перезаписывается.
+ */
+function documentChatKey(model) {
+  return model ? model.filePath || `__new__:${model.name}` : "";
+}
+
+async function readDocumentChat(folder, key) {
+  const root = await getRootPath();
+  const stored = await readJson(path.join(root, folder, "_agent_chat.json"), null);
+  if (!stored || stored.key !== key) return null;
+  return stored.conversation || null;
+}
+
+async function writeDocumentChat(folder, key, conversation) {
+  const root = await getRootPath();
+  await ensureDir(path.join(root, folder));
+  await writeJson(path.join(root, folder, "_agent_chat.json"), { key, conversation });
+  return conversation;
+}
+
+ipcMain.handle("excel:getAgentConversation", () => readDocumentChat("excel", documentChatKey(openWorkbook)));
+
+ipcMain.handle("excel:saveAgentConversation", (_e, conv) =>
+  writeDocumentChat("excel", documentChatKey(openWorkbook), conv)
+);
+
+// ---------- Word ----------
+
+let openDocument = null;
+
+ipcMain.handle("word:pick", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Выберите документ Word",
+    properties: ["openFile"],
+    filters: [{ name: "Документы Word", extensions: ["docx"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("word:open", async (_e, filePath) => {
+  openDocument = await word.loadDocument(filePath);
+  return word.documentPayload(openDocument);
+});
+
+ipcMain.handle("word:new", async (_e, name) => {
+  openDocument = await word.createDocument(name);
+  return word.documentPayload(openDocument);
+});
+
+ipcMain.handle("word:setBlockText", async (_e, index, text) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.setBlockText(openDocument, index, text);
+  return word.documentPayload(word.refresh(openDocument));
+});
+
+ipcMain.handle("word:deleteBlock", async (_e, index) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.deleteBlock(openDocument, index);
+  return word.documentPayload(word.refresh(openDocument));
+});
+
+ipcMain.handle("word:insertParagraph", async (_e, afterIndex, text, style) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.insertParagraph(openDocument, afterIndex, text, style);
+  return word.documentPayload(word.refresh(openDocument));
+});
+
+// Правка, предложенная агентом и подтверждённая пользователем.
+ipcMain.handle("word:applyAgentEdit", async (_e, edit) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  word.applyAgentEdit(openDocument, edit);
+  return word.documentPayload(openDocument);
+});
+
+ipcMain.handle("word:save", async (_e, saveAs) => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  let target = null;
+  // У созданного в приложении документа файла ещё нет — он всегда спрашивает куда.
+  if (saveAs || !openDocument.filePath) {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showSaveDialog(win, {
+      title: "Сохранить как",
+      defaultPath: openDocument.filePath || openDocument.name,
+      filters: [{ name: "Документы Word", extensions: ["docx"] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    target = result.filePath;
+  }
+  const dest = await word.saveDocument(openDocument, target);
+  if (target) {
+    openDocument.filePath = dest;
+    openDocument.name = path.basename(dest);
+  }
+  return dest;
+});
+
+ipcMain.handle("word:buildAgentPrompt", async () => {
+  if (!openDocument) throw new Error("Документ не открыт.");
+  return word.buildAgentPrompt(openDocument);
+});
+
+ipcMain.handle("word:getAgentConversation", () => readDocumentChat("word", documentChatKey(openDocument)));
+
+ipcMain.handle("word:saveAgentConversation", (_e, conv) =>
+  writeDocumentChat("word", documentChatKey(openDocument), conv)
+);
+
+// ---------- Storage report & archiving ----------
+//
+// The thing that actually grows without bound here is chat history: every turn sends
+// the whole conversation to the model, so a long chat gets slower, more expensive and
+// eventually exceeds the model's context. Disk space is a non-issue by comparison —
+// text is tiny; generated media is the only heavy folder. This pair of handlers gives
+// the user the numbers and a safe way to act on them.
+
+async function dirStats(dir) {
+  let bytes = 0;
+  let files = 0;
+  const walk = async (current) => {
+    let entries;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return; // folder not created yet
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else {
+        try {
+          const stat = await fs.stat(full);
+          bytes += stat.size;
+          files++;
+        } catch {
+          // file vanished between listing and stat — nothing to count
+        }
+      }
+    }
+  };
+  await walk(dir);
+  return { bytes, files };
+}
+
+const REPORT_FOLDERS = [
+  ["projects", "Проекты (чаты и документы)"],
+  ["media", "Сгенерированные картинки и видео"],
+  ["design", "Дизайны"],
+  ["skills", "Навыки"],
+  ["cloud", "Загрузки из облака"],
+  ["chatbots", "Чат-боты"],
+  ["ops", "Операционка"],
+  ["excel", "Excel-агент"],
+  ["direct", "Директ"],
+];
+
+/** How long a chat has to get before folding it down is worth suggesting. */
+const HEAVY_CHAT_CHARS = 60000;
+
+ipcMain.handle("storage:report", async () => {
+  const root = await getRootPath();
+  const folders = [];
+  let totalBytes = 0;
+  for (const [dir, name] of REPORT_FOLDERS) {
+    const { bytes, files } = await dirStats(path.join(root, dir));
+    if (files === 0) continue;
+    folders.push({ name, bytes, files });
+    totalBytes += bytes;
+  }
+  folders.sort((a, b) => b.bytes - a.bytes);
+
+  const heavyChats = [];
+  for (const project of await listProjects()) {
+    for (const conv of await listConversations(project.id)) {
+      const chars = (conv.messages || []).reduce((sum, m) => sum + (m.content?.length || 0), 0);
+      if (chars < HEAVY_CHAT_CHARS) continue;
+      heavyChats.push({
+        projectId: project.id,
+        projectName: project.name,
+        convId: conv.id,
+        title: conv.title,
+        messages: conv.messages.length,
+        chars,
+      });
+    }
+  }
+  heavyChats.sort((a, b) => b.chars - a.chars);
+  return { rootPath: root, totalBytes, folders, heavyChats: heavyChats.slice(0, 20) };
+});
+
+// Folding a chat down must never destroy anything: the original messages are written
+// out first, under the chat's own folder, before the conversation keeps only a summary.
+ipcMain.handle("chats:archiveMessages", async (_e, projectId, conv, messages) => {
+  const root = await getRootPath();
+  const dir = path.join(chatsDir(root, projectId), "archive");
+  await ensureDir(dir);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `${conv.id}-${stamp}.json`);
+  await writeJson(file, { title: conv.title, archivedAt: Date.now(), messages });
+  return { path: file };
+});
+
+// ---------- Яндекс Директ ----------
+//
+// Direct rides on the same Yandex OAuth token as the Disk connection, so it has no
+// credentials of its own. Everything it needs — the token and the agency client
+// login — lives on the selected Yandex account, which is why switching accounts in
+// «Облако» switches the Direct account too: у каждого аккаунта свой Директ.
+
+/** Per-account, so one account's analysis never shows up under another's name. */
+function directChatFile(root, accountId) {
+  return path.join(root, "direct", `_agent_chat${accountId ? "-" + accountId : ""}.json`);
+}
+
+/** Token + client login, the pair every Direct call needs. */
+async function directAuth() {
+  const account = await currentYandexAccount();
+  if (!account.token) {
+    throw new Error(
+      "Аккаунт Яндекса не подключён. Откройте «☁️ Облако» → «Подключение» и нажмите «Подключить Яндекс» — " +
+        "тот же токен используется и для Директа (не забудьте отметить права Яндекс.Директа в приложении)."
+    );
+  }
+  return { token: account.token, clientLogin: account.directClientLogin, accountId: account.id };
+}
+
+// The client login belongs to the account, not to the Direct module: a different
+// Yandex account means a different Direct, quite possibly a non-agency one.
+ipcMain.handle("direct:getSettings", async () => {
+  const account = await currentYandexAccount();
+  return {
+    clientLogin: account.directClientLogin || "",
+    accountId: account.id || "",
+    accountLabel: account.label || account.login || "",
+  };
+});
+
+ipcMain.handle("direct:saveSettings", async (_e, patch) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const active = cloud.activeYandex(accounts);
+  if (!active) return { clientLogin: "", accountId: "", accountLabel: "" };
+  const updated = { ...active, directClientLogin: String(patch?.clientLogin ?? "").trim() };
+  await cloud.saveAccounts(root, cloud.withYandexAccount(accounts, updated));
+  return { clientLogin: updated.directClientLogin, accountId: updated.id, accountLabel: updated.label || updated.login };
+});
+
+ipcMain.handle("direct:testConnection", async () => {
+  try {
+    const { token, clientLogin } = await directAuth();
+    return direct.testConnection(token, clientLogin);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle("direct:listCampaigns", async () => {
+  const { token, clientLogin } = await directAuth();
+  return direct.listCampaigns(token, clientLogin);
+});
+
+ipcMain.handle("direct:listKeywords", async (_e, campaignIds) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.listKeywords(token, campaignIds, clientLogin);
+});
+
+ipcMain.handle("direct:listAds", async (_e, campaignIds) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.listAds(token, campaignIds, clientLogin);
+});
+
+ipcMain.handle("direct:getStats", async (_e, range) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.getStats(token, { ...range, clientLogin });
+});
+
+// Mutations, run only after the user confirmed the agent's proposal in the UI.
+ipcMain.handle("direct:setCampaignState", async (_e, campaignId, resume) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.setCampaignState(token, campaignId, resume, clientLogin);
+});
+
+ipcMain.handle("direct:setKeywordBid", async (_e, keywordId, bid) => {
+  const { token, clientLogin } = await directAuth();
+  return direct.setKeywordBid(token, keywordId, bid, clientLogin);
+});
+
+ipcMain.handle("direct:buildAgentPrompt", (_e, data) => direct.buildAgentPrompt(data || {}));
+
+ipcMain.handle("direct:getAgentConversation", async () => {
+  const root = await getRootPath();
+  const account = await currentYandexAccount();
+  const own = await readJson(directChatFile(root, account.id), null);
+  if (own) return own;
+  // Before accounts were a list there was one shared conversation. Hand it to the
+  // account in use and move the file, so an existing Direct chat isn't orphaned.
+  const legacyFile = path.join(root, "direct", "_agent_chat.json");
+  const legacy = await readJson(legacyFile, null);
+  if (legacy && account.id) {
+    await writeJson(directChatFile(root, account.id), legacy);
+    await fs.rm(legacyFile, { force: true }).catch(() => {});
+  }
+  return legacy;
+});
+
+ipcMain.handle("direct:saveAgentConversation", async (_e, conv) => {
+  const root = await getRootPath();
+  const account = await currentYandexAccount();
+  await ensureDir(path.join(root, "direct"));
+  await writeJson(directChatFile(root, account.id), conv);
+  return conv;
+});
+
+// ---------- Cloud storage (Яндекс Диск / Google Drive) ----------
+
+ipcMain.handle("cloud:getAccounts", async () => cloud.getAccounts(await getRootPath()));
+ipcMain.handle("cloud:saveAccounts", async (_e, accounts) => cloud.saveAccounts(await getRootPath(), accounts));
+ipcMain.handle("cloud:testConnection", async (_e, provider, token) => {
+  if (provider !== "yandex") return cloud.testConnection(provider, token);
+  // A blank token in the form means "use the one we already hold" — after the OAuth
+  // exchange there is nothing for the user to paste, so there is nothing to send.
+  return cloud.testConnection("yandex", (token || "").trim() || (await currentProviderToken("yandex")));
+});
+
+/**
+ * The token to use for a provider right now, renewing an expired Yandex one and
+ * writing the renewal back so the next call doesn't repeat the work. For Yandex
+ * this is always the account currently selected.
+ */
+async function currentProviderToken(provider) {
+  if (provider !== "yandex") {
+    const accounts = await cloud.getAccounts(await getRootPath());
+    return accounts[provider]?.token;
+  }
+  return (await currentYandexAccount()).token;
+}
+
+/**
+ * The selected Yandex account, with its token refreshed if it had expired.
+ * Everything Yandex-shaped — Disk and Direct alike — goes through here, which is
+ * what makes switching accounts a single setting rather than a per-module one.
+ */
+async function currentYandexAccount() {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const active = cloud.activeYandex(accounts);
+  if (!active) return { token: "", directClientLogin: "" };
+  const { account, renewed } = await cloud.ensureYandexToken(active);
+  if (renewed) await cloud.saveAccounts(root, cloud.withYandexAccount(accounts, account));
+  return account;
+}
+
+ipcMain.handle("cloud:setActiveYandex", async (_e, id) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  return cloud.saveAccounts(root, { ...accounts, yandex: { ...accounts.yandex, activeId: id } });
+});
+
+ipcMain.handle("cloud:removeYandex", async (_e, id) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const list = accounts.yandex.accounts.filter((a) => a.id !== id);
+  const activeId = accounts.yandex.activeId === id ? list[0]?.id || "" : accounts.yandex.activeId;
+  // The account's Direct conversation goes with it; leaving it behind would surface
+  // one account's analysis under another's name if an id were ever reused.
+  await fs.rm(directChatFile(root, id), { force: true }).catch(() => {});
+  return cloud.saveAccounts(root, { ...accounts, yandex: { activeId, accounts: list } });
+});
+
+ipcMain.handle("cloud:renameYandex", async (_e, id, label) => {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const account = accounts.yandex.accounts.find((a) => a.id === id);
+  if (!account) return accounts;
+  return cloud.saveAccounts(root, cloud.withYandexAccount(accounts, { ...account, label: String(label || "").trim() }));
+});
+
+/**
+ * Runs the Yandex consent flow and stores the result as a new account (or updates an
+ * existing one, matched by the login Yandex reports — reconnecting the same account
+ * should refresh it, not add a duplicate).
+ *
+ * `manualCode` covers apps registered to only print the code on screen, where no
+ * code ever appears in a URL for the window to catch.
+ */
+async function connectYandex({ clientId, clientSecret, manualCode, label }) {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const id = (clientId || "").trim();
+  const secret = (clientSecret || "").trim();
+  if (!id || !secret) return { ok: false, error: "Заполните Client ID и Client secret." };
+
+  let code = (manualCode || "").trim();
+  if (!code) {
+    code = await yandexAuth.pickCodeInWindow(BrowserWindow, id, BrowserWindow.getFocusedWindow());
+    if (!code) {
+      return {
+        ok: false,
+        needsCode: true,
+        error:
+          "Окно закрыто без кода. Если Яндекс показал код подтверждения на странице — вставьте его в поле ниже " +
+          "и нажмите «Обменять код на токен».",
+      };
+    }
+  }
+
+  try {
+    const issued = await yandexAuth.exchangeCode(id, secret, code);
+    const check = await cloud.testConnection("yandex", issued.token);
+    const login = check.login || "";
+
+    const existing = login ? accounts.yandex.accounts.find((a) => a.login === login) : null;
+    const account = cloud.normalizeYandexAccount({
+      ...(existing || {}),
+      id: existing?.id || cloud.newAccountId(),
+      label: (label || "").trim() || existing?.label || login || "Яндекс",
+      login,
+      token: issued.token,
+      clientId: id,
+      clientSecret: secret,
+      refreshToken: issued.refreshToken,
+      expiresAt: issued.expiresAt,
+    });
+
+    const next = cloud.withYandexAccount(accounts, account);
+    // A freshly connected account becomes the selected one — that is what the user
+    // is about to work with.
+    const saved = await cloud.saveAccounts(root, { ...next, yandex: { ...next.yandex, activeId: account.id } });
+    return {
+      ok: true,
+      accounts: saved,
+      login,
+      // Reconnecting an account already in the list refreshes it rather than adding
+      // one. Saying so matters: otherwise "подключено ✓" looks like success while the
+      // list still holds a single account, which is exactly how this went wrong.
+      duplicate: !!existing,
+      error: check.ok ? undefined : check.error,
+    };
+  } catch (e) {
+    return { ok: false, needsCode: true, error: e.message };
+  }
+}
+
+ipcMain.handle("cloud:connectYandex", (_e, payload) => connectYandex(payload || {}));
+
+ipcMain.handle("cloud:list", async (_e, provider, folder) => {
+  return cloud.list(provider, await currentProviderToken(provider), folder);
+});
+
+ipcMain.handle("cloud:download", async (_e, provider, remote, fileName) => {
+  const root = await getRootPath();
+  const dir = path.join(root, "cloud", "downloads");
+  await ensureDir(dir);
+  return cloud.download(provider, await currentProviderToken(provider), remote, path.join(dir, fileName));
+});
+
+// Downloads straight into a project's docs folder, so a cloud file becomes part of
+// that project's knowledge base in one step.
+ipcMain.handle("cloud:downloadToProject", async (_e, provider, remote, fileName, projectId) => {
+  const root = await getRootPath();
+  const dir = docsDir(root, projectId);
+  await ensureDir(dir);
+  const result = await cloud.download(provider, await currentProviderToken(provider), remote, path.join(dir, fileName));
+  await updateProject(projectId, {});
+  return result;
+});
+
+ipcMain.handle("cloud:uploadFile", async (_e, provider, remoteFolder) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Выберите файл для загрузки в облако",
+    properties: ["openFile"],
+  });
+  if (picked.canceled || picked.filePaths.length === 0) return null;
+  const localPath = picked.filePaths[0];
+  const name = path.basename(localPath);
+  // Яндекс addresses by path, Google by parent folder id — build what each needs.
+  const remote = provider === "yandex" ? `${(remoteFolder || "disk:/").replace(/\/$/, "")}/${name}` : remoteFolder;
+  return cloud.upload(provider, await currentProviderToken(provider), localPath, remote, name);
+});
+
+ipcMain.handle("proxy:test", async (_e, draftSettings) => {
+  // Apply the settings being tested (not the saved ones) so the button reports on
+  // what's currently typed in the form, then make a real request to the model API —
+  // the destination that actually matters — so DNS, the proxy, its authentication
+  // and TLS are all exercised end to end rather than guessed at.
+  const settings = { ...(await loadSettings()), ...(draftSettings || {}) };
+  await applyProxySettings(settings);
+  // Chromium caches proxy credentials for the session once they work, so without
+  // clearing them a re-test would keep reporting success even after the password
+  // was changed or emptied — exactly when the user most needs an honest answer.
+  await session.defaultSession.clearAuthCache();
+  const url = (settings.baseUrl || DEFAULT_SETTINGS.baseUrl).replace(/\/+$/, "") + "/models";
+  const started = Date.now();
+  try {
+    const res = await fetch(url, { headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {} });
+    const ms = Date.now() - started;
+    if (res.status === 407) {
+      return {
+        ok: false,
+        error:
+          "Прокси требует авторизацию, но логин/пароль не подошли (407). Проверьте их — " +
+          "это логин от прокси, а не от Polza.",
+      };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `Соединение прошло, но сервер ответил ${res.status} ${res.statusText}.`, ms };
+    }
+    return { ok: true, ms };
+  } catch (e) {
+    const msg = String(e.message || e);
+    let hint = "";
+    if (msg.includes("ERR_PROXY_CONNECTION_FAILED")) hint = " Адрес или порт прокси недоступны.";
+    else if (msg.includes("ERR_TOO_MANY_RETRIES")) hint = " Прокси отклоняет логин/пароль.";
+    else if (msg.includes("ERR_NO_SUPPORTED_PROXIES")) hint = " Такой адрес прокси не поддерживается — уберите логин/пароль из адреса и впишите их в поля ниже.";
+    else if (msg.includes("ERR_NAME_NOT_RESOLVED")) hint = " Не удалось определить адрес — проверьте написание.";
+    return { ok: false, error: msg + hint };
+  } finally {
+    // Leave the session on the *saved* settings, so merely testing a draft doesn't
+    // silently change what the rest of the app is using.
+    await applyProxySettings(await loadSettings());
+  }
+});
+
+ipcMain.handle("web:runTools", async (_e, text) => websearch.runTools(text, await loadSettings()));
+ipcMain.handle("web:search", async (_e, query) => websearch.search(query, await loadSettings()));
+ipcMain.handle("meta:webToolsHint", async () => {
+  const settings = await loadSettings();
+  return settings.searchEnabled === false ? "" : websearch.WEB_TOOLS_HINT;
+});
+
 ipcMain.handle("tasks:list", async (_e, projectId) => tasks.list(await getRootPath(), projectId));
 ipcMain.handle("tasks:save", async (_e, projectId, task) => tasks.save(await getRootPath(), projectId, task));
 ipcMain.handle("tasks:delete", async (_e, projectId, id) => tasks.remove(await getRootPath(), projectId, id));
@@ -1124,6 +2164,8 @@ ipcMain.handle("import:pickClaudeExports", async () => {
 });
 ipcMain.handle("import:claudeExports", (_e, filePaths) => importClaudeExport(filePaths));
 
+ipcMain.handle("export:toDocx", (_e, payload) => exportChatToFile(payload, "docx"));
+ipcMain.handle("export:toXlsx", (_e, payload) => exportChatToFile(payload, "xlsx"));
 ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
 ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
 ipcMain.handle("export:toJpg", (_e, payload) => exportHtmlToJpg(payload));
@@ -1135,36 +2177,6 @@ ipcMain.handle("skillCreator:save", (_e, conv) => saveSkillCreatorConversation(c
 
 // ---------- operations IPC ----------
 
-ipcMain.handle("ops:list", async () => ops.listSheets(await getRootPath()));
-ipcMain.handle("ops:save", async (_e, sheet) => ops.saveSheet(await getRootPath(), sheet));
-ipcMain.handle("ops:delete", async (_e, id) => ops.deleteSheet(await getRootPath(), id));
-ipcMain.handle("ops:buildAgentPrompt", async () => ops.buildAgentSystemPrompt(await getRootPath()));
-ipcMain.handle("ops:applyEdit", async (_e, edit) => ops.applyEdit(await getRootPath(), edit));
-ipcMain.handle("ops:getAgentConversation", () => getOpsAgentConversation());
-ipcMain.handle("ops:saveAgentConversation", (_e, conv) => saveOpsAgentConversation(conv));
-
-ipcMain.handle("ops:pickXlsx", async () => {
-  const win = BrowserWindow.getFocusedWindow();
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openFile"],
-    filters: [{ name: "Excel", extensions: ["xlsx"] }],
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
-});
-ipcMain.handle("ops:importXlsx", async (_e, filePath) => ops.importXlsx(await getRootPath(), filePath));
-
-// ---------- mail IPC ----------
-
-ipcMain.handle("mail:getAccount", async () => mail.getAccount(await getRootPath()));
-ipcMain.handle("mail:saveAccount", async (_e, account) => mail.saveAccount(await getRootPath(), account));
-ipcMain.handle("mail:testConnection", (_e, account) => mail.testConnection(account));
-ipcMain.handle("mail:listMessages", async (_e, opts) => mail.listMessages(await mail.getAccount(await getRootPath()), opts));
-ipcMain.handle("mail:getMessage", async (_e, uid) => mail.getMessage(await mail.getAccount(await getRootPath()), uid));
-ipcMain.handle("mail:sendMail", async (_e, payload) => mail.sendMail(await getRootPath(), payload));
-ipcMain.handle("mail:getAgentConversation", () => getMailAgentConversation());
-ipcMain.handle("mail:saveAgentConversation", (_e, conv) => saveMailAgentConversation(conv));
-ipcMain.handle("meta:mailDraftPrompt", () => MAIL_DRAFT_PROMPT);
 
 // ---------- GitHub IPC ----------
 
@@ -1186,6 +2198,23 @@ ipcMain.handle("github:getFileContent", async (_e, owner, repo, filePath, ref) =
 ipcMain.handle("github:commitFile", async (_e, owner, repo, filePath, content, message, sha, branch) =>
   github.commitFile(await githubToken(), owner, repo, filePath, content, message, sha, branch)
 );
+ipcMain.handle("github:listWorkflows", async (_e, owner, repo) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.listWorkflows(account.token, owner, repo);
+});
+ipcMain.handle("github:runWorkflow", async (_e, owner, repo, workflowId, ref) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.runWorkflow(account.token, owner, repo, workflowId, ref);
+});
+ipcMain.handle("github:listWorkflowRuns", async (_e, owner, repo, workflowId, limit) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.listWorkflowRuns(account.token, owner, repo, workflowId, limit);
+});
+ipcMain.handle("github:listBranches", async (_e, owner, repo) => {
+  const account = await github.getAccount(await getRootPath());
+  return github.listBranches(account.token, owner, repo);
+});
+
 ipcMain.handle("github:getAgentConversation", async (_e, owner, repo) =>
   github.getAgentConversation(await getRootPath(), owner, repo)
 );
@@ -1205,7 +2234,8 @@ ipcMain.handle("chatbots:start", async (_e, platform) => {
     root,
     platform,
     (p, message) => broadcast("chatbots:message", { platform: p, message }),
-    (p, status) => broadcast("chatbots:status", { platform: p, status })
+    (p, status) => broadcast("chatbots:status", { platform: p, status }),
+    chatbotAiResponder
   );
   return chatbots.getStatus();
 });
@@ -1261,34 +2291,161 @@ ipcMain.handle("media:pickReferenceImage", async () => {
 
 // ---------- design section IPC ----------
 
+// ---------- Дизайн ----------
+
+/** Проекты дизайна, с одноразовым переносом старых макетов при первом обращении. */
+async function designProjects() {
+  const root = await getRootPath();
+  const existing = await design.listProjects(root);
+  if (existing.length > 0) return existing;
+  return design.migrateLegacy(root, await listProjects());
+}
+
+ipcMain.handle("design:listProjects", () => designProjects());
+ipcMain.handle("design:createProject", async (_e, name) => design.createProject(await getRootPath(), name));
+ipcMain.handle("design:updateProject", async (_e, id, patch) => design.updateProject(await getRootPath(), id, patch));
+ipcMain.handle("design:removeProject", async (_e, id) => {
+  await design.removeProject(await getRootPath(), id);
+  return designProjects();
+});
+
+// Ассеты выбираются диалогом: пути к файлам на компьютере, файлы не копируются.
+ipcMain.handle("design:pickAssets", async (_e, id, kind) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const filters =
+    kind === "fonts"
+      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
+      : kind === "system"
+        ? [{ name: "Файлы дизайн-системы", extensions: ["md", "txt", "json", "css", "svg", "png", "jpg", "jpeg"] }]
+        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp", "gif", "avif"] }];
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы",
+    properties: ["openFile", "multiSelections"],
+    filters,
+  });
+  if (picked.canceled || picked.filePaths.length === 0) return null;
+  return design.addAssets(await getRootPath(), id, kind, picked.filePaths);
+});
+
+ipcMain.handle("design:removeAsset", async (_e, id, kind, assetPath) =>
+  design.removeAsset(await getRootPath(), id, kind, assetPath)
+);
+
+ipcMain.handle("design:listAssets", async (_e, id) => design.collectAssets(await getRootPath(), id));
+
+// ---- дизайн-системы ----
+
+ipcMain.handle("design:listSystems", async () => design.listSystems(await getRootPath()));
+ipcMain.handle("design:createSystem", async (_e, name) => design.createSystem(await getRootPath(), name));
+ipcMain.handle("design:updateSystem", async (_e, id, patch) => design.updateSystem(await getRootPath(), id, patch));
+ipcMain.handle("design:removeSystem", async (_e, id) => {
+  await design.removeSystem(await getRootPath(), id);
+  return design.listSystems(await getRootPath());
+});
+
+ipcMain.handle("design:pickSystemAssets", async (_e, id, kind) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const filters =
+    kind === "fonts"
+      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
+      : kind === "rules"
+        ? [{ name: "Правила", extensions: ["md", "txt", "json", "css", "svg"] }]
+        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }];
+  const picked = await dialog.showOpenDialog(win, {
+    title: "Выберите файлы дизайн-системы",
+    properties: ["openFile", "multiSelections"],
+    filters,
+  });
+  if (picked.canceled || picked.filePaths.length === 0) return null;
+  return design.addSystemAssets(await getRootPath(), id, kind, picked.filePaths);
+});
+
+ipcMain.handle("design:removeSystemAsset", async (_e, id, kind, assetPath) =>
+  design.removeSystemAsset(await getRootPath(), id, kind, assetPath)
+);
+
+/**
+ * Подставляет ассеты в разметку. Renderer вызывает это и для предпросмотра, и перед
+ * экспортом — чтобы то, что видно на экране, совпадало с тем, что уйдёт в файл.
+ */
+ipcMain.handle("design:applyAssets", async (_e, id, html) => {
+  if (!id) return html;
+  const assets = await design.collectAssets(await getRootPath(), id, { withData: true });
+  return design.applyAssets(html, assets);
+});
+
 ipcMain.handle("design:list", async (_e, projectId) => design.list(await getRootPath(), projectId));
 ipcMain.handle("design:save", async (_e, projectId, doc) => design.save(await getRootPath(), projectId, doc));
 ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await getRootPath(), projectId, id));
+
 ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
   const root = await getRootPath();
+  const projects = await designProjects();
+  const project = projects.find((p) => p.id === projectId) || null;
+
+  // Фирменный стиль берётся из проекта приложения, если дизайн-проект к нему привязан.
   let brand;
-  if (projectId) {
-    const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  let designSystem = "";
+  const linked = project?.linkedProjectId;
+  if (linked) {
+    const meta = await readJson(path.join(projectDir(root, linked), "project.json"), null);
     brand = meta?.brand;
+    if (meta?.designSystemPaths?.length) designSystem = await readDesignSystem(meta.designSystemPaths);
   }
-  return design.buildAgentSystemPrompt(brand);
+
+  const assets = projectId ? await design.collectAssets(root, projectId) : [];
+  const systems = await design.listSystems(root);
+  const system = systems.find((x) => x.id === project?.systemId) || null;
+  const base = design.buildAgentSystemPrompt(brand, project, assets, system);
+  if (!designSystem.trim()) return base;
+  return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРИВЯЗАННОГО ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
 });
+
 ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
 ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
+
+/**
+ * Экспорт макета в точный размер (PNG) или ролика (MP4).
+ *
+ * Оба идут не через общий HTML-экспорт, а через motion.cjs: тот рендерит полосами,
+ * поэтому макет выше экрана не обрезается — см. комментарий в самом модуле.
+ */
+ipcMain.handle("design:render", async (_e, payload) => {
+  const { kind, html, width, height, fps, durationSec, defaultName, projectId } = payload || {};
+  const win = BrowserWindow.getFocusedWindow();
+  const ext = kind === "mp4" ? "mp4" : "png";
+  const result = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(await resolveExportDir(), sanitizeFileName(defaultName || "design") + "." + ext),
+    filters: [{ name: kind === "mp4" ? "Видео MP4" : "PNG", extensions: [ext] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+
+  const root = await getRootPath();
+  const assets = projectId ? await design.collectAssets(root, projectId, { withData: true }) : [];
+  const ready = design.applyAssets(html, assets);
+
+  const send = (progress) => {
+    if (!win.isDestroyed()) win.webContents.send("design:renderProgress", progress);
+  };
+
+  if (kind === "mp4") {
+    const out = await motion.renderMp4({
+      html: ready,
+      width,
+      height,
+      fps,
+      durationSec,
+      outPath: result.filePath,
+      onProgress: send,
+    });
+    return out;
+  }
+  return motion.renderPng({ html: ready, width, height, outPath: result.filePath });
+});
+
 ipcMain.handle("design:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
   const dir = design.designDir(root, projectId);
   await ensureDir(dir);
   await shell.openPath(dir);
 });
-
-ipcMain.handle("mail:pickLogo", async () => {
-  const win = BrowserWindow.getFocusedWindow();
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openFile"],
-    filters: [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "gif", "svg"] }],
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
-});
-ipcMain.handle("mail:saveSignatureLogo", async (_e, filePath) => mail.saveSignatureLogo(await getRootPath(), filePath));

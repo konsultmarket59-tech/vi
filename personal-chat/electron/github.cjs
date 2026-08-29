@@ -171,6 +171,61 @@ async function commitFile(token, owner, repo, filePath, content, message, sha, b
   };
 }
 
+
+// ---------- GitHub Actions ----------
+
+/** Workflows defined in the repo (.github/workflows/*.yml). */
+async function listWorkflows(token, owner, repo) {
+  const json = await apiRequest(token, "GET", `/repos/${owner}/${repo}/actions/workflows`);
+  return (json.workflows || []).map((w) => ({
+    id: w.id,
+    name: w.name,
+    path: w.path,
+    state: w.state,
+  }));
+}
+
+/**
+ * Starts a workflow run. This is the "Run workflow" button, not "Re-run" —
+ * it always builds the tip of the chosen branch, which is what you want after
+ * pushing a change. Re-running an old run would rebuild that run's original
+ * commit instead.
+ *
+ * GitHub returns 204 with no body, so there's no run id to report back; the
+ * caller polls listWorkflowRuns to pick up the run that just started.
+ */
+async function runWorkflow(token, owner, repo, workflowId, ref) {
+  await apiRequest(token, "POST", `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`, { ref });
+  return { started: true };
+}
+
+async function listWorkflowRuns(token, owner, repo, workflowId, limit = 10) {
+  const base = workflowId
+    ? `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`
+    : `/repos/${owner}/${repo}/actions/runs`;
+  const json = await apiRequest(token, "GET", `${base}?per_page=${limit}`);
+  return (json.workflow_runs || []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    runNumber: r.run_number,
+    status: r.status,
+    conclusion: r.conclusion,
+    branch: r.head_branch,
+    headSha: r.head_sha,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    htmlUrl: r.html_url,
+    // Which commit message this run actually built — the detail that makes a
+    // stale re-run obvious at a glance.
+    headCommitMessage: r.head_commit?.message?.split("\n")[0] || "",
+  }));
+}
+
+async function listBranches(token, owner, repo) {
+  const json = await apiRequest(token, "GET", `/repos/${owner}/${repo}/branches?per_page=100`);
+  return (json || []).map((b) => ({ name: b.name, sha: b.commit?.sha }));
+}
+
 async function getAgentConversation(root, owner, repo) {
   return readJson(repoChatFile(root, owner, repo), null);
 }
@@ -192,4 +247,8 @@ module.exports = {
   commitFile,
   getAgentConversation,
   saveAgentConversation,
+  listWorkflows,
+  runWorkflow,
+  listWorkflowRuns,
+  listBranches,
 };

@@ -16,6 +16,12 @@ function leadsFile(root, platform) {
 function messagesFile(root, platform) {
   return path.join(botsDir(root), "messages", `${platform}.json`);
 }
+function threadFile(root, platform, userId) {
+  // userId comes from the platform (numeric ids in practice), but sanitize anyway —
+  // it ends up in a filename.
+  const safe = String(userId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(botsDir(root), "threads", platform, `${safe}.json`);
+}
 
 async function ensureDir(p) {
   await fs.mkdir(p, { recursive: true });
@@ -33,10 +39,15 @@ async function writeJson(file, data) {
 
 const PLATFORMS = ["telegram", "vk", "max"];
 const DEFAULT_ACCOUNTS = {
-  telegram: { token: "", enabled: false },
-  vk: { token: "", groupId: "", enabled: false },
-  max: { token: "", enabled: false },
+  telegram: { token: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  vk: { token: "", groupId: "", enabled: false, aiEnabled: false, aiProjectId: "" },
+  max: { token: "", apiBase: "", enabled: false, aiEnabled: false, aiProjectId: "" },
 };
+
+// How much of a conversation the bot keeps in mind per person. Long enough to hold
+// a real consultation together, short enough that an old thread can't grow without
+// bound and blow past the model's context on every reply.
+const MAX_THREAD_MESSAGES = 20;
 const MAX_MESSAGES_PER_PLATFORM = 1000;
 
 async function getAccounts(root) {
@@ -80,6 +91,17 @@ async function appendMessage(root, platform, msg) {
   while (list.length > MAX_MESSAGES_PER_PLATFORM) list.shift();
   await writeJson(messagesFile(root, platform), list);
   return list;
+}
+
+async function getThread(root, platform, userId) {
+  return readJson(threadFile(root, platform, userId), []);
+}
+
+async function saveThread(root, platform, userId, messages) {
+  await ensureDir(path.join(botsDir(root), "threads", platform));
+  const trimmed = messages.slice(-MAX_THREAD_MESSAGES);
+  await writeJson(threadFile(root, platform, userId), trimmed);
+  return trimmed;
 }
 
 // ---------- platform adapters ----------
@@ -181,24 +203,105 @@ const vkAdapter = {
   },
 };
 
-const MAX_API_BASE = "https://platform-api2.max.ru";
+// MAX has published its bot platform under more than one host, and which one a given
+// bot token belongs to isn't something we can tell from the token itself. So the host
+// is a setting, and "Проверить" walks these candidates in order until one answers —
+// then the UI offers to keep the one that worked.
+const MAX_API_HOSTS = ["https://botapi.max.ru", "https://platform-api2.max.ru"];
+
+function maxBase(account) {
+  return (account.apiBase || "").trim().replace(/\/+$/, "") || MAX_API_HOSTS[0];
+}
+
+/**
+ * Turns a Chromium network error into something a non-developer can act on.
+ *
+ * The one that actually bit here is ERR_CERT_AUTHORITY_INVALID: a lot of Russian
+ * services are certified by the Russian Trusted Root CA (Минцифры), which Windows
+ * doesn't ship with, so the connection is refused before any HTTP happens. Nothing
+ * in the app can fix that — the certificate has to be installed in Windows — but
+ * saying so beats showing "net::ERR_CERT_AUTHORITY_INVALID".
+ */
+function explainNetworkError(message) {
+  const text = String(message || "");
+  if (text.includes("ERR_CERT_AUTHORITY_INVALID") || text.includes("ERR_CERT_COMMON_NAME_INVALID")) {
+    return (
+      "Windows не доверяет сертификату сайта. Обычно это значит, что сайт использует «Российский " +
+      "доверенный корневой сертификат» — его нужно один раз установить в Windows: на gosuslugi.ru найдите " +
+      "страницу «Установка сертификатов», скачайте корневой сертификат Минцифры, откройте файл → " +
+      "«Установить сертификат» → «Локальный компьютер» → «Доверенные корневые центры сертификации», " +
+      "затем перезапустите приложение. Если вы работаете через корпоративный прокси, тот же приём нужен " +
+      "для его сертификата."
+    );
+  }
+  if (text.includes("ERR_NAME_NOT_RESOLVED")) {
+    return "Такого адреса нет в DNS. Проверьте адрес API и подключение к интернету.";
+  }
+  if (text.includes("ERR_PROXY_CONNECTION_FAILED") || text.includes("ERR_TUNNEL_CONNECTION_FAILED")) {
+    return "Прокси не пропустил запрос. Проверьте настройки прокси в разделе «Настройки».";
+  }
+  if (text.includes("ERR_CONNECTION_REFUSED") || text.includes("ERR_CONNECTION_TIMED_OUT")) {
+    return "Сервер не отвечает. Возможно, он недоступен из вашей сети — попробуйте включить VPN или прокси.";
+  }
+  return text;
+}
+
+/**
+ * MAX accepts the token as an Authorization header on some hosts and as an
+ * access_token query parameter on others. Sending both costs nothing and means one
+ * code path works against either flavour.
+ */
+function maxRequest(base, account, endpoint, options = {}) {
+  const sep = endpoint.includes("?") ? "&" : "?";
+  const url = `${base}${endpoint}${sep}access_token=${encodeURIComponent(account.token)}`;
+  return fetch(url, {
+    ...options,
+    headers: { Authorization: account.token, ...(options.headers || {}) },
+  });
+}
 
 const maxAdapter = {
   async testConnection(account) {
     if (!account.token?.trim()) return { ok: false, error: "Токен не задан." };
-    try {
-      const res = await fetch(`${MAX_API_BASE}/me`, { headers: { Authorization: account.token } });
-      const body = await res.json();
-      if (!res.ok) return { ok: false, error: body.message || "Ошибка MAX API." };
-      return { ok: true, login: body.name || body.username };
-    } catch (e) {
-      return { ok: false, error: e.message };
+    // Try the configured host first, then the other known ones.
+    const configured = maxBase(account);
+    const candidates = [configured, ...MAX_API_HOSTS.filter((h) => h !== configured)];
+    const failures = [];
+    for (const base of candidates) {
+      try {
+        const res = await maxRequest(base, account, "/me");
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          failures.push({
+            host: base.replace(/^https?:\/\//, ""),
+            text: String(body.message || body.error || `${res.status} ${res.statusText}`),
+          });
+          continue;
+        }
+        return {
+          ok: true,
+          login: body.name || body.username || body.first_name || "",
+          apiBase: base,
+          // Only worth mentioning when it isn't the host that's currently saved.
+          switched: base !== configured ? base : undefined,
+        };
+      } catch (e) {
+        const host = base.replace(/^https?:\/\//, "");
+        failures.push({ host, text: explainNetworkError(e.message) });
+      }
     }
+    // Both hosts usually fail for the same reason (no certificate, no network), and
+    // repeating an identical paragraph per host just makes it harder to read.
+    const unique = [...new Set(failures.map((f) => f.text))];
+    if (unique.length === 1) {
+      return { ok: false, error: `Не удалось подключиться (пробовали ${failures.map((f) => f.host).join(", ")}).\n\n${unique[0]}` };
+    }
+    return { ok: false, error: failures.map((f) => `${f.host}: ${f.text}`).join("\n\n") };
   },
   async pollOnce(account, cursor) {
     const marker = cursor?.marker;
-    const url = `${MAX_API_BASE}/updates?limit=100&timeout=25${marker != null ? `&marker=${marker}` : ""}`;
-    const res = await fetch(url, { headers: { Authorization: account.token } });
+    const endpoint = `/updates?limit=100&timeout=25${marker != null ? `&marker=${marker}` : ""}`;
+    const res = await maxRequest(maxBase(account), account, endpoint);
     const body = await res.json();
     if (!res.ok) throw new Error(body.message || "Ошибка MAX API.");
     const events = [];
@@ -215,9 +318,9 @@ const maxAdapter = {
     return { cursor: { marker: body.marker }, events };
   },
   async sendMessage(account, userId, text) {
-    const res = await fetch(`${MAX_API_BASE}/messages?user_id=${encodeURIComponent(userId)}`, {
+    const res = await maxRequest(maxBase(account), account, `/messages?user_id=${encodeURIComponent(userId)}`, {
       method: "POST",
-      headers: { Authorization: account.token, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     const body = await res.json().catch(() => ({}));
@@ -255,7 +358,7 @@ function isRunning(platform) {
   return running.get(platform) === true;
 }
 
-async function processIncoming(root, platform, account, event, onMessage) {
+async function processIncoming(root, platform, account, event, onMessage, aiResponder) {
   const leads = await getLeads(root, platform);
   let lead = leads.find((l) => l.userId === event.userId);
   const isFirst = !lead;
@@ -271,6 +374,38 @@ async function processIncoming(root, platform, account, event, onMessage) {
   const logged = { userId: event.userId, name: lead.name, direction: "in", text: event.text, at: now };
   await appendMessage(root, platform, logged);
   onMessage?.(platform, logged);
+
+  const aiOn = account.aiEnabled && account.aiProjectId && typeof aiResponder === "function";
+
+  if (aiOn) {
+    // AI mode answers on its own, so funnels stay out of the way entirely — otherwise
+    // the same incoming message would trigger both a scripted drip step and a generated
+    // reply, and the person would get two answers talking over each other.
+    await saveLeads(root, platform, leads);
+    const history = await getThread(root, platform, event.userId);
+    const withUser = [...history, { role: "user", content: event.text }];
+    let reply;
+    try {
+      reply = await aiResponder({ platform, account, lead, messages: withUser });
+    } catch (e) {
+      console.error(`ИИ-ответ для ${platform}/${event.userId} не удался:`, e);
+      return;
+    }
+    if (!reply) return;
+    try {
+      await ADAPTERS[platform].sendMessage(account, event.userId, reply);
+    } catch (e) {
+      // Don't persist the exchange if the person never actually received the answer —
+      // otherwise the bot would "remember" saying something it never sent.
+      console.error(`Не удалось отправить ИИ-ответ в ${platform}:`, e);
+      return;
+    }
+    await saveThread(root, platform, event.userId, [...withUser, { role: "assistant", content: reply }]);
+    const outLog = { userId: event.userId, name: lead.name, direction: "out", text: reply, at: Date.now() };
+    await appendMessage(root, platform, outLog);
+    onMessage?.(platform, outLog);
+    return;
+  }
 
   const funnels = await getFunnels(root);
   const funnel = matchFunnel(funnels, platform, event.text, isFirst);
@@ -290,7 +425,7 @@ async function processIncoming(root, platform, account, event, onMessage) {
 // the API.
 const MIN_POLL_INTERVAL_MS = 1000;
 
-async function pollLoop(root, platform, onMessage, onStatus) {
+async function pollLoop(root, platform, onMessage, onStatus, aiResponder) {
   const account = (await getAccounts(root))[platform];
   const adapter = ADAPTERS[platform];
   while (isRunning(platform)) {
@@ -299,11 +434,14 @@ async function pollLoop(root, platform, onMessage, onStatus) {
       const { cursor, events } = await adapter.pollOnce(account, cursors.get(platform));
       cursors.set(platform, cursor);
       for (const event of events) {
-        await processIncoming(root, platform, account, event, onMessage);
+        await processIncoming(root, platform, account, event, onMessage, aiResponder);
       }
       onStatus?.(platform, "ok");
     } catch (e) {
-      onStatus?.(platform, "error: " + e.message);
+      // The bare Chromium error ("net::ERR_CERT_AUTHORITY_INVALID") means nothing to
+      // the person reading the status line, so it's translated the same way the
+      // connection test translates it.
+      onStatus?.(platform, "error: " + explainNetworkError(e.message));
       await new Promise((r) => setTimeout(r, 5000));
     }
     const elapsed = Date.now() - iterationStart;
@@ -313,11 +451,11 @@ async function pollLoop(root, platform, onMessage, onStatus) {
   }
 }
 
-async function start(root, platform, onMessage, onStatus) {
+async function start(root, platform, onMessage, onStatus, aiResponder) {
   if (isRunning(platform)) return;
   running.set(platform, true);
   cursors.delete(platform);
-  pollLoop(root, platform, onMessage, onStatus);
+  pollLoop(root, platform, onMessage, onStatus, aiResponder);
 }
 
 function stop(platform) {
@@ -396,6 +534,8 @@ function startScheduler(getRoot, onMessage) {
 
 module.exports = {
   PLATFORMS,
+  getThread,
+  saveThread,
   getAccounts,
   saveAccounts,
   getFunnels,

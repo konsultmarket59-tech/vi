@@ -7,6 +7,15 @@ contextBridge.exposeInMainWorld("api", {
   openRootPath: () => ipcRenderer.invoke("config:openRootPath"),
 
   // settings
+  getPlugins: () => ipcRenderer.invoke("plugins:get"),
+  recordUsage: (entry) => ipcRenderer.invoke("usage:record", entry),
+  usageSummary: (period) => ipcRenderer.invoke("usage:summary", period),
+  reportInfo: () => ipcRenderer.invoke("report:info"),
+  writeReport: (description) => ipcRenderer.invoke("report:write", description),
+  revealReport: (file) => ipcRenderer.invoke("report:reveal", file),
+  licenceStatus: (options) => ipcRenderer.invoke("licence:status", options),
+  activateLicence: (contents) => ipcRenderer.invoke("licence:activate", contents),
+  pickLicenceFile: () => ipcRenderer.invoke("licence:pickFile"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
 
@@ -50,6 +59,81 @@ contextBridge.exposeInMainWorld("api", {
   saveConversation: (projectId, conv) => ipcRenderer.invoke("conversations:save", projectId, conv),
   deleteConversation: (projectId, convId) => ipcRenderer.invoke("conversations:delete", projectId, convId),
 
+  // project design system (files/folders on the computer)
+  pickDesignSystemFiles: () => ipcRenderer.invoke("projects:pickDesignSystemFiles"),
+  pickDesignSystemFolder: () => ipcRenderer.invoke("projects:pickDesignSystemFolder"),
+  addDesignSystemPaths: (id, paths) => ipcRenderer.invoke("projects:addDesignSystemPaths", id, paths),
+  removeDesignSystemPath: (id, target) => ipcRenderer.invoke("projects:removeDesignSystemPath", id, target),
+  listDesignSystemFiles: (id) => ipcRenderer.invoke("projects:listDesignSystemFiles", id),
+
+  // chat attachments
+  pickAttachments: () => ipcRenderer.invoke("attachments:pick"),
+
+  // Документы Word
+  pickWordFile: () => ipcRenderer.invoke("word:pick"),
+  openWordFile: (filePath) => ipcRenderer.invoke("word:open", filePath),
+  newWordDocument: (name) => ipcRenderer.invoke("word:new", name),
+  setWordBlockText: (index, text) => ipcRenderer.invoke("word:setBlockText", index, text),
+  deleteWordBlock: (index) => ipcRenderer.invoke("word:deleteBlock", index),
+  insertWordParagraph: (afterIndex, text, style) => ipcRenderer.invoke("word:insertParagraph", afterIndex, text, style),
+  applyWordAgentEdit: (edit) => ipcRenderer.invoke("word:applyAgentEdit", edit),
+  saveWordFile: (saveAs) => ipcRenderer.invoke("word:save", saveAs),
+  buildWordAgentPrompt: () => ipcRenderer.invoke("word:buildAgentPrompt"),
+  getWordAgentConversation: () => ipcRenderer.invoke("word:getAgentConversation"),
+  saveWordAgentConversation: (conv) => ipcRenderer.invoke("word:saveAgentConversation", conv),
+
+  // Excel workbooks
+  pickExcelFile: () => ipcRenderer.invoke("excel:pick"),
+  openExcelFile: (filePath) => ipcRenderer.invoke("excel:open", filePath),
+  newExcelWorkbook: (name) => ipcRenderer.invoke("excel:new", name),
+  applyExcelAgentEdit: (edit) => ipcRenderer.invoke("excel:applyAgentEdit", edit),
+  runExcelAgentTools: (text) => ipcRenderer.invoke("excel:runAgentTools", text),
+  setExcelCells: (edits) => ipcRenderer.invoke("excel:setCells", edits),
+  saveExcelFile: (saveAs) => ipcRenderer.invoke("excel:save", saveAs),
+  buildExcelAgentPrompt: () => ipcRenderer.invoke("excel:buildAgentPrompt"),
+  getExcelAgentConversation: () => ipcRenderer.invoke("excel:getAgentConversation"),
+  saveExcelAgentConversation: (conv) => ipcRenderer.invoke("excel:saveAgentConversation", conv),
+
+  // cloud storage
+  getCloudAccounts: () => ipcRenderer.invoke("cloud:getAccounts"),
+  saveCloudAccounts: (accounts) => ipcRenderer.invoke("cloud:saveAccounts", accounts),
+  archiveConversationMessages: (projectId, conv, messages) =>
+    ipcRenderer.invoke("chats:archiveMessages", projectId, conv, messages),
+  getStorageReport: () => ipcRenderer.invoke("storage:report"),
+
+  // Яндекс Директ
+  getDirectSettings: () => ipcRenderer.invoke("direct:getSettings"),
+  saveDirectSettings: (patch) => ipcRenderer.invoke("direct:saveSettings", patch),
+  testDirectConnection: () => ipcRenderer.invoke("direct:testConnection"),
+  listDirectCampaigns: () => ipcRenderer.invoke("direct:listCampaigns"),
+  listDirectKeywords: (campaignIds) => ipcRenderer.invoke("direct:listKeywords", campaignIds),
+  listDirectAds: (campaignIds) => ipcRenderer.invoke("direct:listAds", campaignIds),
+  getDirectStats: (range) => ipcRenderer.invoke("direct:getStats", range),
+  setDirectCampaignState: (id, resume) => ipcRenderer.invoke("direct:setCampaignState", id, resume),
+  setDirectKeywordBid: (id, bid) => ipcRenderer.invoke("direct:setKeywordBid", id, bid),
+  buildDirectAgentPrompt: (data) => ipcRenderer.invoke("direct:buildAgentPrompt", data),
+  getDirectAgentConversation: () => ipcRenderer.invoke("direct:getAgentConversation"),
+  saveDirectAgentConversation: (conv) => ipcRenderer.invoke("direct:saveAgentConversation", conv),
+
+  connectYandexCloud: (payload) => ipcRenderer.invoke("cloud:connectYandex", payload),
+  setActiveYandexAccount: (id) => ipcRenderer.invoke("cloud:setActiveYandex", id),
+  removeYandexAccount: (id) => ipcRenderer.invoke("cloud:removeYandex", id),
+  renameYandexAccount: (id, label) => ipcRenderer.invoke("cloud:renameYandex", id, label),
+  testCloudConnection: (provider, token) => ipcRenderer.invoke("cloud:testConnection", provider, token),
+  listCloudFiles: (provider, folder) => ipcRenderer.invoke("cloud:list", provider, folder),
+  downloadCloudFile: (provider, remote, fileName) => ipcRenderer.invoke("cloud:download", provider, remote, fileName),
+  downloadCloudFileToProject: (provider, remote, fileName, projectId) =>
+    ipcRenderer.invoke("cloud:downloadToProject", provider, remote, fileName, projectId),
+  uploadFileToCloud: (provider, remoteFolder) => ipcRenderer.invoke("cloud:uploadFile", provider, remoteFolder),
+
+  // proxy
+  testProxy: (draftSettings) => ipcRenderer.invoke("proxy:test", draftSettings),
+
+  // web search
+  runWebTools: (text) => ipcRenderer.invoke("web:runTools", text),
+  webSearch: (query) => ipcRenderer.invoke("web:search", query),
+  getWebToolsHint: () => ipcRenderer.invoke("meta:webToolsHint"),
+
   // scheduled tasks
   listTasks: (projectId) => ipcRenderer.invoke("tasks:list", projectId),
   saveTask: (projectId, task) => ipcRenderer.invoke("tasks:save", projectId, task),
@@ -65,6 +149,8 @@ contextBridge.exposeInMainWorld("api", {
   importClaudeExports: (filePaths) => ipcRenderer.invoke("import:claudeExports", filePaths),
 
   // export
+  exportChatToDocx: (payload) => ipcRenderer.invoke("export:toDocx", payload),
+  exportChatToXlsx: (payload) => ipcRenderer.invoke("export:toXlsx", payload),
   exportToPdf: (payload) => ipcRenderer.invoke("export:toPdf", payload),
   exportToPng: (payload) => ipcRenderer.invoke("export:toPng", payload),
   exportToJpg: (payload) => ipcRenderer.invoke("export:toJpg", payload),
@@ -76,15 +162,6 @@ contextBridge.exposeInMainWorld("api", {
   saveSkillCreatorConversation: (conv) => ipcRenderer.invoke("skillCreator:save", conv),
 
   // operations module
-  listOpsSheets: () => ipcRenderer.invoke("ops:list"),
-  saveOpsSheet: (sheet) => ipcRenderer.invoke("ops:save", sheet),
-  deleteOpsSheet: (id) => ipcRenderer.invoke("ops:delete", id),
-  buildOpsAgentPrompt: () => ipcRenderer.invoke("ops:buildAgentPrompt"),
-  applyOpsEdit: (edit) => ipcRenderer.invoke("ops:applyEdit", edit),
-  getOpsAgentConversation: () => ipcRenderer.invoke("ops:getAgentConversation"),
-  saveOpsAgentConversation: (conv) => ipcRenderer.invoke("ops:saveAgentConversation", conv),
-  pickXlsx: () => ipcRenderer.invoke("ops:pickXlsx"),
-  importOpsXlsx: (filePath) => ipcRenderer.invoke("ops:importXlsx", filePath),
 
   // chatbots / funnels
   getChatbotAccounts: () => ipcRenderer.invoke("chatbots:getAccounts"),
@@ -119,7 +196,11 @@ contextBridge.exposeInMainWorld("api", {
   getGitHubFile: (owner, repo, filePath, ref) => ipcRenderer.invoke("github:getFileContent", owner, repo, filePath, ref),
   commitGitHubFile: (owner, repo, filePath, content, message, sha, branch) =>
     ipcRenderer.invoke("github:commitFile", owner, repo, filePath, content, message, sha, branch),
-  getGitHubAgentConversation: (owner, repo) => ipcRenderer.invoke("github:getAgentConversation", owner, repo),
+listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows", owner, repo),
+  runGitHubWorkflow: (owner, repo, workflowId, ref) => ipcRenderer.invoke("github:runWorkflow", owner, repo, workflowId, ref),
+  listGitHubWorkflowRuns: (owner, repo, workflowId, limit) => ipcRenderer.invoke("github:listWorkflowRuns", owner, repo, workflowId, limit),
+  listGitHubBranches: (owner, repo) => ipcRenderer.invoke("github:listBranches", owner, repo),
+    getGitHubAgentConversation: (owner, repo) => ipcRenderer.invoke("github:getAgentConversation", owner, repo),
   saveGitHubAgentConversation: (owner, repo, conv) => ipcRenderer.invoke("github:saveAgentConversation", owner, repo, conv),
 
   // media generation
@@ -133,20 +214,29 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("media:progress", listener);
   },
 
-  // mail
-  getMailAccount: () => ipcRenderer.invoke("mail:getAccount"),
-  saveMailAccount: (account) => ipcRenderer.invoke("mail:saveAccount", account),
-  testMailConnection: (account) => ipcRenderer.invoke("mail:testConnection", account),
-  listMailMessages: (opts) => ipcRenderer.invoke("mail:listMessages", opts),
-  getMailMessage: (uid) => ipcRenderer.invoke("mail:getMessage", uid),
-  sendMail: (payload) => ipcRenderer.invoke("mail:sendMail", payload),
-  getMailAgentConversation: () => ipcRenderer.invoke("mail:getAgentConversation"),
-  saveMailAgentConversation: (conv) => ipcRenderer.invoke("mail:saveAgentConversation", conv),
-  getMailDraftPrompt: () => ipcRenderer.invoke("meta:mailDraftPrompt"),
-  pickMailLogo: () => ipcRenderer.invoke("mail:pickLogo"),
-  saveMailSignatureLogo: (filePath) => ipcRenderer.invoke("mail:saveSignatureLogo", filePath),
-
   // design section
+  // Проекты дизайна и их ассеты
+  listDesignProjects: () => ipcRenderer.invoke("design:listProjects"),
+  createDesignProject: (name) => ipcRenderer.invoke("design:createProject", name),
+  updateDesignProject: (id, patch) => ipcRenderer.invoke("design:updateProject", id, patch),
+  removeDesignProject: (id) => ipcRenderer.invoke("design:removeProject", id),
+  pickDesignAssets: (id, kind) => ipcRenderer.invoke("design:pickAssets", id, kind),
+  removeDesignAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeAsset", id, kind, assetPath),
+  listDesignAssets: (id) => ipcRenderer.invoke("design:listAssets", id),
+  listDesignSystems: () => ipcRenderer.invoke("design:listSystems"),
+  createDesignSystem: (name) => ipcRenderer.invoke("design:createSystem", name),
+  updateDesignSystem: (id, patch) => ipcRenderer.invoke("design:updateSystem", id, patch),
+  removeDesignSystem: (id) => ipcRenderer.invoke("design:removeSystem", id),
+  pickDesignSystemAssets: (id, kind) => ipcRenderer.invoke("design:pickSystemAssets", id, kind),
+  removeDesignSystemAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeSystemAsset", id, kind, assetPath),
+  applyDesignAssets: (id, html) => ipcRenderer.invoke("design:applyAssets", id, html),
+  renderDesign: (payload) => ipcRenderer.invoke("design:render", payload),
+  onDesignRenderProgress: (callback) => {
+    const listener = (_e, progress) => callback(progress);
+    ipcRenderer.on("design:renderProgress", listener);
+    return () => ipcRenderer.removeListener("design:renderProgress", listener);
+  },
+
   listDesignDocs: (projectId) => ipcRenderer.invoke("design:list", projectId),
   saveDesignDoc: (payload) => ipcRenderer.invoke("design:save", payload.projectId, payload),
   deleteDesignDoc: (id, projectId) => ipcRenderer.invoke("design:delete", projectId, id),
@@ -154,4 +244,15 @@ contextBridge.exposeInMainWorld("api", {
   getDesignAgentConversation: (projectId) => ipcRenderer.invoke("design:getAgentConversation", projectId),
   saveDesignAgentConversation: (projectId, conv) => ipcRenderer.invoke("design:saveAgentConversation", projectId, conv),
   openDesignFolder: (projectId) => ipcRenderer.invoke("design:openFolder", projectId),
+});
+
+// Errors thrown in the window never reach the main process on their own, so a
+// crash a tester describes as "просто пропало" would leave nothing in the
+// report. Forwarding them is what makes the report worth reading.
+window.addEventListener("error", (event) => {
+  ipcRenderer.invoke("report:log", "error", `${event.message} (${event.filename}:${event.lineno})`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  ipcRenderer.invoke("report:log", "error", reason?.stack || String(reason));
 });

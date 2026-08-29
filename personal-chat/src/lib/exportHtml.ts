@@ -26,6 +26,38 @@ const CHART_CSS = `
   .pc-chart-pie-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
 `;
 
+/**
+ * Darkens a colour until text set in it is readable on white (4.5:1).
+ *
+ * Needed because a brand accent is chosen to look good as a fill, not as body text:
+ * the agency's #FF2F6D gives 3.6:1 on white, so headings and links set in it fail
+ * WCAG AA — and an exported document is often printed, where it fades further. Fills
+ * and rules keep the true brand colour; only text uses this. Works for any accent the
+ * user sets, not just the current one.
+ */
+function textSafe(hex: string): string {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!match) return hex;
+  let [r, g, b] = [0, 2, 4].map((i) => parseInt(match[1].slice(i, i + 2), 16));
+
+  const contrastOnWhite = () => {
+    const channel = (c: number) => {
+      const v = c / 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    return 1.05 / (lum + 0.05);
+  };
+
+  // Step the colour down toward black, keeping its hue, until it is readable.
+  for (let i = 0; i < 40 && contrastOnWhite() < 4.5; i++) {
+    r = Math.round(r * 0.94);
+    g = Math.round(g * 0.94);
+    b = Math.round(b * 0.94);
+  }
+  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
 function baseStyles(accent: string): string {
   return `
   html { overflow: hidden; }
@@ -34,8 +66,8 @@ function baseStyles(accent: string): string {
          box-sizing: border-box; overflow: hidden; }
   h1, h2, h3 { line-height: 1.3; }
   h1 { font-size: 22px; margin: 0 0 20px; }
-  h2 { font-size: 18px; margin: 24px 0 10px; color: ${accent}; }
-  a { color: ${accent}; }
+  h2 { font-size: 18px; margin: 24px 0 10px; color: ${textSafe(accent)}; }
+  a { color: ${textSafe(accent)}; }
   .msg-block { margin-bottom: 22px; }
   .msg-role { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
   p { margin: 0 0 10px; }
@@ -99,7 +131,7 @@ function brandFooterHtml(brand?: BrandKit): string {
 }
 
 function wrapDocument(title: string, bodyHtml: string, brand?: BrandKit): string {
-  const accent = brand?.accentColor || "#c96442";
+  const accent = brand?.accentColor || "#ff2f6d";
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
     title
   )}</title><style>${baseStyles(accent)}</style></head><body>${brandHeaderHtml(brand)}${bodyHtml}${brandFooterHtml(brand)}</body></html>`;
@@ -113,7 +145,7 @@ export function buildDesignExportHtml(content: string): string {
 }
 
 export function buildMessageExportHtml(title: string, content: string, brand?: BrandKit): string {
-  const accent = brand?.accentColor || "#c96442";
+  const accent = brand?.accentColor || "#ff2f6d";
   return wrapDocument(title, `<div class="msg-block">${renderMarkdown(content, accent)}</div>`, brand);
 }
 
@@ -122,7 +154,7 @@ export function buildConversationExportHtml(
   messages: { role: "user" | "assistant"; content: string }[],
   brand?: BrandKit
 ): string {
-  const accent = brand?.accentColor || "#c96442";
+  const accent = brand?.accentColor || "#ff2f6d";
   const body = messages
     .map(
       (m) =>

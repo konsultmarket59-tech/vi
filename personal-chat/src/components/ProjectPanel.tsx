@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Brand, Conversation, DocMeta, Project, ScheduledTask, Settings, Skill, TaskRecurrence } from "../lib/types";
+import type { Brand, Conversation, DesignSystemFile, DocMeta, Project, ScheduledTask, Settings, Skill, TaskRecurrence } from "../lib/types";
 import { DEFAULT_BRAND } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import type { BrandKit } from "../lib/exportHtml";
@@ -39,6 +39,8 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [tab, setTab] = useState<Tab>("chat");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
+  const [convRenameDraft, setConvRenameDraft] = useState("");
   const [instructionsDraft, setInstructionsDraft] = useState(project.instructions);
   const [nameDraft, setNameDraft] = useState(project.name);
   const [descDraft, setDescDraft] = useState(project.description);
@@ -46,6 +48,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [externalDocs, setExternalDocs] = useState<DocMeta[]>([]);
   const [externalDocsError, setExternalDocsError] = useState<string | null>(null);
   const [showSystemPromptPreview, setShowSystemPromptPreview] = useState(false);
+  const [designSystemFiles, setDesignSystemFiles] = useState<DesignSystemFile[]>([]);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
   const [docError, setDocError] = useState<string | null>(null);
@@ -78,7 +81,14 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
   useEffect(() => {
     window.api.buildSystemPrompt(project.id).then(setSystemPrompt);
-  }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, docs, tab]);
+  }, [project.id, project.instructions, project.skillIds, project.externalDocsPath, project.designSystemPaths, docs, tab]);
+
+  useEffect(() => {
+    window.api
+      .listDesignSystemFiles(project.id)
+      .then(setDesignSystemFiles)
+      .catch(() => setDesignSystemFiles([]));
+  }, [project.id, project.designSystemPaths]);
 
   useEffect(() => {
     setExternalDocsError(null);
@@ -184,6 +194,24 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     setTab("chat");
   }
 
+  function startConvRename(conv: Conversation) {
+    setRenamingConvId(conv.id);
+    setConvRenameDraft(conv.title);
+  }
+
+  /**
+   * Saves a renamed chat. The title is part of the conversation file, so this is an
+   * ordinary save — and because ChatView only auto-titles chats still called
+   * "Новый чат", a rename sticks even if the chat is used again afterwards.
+   */
+  async function commitConvRename(conv: Conversation) {
+    const title = convRenameDraft.trim();
+    setRenamingConvId(null);
+    if (!title || title === conv.title) return;
+    const updated = await window.api.saveConversation(project.id, { ...conv, title, updatedAt: Date.now() });
+    updateConversationLocal(updated);
+  }
+
   async function removeConversation(id: string) {
     if (!confirm("Удалить этот чат?")) return;
     await window.api.deleteConversation(project.id, id);
@@ -223,6 +251,20 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     } catch (e) {
       setDocError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  const excludedDocs = project.excludedDocs ?? [];
+
+  /**
+   * Переключает документ «в контексте / не в контексте». Сохраняем сразу: это
+   * влияет на каждый следующий запрос, и держать это несохранённым в форме было бы
+   * источником недоразумений.
+   */
+  async function toggleDocInContext(key: string) {
+    const next = excludedDocs.includes(key)
+      ? excludedDocs.filter((k) => k !== key)
+      : [...excludedDocs, key];
+    onProjectChange(await window.api.updateProject(project.id, { excludedDocs: next }));
   }
 
   async function removeDoc(fileName: string) {
@@ -278,6 +320,22 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   async function clearHeaderImage() {
     const updated = await window.api.clearProjectBrandHeaderImage(project.id);
     onProjectChange(updated);
+  }
+
+  async function addDesignSystemFiles() {
+    const paths = await window.api.pickDesignSystemFiles();
+    if (paths.length === 0) return;
+    onProjectChange(await window.api.addDesignSystemPaths(project.id, paths));
+  }
+
+  async function addDesignSystemFolder() {
+    const folder = await window.api.pickDesignSystemFolder();
+    if (!folder) return;
+    onProjectChange(await window.api.addDesignSystemPaths(project.id, [folder]));
+  }
+
+  async function removeDesignSystemPath(target: string) {
+    onProjectChange(await window.api.removeDesignSystemPath(project.id, target));
   }
 
   async function pickExternalDocsFolder() {
@@ -410,14 +468,32 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             <button className="btn btn-primary btn-block" onClick={newConversation}>
               + Новый чат
             </button>
-            {conversations.map((c) => (
-              <div key={c.id} className={c.id === activeConvId ? "conv-item active" : "conv-item"}>
-                <span onClick={() => setActiveConvId(c.id)}>{c.title}</span>
-                <button className="conv-delete" onClick={() => removeConversation(c.id)} title="Удалить">
-                  ×
-                </button>
-              </div>
-            ))}
+            {conversations.map((c) =>
+              renamingConvId === c.id ? (
+                <input
+                  key={c.id}
+                  className="sidebar-item-rename-input"
+                  value={convRenameDraft}
+                  autoFocus
+                  onChange={(e) => setConvRenameDraft(e.target.value)}
+                  onBlur={() => commitConvRename(c)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitConvRename(c);
+                    if (e.key === "Escape") setRenamingConvId(null);
+                  }}
+                />
+              ) : (
+                <div key={c.id} className={c.id === activeConvId ? "conv-item active" : "conv-item"}>
+                  <span onClick={() => setActiveConvId(c.id)}>{c.title}</span>
+                  <button className="conv-rename" onClick={() => startConvRename(c)} title="Переименовать чат">
+                    ✎
+                  </button>
+                  <button className="conv-delete" onClick={() => removeConversation(c.id)} title="Удалить">
+                    ×
+                  </button>
+                </div>
+              )
+            )}
           </div>
           <div className="conv-main">
             {!settings.apiKey && (
@@ -430,6 +506,15 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 {showSystemPromptPreview ? "Скрыть" : "Что видит ассистент"} ({systemPrompt.length.toLocaleString("ru-RU")}{" "}
                 симв.)
               </button>
+              {/* Порог примерно в 30 тысяч токенов: дальше задержка до первого слова
+                  становится заметной на глаз, и это стоит показать причиной, а не
+                  оставлять догадываться. */}
+              {systemPrompt.length > 90000 && (
+                <span className="hint context-warn">
+                  Это много — модель перечитывает всё это перед каждым ответом, отсюда пауза. Снимите
+                  галочки с документов, которые не нужны в этом проекте постоянно (вкладка «Документы»).
+                </span>
+              )}
             </div>
             {showSystemPromptPreview && (
               <div className="system-prompt-preview">
@@ -505,10 +590,25 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
           <h3>Документы проекта</h3>
           {docs.length === 0 && <p className="hint">Пока нет документов.</p>}
+          {docs.length > 0 && (
+            <p className="hint">
+              Галочка — «отдавать ассистенту в каждом сообщении». Документы без галочки остаются в
+              проекте, но не уходят в запрос: чем меньше уезжает, тем быстрее начинается ответ.
+            </p>
+          )}
           <ul className="doc-list">
             {docs.map((d) => (
               <li key={d.name}>
-                <span className="doc-name">{d.name}</span>
+                <input
+                  type="checkbox"
+                  className="doc-include"
+                  checked={!excludedDocs.includes(`docs/${d.name}`)}
+                  onChange={() => toggleDocInContext(`docs/${d.name}`)}
+                  title="Отдавать ассистенту"
+                />
+                <span className={excludedDocs.includes(`docs/${d.name}`) ? "doc-name doc-name-off" : "doc-name"}>
+                  {d.name}
+                </span>
                 <span className="doc-size">{(d.size / 1024).toFixed(1)} КБ</span>
                 <button className="conv-delete" onClick={() => removeDoc(d.name)} title="Удалить">
                   ×
@@ -561,6 +661,45 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             Фирменный стиль проекта: логотип и цвет применяются автоматически к экспортированным документам (PDF/PNG)
             и графикам в чате этого проекта — шапка с логотипом сверху, акцентный цвет в заголовках и таблицах.
           </p>
+
+          <h3>Дизайн-система проекта</h3>
+          <p className="hint">
+            Привяжите к проекту дизайн-систему, которая уже сохранена у вас на компьютере — файлом или целой
+            папкой. Файлы никуда не копируются: приложение читает их прямо оттуда при каждом обращении, поэтому
+            правки в исходниках подхватываются сами. Текстовые файлы (описание системы, правила, токены, .svg)
+            ассистент читает целиком, картинки и прочие бинарные файлы — видит по названиям. Это учитывается и в
+            чате проекта, и в разделе «🖌️ Дизайн».
+          </p>
+          <div className="folder-row">
+            <button className="btn btn-secondary" onClick={addDesignSystemFiles}>
+              Выбрать файлы
+            </button>
+            <button className="btn btn-secondary" onClick={addDesignSystemFolder}>
+              Выбрать папку
+            </button>
+          </div>
+          {(project.designSystemPaths ?? []).length === 0 ? (
+            <p className="hint">Дизайн-система не привязана.</p>
+          ) : (
+            <ul className="doc-list">
+              {(project.designSystemPaths ?? []).map((p) => (
+                <li key={p}>
+                  <span className="doc-name">{p}</span>
+                  <button className="conv-delete" onClick={() => removeDesignSystemPath(p)} title="Отвязать">
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {designSystemFiles.length > 0 && (
+            <p className="hint">
+              Читается файлов: {designSystemFiles.filter((f) => !f.missing).length}
+              {designSystemFiles.some((f) => f.missing) && (
+                <> · не найдено: {designSystemFiles.filter((f) => f.missing).map((f) => f.name).join(", ")}</>
+              )}
+            </p>
+          )}
 
           <h3>Шапка документа</h3>
           <p className="hint">

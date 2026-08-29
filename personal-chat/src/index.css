@@ -1,23 +1,80 @@
+/*
+ * Фирменная палитра Агентства Динамика — сдержанный режим.
+ *
+ * Цвета те же, площадь другая. Раньше градиент бренда шёл по заголовку, по кнопкам,
+ * по чипам и полосой над каждым разделом — красиво, но кричаще: рабочий инструмент,
+ * в котором готовят договоры и сметы, так выглядеть не должен. Сейчас основа —
+ * нейтральные поверхности и почти чёрный текст, а фирменный розовый работает точечно:
+ * тонкая линия под активной вкладкой, полоска у выбранного пункта меню, ссылки,
+ * кольцо фокуса. Полный градиент остался ровно в одном месте — на названии
+ * приложения, где он читается как логотип.
+ *
+ * Два оттенка добавлены расчётом, потому что фирменные для этих ролей нечитаемы:
+ *  - --accent-text (#C4004A) — розовый для мелкого ТЕКСТА. Фирменный #FF2F6D даёт на
+ *    светлом фоне 3.3:1 при норме 4.5:1, ссылки им набирать нельзя; затемнённый — 5.8:1.
+ *  - --text-dim (#5A626B) — приглушённый текст: оба фирменных текстовых цвета почти
+ *    одинаково тёмные, и подписи ими не отличить от основного текста.
+ * Циан (#00D9FF, #7DEBFF) на светлом фоне нечитаем в принципе (1.6:1), поэтому
+ * работает только как заливка под тёмным текстом и как конец градиента.
+ */
 :root {
   color-scheme: light;
-  --bg: #f7f6f3;
+
+  /* Фирменные акценты */
+  --brand-pink: #ff2f6d;
+  --brand-purple: #b23cc4;
+  --brand-cyan: #00d9ff;
+  --brand-pink-soft: #ff6f9c;
+  --brand-cyan-soft: #7debff;
+
+  --grad-brand: linear-gradient(135deg, #ff2f6d 0%, #b23cc4 55%, #00d9ff 100%);
+
+  /* Поверхности */
+  --bg: #fafaf8;
+  --bg-warm: #f7ece7;
   --bg-sidebar: #ffffff;
   --bg-panel: #ffffff;
-  --bg-input: #f0efea;
-  --bg-hover: #efece4;
-  --bg-active: #f7e7db;
-  --border: #ddd9d0;
-  --text: #24221f;
-  --text-dim: #736f67;
-  --accent: #c96442;
-  --accent-hover: #a8502f;
-  --danger: #c0392b;
-  --user-bubble: #e4edf6;
-  --assistant-bubble: #f1f0eb;
+  --bg-input: #ffffff;
+  --bg-hover: #f2f1ed;
+  --bg-active: #f4f2ef;
+  --border: #e5e2dc;
+  --border-strong: #d5d1c9;
+
+  /* Текст */
+  --text: #0a0a0a;
+  --text-strong: #20262c;
+  --text-dim: #5a626b;
+
+  /* Роли акцента */
+  --accent: #ff2f6d;
+  --accent-text: #c4004a;
+  --accent-hover: #a8003c;
+  --danger: #b3261e;
+
+  /* Основная кнопка — почти чёрная, фирменный цвет остаётся акцентом, а не фоном. */
+  --btn-primary-bg: #20262c;
+  --btn-primary-hover: #333b44;
+
+  --user-bubble: #f2f1ed;
+  --assistant-bubble: #ffffff;
+
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
+
+/* Кольцо фокуса — фирменное. Браузерное по умолчанию рисуется системным цветом
+   (в Windows оно оранжевое) и выбивается из палитры; убирать его нельзя — по нему
+   ориентируются при работе с клавиатуры. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
 
 html, body, #root { height: 100%; margin: 0; }
 
@@ -70,9 +127,16 @@ body {
 }
 
 .sidebar-title {
-  font-weight: 600;
-  font-size: 16px;
-  padding: 8px 4px 16px;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 10px 4px 18px;
+  letter-spacing: 0.01em;
+  /* Единственное место, где фирменный градиент оправдан: здесь он читается как
+     логотип, а не как украшение интерфейса. */
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .sidebar-section { margin-bottom: 16px; }
@@ -105,7 +169,13 @@ body {
 }
 
 .sidebar-item:hover { background: var(--bg-hover); }
-.sidebar-item.active { background: var(--bg-active); color: var(--accent-hover); }
+.sidebar-item.active {
+  background: var(--bg-active);
+  color: var(--text);
+  font-weight: 600;
+  /* Тонкая полоска акцента вместо цветной заливки — заметно, но негромко. */
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
 
 .sidebar-item-project {
   display: flex;
@@ -190,18 +260,24 @@ body {
 }
 
 .btn-block { display: block; width: 100%; margin-bottom: 6px; }
-.btn-primary { background: var(--accent); color: white; }
-.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary {
+  background: var(--btn-primary-bg);
+  color: #fff;
+  border: 1px solid var(--btn-primary-bg);
+  font-weight: 600;
+}
+.btn-primary:hover { background: var(--btn-primary-hover); border-color: var(--btn-primary-hover); }
+.btn-primary:disabled { background: var(--text-dim); border-color: var(--text-dim); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { background: var(--bg-input); color: var(--text); }
-.btn-secondary:hover { background: #e2ded2; }
+.btn-secondary { background: #fff; color: var(--text); border: 1px solid var(--border-strong); }
+.btn-secondary:hover { background: var(--bg-hover); border-color: var(--text-dim); }
 .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 .btn-danger:hover { background: rgba(192,57,43,0.1); }
 
 .link-btn {
   background: none;
   border: none;
-  color: var(--accent-hover);
+  color: var(--accent-text);
   cursor: pointer;
   padding: 0;
   font-size: 13px;
@@ -271,7 +347,11 @@ body {
   border-bottom: 2px solid transparent;
 }
 
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
 
 .panel-section {
   padding: 20px 24px;
@@ -357,7 +437,7 @@ body {
 }
 
 .conv-item:hover { background: var(--bg-hover); }
-.conv-item.active { background: var(--bg-active); }
+.conv-item.active { background: var(--bg-active); font-weight: 600; }
 
 .conv-delete {
   background: none;
@@ -369,6 +449,19 @@ body {
   padding: 0 4px;
 }
 .conv-delete:hover { color: var(--danger); }
+
+/* Rename sits next to delete and shares its quiet look, turning accent on hover so
+   it reads as the safe action of the pair. */
+.conv-rename {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.conv-rename:hover { color: var(--accent-text); }
 
 .conv-list-section-header {
   display: flex;
@@ -446,9 +539,9 @@ body {
 }
 
 .warning-banner {
-  background: #fff3df;
-  border-bottom: 1px solid #f0cd94;
-  color: #8a5a15;
+  background: #fdf6ee;
+  border-bottom: 1px solid #ecdcc6;
+  color: #7a4412;
   padding: 8px 16px;
   font-size: 13px;
 }
@@ -498,7 +591,7 @@ body {
   font-size: 13px;
 }
 .media-history-list li:hover { background: var(--bg-hover); }
-.media-history-type { text-transform: uppercase; font-size: 10px; color: var(--accent-hover); letter-spacing: 0.05em; }
+.media-history-type { text-transform: uppercase; font-size: 10px; color: var(--accent-text); letter-spacing: 0.05em; }
 .media-history-prompt { color: var(--text); }
 
 /* Chatbots */
@@ -599,9 +692,10 @@ body {
 .media-result-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 
 .pending-skill-banner {
-  background: #e5f6ec;
-  border: 1px solid #a9dcbd;
-  color: #1f7a49;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand-cyan);
+  color: var(--text-strong);
   padding: 10px 14px;
   border-radius: 8px;
   margin: 0 16px 8px;
@@ -660,7 +754,10 @@ body {
 
 .msg-assistant .markdown {
   background: var(--assistant-bubble);
-  padding: 10px 14px;
+  /* На светлой подложке белый пузырь без рамки сливается с фоном и ответ теряет
+     границы — рамка заменяет прежнюю цветную заливку. */
+  border: 1px solid var(--border);
+  padding: 12px 16px;
   border-radius: 10px;
 }
 
@@ -685,9 +782,10 @@ body {
 .markdown .pc-chart-pie-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 
 .chat-error {
-  background: #fdeceb;
-  border: 1px solid #f0b3ac;
-  color: #a8341f;
+  background: #fdf0f1;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  color: #8f1f19;
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -722,12 +820,15 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg-active);
+  background: var(--bg-warm);
+  color: var(--text-strong);
+  border: 1px solid var(--brand-pink-soft);
   border-radius: 14px;
   padding: 4px 6px 4px 12px;
   font-size: 12px;
 }
 
+/* Сидит на розовой заливке чипа, поэтому светлый, а не приглушённо-серый. */
 .skill-chip-remove {
   background: none;
   border: none;
@@ -833,12 +934,14 @@ body {
 .key-row { display: flex; gap: 8px; }
 .key-row input { flex: 1; }
 
-.saved-note { color: #2f9153; margin-left: 10px; font-size: 13px; }
+.saved-note { color: #1f7a49; margin-left: 10px; font-size: 13px; font-weight: 600; }
 
-.settings-view a { color: var(--accent-hover); }
+/* Ссылки везде — фирменным розовым в читаемом оттенке, а не браузерным синим. */
+a { color: var(--accent-text); }
+a:hover { color: var(--accent-hover); }
 
 /* Operations module */
-.ops-view, .mail-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.ops-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
 .ops-toolbar {
   display: flex;
@@ -852,9 +955,8 @@ body {
 .ops-toolbar h2 { margin: 0; }
 .ops-toolbar div { display: flex; gap: 8px; }
 
-.mail-layout { display: flex; flex: 1; overflow: hidden; }
 
-.mail-list {
+.thread-list {
   width: 240px;
   min-width: 240px;
   border-right: 1px solid var(--border);
@@ -862,7 +964,7 @@ body {
   overflow-y: auto;
 }
 
-.mail-reader {
+.thread-reader {
   flex: 1;
   overflow: auto;
   padding: 16px 24px;
@@ -978,15 +1080,9 @@ body {
 .ops-blank-row td { height: 10px; border-left: none; border-right: none; }
 
 /* Mail */
-.mail-list .conv-item { display: block; padding: 10px; margin-bottom: 4px; }
-.mail-list .conv-item span { font-size: 13px; }
+.thread-list .conv-item { display: block; padding: 10px; margin-bottom: 4px; }
+.thread-list .conv-item span { font-size: 13px; }
 
-.mail-host-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.mail-host-row label { margin-top: 0; }
 
 .settings-actions { display: flex; gap: 10px; margin: 14px 0; }
 
@@ -1083,3 +1179,385 @@ body {
 .brand-preview-logo { max-height: 44px; max-width: 140px; }
 .brand-preview-company { font-weight: 700; color: #111; font-size: 15px; }
 .brand-preview-tagline { font-size: 12px; color: #777; margin-top: 2px; }
+
+.web-tool-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  margin-bottom: 8px;
+  display: inline-block;
+}
+
+/* Chat attachments */
+.chat-attachments-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 24px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px 6px 4px 10px;
+  font-size: 12px;
+  max-width: 320px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.attachment-chip-error { border-color: var(--danger); }
+.attachment-size { color: var(--text-dim); font-size: 11px; }
+.attachment-error { color: var(--danger); font-size: 11px; }
+
+.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+
+.attach-btn {
+  align-self: flex-end;
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px 14px;
+}
+
+.chatbot-ai-block {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+.chatbot-ai-block label { margin-top: 8px; }
+.chatbot-ai-block > label:first-child { margin-top: 0; }
+
+/* Excel */
+.excel-file-name { font-weight: 400; color: var(--text-dim); font-size: 14px; }
+.excel-formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.excel-cell-ref {
+  min-width: 56px;
+  font-weight: 600;
+  font-size: 13px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  text-align: center;
+}
+.excel-formula-bar input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.excel-recalc-note { padding: 6px 20px 0; margin: 0; }
+.excel-table th {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 4px 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.excel-table td {
+  padding: 5px 9px;
+  font-size: 13px;
+  min-width: 90px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: cell;
+}
+.excel-cell-formula { color: var(--accent-text); }
+.excel-cell-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* The proposal banner sits above the chat, so it must stay a couple of lines tall:
+   the cell-by-cell list is worth having but only on demand, and even expanded it
+   scrolls inside itself rather than eating the working area. */
+.excel-pending-edit {
+  display: block;
+  line-height: 1.5;
+}
+.excel-pending-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.excel-pending-details {
+  max-height: 140px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding-right: 6px;
+}
+.excel-pending-sheet { margin-top: 2px; }
+.excel-pending-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* GitHub Actions runs */
+.run-list { list-style: none; padding: 0; margin: 10px 0; }
+.run-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.run-status {
+  min-width: 96px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  text-align: center;
+  background: var(--bg-input);
+  color: var(--text-dim);
+}
+.run-success { background: #e3f3e6; color: #1f6b32; }
+.run-failure { background: #fbe4e2; color: #a8341f; }
+.run-running { background: #fff3df; color: #8a5a15; }
+.run-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.run-title { font-weight: 500; }
+.run-commit { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-date { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+
+.cloud-files .doc-list li { gap: 12px; }
+.cloud-files .doc-name { display: flex; align-items: center; gap: 4px; }
+
+/* Connection diagnostics run to several sentences and carry their own line breaks
+   (e.g. the certificate instructions for MAX), so they must not be collapsed. */
+.chatbot-test-result { white-space: pre-line; }
+
+/* Docked agent: the table keeps most of the width, the conversation gets a column
+   wide enough to read but not so wide the grid becomes useless. Both panes scroll
+   on their own so neither pushes the other off-screen. */
+/* .ops-app-body раскладывает содержимое колонкой; докнутый агент должен встать
+   рядом с таблицей, а не под ней, поэтому направление задаётся явно — без этого
+   панели складывались стопкой и наезжали друг на друга. */
+.excel-split { display: flex; flex-direction: row; gap: 0; align-items: stretch; overflow: hidden; }
+.excel-grid-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+.excel-agent-pane {
+  width: 420px;
+  min-width: 320px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.excel-ask-btn { white-space: nowrap; }
+
+.direct-date { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.direct-date input { width: auto; margin: 0; }
+
+/* Sits above the export bar and stays visually quiet — it is a nudge, not an error. */
+.chat-fold-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* Список Яндекс-аккаунтов: активный подсвечен, чтобы было видно, с чьим Диском и
+   Директом вы сейчас работаете — это же и определяет, что покажет раздел «Директ». */
+.account-list .account-row { gap: 10px; align-items: center; flex-wrap: wrap; }
+.account-row.active { background: var(--bg-active); border-radius: 8px; }
+.account-pick { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px; cursor: pointer; }
+.account-pick input { width: auto; margin: 0; }
+
+/* Переключатель аккаунта стоит прямо в шапке раздела: он определяет, чьи кампании
+   вы видите, и это должно быть видно всегда, а не только на вкладке подключения. */
+.direct-account-picker { width: auto; margin: 0 0 0 6px; padding: 4px 8px; font-size: 13px; }
+
+/* Материалы проекта дизайна: группы ассетов идут списком, каждая со своей подписью,
+   потому что смысл у них разный — исходники вставляются, референсы нет. */
+.design-project-panel .design-asset-group { margin-top: 18px; }
+.design-project-panel .design-asset-group h3 { margin-bottom: 2px; }
+
+/* Плашка предложенного дизайна: слева что это, справа — что с ним можно сделать.
+   Экспорт стоит прямо здесь, чтобы сохранить результат, не заводя его в галерею. */
+.design-pending-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.design-pending-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.design-pending-actions .design-export-actions { margin: 0; }
+
+/* Word: документ как список блоков. Номер слева — то, чем оперирует агент, поэтому
+   он всегда на виду; заголовки крупнее, чтобы структура читалась с одного взгляда. */
+.word-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; }
+.word-toolbar select { width: auto; margin: 0; }
+.word-ask-btn { white-space: nowrap; margin-left: auto; }
+
+.word-editor { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 10px; }
+.word-editor textarea { width: 100%; margin: 0; }
+
+.word-blocks { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
+.word-block {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: text;
+  line-height: 1.55;
+}
+.word-block:hover { background: var(--bg-hover); }
+.word-block.active { background: var(--bg-active); }
+.word-block-index {
+  flex-shrink: 0;
+  min-width: 26px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.word-block-text { flex: 1; white-space: pre-wrap; }
+.word-h1 .word-block-text { font-size: 22px; font-weight: 700; }
+.word-h2 .word-block-text { font-size: 18px; font-weight: 700; }
+.word-h3 .word-block-text { font-size: 16px; font-weight: 600; }
+.word-list .word-block-text { padding-left: 18px; position: relative; }
+.word-list .word-block-text::before { content: "•"; position: absolute; left: 4px; color: var(--text-dim); }
+.word-block-table { margin: 4px 0; width: auto; }
+
+/* Диалог ввода названия: замена window.prompt(), которого в Electron нет. */
+.name-prompt-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.name-prompt {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  width: min(420px, 90vw);
+  box-shadow: 0 12px 40px rgba(10, 10, 10, 0.18);
+}
+.name-prompt label { display: block; margin-bottom: 6px; font-size: 13px; }
+.name-prompt input { width: 100%; margin: 0 0 12px; }
+
+/* ---------- Экран активации демо-версии ----------
+   Показывается вместо приложения, когда демо-сборка не активирована. Задача
+   экрана ровно одна — отдать код компьютера и принять файл активации, поэтому
+   на нём нет ничего, кроме этих двух шагов. */
+
+.licence-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px;
+  background: var(--bg);
+}
+
+.licence-card {
+  width: min(560px, 100%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 30px;
+}
+
+.licence-product {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.licence-heading { margin: 6px 0 14px; font-size: 22px; }
+.licence-message { margin: 0 0 16px; line-height: 1.6; }
+.licence-step { margin: 18px 0 8px; }
+
+.licence-code-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.licence-code {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+
+.licence-error { margin-top: 14px; }
+.licence-footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* Напоминание об окончании срока — появляется только на последней неделе,
+   чтобы не мозолить глаза весь период тестирования. */
+.licence-banner {
+  padding: 7px 16px;
+  background: var(--bg-warm);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-strong);
+}
+
+/* ---------- Расход моделей ---------- */
+
+.usage-periods { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+
+.usage-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+.usage-table th, .usage-table td {
+  text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border);
+}
+.usage-table th { font-weight: 600; color: var(--text-dim); font-size: 12px; }
+.usage-table tfoot th { color: var(--text); border-top: 1px solid var(--border-strong); border-bottom: none; }
+.usage-table td:not(:first-child), .usage-table th:not(:first-child) { text-align: right; white-space: nowrap; }
+.usage-model { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+/* Пометка «оценка» — расход посчитан по длине текста, а не получен от сервиса. */
+.usage-flag {
+  display: inline-block; margin-left: 6px; padding: 0 5px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  font-family: inherit; font-size: 10px; color: var(--text-dim); vertical-align: middle;
+}
+
+/* Пометка предустановленного навыка: он виден по названию, но его текст
+   в окно приложения не передаётся и редактированию не подлежит. */
+.skill-badge {
+  display: inline-block; margin-left: 8px; padding: 1px 7px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  font-size: 11px; font-weight: 400; color: var(--text-dim); vertical-align: middle;
+}
+
+/* Галочка «отдавать ассистенту» у документа проекта: снятая означает, что файл
+   остаётся в проекте, но не уезжает в каждый запрос. */
+.doc-include { margin-right: 8px; flex-shrink: 0; }
+.doc-name-off { color: var(--text-dim); text-decoration: line-through; }
+.context-warn { display: block; margin-top: 4px; color: var(--accent-text); }

@@ -10,7 +10,23 @@ export interface ChartSpec {
   series: ChartSeries[];
 }
 
-const DEFAULT_PALETTE = ["#4a90d9", "#5cb85c", "#f0ad4e", "#9b59b6", "#16a085", "#e74c3c"];
+/*
+ * Серии графика в фирменной палитре.
+ *
+ * Порядок — не украшение, а условие читаемости: он проверен так, чтобы соседние
+ * серии различались и в обычном зрении, и при дальтонизме (протанопия/дейтеранопия/
+ * тританопия), и чтобы каждый цвет был виден на всех трёх фонах приложения
+ * (#F7F6F3, #F7ECE7, белый) с контрастом не ниже 3:1. Поэтому цвета взяты не прямо
+ * из брендовой рампы: чистый #00D9FF на светлом фоне имеет контраст 1.6:1 — его не
+ * видно, поэтому здесь он затемнён до #0095B0. Охра #8A6A00 в рампу бренда не входит,
+ * но без неё четвёртая серия сливается с остальными: рампа «розовый → фиолетовый →
+ * циан» аналоговая, и шести различимых цветов из неё не выходит.
+ *
+ * Первые четыре цвета различимы между собой в любых сочетаниях; с пятого
+ * различимость гарантирована только для соседних пар, поэтому легенда с подписями
+ * обязательна — она и рисуется всегда.
+ */
+const DEFAULT_PALETTE = ["#ff2f6d", "#7b3fd4", "#0095b0", "#8a6a00", "#b23cc4", "#0e8c7a", "#c4004a"];
 
 function esc(s: unknown): string {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -38,10 +54,10 @@ function truncateLabel(label: string, max = 14): string {
 }
 
 function wrapError(message: string): string {
-  return `<p style="color:#c0392b;font-style:italic;">Не удалось построить график: ${esc(message)}</p>`;
+  return `<p style="color:#b3261e;font-style:italic;">Не удалось построить график: ${esc(message)}</p>`;
 }
 
-export function renderChartSvg(spec: ChartSpec, accentColor = "#c96442"): string {
+export function renderChartSvg(spec: ChartSpec, accentColor = "#ff2f6d"): string {
   if (!spec || typeof spec !== "object") return wrapError("пустые данные");
   if (!Array.isArray(spec.labels) || spec.labels.length === 0) return wrapError("не указаны подписи (labels)");
   if (!Array.isArray(spec.series) || spec.series.length === 0) return wrapError("не указаны данные (series)");
