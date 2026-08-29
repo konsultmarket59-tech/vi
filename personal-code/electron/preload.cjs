@@ -81,7 +81,6 @@ contextBridge.exposeInMainWorld("api", {
   setTesterRevoked: (id, revoked) => ipcRenderer.invoke("demo:setRevoked", id, revoked),
   issueLicence: (id, options) => ipcRenderer.invoke("demo:issue", id, options),
   exportRevocations: () => ipcRenderer.invoke("demo:exportRevocations"),
-  exportLicenceConfig: (options) => ipcRenderer.invoke("demo:exportConfig", options),
 
   // архив плагинов
   listPlugins: () => ipcRenderer.invoke("plugins:list"),

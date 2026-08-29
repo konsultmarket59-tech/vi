@@ -229,11 +229,15 @@ app.whenReady().then(async () => {
     // Issuing must be impossible before a key exists, or a half-configured
     // build could be handed out with unsignable licences.
     check(
-      "без ключа выгрузка настроек недоступна",
+      "без ключа список отзыва выгрузить нельзя",
       await win.webContents.executeJavaScript(
-        `[...document.querySelectorAll(".btn")].find(b=>b.textContent.includes("Записать настройки"))?.disabled === true`
+        `[...document.querySelectorAll(".btn")].find(b=>b.textContent.includes("Выгрузить список отзыва"))?.disabled === true`
       )
     );
+    // Настройки копии задаются один раз во вкладке «Сборки»; здесь только
+    // выбирается, для какой сборки выдаётся доступ.
+    check("настройки сборки здесь не дублируются", !demoText.includes("Записать настройки"), "");
+    check("вкладка ссылается на «Сборки»", demoText.includes("Сборки"), "");
     await win.webContents.capturePage().then((img) =>
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-demo.png"), img.toPNG())
     );

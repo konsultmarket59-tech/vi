@@ -308,13 +308,6 @@ declare global {
         options: { days: number; productName: string; revocationUrl: string }
       ): Promise<{ all: Tester[]; tester: Tester; file: string } | null>;
       exportRevocations(): Promise<{ file: string; contents: string } | null>;
-      exportLicenceConfig(options: {
-        revocationUrl: string;
-        productName: string;
-        apiKey: string;
-        baseUrl: string;
-        pricesText: string;
-      }): Promise<{ file: string; managed: boolean; priceProblems: string[] } | null>;
 
       listPlugins(): Promise<ArchivedPlugin[]>;
       pluginBranches(): Promise<{ current: string; local: string[]; canonical: string }>;

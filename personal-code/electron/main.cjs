@@ -492,18 +492,6 @@ function registerHandlers() {
     await fs.writeFile(target.filePath, contents, "utf-8");
     return { file: target.filePath, contents };
   });
-  ipcMain.handle("demo:exportConfig", async (_e, options) => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Папка исходников «Личного чата»",
-      properties: ["openDirectory"],
-    });
-    if (result.canceled || !result.filePaths[0]) return null;
-    const { pricesText, ...rest } = options || {};
-    const { prices, problems } = demoAccess.parsePrices(pricesText);
-    const written = await demoAccess.exportConfig(result.filePaths[0], { ...rest, prices });
-    return { ...written, priceProblems: problems };
-  });
-
   // plugin archive
   ipcMain.handle("plugins:list", () => pluginArchive.list());
   ipcMain.handle("plugins:addVersion", async (_e, payload) => {

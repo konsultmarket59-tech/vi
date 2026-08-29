@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { DemoKeyInfo, Tester } from "../lib/types";
+import type { Blueprint, DemoKeyInfo, Tester } from "../lib/types";
 
 const EMPTY: Partial<Tester> = { name: "", displayName: "", machineCode: "", note: "" };
 
@@ -21,23 +21,30 @@ export default function DemoAccessView() {
   const [testers, setTesters] = useState<Tester[]>([]);
   const [draft, setDraft] = useState<Partial<Tester>>(EMPTY);
   const [days, setDays] = useState(30);
-  const [productName, setProductName] = useState("Личный чат");
-  const [revocationUrl, setRevocationUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("https://polza.ai/api/v1");
-  const [pricesText, setPricesText] = useState("");
+  // Имя копии и ссылка на список отзыва берутся из сборки, а не вводятся здесь
+  // второй раз: два места с одними и теми же значениями рано или поздно
+  // разъезжаются, и в лицензии оказывается не то, что в установщике.
+  const [blueprints, setBlueprints] = useState<Blueprint[]>([]);
+  const [blueprintId, setBlueprintId] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([window.api.demoKeyInfo(), window.api.listTesters()])
-      .then(([k, t]) => {
+    Promise.all([window.api.demoKeyInfo(), window.api.listTesters(), window.api.listBlueprints()])
+      .then(([k, t, b]) => {
         setKeyInfo(k);
         setTesters(t);
+        setBlueprints(b);
+        const gated = b.find((item) => item.demoGated) || b[0];
+        if (gated) setBlueprintId(gated.id);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  const blueprint = blueprints.find((b) => b.id === blueprintId) || null;
+  const productName = blueprint?.productName || "Личный чат";
+  const revocationUrl = blueprint?.revocationUrl || "";
 
   async function act<T>(fn: () => Promise<T>, success = "") {
     setBusy(true);
@@ -98,87 +105,41 @@ export default function DemoAccessView() {
       </section>
 
       <section className="card">
-        <h3 className="card-title">Настройки сборки</h3>
+        <h3 className="card-title">Для какой сборки выдаём</h3>
         <p className="hint">
-          Эти значения записываются в демо-сборку «Личного чата». Адрес списка отзыва —
-          необязательный: без него доступ всё равно закончится по дате, но отозвать его досрочно
-          не получится.
+          Имя копии, ссылка на список отзыва, ключ моделей и набор навыков задаются во вкладке
+          «Сборки» — там же, где копия и собирается. Здесь только выбирается, для какой из сборок
+          выдаётся доступ, чтобы в файле активации оказалось ровно то, что лежит в установщике.
         </p>
-
-        <label className="field-label">Название демо-версии</label>
-        <input className="input" value={productName} onChange={(e) => setProductName(e.target.value)} />
-
-        <label className="field-label">Адрес списка отзыва (необязательно)</label>
-        <input
-          className="input"
-          placeholder="https://ваш-адрес/revoked.json"
-          value={revocationUrl}
-          onChange={(e) => setRevocationUrl(e.target.value)}
-        />
-        <p className="hint">
-          Это должен быть обычный файл, лежащий по постоянной ссылке. Приложение читает его раз в
-          12 часов; если ссылка недоступна, копия продолжает работать до конца срока.
-        </p>
-
-        <label className="field-label">Ключ Polza для тестовой группы</label>
-        <input
-          className="input"
-          type="password"
-          placeholder="оставьте пустым, чтобы каждый вводил свой ключ"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-        />
-        <p className="hint">
-          Если ключ задан, в демо-сборке поле ключа не показывается — вместо него тестировщик
-          видит свой расход по моделям. Заведите для группы <strong>отдельный ключ с небольшим
-          балансом</strong>: ключ физически лежит внутри приложения на чужом компьютере, и тот, кто
-          умеет распаковывать установщик, его достанет. Возможность отозвать такой ключ — и есть
-          настоящая защита, а не то, что поле спрятано.
-        </p>
-
-        <label className="field-label">Адрес API</label>
-        <input className="input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-
-        <label className="field-label">Цены моделей (по строке на модель)</label>
-        <textarea
-          className="textarea"
-          rows={4}
-          placeholder={"anthropic/claude-sonnet-5 300 1500\nopenai/gpt-5 250 1000"}
-          value={pricesText}
-          onChange={(e) => setPricesText(e.target.value)}
-        />
-        <p className="hint">
-          Формат: модель, цена за миллион входящих токенов, цена за миллион исходящих. Модель без
-          цены показывается тестировщику с токенами, но без суммы — придумывать стоимость нельзя.
-        </p>
-
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || !hasKey}
-          onClick={() =>
-            act(async () => {
-              const result = await window.api.exportLicenceConfig({
-                revocationUrl,
-                productName,
-                apiKey,
-                baseUrl,
-                pricesText,
-              });
-              if (!result) return;
-              if (result.priceProblems?.length) {
-                setError("Цены разобраны не полностью:\n" + result.priceProblems.join("\n"));
-              }
-              setNotice(
-                `Записан ${result.file}.` +
-                  (result.managed ? " Ключ встроен в сборку." : " Ключ не задан — каждый вводит свой.") +
-                  " Теперь соберите «Личный чат» заново."
-              );
-            })
-          }
-        >
-          Записать настройки в сборку
-        </button>
+        {blueprints.length === 0 ? (
+          <p className="hint">
+            Сборок пока нет. Заведите сборку во вкладке «Сборки» — там же вводится ключ Polza для
+            группы и выбираются вшиваемые навыки.
+          </p>
+        ) : (
+          <>
+            <label className="field-label">Сборка</label>
+            <select className="input" value={blueprintId} onChange={(e) => setBlueprintId(e.target.value)}>
+              {blueprints.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} — {item.productName}
+                  {item.demoGated ? "" : " (без активации)"}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              Имя копии: <b>{productName}</b>. Список отзыва:{" "}
+              {revocationUrl ? <code>{revocationUrl}</code> : "не задан — доступ кончится только по дате"}.
+            </p>
+            {blueprint && !blueprint.demoGated && (
+              <p className="hint hint-warn">
+                Эта сборка собрана без активации — файл <code>.lic</code> ей не нужен и работать в
+                ней не будет. Включите «Копия требует файл активации» во вкладке «Сборки» и соберите
+                заново.
+              </p>
+            )}
+          </>
+        )}
       </section>
 
       <section className="card">
