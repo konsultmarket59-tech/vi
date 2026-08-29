@@ -209,7 +209,34 @@ function sheetToText(worksheet) {
   return lines.join("\n");
 }
 
+// Разобранный текст документа, пока файл не изменился. Системный промпт
+// пересобирается при каждом переключении вкладки и при каждой правке проекта, а
+// разбор .docx/.pdf/.xlsx — самая дорогая часть этой сборки: без кэша одни и те же
+// файлы разбираются заново десятки раз за сеанс.
+const extractCache = new Map();
+const EXTRACT_CACHE_LIMIT = 64;
+
 async function extractDocText(filePath) {
+  let key = "";
+  try {
+    const stat = await fs.stat(filePath);
+    key = `${filePath}:${stat.mtimeMs}:${stat.size}`;
+    const hit = extractCache.get(key);
+    if (hit !== undefined) return hit;
+  } catch {
+    // Файла нет — пусть об этом скажет сам разбор ниже, с понятной ошибкой.
+  }
+  const text = await extractDocTextUncached(filePath);
+  if (key) {
+    // Простое ограничение: выбрасываем самую старую запись. Кэш нужен на время
+    // сеанса, а не как хранилище.
+    if (extractCache.size >= EXTRACT_CACHE_LIMIT) extractCache.delete(extractCache.keys().next().value);
+    extractCache.set(key, text);
+  }
+  return text;
+}
+
+async function extractDocTextUncached(filePath) {
   const ext = path.extname(filePath).toLowerCase();
 
   if (TEXT_EXTENSIONS.includes(ext)) {
@@ -687,6 +714,10 @@ async function buildSystemPrompt(projectId) {
   if (!meta) throw new Error("Проект не найден: " + projectId);
 
   const parts = [];
+  // Документы, снятые с галочки в проекте: они остаются на месте, но не уезжают
+  // в каждый запрос. Вся база знаний в контексте — главная причина, почему ответ
+  // начинается не сразу: модель перечитывает её перед каждым сообщением.
+  const excluded = new Set(meta.excludedDocs || []);
   if (meta.instructions?.trim()) parts.push(meta.instructions.trim());
 
   const allSkills = await listSkills();
@@ -717,6 +748,7 @@ async function buildSystemPrompt(projectId) {
   if (docs.length > 0) {
     parts.push("\n\n=== ДОКУМЕНТЫ ПРОЕКТА (база знаний) ===");
     for (const doc of docs) {
+      if (excluded.has(`docs/${doc.name}`)) continue;
       const filePath = path.join(docsDir(root, projectId), doc.name);
       let content;
       try {
@@ -734,6 +766,7 @@ async function buildSystemPrompt(projectId) {
       if (externalDocs.length > 0) {
         parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
         for (const doc of externalDocs) {
+          if (excluded.has(`external/${doc.name}`)) continue;
           const filePath = path.join(meta.externalDocsPath, doc.name);
           let content;
           try {

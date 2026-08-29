@@ -253,6 +253,20 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     }
   }
 
+  const excludedDocs = project.excludedDocs ?? [];
+
+  /**
+   * Переключает документ «в контексте / не в контексте». Сохраняем сразу: это
+   * влияет на каждый следующий запрос, и держать это несохранённым в форме было бы
+   * источником недоразумений.
+   */
+  async function toggleDocInContext(key: string) {
+    const next = excludedDocs.includes(key)
+      ? excludedDocs.filter((k) => k !== key)
+      : [...excludedDocs, key];
+    onProjectChange(await window.api.updateProject(project.id, { excludedDocs: next }));
+  }
+
   async function removeDoc(fileName: string) {
     const updatedDocs = await window.api.removeDoc(project.id, fileName);
     setDocs(updatedDocs);
@@ -492,6 +506,15 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 {showSystemPromptPreview ? "Скрыть" : "Что видит ассистент"} ({systemPrompt.length.toLocaleString("ru-RU")}{" "}
                 симв.)
               </button>
+              {/* Порог примерно в 30 тысяч токенов: дальше задержка до первого слова
+                  становится заметной на глаз, и это стоит показать причиной, а не
+                  оставлять догадываться. */}
+              {systemPrompt.length > 90000 && (
+                <span className="hint context-warn">
+                  Это много — модель перечитывает всё это перед каждым ответом, отсюда пауза. Снимите
+                  галочки с документов, которые не нужны в этом проекте постоянно (вкладка «Документы»).
+                </span>
+              )}
             </div>
             {showSystemPromptPreview && (
               <div className="system-prompt-preview">
@@ -567,10 +590,25 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
           <h3>Документы проекта</h3>
           {docs.length === 0 && <p className="hint">Пока нет документов.</p>}
+          {docs.length > 0 && (
+            <p className="hint">
+              Галочка — «отдавать ассистенту в каждом сообщении». Документы без галочки остаются в
+              проекте, но не уходят в запрос: чем меньше уезжает, тем быстрее начинается ответ.
+            </p>
+          )}
           <ul className="doc-list">
             {docs.map((d) => (
               <li key={d.name}>
-                <span className="doc-name">{d.name}</span>
+                <input
+                  type="checkbox"
+                  className="doc-include"
+                  checked={!excludedDocs.includes(`docs/${d.name}`)}
+                  onChange={() => toggleDocInContext(`docs/${d.name}`)}
+                  title="Отдавать ассистенту"
+                />
+                <span className={excludedDocs.includes(`docs/${d.name}`) ? "doc-name doc-name-off" : "doc-name"}>
+                  {d.name}
+                </span>
                 <span className="doc-size">{(d.size / 1024).toFixed(1)} КБ</span>
                 <button className="conv-delete" onClick={() => removeDoc(d.name)} title="Удалить">
                   ×

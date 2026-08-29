@@ -89,9 +89,12 @@ app.whenReady().then(async () => {
     check("включённые модули на месте", menu.includes("Навыки") && menu.includes("Word"), menu);
     check(
       "выключенные модули скрыты",
-      !menu.includes("Excel") && !menu.includes("Дизайн") && !menu.includes("Директ") && !menu.includes("GitHub"),
+      !menu.includes("Excel") && !menu.includes("Директ") && !menu.includes("GitHub") && !menu.includes("Чат-боты"),
       menu
     );
+    // Навыки и Дизайн входят в неотключаемую базу: даже с modules.design = false
+    // они остаются, потому что база одинакова у всех сборок.
+    check("база остаётся, даже если её выключить в конфиге", menu.includes("Дизайн"), menu);
     check("Настройки нельзя выключить — они на месте", menu.includes("Настройки"), menu);
 
     const title = await win.webContents.executeJavaScript(

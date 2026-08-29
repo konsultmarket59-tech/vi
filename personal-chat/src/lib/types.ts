@@ -38,6 +38,11 @@ export interface Project {
   externalDocsPath?: string;
   /** Files/folders on the computer holding this project's design system. */
   designSystemPaths?: string[];
+  /**
+   * Документы, снятые с галочки «в контексте»: ключи вида `docs/имя.pdf` и
+   * `external/имя.docx`. Файл остаётся в проекте, но не уходит в каждый запрос.
+   */
+  excludedDocs?: string[];
   createdAt: number;
   updatedAt: number;
 }

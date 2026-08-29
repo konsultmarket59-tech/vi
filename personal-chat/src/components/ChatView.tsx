@@ -148,6 +148,27 @@ function mediaTypeLabel(type: ParsedMediaRequest["type"]): string {
   return "аудио";
 }
 
+/**
+ * Картинки чата в виде data-URL, на время сеанса. Ключ — путь к файлу.
+ *
+ * Считывание и кодирование в base64 полуторамегабайтного снимка занимает заметное
+ * время, а история отправляется модели целиком при каждом сообщении, поэтому без
+ * кэша одна и та же фотография перечитывалась с диска на каждый ответ.
+ */
+const imageCache = new Map<string, string>();
+const IMAGE_CACHE_LIMIT = 24;
+
+async function readImageCached(filePath: string): Promise<string> {
+  const hit = imageCache.get(filePath);
+  if (hit !== undefined) return hit;
+  const dataUrl = await window.api.readFileAsDataUrl(filePath);
+  if (imageCache.size >= IMAGE_CACHE_LIMIT) {
+    imageCache.delete(imageCache.keys().next().value as string);
+  }
+  imageCache.set(filePath, dataUrl);
+  return dataUrl;
+}
+
 export default function ChatView({
   conversation,
   systemPrompt,
@@ -300,11 +321,13 @@ export default function ChatView({
           if (!m.attachments || m.attachments.length === 0) {
             return { role: m.role, content: m.content } as ApiMessage;
           }
-          // Images live on disk, not in the saved chat — read them back now.
+          // Картинки лежат на диске, а не в сохранённом чате — читаем обратно.
+          // Через кэш: без него КАЖДОЕ сообщение перечитывало с диска и кодировало
+          // в base64 все картинки за всю историю чата.
           const imageDataUrls = new Map<string, string>();
           for (const att of m.attachments.filter((a) => a.kind === "image")) {
             try {
-              imageDataUrls.set(att.path, await window.api.readFileAsDataUrl(att.path));
+              imageDataUrls.set(att.path, await readImageCached(att.path));
             } catch {
               // fall through: buildUserContent notes the unreadable image by name
             }

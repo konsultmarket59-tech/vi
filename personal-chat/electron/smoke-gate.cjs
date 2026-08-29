@@ -163,7 +163,12 @@ async function waitFor(win, expression, label, timeout = 20000) {
           return (document.querySelector(".settings-view")||{}).textContent || "";
         })()
       `);
-      check("поля ключа Polza нет", !settingsText.includes("API-ключ"), settingsText.slice(0, 200));
+      // Ищем именно подпись поля, а не слово где угодно: сообщение об ошибке
+      // «В API-ключе есть символы…» тоже содержит эту строку.
+      const keyLabels = await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".settings-view label")].filter(n => n.textContent.trim() === "API-ключ").length`
+      );
+      check("поля ключа Polza нет", keyLabels === 0, "подписей поля: " + keyLabels);
       check("вместо него показан расход", settingsText.includes("Расход моделей"), settingsText.slice(0, 200));
       check("выбор модели остался", settingsText.includes("Модель"), "");
       await win.webContents.capturePage().then((img) =>

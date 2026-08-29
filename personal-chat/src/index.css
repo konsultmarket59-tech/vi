@@ -1555,3 +1555,9 @@ a:hover { color: var(--accent-hover); }
   border: 1px solid var(--border-strong); border-radius: 999px;
   font-size: 11px; font-weight: 400; color: var(--text-dim); vertical-align: middle;
 }
+
+/* Галочка «отдавать ассистенту» у документа проекта: снятая означает, что файл
+   остаётся в проекте, но не уезжает в каждый запрос. */
+.doc-include { margin-right: 8px; flex-shrink: 0; }
+.doc-name-off { color: var(--text-dim); text-decoration: line-through; }
+.context-warn { display: block; margin-top: 4px; color: var(--accent-text); }
