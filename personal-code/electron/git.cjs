@@ -91,7 +91,7 @@ function parseStatus(raw) {
 }
 
 async function status(root) {
-  if (!isRepo(root)) return { isRepo: false, files: [], branch: "", ahead: 0, behind: 0, upstream: "" };
+  if (!isRepo(root)) return { isRepo: false, files: [], branch: "", head: "", ahead: 0, behind: 0, upstream: "" };
 
   const raw = await run(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   const files = parseStatus(raw);
@@ -102,6 +102,15 @@ async function status(root) {
   } catch {
     // A brand new repository with no commits has no HEAD to resolve yet.
     branch = "(нет коммитов)";
+  }
+
+  // Короткий хэш текущего коммита: по нему потом видно, из какого именно кода
+  // сделана версия плагина.
+  let head = "";
+  try {
+    head = (await run(root, ["rev-parse", "--short", "HEAD"])).trim();
+  } catch {
+    head = "";
   }
 
   let upstream = "";
@@ -117,7 +126,7 @@ async function status(root) {
     // No upstream configured — normal for a branch that was never pushed.
   }
 
-  return { isRepo: true, files, branch, upstream, ahead, behind };
+  return { isRepo: true, files, branch, head, upstream, ahead, behind };
 }
 
 async function diff(root, { file = "", staged = false } = {}) {

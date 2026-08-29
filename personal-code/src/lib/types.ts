@@ -206,6 +206,8 @@ export interface PluginVersion {
   version: number;
   dir: string;
   note: string;
+  branch: string;
+  commit: string;
   createdAt: string;
   skills: number;
   sources: number;
@@ -215,6 +217,7 @@ export interface ArchivedPlugin {
   id: string;
   name: string;
   description: string;
+  branch: string;
   dir: string;
   latest: number;
   versions: PluginVersion[];
@@ -314,6 +317,8 @@ declare global {
       }): Promise<{ file: string; managed: boolean; priceProblems: string[] } | null>;
 
       listPlugins(): Promise<ArchivedPlugin[]>;
+      pluginBranches(): Promise<{ current: string; local: string[]; canonical: string }>;
+      usePluginBranch(branch: string): Promise<{ branch: string; switched: boolean }>;
       addPluginVersion(payload: {
         pluginId: string;
         name: string;
@@ -321,7 +326,8 @@ declare global {
         note: string;
         skills: PluginSkill[];
         sourcePaths: string[];
-      }): Promise<{ id: string; version: number; dir: string; skills: number; sources: number }>;
+        branch?: string;
+      }): Promise<{ id: string; version: number; dir: string; skills: number; sources: number; branch: string }>;
       removePlugin(id: string): Promise<boolean>;
       openPluginFolder(dir: string): Promise<boolean>;
       pickPluginSources(): Promise<string[]>;

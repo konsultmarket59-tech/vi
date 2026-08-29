@@ -85,6 +85,8 @@ contextBridge.exposeInMainWorld("api", {
 
   // архив плагинов
   listPlugins: () => ipcRenderer.invoke("plugins:list"),
+  pluginBranches: () => ipcRenderer.invoke("plugins:branches"),
+  usePluginBranch: (branch) => ipcRenderer.invoke("plugins:useBranch", branch),
   addPluginVersion: (payload) => ipcRenderer.invoke("plugins:addVersion", payload),
   removePlugin: (id) => ipcRenderer.invoke("plugins:remove", id),
   openPluginFolder: (dir) => ipcRenderer.invoke("plugins:openFolder", dir),

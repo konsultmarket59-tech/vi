@@ -506,7 +506,47 @@ function registerHandlers() {
 
   // plugin archive
   ipcMain.handle("plugins:list", () => pluginArchive.list());
-  ipcMain.handle("plugins:addVersion", (_e, payload) => pluginArchive.addVersion(payload || {}));
+  ipcMain.handle("plugins:addVersion", async (_e, payload) => {
+    const data = payload || {};
+    // Ветка и коммит проставляются сами из открытой папки: спрашивать о них
+    // второй раз незачем, а без них потом не понять, из какого кода версия.
+    let branch = data.branch || "";
+    let commit = "";
+    if (currentRoot && git.isRepo(currentRoot)) {
+      const status = await git.status(currentRoot).catch(() => null);
+      if (status) {
+        if (!branch) branch = status.branch;
+        commit = status.head || "";
+      }
+    }
+    return pluginArchive.addVersion({ ...data, branch, commit });
+  });
+  // Ветки открытого репозитория — из них выбирается та, где живёт код плагина.
+  ipcMain.handle("plugins:branches", async () => {
+    if (!currentRoot || !git.isRepo(currentRoot)) return { current: "", local: [], canonical: blueprints.DEFAULT_BRANCH };
+    const branches = await git.branches(currentRoot);
+    return { ...branches, canonical: blueprints.DEFAULT_BRANCH };
+  });
+  /**
+   * Переводит открытую папку на ветку плагина, чтобы дописывать его код там же,
+   * где он живёт. Незакоммиченные правки не трогаем: сначала их надо сохранить
+   * или отменить во вкладке «Git».
+   */
+  ipcMain.handle("plugins:useBranch", async (_e, branch) => {
+    const root = requireRoot();
+    if (!git.isRepo(root)) throw new Error("Открытая папка — не репозиторий git.");
+    if (!branch) throw new Error("У плагина не указана ветка.");
+    const status = await git.status(root);
+    if (status.branch === branch) return { branch, switched: false, status };
+    if (status.files.length) {
+      throw new Error(
+        `В папке есть несохранённые изменения (${status.files.length}). Сохраните или отмените их ` +
+          "во вкладке «Git», иначе переключение потеряет работу."
+      );
+    }
+    await git.checkoutBranch(root, branch);
+    return { branch, switched: true, status: await git.status(root) };
+  });
   ipcMain.handle("plugins:remove", (_e, id) => pluginArchive.removePlugin(id));
   ipcMain.handle("plugins:openFolder", async (_e, dir) => {
     await shell.openPath(dir || pluginArchive.root());

@@ -100,6 +100,32 @@ const skill = (name, content) => ({ name, description: `описание ${name}
   const empty = await archive.exportToBuild(chatDir, []);
   check("пустой выбор очищает папку", fs.readdirSync(empty.targetDir).length === 0);
 
+  console.log("\nветка, в которой живёт код плагина");
+  // Плагин пишется в конкретной ветке репозитория и сливается обратно в неё же.
+  // Архив это запоминает: иначе через полгода не ответить, откуда версия.
+  const branched = await archive.addVersion({
+    name: "Отчёты ОРД",
+    description: "Акты и статистика",
+    branch: "claude/personal-claude-chat-docs-untwa4",
+    commit: "abc1234",
+    skills: [{ name: "Акт по маркировке", description: "Заполняет акт", content: "Правила…" }],
+  });
+  check("ветка сохранена вместе с версией", branched.branch === "claude/personal-claude-chat-docs-untwa4", branched.branch);
+
+  let listed = await archive.list();
+  const reports = listed.find((p) => p.id === branched.id);
+  check("ветка видна в списке плагинов", reports.branch === "claude/personal-claude-chat-docs-untwa4", reports.branch);
+  check("ветка и коммит видны у версии", reports.versions[0].commit === "abc1234", JSON.stringify(reports.versions[0]));
+
+  // Следующая версия того же плагина остаётся в той же ветке, даже если про неё
+  // не напомнили: иначе доработка тихо уехала бы в другую конфигурацию.
+  const next = await archive.addVersion({
+    pluginId: branched.id,
+    note: "поправлены формулировки",
+    skills: [{ name: "Акт по маркировке", description: "Заполняет акт", content: "Правила, версия 2…" }],
+  });
+  check("новая версия наследует ветку плагина", next.branch === "claude/personal-claude-chat-docs-untwa4", next.branch);
+
   console.log("\nудаление");
   await archive.removePlugin(dogovory.id);
   plugins = await archive.list();
