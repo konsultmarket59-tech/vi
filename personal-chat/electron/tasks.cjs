@@ -122,6 +122,36 @@ async function findDueTasks(root, now = Date.now()) {
 
 let schedulerTimer = null;
 
+// A task's nextRunAt only advances once onDue() finishes (that's what save()
+// inside runScheduledTask does), and onDue() itself can run for minutes — a
+// digest task researching the web across several tool rounds easily does.
+// Without this guard, every 30s tick in between re-scans findDueTasks(),
+// finds the same task still "due" (its nextRunAt hasn't moved yet) and fires
+// it again — one weekly task turning into four duplicate conversations and
+// four times the bill, all from a single intended run. Tracking in-flight
+// task ids here — independent of how long a run takes — is what closes that
+// window, rather than trying to guess a safe tick interval.
+const runningTaskIds = new Set();
+
+// One scan-and-dispatch pass, factored out of the setInterval below so a test
+// can call it directly (twice, back to back, with a slow onDue) instead of
+// waiting on real 30s ticks to exercise the runningTaskIds guard.
+async function tick(getRoot, onDue) {
+  try {
+    const root = await getRoot();
+    const due = await findDueTasks(root, Date.now());
+    for (const task of due) {
+      if (runningTaskIds.has(task.id)) continue;
+      runningTaskIds.add(task.id);
+      onDue(root, task)
+        .catch((e) => console.error(`Не удалось выполнить задачу "${task.title}":`, e))
+        .finally(() => runningTaskIds.delete(task.id));
+    }
+  } catch {
+    // ignore transient errors (e.g. root folder briefly unavailable), retry next tick
+  }
+}
+
 // Ticks every 30s (mirrors chatbots.cjs's funnel-step scheduler), scans every
 // project's tasks for due ones, and hands each off to `onDue(root, task)` —
 // which is responsible for actually running the task (calling the model,
@@ -130,21 +160,7 @@ let schedulerTimer = null;
 // the following tick, same retry-on-error behavior as the funnel scheduler.
 function startScheduler(getRoot, onDue) {
   if (schedulerTimer) return;
-  schedulerTimer = setInterval(async () => {
-    try {
-      const root = await getRoot();
-      const due = await findDueTasks(root, Date.now());
-      for (const task of due) {
-        try {
-          await onDue(root, task);
-        } catch (e) {
-          console.error(`Не удалось выполнить задачу "${task.title}":`, e);
-        }
-      }
-    } catch {
-      // ignore transient errors (e.g. root folder briefly unavailable), retry next tick
-    }
-  }, 30000);
+  schedulerTimer = setInterval(() => tick(getRoot, onDue), 30000);
 }
 
-module.exports = { list, save, remove, computeNextRun, findDueTasks, startScheduler };
+module.exports = { list, save, remove, computeNextRun, findDueTasks, startScheduler, _tick: tick };
