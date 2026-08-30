@@ -792,6 +792,36 @@ async function buildSystemPrompt(projectId) {
 
 // ---------- scheduled tasks ----------
 
+// Same rule as supportsPromptCaching() in src/lib/api.ts: cache_control is an
+// Anthropic-family thing, other models risk a rejected request over it.
+function supportsPromptCaching(model) {
+  return /(^|\/)(anthropic|claude)/i.test(model || "");
+}
+
+// Задачи по расписанию и ИИ-боты гоняют один и тот же неизменный системный
+// промпт (инструкции + документы проекта) по несколько раз за один прогон —
+// раунды поиска в интернете дописывают только небольшой хвост сообщений
+// поверх него. Без метки кэша каждый раунд оплачивает эти документы заново;
+// самый частый случай — недельный дайджест с 4–5 раундами поиска — именно
+// поэтому и обходился на порядок дороже, чем должен был.
+function buildSystemMessage(text, settings) {
+  const withCache = settings.promptCache !== false && supportsPromptCaching(settings.model) && backgroundCacheFieldWorks !== false;
+  if (!withCache) return { role: "system", content: text };
+  return { role: "system", content: [{ type: "text", text, cache_control: { type: "ephemeral" } }] };
+}
+
+function stripCacheControl(messages) {
+  return messages.map((m) =>
+    Array.isArray(m.content) ? { ...m, content: m.content.map((part) => part.text).join("\n\n") } : m
+  );
+}
+
+// Помнит на время работы приложения, принимает ли шлюз cache_control в этих
+// фоновых (не-стриминговых) запросах — тот же приём, что и в src/lib/api.ts
+// для обычного чата, только на процесс целиком: одного отказа достаточно,
+// чтобы больше не пробовать и не терять на этом время следующих раундов.
+let backgroundCacheFieldWorks;
+
 // Non-streaming chat completion, same wire format as src/lib/api.ts's
 // streamChat but called from the main process (no window/EventSource
 // involved) — used to run a scheduled task's prompt unattended.
@@ -799,17 +829,25 @@ async function callModelOnce(settings, messages) {
   if (!settings.apiKey) throw new Error("Не задан API-ключ. Откройте настройки и вставьте ключ Polza.ai.");
   if (!settings.model) throw new Error("Не задана модель в настройках.");
   const url = settings.baseUrl.replace(/\/+$/, "") + "/chat/completions";
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: settings.temperature,
-      max_tokens: settings.maxTokens,
-      stream: false,
-    }),
-  });
+  const send = (msgs) =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        model: settings.model,
+        messages: msgs,
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens,
+        stream: false,
+      }),
+    });
+
+  let res = await send(messages);
+  const hadCache = messages.some((m) => Array.isArray(m.content));
+  if (!res.ok && (res.status === 400 || res.status === 422) && hadCache) {
+    backgroundCacheFieldWorks = false;
+    res = await send(stripCacheControl(messages));
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`Ошибка API (${res.status} ${res.statusText}). ${detail.slice(0, 500)}`);
@@ -821,17 +859,21 @@ async function callModelOnce(settings, messages) {
   // счётчик, что и обычный чат.
   const reported = body?.usage;
   if (reported?.prompt_tokens || reported?.completion_tokens) {
+    const cached = reported?.prompt_tokens_details?.cached_tokens ?? reported?.cache_read_input_tokens ?? 0;
     await usage.record({
       model: settings.model,
       promptTokens: reported.prompt_tokens,
       completionTokens: reported.completion_tokens,
+      cachedTokens: cached,
       exact: true,
       source: "фон",
     });
   } else {
     await usage.record({
       model: settings.model,
-      promptTokens: usage.estimateTokens(messages.map((m) => m.content).join("\n")),
+      promptTokens: usage.estimateTokens(
+        messages.map((m) => (Array.isArray(m.content) ? m.content.map((p) => p.text).join("\n") : m.content)).join("\n")
+      ),
       completionTokens: usage.estimateTokens(content),
       exact: false,
       source: "фон",
@@ -858,7 +900,7 @@ async function runScheduledTask(root, task) {
   // plain text or we hit the round limit.
   const webOn = settings.searchEnabled !== false;
   const messages = [
-    { role: "system", content: systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
+    buildSystemMessage(systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), settings),
     { role: "user", content: task.prompt },
   ];
   let reply = await callModelOnce(settings, messages);
@@ -932,7 +974,7 @@ async function chatbotAiResponder({ platform, account, lead, messages }) {
     "с человеком, не придумывай факты, цены и условия.";
 
   const apiMessages = [
-    { role: "system", content: projectPrompt + botRules + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
+    buildSystemMessage(projectPrompt + botRules + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), settings),
     ...messages,
   ];
 
