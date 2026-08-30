@@ -144,6 +144,11 @@ export interface Settings {
   searchApiKey?: string;
   /** Сборка с предустановленным ключом: поле ключа скрыто, показывается расход. */
   managed?: boolean;
+  /**
+   * Просить провайдера кэшировать неизменную часть промпта. Экономит на входе,
+   * который у проектов с документами составляет основную часть счёта.
+   */
+  promptCache?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -159,6 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchEnabled: true,
   searchProvider: "duckduckgo",
   searchApiKey: "",
+  promptCache: true,
 };
 
 export interface StorageEntry {
@@ -666,6 +672,8 @@ export interface UsageEntry {
   model: string;
   promptTokens?: number;
   completionTokens?: number;
+  /** Часть входа, прочитанная из кэша провайдера. */
+  cachedTokens?: number;
   exact: boolean;
   source: string;
 }
@@ -675,6 +683,7 @@ export interface UsageModelRow {
   calls: number;
   promptTokens: number;
   completionTokens: number;
+  cachedTokens: number;
   tokens: number;
   /** null — цена для этой модели не задана в сборке. */
   cost: number | null;
@@ -691,6 +700,7 @@ export interface UsageSummary {
     cost: number | null;
     currency: string;
     estimated: boolean;
+    cachedTokens: number;
   } | null;
 }
 

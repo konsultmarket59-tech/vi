@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatAttachment, ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
 import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
-import { streamChat, listModels, ApiError, type ApiContentPart, type ApiMessage } from "../lib/api";
+import {
+  streamChat,
+  listModels,
+  ApiError,
+  type ApiContentPart,
+  type ApiMessage,
+  type SplitSystemPrompt,
+} from "../lib/api";
 import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
 import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
@@ -309,13 +316,20 @@ export default function ChatView({
         "Если пользователь ссылается на что-то, чего ты не видишь, попроси напомнить.)"
       : "";
 
+    // Системное сообщение делится на две части ради кэша провайдера: он работает по
+    // совпадению НАЧАЛА промпта, поэтому всё неизменное — инструкции проекта,
+    // документы, постоянные подсказки — идёт первым и одинаково от запроса к
+    // запросу, а всё, что меняется (вызванный навык, пересказ свёрнутой истории),
+    // уезжает в хвост. Раньше вызванный навык вклинивался в середину и ломал
+    // совпадение на каждом сообщении, где его меняли.
+    const system: SplitSystemPrompt = {
+      stable:
+        systemPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT +
+        (webToolsHint ? "\n\n" + webToolsHint : ""),
+      variable: skillPrompt + historyNote + dropNote,
+    };
+
     const apiMessages: ApiMessage[] = [
-      {
-        role: "system",
-        content:
-          systemPrompt + skillPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT +
-          (webToolsHint ? "\n\n" + webToolsHint : "") + historyNote + dropNote,
-      },
       ...(await Promise.all(
         sentMessages.map(async (m) => {
           if (!m.attachments || m.attachments.length === 0) {
@@ -351,7 +365,8 @@ export default function ChatView({
         effectiveSettings,
         apiMessages,
         (chunk) => setStreamingText((prev) => prev + chunk),
-        controller.signal
+        controller.signal,
+        system
       );
 
       // Web-tool loop. Search and page reads are read-only, so unlike the app's
@@ -366,11 +381,15 @@ export default function ChatView({
         apiMessages.push({ role: "assistant", content: full });
         apiMessages.push({ role: "user", content: toolOutput });
         setStreamingText("");
+        // Системная часть передаётся и здесь: она больше не лежит первым элементом
+        // apiMessages, и без неё раунды с инструментами остались бы без инструкций
+        // проекта, документов и навыков.
         full = await streamChat(
           effectiveSettings,
           apiMessages,
           (chunk) => setStreamingText((prev) => prev + chunk),
-          controller.signal
+          controller.signal,
+          system
         );
       }
       setWebToolStatus("");
