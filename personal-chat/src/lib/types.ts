@@ -144,6 +144,11 @@ export interface Settings {
   searchApiKey?: string;
   /** Сборка с предустановленным ключом: поле ключа скрыто, показывается расход. */
   managed?: boolean;
+  /**
+   * Просить провайдера кэшировать неизменную часть промпта. Экономит на входе,
+   * который у проектов с документами составляет основную часть счёта.
+   */
+  promptCache?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -159,6 +164,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchEnabled: true,
   searchProvider: "duckduckgo",
   searchApiKey: "",
+  promptCache: true,
 };
 
 export interface StorageEntry {
@@ -349,86 +355,6 @@ export interface MediaGenerationResult {
   localPath: string;
   createdAt: number;
   costRub?: number;
-}
-
-export type DesignType =
-  | "post"
-  | "document"
-  | "presentation"
-  | "design-system"
-  | "website"
-  | "graphic"
-  | "motion"
-  | "other";
-export type DesignFormat = "html" | "svg";
-
-export interface DesignDoc {
-  id: string;
-  title: string;
-  type: DesignType;
-  format: DesignFormat;
-  content: string;
-  /** Motion designs only: how long the clip runs, as declared by the assistant. */
-  durationSec?: number;
-  projectId?: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-/** The kinds of material a design project can point at on the computer. */
-export type DesignAssetKind = "logos" | "fonts" | "sources" | "references" | "system";
-
-export interface DesignProject {
-  id: string;
-  name: string;
-  /** Optional link to an app project, purely to inherit its brand kit. */
-  linkedProjectId: string;
-  /** Which design system the project works in; empty for none. */
-  systemId: string;
-  notes: string;
-  assets: Record<DesignAssetKind, string[]>;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export type DesignSystemAssetKind = "fonts" | "logos" | "rules";
-
-/** A brand's design system — several can exist, and a project picks one. */
-export interface DesignSystem {
-  id: string;
-  name: string;
-  /** Palette and rules as text, for what is quicker to type than to attach. */
-  notes: string;
-  assets: Record<DesignSystemAssetKind, string[]>;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface DesignAsset {
-  id: string;
-  /** A project's own kind, or "system:fonts" etc. for design-system material. */
-  kind: DesignAssetKind | string;
-  /** Set on design-system material: which system it came from. */
-  systemName?: string;
-  path: string;
-  name: string;
-  ext: string;
-  size?: number;
-  missing: boolean;
-  isFont: boolean;
-  isImage: boolean;
-  /** CSS family name for a font asset; empty otherwise. */
-  fontFamily: string;
-  text?: string;
-}
-
-export interface DesignRenderResult {
-  path: string;
-  width?: number;
-  height?: number;
-  frames?: number;
-  fps?: number;
-  durationSec?: number;
 }
 
 export type CloudProvider = "yandex" | "google";
@@ -666,6 +592,8 @@ export interface UsageEntry {
   model: string;
   promptTokens?: number;
   completionTokens?: number;
+  /** Часть входа, прочитанная из кэша провайдера. */
+  cachedTokens?: number;
   exact: boolean;
   source: string;
 }
@@ -675,6 +603,7 @@ export interface UsageModelRow {
   calls: number;
   promptTokens: number;
   completionTokens: number;
+  cachedTokens: number;
   tokens: number;
   /** null — цена для этой модели не задана в сборке. */
   cost: number | null;
@@ -691,6 +620,7 @@ export interface UsageSummary {
     cost: number | null;
     currency: string;
     estimated: boolean;
+    cachedTokens: number;
   } | null;
 }
 
@@ -825,54 +755,6 @@ export interface ElectronAPI {
   openMediaFolder(projectId?: string): Promise<void>;
   pickReferenceImage(): Promise<string | null>;
   onMediaProgress(callback: (status: string) => void): () => void;
-
-  // design section
-  listDesignProjects(): Promise<DesignProject[]>;
-  createDesignProject(name: string): Promise<DesignProject>;
-  updateDesignProject(id: string, patch: Partial<DesignProject>): Promise<DesignProject | null>;
-  removeDesignProject(id: string): Promise<DesignProject[]>;
-  pickDesignAssets(id: string, kind: DesignAssetKind): Promise<DesignProject | null>;
-  removeDesignAsset(id: string, kind: DesignAssetKind, assetPath: string): Promise<DesignProject | null>;
-  listDesignAssets(id: string): Promise<DesignAsset[]>;
-  listDesignSystems(): Promise<DesignSystem[]>;
-  createDesignSystem(name: string): Promise<DesignSystem>;
-  updateDesignSystem(id: string, patch: Partial<DesignSystem>): Promise<DesignSystem | null>;
-  removeDesignSystem(id: string): Promise<DesignSystem[]>;
-  pickDesignSystemAssets(id: string, kind: DesignSystemAssetKind): Promise<DesignSystem | null>;
-  removeDesignSystemAsset(id: string, kind: DesignSystemAssetKind, assetPath: string): Promise<DesignSystem | null>;
-  /** Replaces ASSET:… references with embedded data and adds @font-face rules. */
-  applyDesignAssets(id: string, html: string): Promise<string>;
-  renderDesign(payload: {
-    kind: "png" | "mp4";
-    html: string;
-    width: number;
-    height: number;
-    fps?: number;
-    durationSec?: number;
-    defaultName: string;
-    projectId?: string;
-  }): Promise<DesignRenderResult | null>;
-  onDesignRenderProgress(callback: (progress: { frame: number; total: number }) => void): () => void;
-
-  listDesignDocs(projectId?: string): Promise<DesignDoc[]>;
-  saveDesignDoc(payload: {
-    id?: string | null;
-    title: string;
-    type: DesignType;
-    format: DesignFormat;
-    content: string;
-    durationSec?: number;
-    projectId?: string;
-  }): Promise<DesignDoc>;
-  deleteDesignDoc(id: string, projectId?: string): Promise<void>;
-  buildDesignAgentPrompt(projectId?: string): Promise<string>;
-  getDesignAgentConversation(projectId?: string): Promise<Conversation | null>;
-  saveDesignAgentConversation(projectId: string | undefined, conv: Conversation): Promise<Conversation>;
-  openDesignFolder(projectId?: string): Promise<void>;
-
-  // export (shared by chat exports and the design section)
-  exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
-  exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
 
   // project design system
   pickDesignSystemFiles(): Promise<string[]>;

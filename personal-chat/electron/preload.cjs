@@ -153,8 +153,6 @@ contextBridge.exposeInMainWorld("api", {
   exportChatToXlsx: (payload) => ipcRenderer.invoke("export:toXlsx", payload),
   exportToPdf: (payload) => ipcRenderer.invoke("export:toPdf", payload),
   exportToPng: (payload) => ipcRenderer.invoke("export:toPng", payload),
-  exportToJpg: (payload) => ipcRenderer.invoke("export:toJpg", payload),
-  exportSvgFile: (payload) => ipcRenderer.invoke("export:svgFile", payload),
 
   // misc
   getSkillCreatorPrompt: () => ipcRenderer.invoke("meta:skillCreatorPrompt"),
@@ -214,36 +212,6 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
     return () => ipcRenderer.removeListener("media:progress", listener);
   },
 
-  // design section
-  // Проекты дизайна и их ассеты
-  listDesignProjects: () => ipcRenderer.invoke("design:listProjects"),
-  createDesignProject: (name) => ipcRenderer.invoke("design:createProject", name),
-  updateDesignProject: (id, patch) => ipcRenderer.invoke("design:updateProject", id, patch),
-  removeDesignProject: (id) => ipcRenderer.invoke("design:removeProject", id),
-  pickDesignAssets: (id, kind) => ipcRenderer.invoke("design:pickAssets", id, kind),
-  removeDesignAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeAsset", id, kind, assetPath),
-  listDesignAssets: (id) => ipcRenderer.invoke("design:listAssets", id),
-  listDesignSystems: () => ipcRenderer.invoke("design:listSystems"),
-  createDesignSystem: (name) => ipcRenderer.invoke("design:createSystem", name),
-  updateDesignSystem: (id, patch) => ipcRenderer.invoke("design:updateSystem", id, patch),
-  removeDesignSystem: (id) => ipcRenderer.invoke("design:removeSystem", id),
-  pickDesignSystemAssets: (id, kind) => ipcRenderer.invoke("design:pickSystemAssets", id, kind),
-  removeDesignSystemAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeSystemAsset", id, kind, assetPath),
-  applyDesignAssets: (id, html) => ipcRenderer.invoke("design:applyAssets", id, html),
-  renderDesign: (payload) => ipcRenderer.invoke("design:render", payload),
-  onDesignRenderProgress: (callback) => {
-    const listener = (_e, progress) => callback(progress);
-    ipcRenderer.on("design:renderProgress", listener);
-    return () => ipcRenderer.removeListener("design:renderProgress", listener);
-  },
-
-  listDesignDocs: (projectId) => ipcRenderer.invoke("design:list", projectId),
-  saveDesignDoc: (payload) => ipcRenderer.invoke("design:save", payload.projectId, payload),
-  deleteDesignDoc: (id, projectId) => ipcRenderer.invoke("design:delete", projectId, id),
-  buildDesignAgentPrompt: (projectId) => ipcRenderer.invoke("design:buildAgentPrompt", projectId),
-  getDesignAgentConversation: (projectId) => ipcRenderer.invoke("design:getAgentConversation", projectId),
-  saveDesignAgentConversation: (projectId, conv) => ipcRenderer.invoke("design:saveAgentConversation", projectId, conv),
-  openDesignFolder: (projectId) => ipcRenderer.invoke("design:openFolder", projectId),
 });
 
 // Errors thrown in the window never reach the main process on their own, so a

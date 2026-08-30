@@ -669,7 +669,6 @@ async function saveSkillCreatorConversation(conv) {
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
-const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
 const plugins = require("./plugins.cjs");
 const licence = require("./licence.cjs");
@@ -684,7 +683,6 @@ const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
 const exportDocs = require("./exportDocs.cjs");
-const motion = require("./motion.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
 const cloud = require("./cloud.cjs");
@@ -1217,31 +1215,6 @@ async function exportHtmlToPng({ html, defaultName, projectId }) {
   if (result.canceled || !result.filePath) return null;
   const image = await captureHtmlAsImage(html);
   await fs.writeFile(result.filePath, image.toPNG());
-  return result.filePath;
-}
-
-async function exportHtmlToJpg({ html, defaultName, projectId }) {
-  const parentWin = BrowserWindow.getFocusedWindow();
-  const defaultDir = await resolveExportDir(projectId);
-  const result = await dialog.showSaveDialog(parentWin, {
-    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".jpg"),
-    filters: [{ name: "JPEG", extensions: ["jpg"] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-  const image = await captureHtmlAsImage(html);
-  await fs.writeFile(result.filePath, image.toJPEG(92));
-  return result.filePath;
-}
-
-async function exportSvgToFile({ svg, defaultName, projectId }) {
-  const parentWin = BrowserWindow.getFocusedWindow();
-  const defaultDir = await resolveExportDir(projectId);
-  const result = await dialog.showSaveDialog(parentWin, {
-    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".svg"),
-    filters: [{ name: "SVG", extensions: ["svg"] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-  await fs.writeFile(result.filePath, svg, "utf-8");
   return result.filePath;
 }
 
@@ -2174,8 +2147,6 @@ ipcMain.handle("export:toDocx", (_e, payload) => exportChatToFile(payload, "docx
 ipcMain.handle("export:toXlsx", (_e, payload) => exportChatToFile(payload, "xlsx"));
 ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
 ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
-ipcMain.handle("export:toJpg", (_e, payload) => exportHtmlToJpg(payload));
-ipcMain.handle("export:svgFile", (_e, payload) => exportSvgToFile(payload));
 
 ipcMain.handle("meta:skillCreatorPrompt", () => SKILL_CREATOR_PROMPT);
 ipcMain.handle("skillCreator:get", () => getSkillCreatorConversation());
@@ -2293,165 +2264,4 @@ ipcMain.handle("media:pickReferenceImage", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
-});
-
-// ---------- design section IPC ----------
-
-// ---------- Дизайн ----------
-
-/** Проекты дизайна, с одноразовым переносом старых макетов при первом обращении. */
-async function designProjects() {
-  const root = await getRootPath();
-  const existing = await design.listProjects(root);
-  if (existing.length > 0) return existing;
-  return design.migrateLegacy(root, await listProjects());
-}
-
-ipcMain.handle("design:listProjects", () => designProjects());
-ipcMain.handle("design:createProject", async (_e, name) => design.createProject(await getRootPath(), name));
-ipcMain.handle("design:updateProject", async (_e, id, patch) => design.updateProject(await getRootPath(), id, patch));
-ipcMain.handle("design:removeProject", async (_e, id) => {
-  await design.removeProject(await getRootPath(), id);
-  return designProjects();
-});
-
-// Ассеты выбираются диалогом: пути к файлам на компьютере, файлы не копируются.
-ipcMain.handle("design:pickAssets", async (_e, id, kind) => {
-  const win = BrowserWindow.getFocusedWindow();
-  const filters =
-    kind === "fonts"
-      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
-      : kind === "system"
-        ? [{ name: "Файлы дизайн-системы", extensions: ["md", "txt", "json", "css", "svg", "png", "jpg", "jpeg"] }]
-        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp", "gif", "avif"] }];
-  const picked = await dialog.showOpenDialog(win, {
-    title: "Выберите файлы",
-    properties: ["openFile", "multiSelections"],
-    filters,
-  });
-  if (picked.canceled || picked.filePaths.length === 0) return null;
-  return design.addAssets(await getRootPath(), id, kind, picked.filePaths);
-});
-
-ipcMain.handle("design:removeAsset", async (_e, id, kind, assetPath) =>
-  design.removeAsset(await getRootPath(), id, kind, assetPath)
-);
-
-ipcMain.handle("design:listAssets", async (_e, id) => design.collectAssets(await getRootPath(), id));
-
-// ---- дизайн-системы ----
-
-ipcMain.handle("design:listSystems", async () => design.listSystems(await getRootPath()));
-ipcMain.handle("design:createSystem", async (_e, name) => design.createSystem(await getRootPath(), name));
-ipcMain.handle("design:updateSystem", async (_e, id, patch) => design.updateSystem(await getRootPath(), id, patch));
-ipcMain.handle("design:removeSystem", async (_e, id) => {
-  await design.removeSystem(await getRootPath(), id);
-  return design.listSystems(await getRootPath());
-});
-
-ipcMain.handle("design:pickSystemAssets", async (_e, id, kind) => {
-  const win = BrowserWindow.getFocusedWindow();
-  const filters =
-    kind === "fonts"
-      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
-      : kind === "rules"
-        ? [{ name: "Правила", extensions: ["md", "txt", "json", "css", "svg"] }]
-        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }];
-  const picked = await dialog.showOpenDialog(win, {
-    title: "Выберите файлы дизайн-системы",
-    properties: ["openFile", "multiSelections"],
-    filters,
-  });
-  if (picked.canceled || picked.filePaths.length === 0) return null;
-  return design.addSystemAssets(await getRootPath(), id, kind, picked.filePaths);
-});
-
-ipcMain.handle("design:removeSystemAsset", async (_e, id, kind, assetPath) =>
-  design.removeSystemAsset(await getRootPath(), id, kind, assetPath)
-);
-
-/**
- * Подставляет ассеты в разметку. Renderer вызывает это и для предпросмотра, и перед
- * экспортом — чтобы то, что видно на экране, совпадало с тем, что уйдёт в файл.
- */
-ipcMain.handle("design:applyAssets", async (_e, id, html) => {
-  if (!id) return html;
-  const assets = await design.collectAssets(await getRootPath(), id, { withData: true });
-  return design.applyAssets(html, assets);
-});
-
-ipcMain.handle("design:list", async (_e, projectId) => design.list(await getRootPath(), projectId));
-ipcMain.handle("design:save", async (_e, projectId, doc) => design.save(await getRootPath(), projectId, doc));
-ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await getRootPath(), projectId, id));
-
-ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
-  const root = await getRootPath();
-  const projects = await designProjects();
-  const project = projects.find((p) => p.id === projectId) || null;
-
-  // Фирменный стиль берётся из проекта приложения, если дизайн-проект к нему привязан.
-  let brand;
-  let designSystem = "";
-  const linked = project?.linkedProjectId;
-  if (linked) {
-    const meta = await readJson(path.join(projectDir(root, linked), "project.json"), null);
-    brand = meta?.brand;
-    if (meta?.designSystemPaths?.length) designSystem = await readDesignSystem(meta.designSystemPaths);
-  }
-
-  const assets = projectId ? await design.collectAssets(root, projectId) : [];
-  const systems = await design.listSystems(root);
-  const system = systems.find((x) => x.id === project?.systemId) || null;
-  const base = design.buildAgentSystemPrompt(brand, project, assets, system);
-  if (!designSystem.trim()) return base;
-  return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРИВЯЗАННОГО ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
-});
-
-ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
-ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
-
-/**
- * Экспорт макета в точный размер (PNG) или ролика (MP4).
- *
- * Оба идут не через общий HTML-экспорт, а через motion.cjs: тот рендерит полосами,
- * поэтому макет выше экрана не обрезается — см. комментарий в самом модуле.
- */
-ipcMain.handle("design:render", async (_e, payload) => {
-  const { kind, html, width, height, fps, durationSec, defaultName, projectId } = payload || {};
-  const win = BrowserWindow.getFocusedWindow();
-  const ext = kind === "mp4" ? "mp4" : "png";
-  const result = await dialog.showSaveDialog(win, {
-    defaultPath: path.join(await resolveExportDir(), sanitizeFileName(defaultName || "design") + "." + ext),
-    filters: [{ name: kind === "mp4" ? "Видео MP4" : "PNG", extensions: [ext] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-
-  const root = await getRootPath();
-  const assets = projectId ? await design.collectAssets(root, projectId, { withData: true }) : [];
-  const ready = design.applyAssets(html, assets);
-
-  const send = (progress) => {
-    if (!win.isDestroyed()) win.webContents.send("design:renderProgress", progress);
-  };
-
-  if (kind === "mp4") {
-    const out = await motion.renderMp4({
-      html: ready,
-      width,
-      height,
-      fps,
-      durationSec,
-      outPath: result.filePath,
-      onProgress: send,
-    });
-    return out;
-  }
-  return motion.renderPng({ html: ready, width, height, outPath: result.filePath });
-});
-
-ipcMain.handle("design:openFolder", async (_e, projectId) => {
-  const root = await getRootPath();
-  const dir = design.designDir(root, projectId);
-  await ensureDir(dir);
-  await shell.openPath(dir);
 });
