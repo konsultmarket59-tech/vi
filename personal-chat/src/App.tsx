@@ -9,7 +9,6 @@ import WordView from "./components/WordView";
 import DirectView from "./components/DirectView";
 import CloudView from "./components/CloudView";
 import MediaView from "./components/MediaView";
-import DesignView from "./components/DesignView";
 import GitHubView from "./components/GitHubView";
 import ChatBotsView from "./components/ChatBotsView";
 import SettingsView from "./components/SettingsView";
@@ -174,14 +173,6 @@ export default function App() {
         )}
         {activeView.kind === "media" && (
           <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
-        )}
-        {activeView.kind === "design" && (
-          <DesignView
-            projects={projects}
-            skills={skills}
-            settings={settings}
-            onOpenSettings={() => setView({ kind: "settings" })}
-          />
         )}
         {activeView.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />

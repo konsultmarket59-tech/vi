@@ -175,7 +175,8 @@ app.whenReady().then(async () => {
     );
     await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "список модулей загружен");
     const moduleCount = await win.webContents.executeJavaScript(`document.querySelectorAll(".module-card").length`);
-    check("модулей показано 10", moduleCount === 10, String(moduleCount));
+    const expectedModules = require("./blueprints.cjs").MODULES.length;
+    check(`модулей показано ${expectedModules}`, moduleCount === expectedModules, String(moduleCount));
     check(
       "ядро нельзя отключить",
       await win.webContents.executeJavaScript(

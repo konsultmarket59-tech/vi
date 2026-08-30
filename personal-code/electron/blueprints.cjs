@@ -17,7 +17,7 @@ const crypto = require("node:crypto");
 // Sidebar, which is what plugins.json switches on.
 // Базовая часть (core) одинакова у всех сборок: чат с выбором модели, проекты и
 // инструкции, навыки, задачи по расписанию, работа с файлами на компьютере,
-// сохранение результатов и дизайн. Всё остальное — плагины, включаются по выбору.
+// сохранение результатов. Всё остальное — плагины, включаются по выбору.
 const MODULES = [
   {
     id: "projects",
@@ -26,7 +26,6 @@ const MODULES = [
     description: "Диалоги, выбор модели, инструкции, документы, задачи по расписанию, файлы с компьютера.",
   },
   { id: "skills", name: "Навыки", core: true, description: "Библиотека навыков и конструктор навыков." },
-  { id: "design", name: "Дизайн", core: true, description: "Дизайн-системы, проекты, экспорт PNG/PDF/MP4." },
   { id: "excel", name: "Excel", core: false, description: "Таблицы с формулами и агент внутри таблицы." },
   { id: "word", name: "Word", core: false, description: "Документы .docx и агент для правок." },
   { id: "media", name: "Медиа", core: false, description: "Генерация изображений." },

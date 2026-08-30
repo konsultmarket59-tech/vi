@@ -9,7 +9,6 @@ export type View =
   | { kind: "cloud" }
   | { kind: "direct" }
   | { kind: "media" }
-  | { kind: "design" }
   | { kind: "github" }
   | { kind: "chatbots" }
   | { kind: "settings" };
@@ -22,7 +21,6 @@ const MODULE_ITEMS = [
   { id: "excel", label: "📗 Excel" },
   { id: "word", label: "📘 Word" },
   { id: "media", label: "🎨 Медиа" },
-  { id: "design", label: "🖌️ Дизайн" },
   { id: "cloud", label: "☁️ Облако" },
   { id: "direct", label: "📣 Директ" },
   { id: "github", label: "🐙 GitHub" },

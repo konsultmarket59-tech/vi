@@ -24,10 +24,9 @@ fs.writeFileSync(
       productName: "Тексты Динамики",
       modules: {
         projects: true,
-        skills: true,
+        skills: false,
         word: true,
         excel: false,
-        design: false,
         media: false,
         cloud: false,
         direct: false,
@@ -86,15 +85,15 @@ app.whenReady().then(async () => {
     }
 
     console.log("\nсборка «только тексты»");
-    check("включённые модули на месте", menu.includes("Навыки") && menu.includes("Word"), menu);
+    check("включённые модули на месте", menu.includes("Word"), menu);
     check(
       "выключенные модули скрыты",
       !menu.includes("Excel") && !menu.includes("Директ") && !menu.includes("GitHub") && !menu.includes("Чат-боты"),
       menu
     );
-    // Навыки и Дизайн входят в неотключаемую базу: даже с modules.design = false
-    // они остаются, потому что база одинакова у всех сборок.
-    check("база остаётся, даже если её выключить в конфиге", menu.includes("Дизайн"), menu);
+    // Навыки входят в неотключаемую базу: даже с modules.skills = false раздел
+    // остаётся, потому что база одинакова у всех сборок.
+    check("база остаётся, даже если её выключить в конфиге", menu.includes("Навыки"), menu);
     check("Настройки нельзя выключить — они на месте", menu.includes("Настройки"), menu);
 
     const title = await win.webContents.executeJavaScript(
