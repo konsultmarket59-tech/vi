@@ -28,6 +28,12 @@ const MODULES = [
   { id: "skills", name: "Навыки", core: true, description: "Библиотека навыков и конструктор навыков." },
   { id: "excel", name: "Excel", core: false, description: "Таблицы с формулами и агент внутри таблицы." },
   { id: "word", name: "Word", core: false, description: "Документы .docx и агент для правок." },
+  {
+    id: "docflow",
+    name: "Документооборот",
+    core: false,
+    description: "Договоры, акты, ТЗ по шаблонам: реквизиты, нумерация из сверки, Word + PDF, режим юриста.",
+  },
   { id: "media", name: "Медиа", core: false, description: "Генерация изображений." },
   { id: "cloud", name: "Облако", core: false, description: "Яндекс Диск и Google Диск." },
   { id: "direct", name: "Яндекс.Директ", core: false, description: "Статистика и управление кампаниями." },

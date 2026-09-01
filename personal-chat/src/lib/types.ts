@@ -496,6 +496,72 @@ export interface WordDocument {
   blocks: WordBlock[];
 }
 
+/** Вид документа в документообороте: от него зависят нумерация и правило даты. */
+export interface DocKind {
+  id: string;
+  name: string;
+  numbered: boolean;
+  dateRule: "today" | "monthStart" | "monthEnd";
+}
+
+export interface Counterparty {
+  id: string;
+  name: string;
+  requisitesPath: string;
+}
+
+export interface DocTemplate {
+  id: string;
+  name: string;
+  kind: string;
+  path: string;
+}
+
+export interface DocSource {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface DocflowConfig {
+  counterparties: Counterparty[];
+  templates: DocTemplate[];
+  sources: DocSource[];
+  /** Документ сверки — по нему считаются номера и в него пишется каждая выдача. */
+  ledgerPath: string;
+  archivePath: string;
+  outputPath: string;
+}
+
+export interface DocflowPrepared {
+  prompt: string;
+  images: ChatAttachment[];
+  nextNumber: number;
+  date: string;
+  templateBlocks: number;
+  ledgerFound: boolean;
+  ledgerColumns: Record<string, number>;
+  problems: string[];
+}
+
+export interface DocflowMeta {
+  number: string;
+  date: string;
+  counterparty: string;
+  sum: string;
+  filename: string;
+}
+
+export interface DocflowSaveResult {
+  docxPath: string;
+  pdfPath: string;
+  /** "word" — печатал настоящий Word, "render" — приблизительная вёрстка приложения. */
+  pdfVia: string;
+  pdfError: string;
+  ledgerRow: string[] | null;
+  ledgerError: string;
+}
+
 export type WordEditOp =
   | { op: "set"; index: number; text: string }
   | { op: "insert"; index: number; text: string; style: string }
@@ -816,9 +882,42 @@ export interface ElectronAPI {
   insertWordParagraph(afterIndex: number, text: string, style?: string): Promise<WordDocument>;
   applyWordAgentEdit(edit: WordEdit): Promise<WordDocument>;
   saveWordFile(saveAs?: boolean): Promise<string | null>;
-  buildWordAgentPrompt(): Promise<string>;
+  buildWordAgentPrompt(mode?: "edit" | "analyze"): Promise<string>;
+  saveWordAnalysis(markdown: string, defaultName: string): Promise<string | null>;
   getWordAgentConversation(): Promise<Conversation | null>;
   saveWordAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  // документооборот
+  getDocflowConfig(): Promise<DocflowConfig>;
+  saveDocflowConfig(config: DocflowConfig): Promise<DocflowConfig>;
+  docflowKinds(): Promise<DocKind[]>;
+  parseDocflowResult(text: string): Promise<{ meta: DocflowMeta; ops: WordEditOp[]; markdown: string } | null>;
+  pickDocflowFile(kind: "template" | "ledger" | "data"): Promise<string[]>;
+  pickDocflowFolder(): Promise<string | null>;
+  listDocflowFolder(folderPath: string): Promise<string[]>;
+  openDocflowFolder(folderPath: string): Promise<void>;
+  prepareDocflow(request: {
+    kindId: string;
+    mode: "template" | "lawyer";
+    month?: string;
+    templatePath?: string;
+    requisitesPath?: string;
+    dataPaths?: string[];
+    sourcePaths?: string[];
+    ledgerPath?: string;
+    counterpartyName?: string;
+  }): Promise<DocflowPrepared>;
+  saveDocflowResult(payload: {
+    mode: "template" | "lawyer";
+    templatePath?: string;
+    ops?: WordEditOp[];
+    markdown?: string;
+    meta: DocflowMeta;
+    outputDir: string;
+    kindId: string;
+    ledgerPath?: string;
+    writeLedger: boolean;
+  }): Promise<DocflowSaveResult>;
 
   // Excel workbooks
   pickExcelFile(): Promise<string | null>;

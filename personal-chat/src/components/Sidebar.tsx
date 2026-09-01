@@ -6,6 +6,7 @@ export type View =
   | { kind: "skills" }
   | { kind: "excel" }
   | { kind: "word" }
+  | { kind: "docflow" }
   | { kind: "cloud" }
   | { kind: "direct" }
   | { kind: "media" }
@@ -20,6 +21,7 @@ const MODULE_ITEMS = [
   { id: "skills", label: "🧩 Навыки" },
   { id: "excel", label: "📗 Excel" },
   { id: "word", label: "📘 Word" },
+  { id: "docflow", label: "📁 Документооборот" },
   { id: "media", label: "🎨 Медиа" },
   { id: "cloud", label: "☁️ Облако" },
   { id: "direct", label: "📣 Директ" },

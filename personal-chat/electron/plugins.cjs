@@ -17,6 +17,7 @@ const MODULE_IDS = [
   "skills",
   "excel",
   "word",
+  "docflow",
   "media",
   "cloud",
   "direct",

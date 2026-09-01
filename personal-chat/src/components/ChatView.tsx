@@ -24,6 +24,8 @@ interface Props {
   brand?: BrandKit;
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
+  /** Каждый кусочек ответа по мере поступления — для живого предпросмотра правок. */
+  onStreamingText?: (text: string) => void;
   skills?: Skill[];
   /**
    * Extra read-only tools this chat offers, on top of web search. Returns text to
@@ -38,7 +40,7 @@ interface Props {
    * caller can push the same question twice by bumping the counter alongside it —
    * used by the Excel grid to ask about whichever cell is selected.
    */
-  prefill?: { text: string; nonce: number };
+  prefill?: { text: string; attachments?: ChatAttachment[]; nonce: number };
 }
 
 type ExportFormat = "pdf" | "png" | "docx" | "xlsx";
@@ -186,6 +188,7 @@ export default function ChatView({
   brand,
   emptyHint,
   onAssistantMessage,
+  onStreamingText,
   skills,
   extraTools,
   extraToolLabel,
@@ -220,6 +223,7 @@ export default function ChatView({
   useEffect(() => {
     if (!prefill) return;
     setInput(prefill.text);
+    if (prefill.attachments?.length) setAttachments(prefill.attachments);
     inputRef.current?.focus();
   }, [prefill?.nonce]);
 
@@ -297,9 +301,17 @@ export default function ChatView({
 
     const attachedSkill = skills?.find((s) => s.id === attachedSkillId);
     const skillPrompt = attachedSkill
-      ? `\n\n--- Навык (вызван для этого сообщения): ${attachedSkill.name} ---\n${
-          attachedSkill.description ? attachedSkill.description + "\n" : ""
-        }${attachedSkill.content}`
+      ? `\n\n=== НАВЫК, ВЫЗВАННЫЙ ДЛЯ ЭТОГО СООБЩЕНИЯ: ${attachedSkill.name} ===\n` +
+        "Это инструкция к исполнению, а не справка. Выполняй её буквально: все указанные форматы, " +
+        "структуру, количество пунктов и ограничения. Если требование навыка противоречит общему стилю — " +
+        "побеждает навык. Если выполнить какое-то требование нельзя, скажи об этом прямо, а не молча пропусти.\n" +
+        `${attachedSkill.description ? attachedSkill.description + "\n" : ""}${attachedSkill.content}`
+      : "";
+    // Напоминание идёт последней строкой запроса — там, где модель читает
+    // внимательнее всего. Одного упоминания в начале системного промпта не хватало:
+    // на длинном контексте параметры навыка терялись.
+    const skillReminder = attachedSkill
+      ? `\n\n[Применяется навык «${attachedSkill.name}» — следуй всем его правилам и параметрам буквально.]`
       : "";
     // Only the tail of a long chat travels with each request; anything folded away
     // earlier is represented by its summary, and anything merely over budget is
@@ -351,6 +363,19 @@ export default function ChatView({
       )),
     ];
 
+    // Напоминание про навык дописывается к последнему сообщению пользователя, а не
+    // отправляется отдельным: лишнее сообщение в истории модель иногда принимает за
+    // реплику собеседника и начинает отвечать на него, а не на вопрос.
+    if (skillReminder && apiMessages.length > 0) {
+      const last = apiMessages[apiMessages.length - 1];
+      if (last.role === "user") {
+        last.content =
+          typeof last.content === "string"
+            ? last.content + skillReminder
+            : [...last.content, { type: "text", text: skillReminder }];
+      }
+    }
+
     setBusy(true);
     setStreamingText("");
     const controller = new AbortController();
@@ -364,7 +389,12 @@ export default function ChatView({
       let full = await streamChat(
         effectiveSettings,
         apiMessages,
-        (chunk) => setStreamingText((prev) => prev + chunk),
+        (chunk) =>
+          setStreamingText((prev) => {
+            const next = prev + chunk;
+            onStreamingText?.(next);
+            return next;
+          }),
         controller.signal,
         system
       );
@@ -387,7 +417,12 @@ export default function ChatView({
         full = await streamChat(
           effectiveSettings,
           apiMessages,
-          (chunk) => setStreamingText((prev) => prev + chunk),
+          (chunk) =>
+          setStreamingText((prev) => {
+            const next = prev + chunk;
+            onStreamingText?.(next);
+            return next;
+          }),
           controller.signal,
           system
         );

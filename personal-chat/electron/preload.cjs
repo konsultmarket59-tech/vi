@@ -78,7 +78,20 @@ contextBridge.exposeInMainWorld("api", {
   insertWordParagraph: (afterIndex, text, style) => ipcRenderer.invoke("word:insertParagraph", afterIndex, text, style),
   applyWordAgentEdit: (edit) => ipcRenderer.invoke("word:applyAgentEdit", edit),
   saveWordFile: (saveAs) => ipcRenderer.invoke("word:save", saveAs),
-  buildWordAgentPrompt: () => ipcRenderer.invoke("word:buildAgentPrompt"),
+  buildWordAgentPrompt: (mode) => ipcRenderer.invoke("word:buildAgentPrompt", mode),
+  saveWordAnalysis: (markdown, defaultName) => ipcRenderer.invoke("word:saveAnalysis", markdown, defaultName),
+
+  // документооборот
+  getDocflowConfig: () => ipcRenderer.invoke("docflow:getConfig"),
+  saveDocflowConfig: (config) => ipcRenderer.invoke("docflow:saveConfig", config),
+  docflowKinds: () => ipcRenderer.invoke("docflow:kinds"),
+  parseDocflowResult: (text) => ipcRenderer.invoke("docflow:parse", text),
+  pickDocflowFile: (kind) => ipcRenderer.invoke("docflow:pickFile", kind),
+  pickDocflowFolder: () => ipcRenderer.invoke("docflow:pickFolder"),
+  listDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:listFolder", folderPath),
+  openDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:openFolder", folderPath),
+  prepareDocflow: (request) => ipcRenderer.invoke("docflow:prepare", request),
+  saveDocflowResult: (payload) => ipcRenderer.invoke("docflow:save", payload),
   getWordAgentConversation: () => ipcRenderer.invoke("word:getAgentConversation"),
   saveWordAgentConversation: (conv) => ipcRenderer.invoke("word:saveAgentConversation", conv),
 

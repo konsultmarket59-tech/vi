@@ -676,6 +676,7 @@ usage.init(USER_DATA_PATH);
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
+const docflow = require("./docflow.cjs");
 const exportDocs = require("./exportDocs.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
@@ -1731,9 +1732,24 @@ ipcMain.handle("word:save", async (_e, saveAs) => {
   return dest;
 });
 
-ipcMain.handle("word:buildAgentPrompt", async () => {
+ipcMain.handle("word:buildAgentPrompt", async (_e, mode) => {
   if (!openDocument) throw new Error("Документ не открыт.");
-  return word.buildAgentPrompt(openDocument);
+  return word.buildAgentPrompt(openDocument, mode || "edit");
+});
+
+// Результат анализа — отдельный документ, а не правка исходного: разбор не должен
+// уметь испортить то, что разбирает.
+ipcMain.handle("word:saveAnalysis", async (_e, markdown, defaultName) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showSaveDialog(win, {
+    title: "Сохранить результат анализа",
+    defaultPath: sanitizeFileName(defaultName || "Анализ документа") + ".docx",
+    filters: [{ name: "Документы Word", extensions: ["docx"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const sections = await exportDocs.parseBlocks(markdown || "");
+  const buffer = await exportDocs.buildDocx({ title: defaultName || "Анализ документа", sections, brand: null });
+  return exportDocs.writeBuffer(result.filePath, buffer);
 });
 
 ipcMain.handle("word:getAgentConversation", () => readDocumentChat("word", documentChatKey(openDocument)));
@@ -2301,4 +2317,174 @@ ipcMain.handle("media:pickReferenceImage", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
+});
+
+// ---------- документооборот ----------
+
+/** PDF из готовой разметки в файл по заданному пути — запасной путь, когда нет Word. */
+async function renderHtmlToPdfFile(html, destPath) {
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width: 900 });
+  try {
+    const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: "A4" });
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.writeFile(destPath, pdf);
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+  return destPath;
+}
+
+ipcMain.handle("docflow:getConfig", async () => docflow.loadConfig(await getRootPath()));
+ipcMain.handle("docflow:saveConfig", async (_e, config) => docflow.saveConfig(await getRootPath(), config));
+ipcMain.handle("docflow:kinds", () => docflow.DOC_KINDS);
+ipcMain.handle("docflow:parse", (_e, text) => docflow.parseResult(text));
+
+ipcMain.handle("docflow:pickFile", async (_e, kind) => {
+  const filters = {
+    template: [{ name: "Документы Word", extensions: ["docx"] }],
+    ledger: [{ name: "Документ сверки", extensions: ["xlsx", "docx"] }],
+    data: [
+      { name: "Данные и документы", extensions: ["xlsx", "csv", "docx", "pdf", "txt", "md", "png", "jpg", "jpeg", "webp"] },
+    ],
+  }[kind] || [{ name: "Все файлы", extensions: ["*"] }];
+
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    properties: kind === "data" ? ["openFile", "multiSelections"] : ["openFile"],
+    filters,
+  });
+  if (result.canceled || result.filePaths.length === 0) return [];
+  return result.filePaths;
+});
+
+ipcMain.handle("docflow:pickFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("docflow:listFolder", async (_e, folderPath) => docflow.listFolder(folderPath));
+ipcMain.handle("docflow:openFolder", async (_e, folderPath) => {
+  if (folderPath) await shell.openPath(folderPath);
+});
+
+/**
+ * Собирает всё, что нужно агенту: тексты исходников, блоки шаблона, хвост документа
+ * сверки и посчитанные номер с датой. Номер и дата считаются ЗДЕСЬ, а не моделью:
+ * «посмотри в сверке крайний номер и прибавь единицу» — ровно та арифметика, которую
+ * модель периодически делает неправильно, а цена ошибки в документе высокая.
+ */
+ipcMain.handle("docflow:prepare", async (_e, request) => {
+  const { kindId, mode, month, templatePath, requisitesPath, dataPaths, ledgerPath, counterpartyName, sourcePaths } =
+    request || {};
+
+  const references = [];
+  const images = [];
+  const addRef = async (filePath, title) => {
+    if (!filePath) return;
+    const ref = await docflow.readReference(filePath, extractDocText);
+    references.push({ ...ref, title });
+    if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+  };
+
+  await addRef(requisitesPath, "РЕКВИЗИТЫ КОНТРАГЕНТА");
+  for (const p of sourcePaths || []) await addRef(p, "ИСХОДНЫЕ ДАННЫЕ (тарифы, прайс)");
+  for (const p of dataPaths || []) await addRef(p, "ДАННЫЕ ДЛЯ ДОКУМЕНТА");
+
+  const ledger = await docflow.readLedger(ledgerPath).catch(() => null);
+  const kind = docflow.kindById(kindId);
+  const nextNumber = ledger && kind.numbered ? docflow.lastNumber(ledger, kind.name) + 1 : 0;
+  const date = docflow.documentDate(kindId, month);
+
+  let templateText = "";
+  let templateBlocks = 0;
+  if (mode !== "lawyer" && templatePath) {
+    const model = await word.loadDocument(templatePath);
+    templateText = word.toAgentText(model);
+    templateBlocks = model.blocks.length;
+  }
+
+  const prompt = docflow.buildPrompt({
+    kindId,
+    month,
+    references,
+    ledgerText: docflow.ledgerToText(ledger),
+    nextNumber,
+    date,
+    templateText,
+    mode,
+    counterpartyName,
+  });
+
+  return {
+    prompt,
+    images,
+    nextNumber,
+    date,
+    templateBlocks,
+    ledgerFound: Boolean(ledger && ledger.format !== "none" && ledger.format !== "unsupported"),
+    ledgerColumns: ledger?.columns || {},
+    problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),
+  };
+});
+
+/**
+ * Сохраняет подтверждённый документ: .docx (заполненный шаблон или собранный с нуля),
+ * рядом .pdf, и запись в документе сверки. Запись делается последней — если сохранение
+ * файла не удалось, в сверке не появится строка про документ, которого нет.
+ */
+ipcMain.handle("docflow:save", async (_e, payload) => {
+  const { mode, templatePath, ops, markdown, meta, outputDir, kindId, ledgerPath, writeLedger } = payload || {};
+  if (!outputDir) throw new Error("Не выбрана папка, куда сохранять документ.");
+
+  const kind = docflow.kindById(kindId);
+  const baseName = docflow.sanitizeFileName(
+    meta?.filename || `${kind.name}${meta?.number ? ` №${meta.number}` : ""}${meta?.date ? ` от ${meta.date}` : ""}`
+  );
+  const docxPath = path.join(outputDir, `${baseName}.docx`);
+  const pdfPath = path.join(outputDir, `${baseName}.pdf`);
+
+  if (mode === "lawyer") {
+    if (!markdown) throw new Error("Агент не вернул текст документа.");
+    await docflow.buildFromMarkdown(markdown, baseName, docxPath);
+  } else {
+    if (!templatePath) throw new Error("Не выбран шаблон документа.");
+    if (!ops || ops.length === 0) throw new Error("Агент не предложил ни одной правки к шаблону.");
+    await docflow.fillTemplate(templatePath, ops, docxPath);
+  }
+
+  let pdf = null;
+  let pdfError = "";
+  try {
+    pdf = await docflow.docxToPdf(docxPath, pdfPath, { renderHtmlToPdf: renderHtmlToPdfFile });
+  } catch (e) {
+    pdfError = e.message;
+  }
+
+  let ledgerRow = null;
+  let ledgerError = "";
+  if (writeLedger && ledgerPath) {
+    try {
+      const ledger = await docflow.readLedger(ledgerPath);
+      ledgerRow = await docflow.appendLedgerRow(ledgerPath, ledger, {
+        number: meta?.number || "",
+        date: meta?.date || "",
+        kind: kind.name,
+        counterparty: meta?.counterparty || "",
+        sum: meta?.sum || "",
+      });
+    } catch (e) {
+      ledgerError = e.message;
+    }
+  }
+
+  return {
+    docxPath,
+    pdfPath: pdf?.path || "",
+    pdfVia: pdf?.via || "",
+    pdfError,
+    ledgerRow: ledgerRow?.values || null,
+    ledgerError,
+  };
 });
