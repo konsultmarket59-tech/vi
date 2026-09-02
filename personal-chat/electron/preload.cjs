@@ -168,6 +168,15 @@ contextBridge.exposeInMainWorld("api", {
   listTasks: (projectId) => ipcRenderer.invoke("tasks:list", projectId),
   saveTask: (projectId, task) => ipcRenderer.invoke("tasks:save", projectId, task),
   deleteTask: (projectId, id) => ipcRenderer.invoke("tasks:delete", projectId, id),
+  listTaskRuns: (projectId) => ipcRenderer.invoke("tasks:listRuns", projectId),
+  readTaskRun: (projectId, runId) => ipcRenderer.invoke("tasks:readRun", projectId, runId),
+  deleteTaskRun: (projectId, runId) => ipcRenderer.invoke("tasks:deleteRun", projectId, runId),
+
+  // профиль проекта
+  readProjectProfile: (projectId) => ipcRenderer.invoke("profile:read", projectId),
+  buildProfileRequest: (projectId) => ipcRenderer.invoke("profile:buildRequest", projectId),
+  saveProjectProfile: (projectId, answerText) => ipcRenderer.invoke("profile:save", projectId, answerText),
+  userContextDigest: () => ipcRenderer.invoke("profile:digest"),
   onTaskRan: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("tasks:ran", listener);

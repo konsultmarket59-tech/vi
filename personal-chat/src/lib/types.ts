@@ -129,6 +129,26 @@ export interface ScheduledTask {
   updatedAt: number;
 }
 
+/** Короткое резюме проекта — контекст для разделов, у которых своего проекта нет. */
+export interface ProjectProfile {
+  чем_занимается: string;
+  о_чём_проект: string;
+  ключевые_сущности: string[];
+  как_принято_называть: string;
+  чего_избегать: string;
+  fingerprint: string;
+  updatedAt: number;
+}
+
+export interface TaskRunSummary {
+  id: string;
+  taskId: string;
+  title: string;
+  createdAt: number;
+  preview: string;
+  chars: number;
+}
+
 export interface Settings {
   baseUrl: string;
   apiKey: string;
@@ -1034,6 +1054,15 @@ export interface ElectronAPI {
   listTasks(projectId: string): Promise<ScheduledTask[]>;
   saveTask(projectId: string, task: Partial<ScheduledTask> & { title: string; prompt: string }): Promise<ScheduledTask>;
   deleteTask(projectId: string, id: string): Promise<void>;
+  listTaskRuns(projectId: string): Promise<TaskRunSummary[]>;
+  readTaskRun(projectId: string, runId: string): Promise<Conversation | null>;
+  deleteTaskRun(projectId: string, runId: string): Promise<TaskRunSummary[]>;
+
+  // профиль проекта
+  readProjectProfile(projectId: string): Promise<{ profile: ProjectProfile | null; stale: boolean }>;
+  buildProfileRequest(projectId: string): Promise<string>;
+  saveProjectProfile(projectId: string, answerText: string): Promise<ProjectProfile>;
+  userContextDigest(): Promise<string>;
   onTaskRan(callback: (payload: { projectId: string; task: ScheduledTask; conversationId: string }) => void): () => void;
 }
 

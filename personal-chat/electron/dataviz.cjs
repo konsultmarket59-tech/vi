@@ -31,7 +31,7 @@ const CANVAS_PRESETS = [
 const PALETTES = [
   {
     id: "brand",
-    name: "Фирменная (Динамика)",
+    name: "Акцентная (палитра приложения)",
     background: "#F7F6F3",
     text: "#0A0A0A",
     muted: "#5A626B",

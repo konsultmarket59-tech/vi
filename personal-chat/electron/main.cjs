@@ -435,6 +435,139 @@ async function deleteProject(id) {
   return { trashed };
 }
 
+// ---------- результаты задач по расписанию ----------
+
+function taskRunsDir(root, projectId) {
+  return path.join(projectDir(root, projectId), "task-runs");
+}
+
+async function saveTaskRun(projectId, run) {
+  const root = await getRootPath();
+  const dir = taskRunsDir(root, projectId);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, run.id + ".json"), JSON.stringify(run, null, 2), "utf-8");
+  return run;
+}
+
+/** Список запусков: только заголовки и даты, без текстов — их читают по одному. */
+async function listTaskRuns(projectId) {
+  const root = await getRootPath();
+  const dir = taskRunsDir(root, projectId);
+  const entries = await fs.readdir(dir).catch(() => []);
+  const runs = [];
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue;
+    const run = await readJson(path.join(dir, name), null);
+    if (!run) continue;
+    const answer = run.messages?.find((m) => m.role === "assistant")?.content || "";
+    runs.push({
+      id: run.id,
+      taskId: run.taskId || "",
+      title: run.taskTitle || run.title || "Задача",
+      createdAt: run.createdAt,
+      preview: answer.replace(/\s+/g, " ").trim().slice(0, 160),
+      chars: answer.length,
+    });
+  }
+  return runs.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+async function readTaskRun(projectId, runId) {
+  const root = await getRootPath();
+  return readJson(path.join(taskRunsDir(root, projectId), runId + ".json"), null);
+}
+
+async function deleteTaskRun(projectId, runId) {
+  const root = await getRootPath();
+  await fs.rm(path.join(taskRunsDir(root, projectId), runId + ".json"), { force: true });
+  return listTaskRuns(projectId);
+}
+
+ipcMain.handle("tasks:listRuns", (_e, projectId) => listTaskRuns(projectId));
+ipcMain.handle("tasks:readRun", (_e, projectId, runId) => readTaskRun(projectId, runId));
+ipcMain.handle("tasks:deleteRun", (_e, projectId, runId) => deleteTaskRun(projectId, runId));
+
+// ---------- профиль проекта ----------
+
+const PROFILE_SAMPLE_DOCS = 5;
+const PROFILE_SAMPLE_CHARS = 4000;
+
+async function projectFingerprint(projectId) {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  const docs = await listDocs(projectId).catch(() => []);
+  return { meta, docs, fingerprint: profile.fingerprint(meta, docs) };
+}
+
+/** Профиль с пометкой, не устарел ли он относительно текущего содержимого проекта. */
+async function readProjectProfile(projectId) {
+  const root = await getRootPath();
+  const { fingerprint } = await projectFingerprint(projectId);
+  const saved = await profile.read(projectDir(root, projectId));
+  return { profile: saved, stale: profile.isStale(saved, fingerprint) };
+}
+
+/** Готовит запрос на сборку профиля — сам запрос к модели делает окно. */
+async function buildProfileRequest(projectId) {
+  const { meta, docs } = await projectFingerprint(projectId);
+  if (!meta) throw new Error("Проект не найден: " + projectId);
+  const root = await getRootPath();
+
+  // В резюме идут только начала нескольких документов: цель — понять, о чём проект,
+  // а не пересказать базу. Полное чтение здесь стоило бы как обычный запрос в чат.
+  const samples = [];
+  for (const doc of docs.slice(0, PROFILE_SAMPLE_DOCS)) {
+    try {
+      const text = await extractDocText(path.join(docsDir(root, projectId), doc.name));
+      samples.push({ name: doc.name, text: text.slice(0, PROFILE_SAMPLE_CHARS) });
+    } catch {
+      // Нечитаемый документ профилю не помеха — он соберётся по остальным.
+    }
+  }
+  return profile.buildRequestPrompt({
+    name: meta.name,
+    description: meta.description,
+    instructions: meta.instructions,
+    docs,
+    samples,
+  });
+}
+
+async function saveProjectProfile(projectId, answerText) {
+  const parsed = profile.parseProfile(answerText);
+  if (!parsed) throw new Error("Не удалось разобрать ответ модели как профиль проекта.");
+  const root = await getRootPath();
+  const { fingerprint } = await projectFingerprint(projectId);
+  return profile.save(projectDir(root, projectId), {
+    ...parsed,
+    fingerprint,
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * Общая справка «чем занимается человек» из профилей всех проектов.
+ *
+ * Её получают разделы, у которых своего проекта нет: Word, Excel, визуализация,
+ * клининг, документооборот. Собирается из данных пользователя — в коде никакого
+ * конкретного бизнеса быть не должно, приложением пользуется не один человек.
+ */
+async function userContextDigest() {
+  const root = await getRootPath();
+  const projects = await listProjects().catch(() => []);
+  const profiles = [];
+  for (const p of projects) {
+    const saved = await profile.read(projectDir(root, p.id));
+    if (saved) profiles.push({ name: p.name, profile: saved });
+  }
+  return profile.digest(profiles);
+}
+
+ipcMain.handle("profile:read", (_e, projectId) => readProjectProfile(projectId));
+ipcMain.handle("profile:buildRequest", (_e, projectId) => buildProfileRequest(projectId));
+ipcMain.handle("profile:save", (_e, projectId, answerText) => saveProjectProfile(projectId, answerText));
+ipcMain.handle("profile:digest", () => userContextDigest());
+
 // ---------- docs ----------
 
 async function listDocs(projectId) {
@@ -691,6 +824,7 @@ const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
 const docflow = require("./docflow.cjs");
+const profile = require("./profile.cjs");
 const exportDocs = require("./exportDocs.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
@@ -758,10 +892,19 @@ async function buildSystemPrompt(projectId) {
   }
 
   const docs = await listDocs(projectId);
+  // Один и тот же файл часто оказывается и внутри проекта, и во внешней папке,
+  // подключённой к тому же проекту. Раньше он уходил в промпт ДВУМЯ копиями и
+  // оплачивался дважды на каждом сообщении. Считаем такими же файлы с совпавшими
+  // именем и размером; при совпадении имени, но разном размере это разные версии —
+  // их оставляем обе, иначе молча спрятали бы правку.
+  const includedDocs = new Set();
+  const duplicates = [];
+
   if (docs.length > 0) {
     parts.push("\n\n=== ДОКУМЕНТЫ ПРОЕКТА (база знаний) ===");
     for (const doc of docs) {
       if (excluded.has(`docs/${doc.name}`)) continue;
+      includedDocs.add(`${doc.name.toLowerCase()}:${doc.size}`);
       const filePath = path.join(docsDir(root, projectId), doc.name);
       let content;
       try {
@@ -780,6 +923,10 @@ async function buildSystemPrompt(projectId) {
         parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
         for (const doc of externalDocs) {
           if (excluded.has(`external/${doc.name}`)) continue;
+          if (includedDocs.has(`${doc.name.toLowerCase()}:${doc.size}`)) {
+            duplicates.push(doc.name);
+            continue;
+          }
           const filePath = path.join(meta.externalDocsPath, doc.name);
           let content;
           try {
@@ -796,6 +943,12 @@ async function buildSystemPrompt(projectId) {
       // in the UI, to the user) instead of failing silently or failing loudly.
       parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ ===\n[${e.message}]`);
     }
+  }
+
+  if (duplicates.length > 0) {
+    parts.push(
+      `\n\n[Не продублированы из внешней папки (эти файлы уже есть в документах проекта): ${duplicates.join(", ")}]`
+    );
   }
 
   let full = parts.join("\n");
@@ -940,14 +1093,17 @@ async function runScheduledTask(root, task) {
     createdAt: now,
     updatedAt: Date.now(),
   };
-  await saveConversation(task.projectId, conv);
+  // Результат задачи кладётся в отдельную папку, а не в чаты проекта: задача
+  // выполняется сама и каждую неделю, и её выдачи быстро вытесняли из списка
+  // те чаты, которые человек вёл руками.
+  await saveTaskRun(task.projectId, { ...conv, taskId: task.id, taskTitle: task.title });
   const updated = await tasks.save(root, task.projectId, {
     ...task,
     lastRunAt: now,
     lastConversationId: conv.id,
     enabled: task.recurrence === "once" ? false : task.enabled,
   });
-  broadcast("tasks:ran", { projectId: task.projectId, task: updated, conversationId: conv.id });
+  broadcast("tasks:ran", { projectId: task.projectId, task: updated, runId: conv.id });
 }
 
 
@@ -1748,7 +1904,7 @@ ipcMain.handle("word:save", async (_e, saveAs) => {
 
 ipcMain.handle("word:buildAgentPrompt", async (_e, mode) => {
   if (!openDocument) throw new Error("Документ не открыт.");
-  return word.buildAgentPrompt(openDocument, mode || "edit");
+  return word.buildAgentPrompt(openDocument, mode || "edit") + (await userContextDigest());
 });
 
 // Результат анализа — отдельный документ, а не правка исходного: разбор не должен
@@ -2432,7 +2588,7 @@ ipcMain.handle("docflow:prepare", async (_e, request) => {
   });
 
   return {
-    prompt,
+    prompt: prompt + (await userContextDigest()),
     images,
     nextNumber,
     date,
@@ -2611,7 +2767,7 @@ ipcMain.handle("dataviz:prepare", async (_e, request) => {
   const preset = dataviz.presetById(presetId);
   const palette = dataviz.resolvePalette(paletteId, paletteOverrides);
   return {
-    prompt: dataviz.buildPrompt({ kindId, preset, palette, references, extraStyle }),
+    prompt: dataviz.buildPrompt({ kindId, preset, palette, references, extraStyle }) + (await userContextDigest()),
     images,
     preset,
     palette,
@@ -2658,7 +2814,9 @@ ipcMain.handle("cleanup:prepare", async (_e, request) => {
   const scanned = await cleanup.scan(folderPath);
   const inventory = await cleanup.describe(folderPath, scanned, extractDocText);
   return {
-    prompt: cleanup.buildPrompt({ mode, inventory, folderName: path.basename(folderPath), notes }),
+    prompt:
+      cleanup.buildPrompt({ mode, inventory, folderName: path.basename(folderPath), notes }) +
+      (await userContextDigest()),
     fileCount: scanned.files.length,
     folderCount: scanned.folders.length,
     truncated: scanned.truncated,

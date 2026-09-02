@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Brand, Conversation, DesignSystemFile, DocMeta, Project, ScheduledTask, Settings, Skill, TaskRecurrence } from "../lib/types";
+import type { Brand, Conversation, DesignSystemFile, DocMeta, Project, ProjectProfile, ScheduledTask, Settings, Skill, TaskRecurrence, TaskRunSummary } from "../lib/types";
 import { DEFAULT_BRAND } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
+import { streamChat } from "../lib/api";
 import type { BrandKit } from "../lib/exportHtml";
 import ChatView from "./ChatView";
 
@@ -58,6 +59,21 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyTaskDraft);
+  /**
+   * Выдачи задач по расписанию — отдельно от чатов.
+   *
+   * Задача выполняется сама и каждую неделю: раньше её результаты падали в общий
+   * список чатов и вытесняли оттуда те разговоры, которые человек вёл руками.
+   */
+  const [taskRuns, setTaskRuns] = useState<TaskRunSummary[]>([]);
+  const [openRun, setOpenRun] = useState<Conversation | null>(null);
+  /**
+   * Резюме проекта. Нужно разделам, у которых своего проекта нет (Word, Excel,
+   * визуализация, клининг): по нему они понимают сферу работы человека, не
+   * перечитывая всю базу знаний — и не опираясь на примеры, вшитые в код.
+   */
+  const [profile, setProfile] = useState<{ profile: ProjectProfile | null; stale: boolean } | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
 
   useEffect(() => {
     setInstructionsDraft(project.instructions);
@@ -69,13 +85,16 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     loadConversations(project.id);
     loadDocs(project.id);
     loadTasks(project.id);
+    setOpenRun(null);
+    window.api.listTaskRuns(project.id).then(setTaskRuns).catch(() => setTaskRuns([]));
+    loadProfile();
   }, [project.id]);
 
   useEffect(() => {
     return window.api.onTaskRan((payload) => {
       if (payload.projectId !== project.id) return;
       setTasks((prev) => prev.map((t) => (t.id === payload.task.id ? payload.task : t)));
-      loadConversations(project.id);
+      window.api.listTaskRuns(project.id).then(setTaskRuns).catch(() => setTaskRuns([]));
     });
   }, [project.id]);
 
@@ -179,7 +198,35 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
+  async function loadProfile() {
+    setProfile(await window.api.readProjectProfile(project.id).catch(() => null));
+  }
+
+  /**
+   * Пересобирает резюме — это отдельный запрос к модели, поэтому только по кнопке.
+   * Молча тратить деньги на фоновую сборку приложение не должно.
+   */
+  async function rebuildProfile() {
+    setProfileBusy(true);
+    try {
+      const request = await window.api.buildProfileRequest(project.id);
+      const answer = await streamChat(
+        settings,
+        [{ role: "user", content: request }],
+        () => {},
+        undefined,
+        undefined
+      );
+      setProfile({ profile: await window.api.saveProjectProfile(project.id, answer), stale: false });
+    } catch (e) {
+      alert(`Не удалось собрать профиль: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
   async function newConversation() {
+    setOpenRun(null);
     const conv: Conversation = {
       id: uid(),
       projectId: project.id,
@@ -462,6 +509,43 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               </div>
             ))}
 
+            {taskRuns.length > 0 && (
+              <>
+                <div className="conv-list-section-header">
+                  <h4>Выполнено по расписанию</h4>
+                </div>
+                {taskRuns.map((run) => (
+                  <div key={run.id} className="task-run-item">
+                    <button
+                      className="task-run-open"
+                      onClick={async () => setOpenRun(await window.api.readTaskRun(project.id, run.id))}
+                      title={run.preview}
+                    >
+                      <span className="task-title">{run.title}</span>
+                      <span className="task-meta">
+                        {new Date(run.createdAt).toLocaleString("ru-RU", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </button>
+                    <button
+                      className="conv-delete"
+                      onClick={async () => {
+                        setTaskRuns(await window.api.deleteTaskRun(project.id, run.id));
+                        setOpenRun((cur) => (cur && cur.id === run.id ? null : cur));
+                      }}
+                      title="Удалить выдачу"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
             <div className="conv-list-section-header conv-list-section-header-chats">
               <h4>Чаты</h4>
             </div>
@@ -526,7 +610,25 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                 <pre>{systemPrompt || "(пусто)"}</pre>
               </div>
             )}
-            {activeConv ? (
+            {openRun ? (
+              <div className="task-run-view">
+                <div className="task-run-view-header">
+                  <strong>{openRun.title}</strong>
+                  <span className="hint">
+                    {new Date(openRun.createdAt).toLocaleString("ru-RU")}
+                  </span>
+                  <button className="link-btn" onClick={() => setOpenRun(null)}>
+                    закрыть
+                  </button>
+                </div>
+                {openRun.messages.map((m) => (
+                  <div key={m.id} className={m.role === "user" ? "msg msg-user" : "msg msg-assistant"}>
+                    <div className="msg-role">{m.role === "user" ? "Задание" : "Результат"}</div>
+                    <div className="msg-content">{m.content}</div>
+                  </div>
+                ))}
+              </div>
+            ) : activeConv ? (
               <ChatView
                 conversation={activeConv}
                 systemPrompt={systemPrompt}
@@ -546,6 +648,47 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
 
       {tab === "instructions" && (
         <div className="panel-section">
+          <div className="profile-box">
+            <div className="profile-box-head">
+              <strong>Профиль проекта</strong>
+              {profile?.profile && profile.stale && <span className="docflow-badge docflow-badge-warn">устарел</span>}
+              <button className="btn btn-secondary btn-small" onClick={rebuildProfile} disabled={profileBusy}>
+                {profileBusy ? "Собираю…" : profile?.profile ? "Пересобрать" : "Собрать"}
+              </button>
+            </div>
+            <p className="hint">
+              Короткое резюме того, что вы внесли в этот проект. По нему разделы Word, Excel, визуализации,
+              клининга и документооборота понимают, чем вы занимаетесь, — не перечитывая всю базу знаний и
+              не опираясь на примеры, вшитые в приложение. Собирается одним запросом к модели по кнопке.
+            </p>
+            {profile?.profile ? (
+              <div className="profile-body">
+                <div>
+                  <b>Чем занимается:</b> {profile.profile.чем_занимается || "—"}
+                </div>
+                <div>
+                  <b>О чём проект:</b> {profile.profile.о_чём_проект || "—"}
+                </div>
+                {profile.profile.ключевые_сущности.length > 0 && (
+                  <div>
+                    <b>Ключевое:</b> {profile.profile.ключевые_сущности.join(", ")}
+                  </div>
+                )}
+                {profile.profile.как_принято_называть && (
+                  <div>
+                    <b>Именование:</b> {profile.profile.как_принято_называть}
+                  </div>
+                )}
+                <div className="hint">
+                  Обновлён {new Date(profile.profile.updatedAt).toLocaleString("ru-RU")}
+                  {profile.stale && " · с тех пор проект изменился"}
+                </div>
+              </div>
+            ) : (
+              <p className="hint">Профиль ещё не собран — другие разделы про этот проект ничего не знают.</p>
+            )}
+          </div>
+
           <label>Название проекта</label>
           <input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} onBlur={saveHeader} />
           <label>Описание</label>

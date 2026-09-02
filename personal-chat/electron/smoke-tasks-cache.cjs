@@ -118,9 +118,11 @@ server.listen(0, "127.0.0.1", () => {
       }
       check("оба раунда прошли", received.length === 2, `запросов: ${received.length}`);
 
+      // Выдача задачи лежит в своём списке, а не среди чатов проекта.
+      const runs = await call(`window.api.listTaskRuns(${JSON.stringify(project.id)})`);
+      check("создана ровно одна выдача задачи", runs.length === 1, `выдач: ${runs.length}`);
       const convs = await call(`window.api.listConversations(${JSON.stringify(project.id)})`);
-      const taskConvs = (convs || []).filter((c) => c.title === "Задача: Дайджест SMM-рынка");
-      check("создан ровно один чат задачи", taskConvs.length === 1, `чатов: ${taskConvs.length}`);
+      check("чаты проекта задачей не засорены", (convs || []).length === 0, JSON.stringify((convs || []).map((c) => c.title)));
 
       const sys = received.map((r) => r.messages[0]);
       check("системное сообщение идёт первым", sys.every((m) => m.role === "system"));
