@@ -77,6 +77,26 @@ function editValue(cell: { value?: unknown; formula?: string } | undefined): str
   return cell.value === null || cell.value === undefined ? "" : String(cell.value);
 }
 
+/**
+ * Правки из ещё не дописанного ответа.
+ *
+ * Готовый разбор ждёт закрывающий маркер, а он приходит последним — до него человек
+ * не видел ничего. Здесь маркер дописывается искусственно, поэтому разбор ровно тот
+ * же, что и у финального ответа, без второго парсера, который мог бы с ним разойтись.
+ */
+function parsePartialExcelEdit(text: string): Map<string, Map<string, string>> {
+  const preview = new Map<string, Map<string, string>>();
+  if (!text.includes("===EXCEL EDIT START===")) return preview;
+  const closed = text.includes("===EXCEL EDIT END===") ? text : text + "\n===EXCEL EDIT END===";
+  const parsed = parseExcelEdit(closed);
+  for (const segment of parsed?.sheets ?? []) {
+    const cells = new Map<string, string>();
+    for (const cell of segment.cells) cells.set(cell.cell, cell.value);
+    preview.set(segment.sheet, cells);
+  }
+  return preview;
+}
+
 export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
   const [mode, setMode] = useState<Mode>("grid");
   const [workbook, setWorkbook] = useState<ExcelWorkbook | null>(null);
@@ -90,6 +110,11 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentConv, setAgentConv] = useState<Conversation | null>(null);
   const [pendingEdit, setPendingEdit] = useState<ParsedExcelEdit | null>(null);
+  /**
+   * Ячейки, которые агент диктует прямо сейчас: лист → адрес → новое значение.
+   * Подсвечиваются в таблице по ходу ответа, как правки абзацев в Word.
+   */
+  const [livePreview, setLivePreview] = useState<Map<string, Map<string, string>>>(new Map());
   const [editExpanded, setEditExpanded] = useState(false);
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | undefined>();
 
@@ -345,7 +370,9 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
               onUpdate={setAgentConv}
               onSave={(conv) => window.api.saveExcelAgentConversation(conv)}
               emptyHint="Например: «Посчитай маржу по каждому клиенту» или «Поставь оклад Виктории 150000»."
+              onStreamingText={(text) => setLivePreview(parsePartialExcelEdit(text))}
               onAssistantMessage={(content) => {
+                setLivePreview(new Map());
                 // A fresh answer is by definition unhandled, whatever came before.
                 handledEditIdRef.current = null;
                 setEditExpanded(false);
@@ -495,16 +522,27 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
                               const key = `${colToLetters(c + 1)}${r + 1}`;
                               const cell = sheet.cells[key];
                               const isSelected = key === selected;
+                              // Значение, которое агент диктует прямо сейчас: показывается
+                              // вместо старого, пока правка не подтверждена или отклонена.
+                              const incoming = livePreview.get(sheet.name)?.get(key);
                               return (
                                 <td
                                   key={c}
                                   className={
-                                    (isSelected ? "excel-cell-selected " : "") + (cell?.formula ? "excel-cell-formula" : "")
+                                    (isSelected ? "excel-cell-selected " : "") +
+                                    (cell?.formula ? "excel-cell-formula " : "") +
+                                    (incoming !== undefined ? "excel-cell-incoming" : "")
                                   }
                                   onClick={() => setSelected(key)}
-                                  title={cell?.formula ? "=" + cell.formula : undefined}
+                                  title={
+                                    incoming !== undefined
+                                      ? `Было: ${displayValue(cell) || "(пусто)"} → станет: ${incoming}`
+                                      : cell?.formula
+                                        ? "=" + cell.formula
+                                        : undefined
+                                  }
                                 >
-                                  {displayValue(cell)}
+                                  {incoming !== undefined ? incoming : displayValue(cell)}
                                 </td>
                               );
                             })}

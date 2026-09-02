@@ -6,6 +6,9 @@ import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
 import ExcelView from "./components/ExcelView";
 import WordView from "./components/WordView";
+import DocFlowView from "./components/DocFlowView";
+import DataVizView from "./components/DataVizView";
+import CleanupView from "./components/CleanupView";
 import DirectView from "./components/DirectView";
 import CloudView from "./components/CloudView";
 import MediaView from "./components/MediaView";
@@ -166,6 +169,15 @@ export default function App() {
         )}
         {activeView.kind === "excel" && (
           <ExcelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "docflow" && (
+          <DocFlowView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "dataviz" && (
+          <DataVizView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "cleanup" && (
+          <CleanupView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "cloud" && <CloudView projects={projects} />}
         {activeView.kind === "direct" && (

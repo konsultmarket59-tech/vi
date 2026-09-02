@@ -129,6 +129,26 @@ export interface ScheduledTask {
   updatedAt: number;
 }
 
+/** Короткое резюме проекта — контекст для разделов, у которых своего проекта нет. */
+export interface ProjectProfile {
+  чем_занимается: string;
+  о_чём_проект: string;
+  ключевые_сущности: string[];
+  как_принято_называть: string;
+  чего_избегать: string;
+  fingerprint: string;
+  updatedAt: number;
+}
+
+export interface TaskRunSummary {
+  id: string;
+  taskId: string;
+  title: string;
+  createdAt: number;
+  preview: string;
+  chars: number;
+}
+
 export interface Settings {
   baseUrl: string;
   apiKey: string;
@@ -496,6 +516,126 @@ export interface WordDocument {
   blocks: WordBlock[];
 }
 
+/** Вид документа в документообороте: от него зависят нумерация и правило даты. */
+export interface DocKind {
+  id: string;
+  name: string;
+  numbered: boolean;
+  dateRule: "today" | "monthStart" | "monthEnd";
+}
+
+export interface Counterparty {
+  id: string;
+  name: string;
+  requisitesPath: string;
+}
+
+export interface DocTemplate {
+  id: string;
+  name: string;
+  kind: string;
+  path: string;
+}
+
+export interface DocSource {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface DocflowConfig {
+  counterparties: Counterparty[];
+  templates: DocTemplate[];
+  sources: DocSource[];
+  /** Документ сверки — по нему считаются номера и в него пишется каждая выдача. */
+  ledgerPath: string;
+  archivePath: string;
+  outputPath: string;
+}
+
+export interface DocflowPrepared {
+  prompt: string;
+  images: ChatAttachment[];
+  nextNumber: number;
+  date: string;
+  templateBlocks: number;
+  ledgerFound: boolean;
+  ledgerColumns: Record<string, number>;
+  problems: string[];
+}
+
+export interface DocflowMeta {
+  number: string;
+  date: string;
+  counterparty: string;
+  sum: string;
+  filename: string;
+}
+
+export interface DocflowSaveResult {
+  docxPath: string;
+  pdfPath: string;
+  /** "word" — печатал настоящий Word, "render" — приблизительная вёрстка приложения. */
+  pdfVia: string;
+  pdfError: string;
+  ledgerRow: string[] | null;
+  ledgerError: string;
+}
+
+export interface CanvasPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface VizPalette {
+  id: string;
+  name: string;
+  background: string;
+  text: string;
+  muted: string;
+  accent: string;
+  series: string[];
+}
+
+export interface VizKind {
+  id: string;
+  name: string;
+  hint: string;
+}
+
+export interface DatavizPrepared {
+  prompt: string;
+  images: ChatAttachment[];
+  preset: CanvasPreset;
+  palette: VizPalette;
+  problems: string[];
+}
+
+/** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
+export type CleanupOp =
+  | { op: "mkdir"; target: string }
+  | { op: "move"; from: string; to: string }
+  | { op: "rename"; from: string; to: string };
+
+export interface CleanupPrepared {
+  prompt: string;
+  fileCount: number;
+  folderCount: number;
+  truncated: boolean;
+}
+
+export interface CleanupApplied {
+  done: { op: string; target?: string; from?: string; to?: string }[];
+  failed: { op: CleanupOp; error: string }[];
+}
+
+export interface CleanupLedgerSheet {
+  name: string;
+  rows: string[][];
+}
+
 export type WordEditOp =
   | { op: "set"; index: number; text: string }
   | { op: "insert"; index: number; text: string; style: string }
@@ -653,7 +793,8 @@ export interface ElectronAPI {
   listProjects(): Promise<Project[]>;
   createProject(data: { name: string; description: string; instructions: string }): Promise<Project>;
   updateProject(id: string, patch: Partial<Omit<Project, "id">>): Promise<Project>;
-  deleteProject(id: string): Promise<void>;
+  /** `trashed: false` — корзина была недоступна и папка удалена безвозвратно. */
+  deleteProject(id: string): Promise<{ trashed: boolean }>;
   buildSystemPrompt(id: string): Promise<string>;
   openProjectFolder(id: string): Promise<void>;
   pickBrandLogo(): Promise<string | null>;
@@ -816,15 +957,84 @@ export interface ElectronAPI {
   insertWordParagraph(afterIndex: number, text: string, style?: string): Promise<WordDocument>;
   applyWordAgentEdit(edit: WordEdit): Promise<WordDocument>;
   saveWordFile(saveAs?: boolean): Promise<string | null>;
-  buildWordAgentPrompt(): Promise<string>;
+  buildWordAgentPrompt(mode?: "edit" | "analyze"): Promise<string>;
+  saveWordAnalysis(markdown: string, defaultName: string): Promise<string | null>;
   getWordAgentConversation(): Promise<Conversation | null>;
   saveWordAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  // документооборот
+  getDocflowConfig(): Promise<DocflowConfig>;
+  saveDocflowConfig(config: DocflowConfig): Promise<DocflowConfig>;
+  docflowKinds(): Promise<DocKind[]>;
+  parseDocflowResult(text: string): Promise<{ meta: DocflowMeta; ops: WordEditOp[]; markdown: string } | null>;
+  pickDocflowFile(kind: "template" | "ledger" | "data"): Promise<string[]>;
+  pickDocflowFolder(): Promise<string | null>;
+  listDocflowFolder(folderPath: string): Promise<string[]>;
+  openDocflowFolder(folderPath: string): Promise<void>;
+  prepareDocflow(request: {
+    kindId: string;
+    mode: "template" | "lawyer";
+    month?: string;
+    templatePath?: string;
+    requisitesPath?: string;
+    dataPaths?: string[];
+    sourcePaths?: string[];
+    ledgerPath?: string;
+    counterpartyName?: string;
+  }): Promise<DocflowPrepared>;
+  saveDocflowResult(payload: {
+    mode: "template" | "lawyer";
+    templatePath?: string;
+    ops?: WordEditOp[];
+    markdown?: string;
+    meta: DocflowMeta;
+    outputDir: string;
+    kindId: string;
+    ledgerPath?: string;
+    writeLedger: boolean;
+  }): Promise<DocflowSaveResult>;
 
   // Excel workbooks
   pickExcelFile(): Promise<string | null>;
   openExcelFile(filePath: string): Promise<ExcelWorkbook>;
   newExcelWorkbook(name: string): Promise<ExcelWorkbook>;
   applyExcelAgentEdit(edit: ExcelEdit): Promise<{ workbook: ExcelWorkbook; createdSheets: string[] }>;
+
+  // визуализация данных
+  datavizOptions(): Promise<{ presets: CanvasPreset[]; palettes: VizPalette[]; kinds: VizKind[] }>;
+  prepareDataviz(request: {
+    kindId: string;
+    presetId: string;
+    paletteId: string;
+    paletteOverrides?: Partial<VizPalette>;
+    sourcePaths?: string[];
+    extraStyle?: string;
+  }): Promise<DatavizPrepared>;
+  parseDatavizResult(text: string): Promise<{ title: string; html: string } | null>;
+  previewDataviz(
+    html: string,
+    presetId: string,
+    paletteId: string,
+    overrides?: Partial<VizPalette>
+  ): Promise<string>;
+  saveDataviz(payload: {
+    html: string;
+    title: string;
+    presetId: string;
+    paletteId: string;
+    paletteOverrides?: Partial<VizPalette>;
+    outputDir: string;
+    formats: string[];
+  }): Promise<{ png?: string; pdf?: string; html?: string }>;
+
+  // клининг
+  pickCleanupFolder(): Promise<string | null>;
+  prepareCleanup(request: { folderPath: string; mode: "tidy" | "ledger"; notes?: string }): Promise<CleanupPrepared>;
+  parseCleanupPlan(text: string): Promise<{ ops: CleanupOp[] } | null>;
+  parseCleanupLedger(text: string): Promise<{ sheets: CleanupLedgerSheet[] } | null>;
+  applyCleanupPlan(folderPath: string, plan: { ops: CleanupOp[] }): Promise<CleanupApplied>;
+  undoCleanup(folderPath: string, done: CleanupApplied["done"]): Promise<{ restored: unknown[]; failed: unknown[] }>;
+  saveCleanupLedger(sheets: CleanupLedgerSheet[], defaultName: string): Promise<string | null>;
   runExcelAgentTools(text: string): Promise<string | null>;
   setExcelCells(edits: { sheet: string; cell: string; value: string }[]): Promise<ExcelWorkbook>;
   saveExcelFile(saveAs?: boolean): Promise<string | null>;
@@ -844,6 +1054,15 @@ export interface ElectronAPI {
   listTasks(projectId: string): Promise<ScheduledTask[]>;
   saveTask(projectId: string, task: Partial<ScheduledTask> & { title: string; prompt: string }): Promise<ScheduledTask>;
   deleteTask(projectId: string, id: string): Promise<void>;
+  listTaskRuns(projectId: string): Promise<TaskRunSummary[]>;
+  readTaskRun(projectId: string, runId: string): Promise<Conversation | null>;
+  deleteTaskRun(projectId: string, runId: string): Promise<TaskRunSummary[]>;
+
+  // профиль проекта
+  readProjectProfile(projectId: string): Promise<{ profile: ProjectProfile | null; stale: boolean }>;
+  buildProfileRequest(projectId: string): Promise<string>;
+  saveProjectProfile(projectId: string, answerText: string): Promise<ProjectProfile>;
+  userContextDigest(): Promise<string>;
   onTaskRan(callback: (payload: { projectId: string; task: ScheduledTask; conversationId: string }) => void): () => void;
 }
 

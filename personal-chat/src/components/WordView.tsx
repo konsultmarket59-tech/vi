@@ -11,6 +11,29 @@ interface Props {
 
 /** "dock" keeps the document visible with the agent beside it; "agent" gives it the window. */
 type Mode = "doc" | "dock" | "agent";
+type AgentMode = "edit" | "analyze";
+
+/**
+ * Правки из ещё не дописанного ответа.
+ *
+ * Обычный разбор ждёт закрывающий маркер, а он приходит последним — до него человек
+ * не видел ничего. Здесь маркер конца не нужен: строки разбираются по мере поступления,
+ * поэтому правка подсвечивается в документе, пока агент её ещё диктует.
+ */
+function parsePartialEdit(text: string): Map<number, string> {
+  const preview = new Map<number, string>();
+  const start = text.indexOf("===WORD EDIT START===");
+  if (start === -1) return preview;
+  const body = text.slice(start + "===WORD EDIT START===".length).split("===WORD EDIT END===")[0];
+  for (const rawLine of body.split("\n")) {
+    const line = rawLine.trim();
+    const set = /^SET\s+(\d+)\s*:\s*([\s\S]*)$/i.exec(line);
+    if (set) preview.set(Number(set[1]), set[2]);
+    const del = /^DELETE\s+(\d+)$/i.exec(line);
+    if (del) preview.set(Number(del[1]), "");
+  }
+  return preview;
+}
 
 const STYLE_CHOICES = [
   { value: "", label: "Обычный текст" },
@@ -43,6 +66,11 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
   const [editExpanded, setEditExpanded] = useState(false);
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | undefined>();
   const handledEditIdRef = useRef<string | null>(null);
+  /** "edit" — агент предлагает правки, "analyze" — только разбирает и ничего не меняет. */
+  const [agentMode, setAgentMode] = useState<AgentMode>("edit");
+  /** Правки, которые агент диктует прямо сейчас: показываются в документе по ходу ответа. */
+  const [livePreview, setLivePreview] = useState<Map<number, string>>(new Map());
+  const [lastAnalysis, setLastAnalysis] = useState("");
 
   const block = doc?.blocks.find((b) => b.index === selected);
 
@@ -156,32 +184,52 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
     }
   }
 
-  async function openAgent(nextMode: Mode = "dock") {
+  /**
+   * Открывает агента с ЧИСТЫМ разговором.
+   *
+   * Прошлая переписка по документу намеренно не восстанавливается: по одному и тому
+   * же файлу работа каждый раз новая, а старые правки в контексте и мешают агенту,
+   * и заново оплачиваются на каждом запросе.
+   */
+  async function openAgent(nextMode: Mode = "dock", forMode: AgentMode = agentMode) {
     setMode(nextMode);
     try {
-      setAgentPrompt(await window.api.buildWordAgentPrompt());
+      setAgentPrompt(await window.api.buildWordAgentPrompt(forMode));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       return;
     }
-    const existing = await window.api.getWordAgentConversation();
-    if (existing) {
-      setAgentConv(existing);
-      handledEditIdRef.current = existing.handledEditId ?? null;
-      const last = [...existing.messages].reverse().find((m) => m.role === "assistant");
-      if (last && last.id !== handledEditIdRef.current) setPendingEdit(parseWordEdit(last.content));
-      else setPendingEdit(null);
-    } else {
-      const conv: Conversation = {
-        id: uid(),
-        projectId: "__word_agent__",
-        title: "Агент Word",
-        messages: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      await window.api.saveWordAgentConversation(conv);
-      setAgentConv(conv);
+    setPendingEdit(null);
+    setLivePreview(new Map());
+    setLastAnalysis("");
+    handledEditIdRef.current = null;
+    const conv: Conversation = {
+      id: uid(),
+      projectId: "__word_agent__",
+      title: forMode === "analyze" ? "Анализ документа" : "Агент Word",
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await window.api.saveWordAgentConversation(conv);
+    setAgentConv(conv);
+  }
+
+  async function switchAgentMode(next: AgentMode) {
+    setAgentMode(next);
+    await openAgent(mode === "doc" ? "dock" : mode, next);
+  }
+
+  async function saveAnalysis() {
+    if (!lastAnalysis) return;
+    setBusy(true);
+    try {
+      const dest = await window.api.saveWordAnalysis(lastAnalysis, `Анализ — ${doc?.name?.replace(/\.docx$/i, "") || "документ"}`);
+      if (dest) showNote(`Анализ сохранён: ${dest}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -229,11 +277,32 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
   function renderAgentPanel(compact: boolean) {
     return (
       <div className={compact ? "excel-agent-pane" : "ops-app-body ops-app-agent"}>
+        <div className="word-mode-switch">
+          <button
+            className={agentMode === "edit" ? "tab active" : "tab"}
+            onClick={() => switchAgentMode("edit")}
+          >
+            Правки
+          </button>
+          <button
+            className={agentMode === "analyze" ? "tab active" : "tab"}
+            onClick={() => switchAgentMode("analyze")}
+          >
+            Анализ
+          </button>
+        </div>
         <p className="hint ops-agent-hint">
-          Агент видит весь документ по блокам и может переписывать абзацы, добавлять заголовки и пункты,
-          удалять лишнее. Любое изменение он сначала предлагает — применяете вы. Файл на диске меняется
-          только когда вы нажмёте «Сохранить». Под полем ввода есть 🎯 — можно подключить навык.
+          {agentMode === "edit"
+            ? "Агент видит весь документ по блокам и правит только то, о чём вы попросили — остальной текст и всё форматирование остаются как были. Правка сначала подсвечивается прямо в документе, применяете её вы. Файл на диске меняется только после «Сохранить». Под полем ввода есть 🎯 — можно подключить навык."
+            : "Разбор без правок: ошибки, противоречия, риски, выводы, отчёт по документу. Сам документ в этом режиме не меняется — результат можно сохранить отдельным файлом."}
         </p>
+        {agentMode === "analyze" && lastAnalysis && (
+          <div className="excel-pending-actions">
+            <button className="btn btn-primary" onClick={saveAnalysis} disabled={busy}>
+              Сохранить результат в документ
+            </button>
+          </div>
+        )}
         {!settings.apiKey && (
           <div className="warning-banner">
             API-ключ не задан. <button className="link-btn" onClick={onOpenSettings}>Открыть настройки</button>
@@ -277,10 +346,19 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
             onUpdate={setAgentConv}
             onSave={(conv) => window.api.saveWordAgentConversation(conv)}
             emptyHint="Например: «Перепиши третий абзац строже» или «Добавь раздел про сроки после пункта 2»."
+            onStreamingText={(text) => {
+              if (agentMode === "edit") setLivePreview(parsePartialEdit(text));
+            }}
             onAssistantMessage={(content) => {
               handledEditIdRef.current = null;
               setEditExpanded(false);
-              setPendingEdit(parseWordEdit(content));
+              setLivePreview(new Map());
+              if (agentMode === "analyze") {
+                setLastAnalysis(content);
+                setPendingEdit(null);
+              } else {
+                setPendingEdit(parseWordEdit(content));
+              }
             }}
           />
         )}
@@ -392,35 +470,51 @@ export default function WordView({ settings, skills, onOpenSettings }: Props) {
                   </div>
 
                   <div className="word-blocks">
-                    {doc.blocks.map((b) => (
-                      <div
-                        key={b.index}
-                        className={
-                          "word-block" +
-                          (b.index === selected ? " active" : "") +
-                          (b.level ? ` word-h${b.level}` : "") +
-                          (b.kind === "list" ? " word-list" : "")
-                        }
-                        onClick={() => setSelected(b.index)}
-                      >
-                        <span className="word-block-index">{b.index}</span>
-                        {b.kind === "table" ? (
-                          <table className="ops-table word-block-table">
-                            <tbody>
-                              {b.rows.map((row, r) => (
-                                <tr key={r}>
-                                  {row.map((cell, c) => (
-                                    <td key={c}>{cell}</td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        ) : (
-                          <span className="word-block-text">{b.text || <span className="hint">(пусто)</span>}</span>
-                        )}
-                      </div>
-                    ))}
+                    {doc.blocks.map((b) => {
+                      // Правка, которую агент диктует прямо сейчас. Показывается тут же,
+                      // в самом документе: старый текст зачёркнут, новый под ним — видно,
+                      // что именно меняется, ещё до подтверждения.
+                      const incoming = livePreview.has(b.index) ? livePreview.get(b.index) : undefined;
+                      return (
+                        <div
+                          key={b.index}
+                          className={
+                            "word-block" +
+                            (b.index === selected ? " active" : "") +
+                            (b.level ? ` word-h${b.level}` : "") +
+                            (b.kind === "list" ? " word-list" : "") +
+                            (incoming !== undefined ? " word-block-incoming" : "")
+                          }
+                          onClick={() => setSelected(b.index)}
+                        >
+                          <span className="word-block-index">{b.index}</span>
+                          {b.kind === "table" ? (
+                            <table className="ops-table word-block-table">
+                              <tbody>
+                                {b.rows.map((row, r) => (
+                                  <tr key={r}>
+                                    {row.map((cell, c) => (
+                                      <td key={c}>{cell}</td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : incoming !== undefined ? (
+                            <span className="word-block-text">
+                              <span className="word-text-old">{b.text}</span>
+                              {incoming ? (
+                                <span className="word-text-new">{incoming}</span>
+                              ) : (
+                                <span className="word-text-removed">удаляется</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="word-block-text">{b.text || <span className="hint">(пусто)</span>}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}

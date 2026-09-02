@@ -331,7 +331,7 @@ export default function CloudView({ projects }: Props) {
               <label>Название (как вам удобно называть этот аккаунт)</label>
               <input
                 value={draftLabel}
-                placeholder="например, Динамика или Сверху"
+                placeholder="название компании или проекта"
                 onChange={(e) => setDraftLabel(e.target.value)}
               />
               <label>Client ID</label>

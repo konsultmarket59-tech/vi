@@ -78,7 +78,37 @@ contextBridge.exposeInMainWorld("api", {
   insertWordParagraph: (afterIndex, text, style) => ipcRenderer.invoke("word:insertParagraph", afterIndex, text, style),
   applyWordAgentEdit: (edit) => ipcRenderer.invoke("word:applyAgentEdit", edit),
   saveWordFile: (saveAs) => ipcRenderer.invoke("word:save", saveAs),
-  buildWordAgentPrompt: () => ipcRenderer.invoke("word:buildAgentPrompt"),
+  buildWordAgentPrompt: (mode) => ipcRenderer.invoke("word:buildAgentPrompt", mode),
+  saveWordAnalysis: (markdown, defaultName) => ipcRenderer.invoke("word:saveAnalysis", markdown, defaultName),
+
+  // документооборот
+  getDocflowConfig: () => ipcRenderer.invoke("docflow:getConfig"),
+  saveDocflowConfig: (config) => ipcRenderer.invoke("docflow:saveConfig", config),
+  docflowKinds: () => ipcRenderer.invoke("docflow:kinds"),
+  parseDocflowResult: (text) => ipcRenderer.invoke("docflow:parse", text),
+  pickDocflowFile: (kind) => ipcRenderer.invoke("docflow:pickFile", kind),
+  pickDocflowFolder: () => ipcRenderer.invoke("docflow:pickFolder"),
+  listDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:listFolder", folderPath),
+  openDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:openFolder", folderPath),
+  prepareDocflow: (request) => ipcRenderer.invoke("docflow:prepare", request),
+  saveDocflowResult: (payload) => ipcRenderer.invoke("docflow:save", payload),
+
+  // визуализация данных
+  datavizOptions: () => ipcRenderer.invoke("dataviz:options"),
+  prepareDataviz: (request) => ipcRenderer.invoke("dataviz:prepare", request),
+  parseDatavizResult: (text) => ipcRenderer.invoke("dataviz:parse", text),
+  previewDataviz: (html, presetId, paletteId, overrides) =>
+    ipcRenderer.invoke("dataviz:preview", html, presetId, paletteId, overrides),
+  saveDataviz: (payload) => ipcRenderer.invoke("dataviz:save", payload),
+
+  // клининг
+  pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
+  prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),
+  parseCleanupPlan: (text) => ipcRenderer.invoke("cleanup:parsePlan", text),
+  parseCleanupLedger: (text) => ipcRenderer.invoke("cleanup:parseLedger", text),
+  applyCleanupPlan: (folderPath, plan) => ipcRenderer.invoke("cleanup:applyPlan", folderPath, plan),
+  undoCleanup: (folderPath, done) => ipcRenderer.invoke("cleanup:undo", folderPath, done),
+  saveCleanupLedger: (sheets, defaultName) => ipcRenderer.invoke("cleanup:saveLedger", sheets, defaultName),
   getWordAgentConversation: () => ipcRenderer.invoke("word:getAgentConversation"),
   saveWordAgentConversation: (conv) => ipcRenderer.invoke("word:saveAgentConversation", conv),
 
@@ -138,6 +168,15 @@ contextBridge.exposeInMainWorld("api", {
   listTasks: (projectId) => ipcRenderer.invoke("tasks:list", projectId),
   saveTask: (projectId, task) => ipcRenderer.invoke("tasks:save", projectId, task),
   deleteTask: (projectId, id) => ipcRenderer.invoke("tasks:delete", projectId, id),
+  listTaskRuns: (projectId) => ipcRenderer.invoke("tasks:listRuns", projectId),
+  readTaskRun: (projectId, runId) => ipcRenderer.invoke("tasks:readRun", projectId, runId),
+  deleteTaskRun: (projectId, runId) => ipcRenderer.invoke("tasks:deleteRun", projectId, runId),
+
+  // профиль проекта
+  readProjectProfile: (projectId) => ipcRenderer.invoke("profile:read", projectId),
+  buildProfileRequest: (projectId) => ipcRenderer.invoke("profile:buildRequest", projectId),
+  saveProjectProfile: (projectId, answerText) => ipcRenderer.invoke("profile:save", projectId, answerText),
+  userContextDigest: () => ipcRenderer.invoke("profile:digest"),
   onTaskRan: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("tasks:ran", listener);
