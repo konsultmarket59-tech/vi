@@ -31,11 +31,20 @@ export default function CleanupView({ settings, skills, onOpenSettings }: Props)
   const [notes, setNotes] = useState("");
   const [prepared, setPrepared] = useState<CleanupPrepared | null>(null);
   const [conv, setConv] = useState<Conversation | null>(null);
-  const [prefill, setPrefill] = useState<{ text: string; nonce: number } | undefined>();
+  const [prefill, setPrefill] = useState<{ text: string; autoSend?: boolean; nonce: number } | undefined>();
 
   const [plan, setPlan] = useState<{ ops: CleanupOp[] } | null>(null);
   const [ledger, setLedger] = useState<{ sheets: CleanupLedgerSheet[] } | null>(null);
+  /**
+   * Журнал ВСЕЙ уборки, а не последнего круга.
+   *
+   * Разбор идёт кругами: агент разложил, что понял, приложение перечитало папку,
+   * агент продолжил. Если бы журнал заменялся, «Отменить разбор» после второго
+   * круга вернул бы только его — а человек, нажимая отмену, ждёт, что папка станет
+   * такой, какой была до начала работы.
+   */
   const [applied, setApplied] = useState<CleanupApplied | null>(null);
+  const [rounds, setRounds] = useState(0);
   const [savedLedger, setSavedLedger] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,12 +113,23 @@ export default function CleanupView({ settings, skills, onOpenSettings }: Props)
     setError(null);
     try {
       const result = await window.api.applyCleanupPlan(folderPath, plan);
-      setApplied(result);
+      setApplied((prev) => ({
+        done: [...(prev?.done ?? []), ...result.done],
+        failed: result.failed,
+      }));
+      setRounds((n) => n + 1);
       setPlan(null);
+
+      // Папка изменилась — опись, из которой агент исходил, устарела. Пока она не
+      // перечитана, «продолжай» работало бы вслепую: агент предлагал бы перенести
+      // файлы, которых по прежним путям уже нет.
+      const fresh = await window.api.prepareCleanup({ folderPath, mode, notes });
+      setPrepared(fresh);
+      const doneNow = result.done.length;
       showNote(
         result.failed.length
-          ? `Выполнено ${result.done.length}, не удалось ${result.failed.length}.`
-          : `Готово: ${result.done.length} действий. Разбор можно отменить одной кнопкой.`
+          ? `Выполнено ${doneNow}, не удалось ${result.failed.length}. Папка перечитана.`
+          : `Выполнено ${doneNow} действий, папка перечитана — можно продолжать.`
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -118,12 +138,29 @@ export default function CleanupView({ settings, skills, onOpenSettings }: Props)
     }
   }
 
+  /**
+   * Следующий круг разбора. Отдельная кнопка, а не автоматический запуск: каждый
+   * круг — это ещё один оплаченный запрос к модели, и решение его сделать остаётся
+   * за человеком. Но нажатие одно — дальше агент смотрит и предлагает сам.
+   */
+  function continueTidying() {
+    setPrefill({
+      text: "Папка перечитана после выполненного разбора. Посмотри, что осталось неразобранным, и предложи следующий шаг. Если всё разложено — так и скажи, план не нужен.",
+      autoSend: true,
+      nonce: Date.now(),
+    });
+  }
+
   async function undo() {
     if (!applied) return;
     setBusy(true);
     try {
       const result = await window.api.undoCleanup(folderPath, applied.done);
       setApplied(null);
+      setRounds(0);
+      // После отката опись снова другая — перечитываем, иначе следующий план будет
+      // построен по состоянию, которого уже нет.
+      setPrepared(await window.api.prepareCleanup({ folderPath, mode, notes }).catch(() => null));
       showNote(
         result.failed.length ? `Откат частичный: ${result.failed.length} действий вернуть не удалось.` : "Разбор отменён, файлы вернулись на места."
       );
@@ -229,7 +266,7 @@ export default function CleanupView({ settings, skills, onOpenSettings }: Props)
               <p className="hint">
                 {mode === "ledger"
                   ? "Агент прочитает документы и соберёт книгу Excel: договоры, акты, ТЗ и счета — по листу на вид."
-                  : "Агент только предлагает план: что создать, что куда перенести. Ничего не двигается, пока вы не нажмёте «Выполнить». Удалять он не умеет вообще, а любой разбор отменяется одной кнопкой."}
+                  : "Агент смотрит папку и предлагает план: что создать, что куда перенести. Вы его одобряете — и дальше всё делается само, руками ничего перекладывать не нужно. После каждого круга папка перечитывается, и агент может продолжить с тем, что осталось. Удалять он не умеет вообще, а вся уборка отменяется одной кнопкой."}
               </p>
             </div>
           </div>
@@ -272,6 +309,11 @@ export default function CleanupView({ settings, skills, onOpenSettings }: Props)
               <div className="docflow-saved">
                 <div>
                   <strong>Выполнено действий: {applied.done.length}</strong>
+                  {rounds > 1 && <span className="hint"> · кругов разбора: {rounds}</span>}
+                </div>
+                <div className="hint">
+                  Папка перечитана. «Продолжить разбор» — агент посмотрит, что осталось, и предложит следующий
+                  шаг; «Отменить» вернёт папку в то состояние, в котором она была до начала уборки.
                 </div>
                 {applied.failed.map((f, i) => (
                   <div key={i} className="hint">
@@ -279,8 +321,11 @@ export default function CleanupView({ settings, skills, onOpenSettings }: Props)
                   </div>
                 ))}
                 <div className="docflow-inline">
+                  <button className="btn btn-primary btn-small" onClick={continueTidying} disabled={busy}>
+                    Продолжить разбор
+                  </button>
                   <button className="btn btn-secondary btn-small" onClick={undo} disabled={busy}>
-                    Отменить разбор
+                    Отменить {rounds > 1 ? `всю уборку (${rounds} круга)` : "разбор"}
                   </button>
                   <button className="btn btn-secondary btn-small" onClick={() => window.api.openDocflowFolder(folderPath)}>
                     Открыть папку

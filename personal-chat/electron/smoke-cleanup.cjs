@@ -112,6 +112,50 @@ DELETE: Болдино воронка.txt
   check("файл остался на месте", fs.existsSync(path.join(tmp, "Болдино воронка.txt")));
   check("наружу ничего не создано", !fs.existsSync(path.join(path.dirname(tmp), "украдено.txt")));
 
+  console.log("\nуборка в несколько кругов");
+  const many = path.join(tmp, "кругами");
+  fs.mkdirSync(many, { recursive: true });
+  fs.writeFileSync(path.join(many, "screen_1.png"), "a");
+  fs.writeFileSync(path.join(many, "Договор 3.docx"), "b");
+
+  // Круг первый: разложили скриншоты.
+  const round1 = await cleanup.applyPlan(many, {
+    ops: [
+      { op: "mkdir", target: "Скриншоты" },
+      { op: "move", from: "screen_1.png", to: "Скриншоты/screen_1.png" },
+    ],
+  });
+  // Опись после круга должна показывать НОВОЕ состояние — иначе следующий план
+  // строится по путям, которых уже нет.
+  const rescan = await cleanup.scan(many);
+  check(
+    "после круга папка видна уже разобранной",
+    rescan.folders.includes("Скриншоты") && rescan.files.some((f) => f.path === "Скриншоты/screen_1.png"),
+    JSON.stringify(rescan.files.map((f) => f.path))
+  );
+
+  // Круг второй: разложили документ.
+  const round2 = await cleanup.applyPlan(many, {
+    ops: [
+      { op: "mkdir", target: "Договоры" },
+      { op: "move", from: "Договор 3.docx", to: "Договоры/Договор 3.docx" },
+    ],
+  });
+  check("оба круга выполнены", round1.failed.length === 0 && round2.failed.length === 0);
+  check("файлы разложены по двум папкам", fs.existsSync(path.join(many, "Договоры", "Договор 3.docx")));
+
+  // Отмена копит журнал ОБОИХ кругов: человек, нажимая отмену, ждёт папку такой,
+  // какой она была до начала уборки, а не до последнего шага.
+  const allDone = [...round1.done, ...round2.done];
+  const undoneAll = await cleanup.undoPlan(many, allDone);
+  check("откат всей уборки прошёл", undoneAll.failed.length === 0, JSON.stringify(undoneAll.failed));
+  check("файлы первого круга вернулись", fs.existsSync(path.join(many, "screen_1.png")));
+  check("файлы второго круга вернулись", fs.existsSync(path.join(many, "Договор 3.docx")));
+  check(
+    "созданные папки убраны обе",
+    !fs.existsSync(path.join(many, "Скриншоты")) && !fs.existsSync(path.join(many, "Договоры"))
+  );
+
   console.log("\nсверка документов");
   const ledger = cleanup.parseLedger(`===СВЕРКА===
 ЛИСТ: Договоры

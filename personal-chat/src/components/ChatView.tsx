@@ -40,7 +40,7 @@ interface Props {
    * caller can push the same question twice by bumping the counter alongside it —
    * used by the Excel grid to ask about whichever cell is selected.
    */
-  prefill?: { text: string; attachments?: ChatAttachment[]; nonce: number };
+  prefill?: { text: string; attachments?: ChatAttachment[]; autoSend?: boolean; nonce: number };
 }
 
 type ExportFormat = "pdf" | "png" | "docx" | "xlsx";
@@ -225,6 +225,7 @@ export default function ChatView({
     setInput(prefill.text);
     if (prefill.attachments?.length) setAttachments(prefill.attachments);
     inputRef.current?.focus();
+    if (prefill.autoSend) void send(prefill.text);
   }, [prefill?.nonce]);
 
   useEffect(() => {
@@ -271,8 +272,8 @@ export default function ChatView({
     setMediaError(null);
   }, [conversation.id]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
     // Attachments alone are a valid turn ("посмотри этот файл") — don't require typed text.
     if ((!text && attachments.length === 0) || busy) return;
     setError(null);
@@ -841,7 +842,7 @@ export default function ChatView({
             Остановить
           </button>
         ) : (
-          <button className="btn btn-primary" onClick={send} disabled={!input.trim() && attachments.length === 0}>
+          <button className="btn btn-primary" onClick={() => send()} disabled={!input.trim() && attachments.length === 0}>
             Отправить
           </button>
         )}
