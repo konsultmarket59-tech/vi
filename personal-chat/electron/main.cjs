@@ -2488,3 +2488,189 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
     ledgerError,
   };
 });
+
+// ---------- визуализация данных ----------
+
+const dataviz = require("./dataviz.cjs");
+
+/**
+ * PNG макета в его собственном размере.
+ *
+ * Снимок окна ограничен высотой экрана, поэтому высокий макет (пост 1080×1920 на
+ * ноутбучном экране) снимается полосами: страница сдвигается трансформом, каждая
+ * полоса снимается отдельно. Склеиваются полосы в скрытом окне через canvas — так
+ * не нужен ни ffmpeg, ни библиотека обработки изображений: браузер, который у нас
+ * и так есть, умеет это сам.
+ */
+async function captureHtmlToPng(html, width, height, destPath) {
+  const maxStrip = 900;
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width, height: Math.min(height, maxStrip) });
+  const strips = [];
+  try {
+    if (height <= maxStrip) {
+      const image = await win.webContents.capturePage();
+      await fs.writeFile(destPath, image.toPNG());
+      return destPath;
+    }
+    for (let offset = 0; offset < height; offset += maxStrip) {
+      const stripHeight = Math.min(maxStrip, height - offset);
+      await win.webContents.executeJavaScript(
+        `document.body.style.transform = "translateY(${-offset}px)"; document.body.style.transformOrigin = "top left";`
+      );
+      win.setContentSize(width, stripHeight);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const image = await win.webContents.capturePage();
+      strips.push({ dataUrl: image.toDataURL(), height: stripHeight });
+    }
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+
+  const stitcher = await renderHtmlInHiddenWindow(
+    `<!doctype html><meta charset="utf-8"><body style="margin:0"><canvas id="c"></canvas></body>`,
+    { width: 200, height: 200 }
+  );
+  try {
+    const dataUrl = await stitcher.win.webContents.executeJavaScript(`
+      (async () => {
+        const strips = ${JSON.stringify(strips)};
+        const canvas = document.getElementById("c");
+        canvas.width = ${width};
+        canvas.height = ${height};
+        const ctx = canvas.getContext("2d");
+        let y = 0;
+        for (const strip of strips) {
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = strip.dataUrl;
+          });
+          ctx.drawImage(img, 0, y, ${width}, strip.height);
+          y += strip.height;
+        }
+        return canvas.toDataURL("image/png");
+      })()
+    `);
+    await fs.writeFile(destPath, Buffer.from(dataUrl.split(",")[1], "base64"));
+  } finally {
+    await cleanupHiddenWindow(stitcher.win, stitcher.tmpFile);
+  }
+  return destPath;
+}
+
+/** PDF макета ровно в его размере, без полей — не A4 с отступами. */
+async function captureHtmlToPdf(html, width, height, destPath) {
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width, height: Math.min(height, 900) });
+  try {
+    const pdf = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: { width: width / 96, height: height / 96 }, // printToPDF меряет страницу в дюймах
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.writeFile(destPath, pdf);
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+  return destPath;
+}
+
+ipcMain.handle("dataviz:options", () => ({
+  presets: dataviz.CANVAS_PRESETS,
+  palettes: dataviz.PALETTES,
+  kinds: dataviz.VIZ_KINDS,
+}));
+
+ipcMain.handle("dataviz:prepare", async (_e, request) => {
+  const { kindId, presetId, paletteId, paletteOverrides, sourcePaths, extraStyle } = request || {};
+  const references = [];
+  const images = [];
+  for (const filePath of sourcePaths || []) {
+    const ref = await docflow.readReference(filePath, extractDocText);
+    references.push(ref);
+    if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+  }
+
+  const preset = dataviz.presetById(presetId);
+  const palette = dataviz.resolvePalette(paletteId, paletteOverrides);
+  return {
+    prompt: dataviz.buildPrompt({ kindId, preset, palette, references, extraStyle }),
+    images,
+    preset,
+    palette,
+    problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),
+  };
+});
+
+ipcMain.handle("dataviz:parse", (_e, text) => dataviz.parseResult(text));
+
+// Предпросмотр отдаётся строкой и показывается в <iframe sandbox> — разметка от
+// модели не должна выполняться в окне самого приложения.
+ipcMain.handle("dataviz:preview", (_e, html, presetId, paletteId, paletteOverrides) =>
+  dataviz.wrapDocument(html, dataviz.presetById(presetId), dataviz.resolvePalette(paletteId, paletteOverrides))
+);
+
+ipcMain.handle("dataviz:save", async (_e, payload) => {
+  const { html, title, presetId, paletteId, paletteOverrides, outputDir, formats } = payload || {};
+  if (!outputDir) throw new Error("Не выбрана папка, куда сохранять.");
+  const preset = dataviz.presetById(presetId);
+  const palette = dataviz.resolvePalette(paletteId, paletteOverrides);
+  return dataviz.save(
+    { html, title, preset, palette, outputDir, formats: formats?.length ? formats : ["png", "pdf", "html"] },
+    {
+      renderPng: (page, w, h, dest) => captureHtmlToPng(page, w, h, dest),
+      renderPdf: (page, w, h, dest) => captureHtmlToPdf(page, w, h, dest),
+    }
+  );
+});
+
+// ---------- клининг ----------
+
+const cleanup = require("./cleanup.cjs");
+
+ipcMain.handle("cleanup:pickFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("cleanup:prepare", async (_e, request) => {
+  const { folderPath, mode, notes } = request || {};
+  if (!folderPath) throw new Error("Папка не выбрана.");
+  const scanned = await cleanup.scan(folderPath);
+  const inventory = await cleanup.describe(folderPath, scanned, extractDocText);
+  return {
+    prompt: cleanup.buildPrompt({ mode, inventory, folderName: path.basename(folderPath), notes }),
+    fileCount: scanned.files.length,
+    folderCount: scanned.folders.length,
+    truncated: scanned.truncated,
+  };
+});
+
+ipcMain.handle("cleanup:parsePlan", (_e, text) => cleanup.parsePlan(text));
+ipcMain.handle("cleanup:parseLedger", (_e, text) => cleanup.parseLedger(text));
+
+ipcMain.handle("cleanup:applyPlan", async (_e, folderPath, plan) => {
+  if (!folderPath) throw new Error("Папка не выбрана.");
+  return cleanup.applyPlan(folderPath, plan);
+});
+
+ipcMain.handle("cleanup:undo", async (_e, folderPath, done) => {
+  if (!folderPath) throw new Error("Папка не выбрана.");
+  return cleanup.undoPlan(folderPath, done);
+});
+
+ipcMain.handle("cleanup:saveLedger", async (_e, sheets, defaultName) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showSaveDialog(win, {
+    title: "Сохранить сверку",
+    defaultPath: sanitizeFileName(defaultName || "Сверка документов") + ".xlsx",
+    filters: [{ name: "Книга Excel", extensions: ["xlsx"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  return cleanup.writeLedgerWorkbook(sheets, result.filePath);
+});

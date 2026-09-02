@@ -1310,3 +1310,56 @@ a:hover { color: var(--accent-hover); }
 .word-text-old { text-decoration: line-through; color: var(--text-dim); display: block; }
 .word-text-new { display: block; color: var(--text); }
 .word-text-removed { display: block; font-size: 12px; color: var(--text-dim); font-style: italic; }
+
+/* Excel: ячейка, которую агент диктует прямо сейчас. Та же логика, что и у
+   подсветки абзацев в Word — видно, что изменится, до подтверждения. */
+.excel-cell-incoming {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  font-weight: 600;
+}
+
+/* Визуализация: предпросмотр макета в его собственном размере, уменьшенный до
+   ширины панели — так видно пропорции, а не обрезанный кусок. */
+.viz-result { display: flex; gap: 16px; padding: 10px 0; align-items: flex-start; }
+.viz-preview-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.viz-preview { border: 0; display: block; transform-origin: top left; }
+.viz-result-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+
+.viz-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.viz-swatch input[type="color"] {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  background: none;
+}
+.viz-color-row { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+.viz-color-row label { display: flex; align-items: center; gap: 6px; }
+.viz-color-row input[type="color"] {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+}
+
+/* Клининг: план разбора списком — его человек читает целиком перед тем,
+   как разрешить трогать свои файлы. */
+.cleanup-plan { max-height: 320px; overflow-y: auto; margin: 8px 0; }
+.cleanup-plan-row {
+  font-size: 12.5px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}

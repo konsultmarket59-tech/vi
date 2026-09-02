@@ -7,6 +7,8 @@ export type View =
   | { kind: "excel" }
   | { kind: "word" }
   | { kind: "docflow" }
+  | { kind: "dataviz" }
+  | { kind: "cleanup" }
   | { kind: "cloud" }
   | { kind: "direct" }
   | { kind: "media" }
@@ -22,6 +24,8 @@ const MODULE_ITEMS = [
   { id: "excel", label: "📗 Excel" },
   { id: "word", label: "📘 Word" },
   { id: "docflow", label: "📁 Документооборот" },
+  { id: "dataviz", label: "📊 Визуализация" },
+  { id: "cleanup", label: "🧹 Клининг" },
   { id: "media", label: "🎨 Медиа" },
   { id: "cloud", label: "☁️ Облако" },
   { id: "direct", label: "📣 Директ" },

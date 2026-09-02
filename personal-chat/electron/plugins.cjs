@@ -18,6 +18,8 @@ const MODULE_IDS = [
   "excel",
   "word",
   "docflow",
+  "dataviz",
+  "cleanup",
   "media",
   "cloud",
   "direct",

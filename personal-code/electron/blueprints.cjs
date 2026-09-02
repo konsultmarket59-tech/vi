@@ -29,6 +29,18 @@ const MODULES = [
   { id: "excel", name: "Excel", core: false, description: "Таблицы с формулами и агент внутри таблицы." },
   { id: "word", name: "Word", core: false, description: "Документы .docx и агент для правок." },
   {
+    id: "dataviz",
+    name: "Визуализация данных",
+    core: false,
+    description: "Дашборды, диаграммы, майнд-карты и блок-схемы по данным с компьютера, с палитрой.",
+  },
+  {
+    id: "cleanup",
+    name: "Клининг",
+    core: false,
+    description: "Разбор папок по подпапкам и сверка документов в Excel. С подтверждением и откатом.",
+  },
+  {
     id: "docflow",
     name: "Документооборот",
     core: false,

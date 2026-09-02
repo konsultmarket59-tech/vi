@@ -92,6 +92,23 @@ contextBridge.exposeInMainWorld("api", {
   openDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:openFolder", folderPath),
   prepareDocflow: (request) => ipcRenderer.invoke("docflow:prepare", request),
   saveDocflowResult: (payload) => ipcRenderer.invoke("docflow:save", payload),
+
+  // визуализация данных
+  datavizOptions: () => ipcRenderer.invoke("dataviz:options"),
+  prepareDataviz: (request) => ipcRenderer.invoke("dataviz:prepare", request),
+  parseDatavizResult: (text) => ipcRenderer.invoke("dataviz:parse", text),
+  previewDataviz: (html, presetId, paletteId, overrides) =>
+    ipcRenderer.invoke("dataviz:preview", html, presetId, paletteId, overrides),
+  saveDataviz: (payload) => ipcRenderer.invoke("dataviz:save", payload),
+
+  // клининг
+  pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
+  prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),
+  parseCleanupPlan: (text) => ipcRenderer.invoke("cleanup:parsePlan", text),
+  parseCleanupLedger: (text) => ipcRenderer.invoke("cleanup:parseLedger", text),
+  applyCleanupPlan: (folderPath, plan) => ipcRenderer.invoke("cleanup:applyPlan", folderPath, plan),
+  undoCleanup: (folderPath, done) => ipcRenderer.invoke("cleanup:undo", folderPath, done),
+  saveCleanupLedger: (sheets, defaultName) => ipcRenderer.invoke("cleanup:saveLedger", sheets, defaultName),
   getWordAgentConversation: () => ipcRenderer.invoke("word:getAgentConversation"),
   saveWordAgentConversation: (conv) => ipcRenderer.invoke("word:saveAgentConversation", conv),
 

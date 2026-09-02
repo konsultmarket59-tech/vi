@@ -562,6 +562,60 @@ export interface DocflowSaveResult {
   ledgerError: string;
 }
 
+export interface CanvasPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface VizPalette {
+  id: string;
+  name: string;
+  background: string;
+  text: string;
+  muted: string;
+  accent: string;
+  series: string[];
+}
+
+export interface VizKind {
+  id: string;
+  name: string;
+  hint: string;
+}
+
+export interface DatavizPrepared {
+  prompt: string;
+  images: ChatAttachment[];
+  preset: CanvasPreset;
+  palette: VizPalette;
+  problems: string[];
+}
+
+/** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
+export type CleanupOp =
+  | { op: "mkdir"; target: string }
+  | { op: "move"; from: string; to: string }
+  | { op: "rename"; from: string; to: string };
+
+export interface CleanupPrepared {
+  prompt: string;
+  fileCount: number;
+  folderCount: number;
+  truncated: boolean;
+}
+
+export interface CleanupApplied {
+  done: { op: string; target?: string; from?: string; to?: string }[];
+  failed: { op: CleanupOp; error: string }[];
+}
+
+export interface CleanupLedgerSheet {
+  name: string;
+  rows: string[][];
+}
+
 export type WordEditOp =
   | { op: "set"; index: number; text: string }
   | { op: "insert"; index: number; text: string; style: string }
@@ -924,6 +978,42 @@ export interface ElectronAPI {
   openExcelFile(filePath: string): Promise<ExcelWorkbook>;
   newExcelWorkbook(name: string): Promise<ExcelWorkbook>;
   applyExcelAgentEdit(edit: ExcelEdit): Promise<{ workbook: ExcelWorkbook; createdSheets: string[] }>;
+
+  // визуализация данных
+  datavizOptions(): Promise<{ presets: CanvasPreset[]; palettes: VizPalette[]; kinds: VizKind[] }>;
+  prepareDataviz(request: {
+    kindId: string;
+    presetId: string;
+    paletteId: string;
+    paletteOverrides?: Partial<VizPalette>;
+    sourcePaths?: string[];
+    extraStyle?: string;
+  }): Promise<DatavizPrepared>;
+  parseDatavizResult(text: string): Promise<{ title: string; html: string } | null>;
+  previewDataviz(
+    html: string,
+    presetId: string,
+    paletteId: string,
+    overrides?: Partial<VizPalette>
+  ): Promise<string>;
+  saveDataviz(payload: {
+    html: string;
+    title: string;
+    presetId: string;
+    paletteId: string;
+    paletteOverrides?: Partial<VizPalette>;
+    outputDir: string;
+    formats: string[];
+  }): Promise<{ png?: string; pdf?: string; html?: string }>;
+
+  // клининг
+  pickCleanupFolder(): Promise<string | null>;
+  prepareCleanup(request: { folderPath: string; mode: "tidy" | "ledger"; notes?: string }): Promise<CleanupPrepared>;
+  parseCleanupPlan(text: string): Promise<{ ops: CleanupOp[] } | null>;
+  parseCleanupLedger(text: string): Promise<{ sheets: CleanupLedgerSheet[] } | null>;
+  applyCleanupPlan(folderPath: string, plan: { ops: CleanupOp[] }): Promise<CleanupApplied>;
+  undoCleanup(folderPath: string, done: CleanupApplied["done"]): Promise<{ restored: unknown[]; failed: unknown[] }>;
+  saveCleanupLedger(sheets: CleanupLedgerSheet[], defaultName: string): Promise<string | null>;
   runExcelAgentTools(text: string): Promise<string | null>;
   setExcelCells(edits: { sheet: string; cell: string; value: string }[]): Promise<ExcelWorkbook>;
   saveExcelFile(saveAs?: boolean): Promise<string | null>;
