@@ -1363,3 +1363,18 @@ a:hover { color: var(--accent-hover); }
   border-bottom: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
+
+/* Удаление проекта стоит рядом с переименованием, но заметно тише: промахнуться
+   мимо ✎ и снести проект целиком — не та ошибка, которую стоит облегчать. */
+.sidebar-item-remove {
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.sidebar-item-project:hover .sidebar-item-remove { opacity: 0.6; }
+.sidebar-item-remove:hover { opacity: 1; color: var(--accent-text, #c4004a); }

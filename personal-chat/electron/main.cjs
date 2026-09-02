@@ -413,12 +413,26 @@ async function clearProjectBrandHeaderImage(id) {
   return updateProject(id, { brand });
 }
 
+/**
+ * Удаляет проект вместе с его чатами, документами и задачами по расписанию.
+ *
+ * Сначала — в корзину системы: из неё папку можно вернуть, а проект нередко
+ * удаляют «на всякий случай», обнаружив потом, что в его документах лежал
+ * единственный экземпляр договора. Насовсем удаляем только если корзина
+ * недоступна (сетевой диск, флешка), и тогда ГОВОРИМ об этом: раньше приложение
+ * молча делало необратимое, а человек был уверен, что всё лежит в корзине.
+ */
 async function deleteProject(id) {
   const root = await getRootPath();
   const dir = projectDir(root, id);
-  await shell.trashItem(dir).catch(async () => {
+  let trashed = true;
+  try {
+    await shell.trashItem(dir);
+  } catch {
+    trashed = false;
     await fs.rm(dir, { recursive: true, force: true });
-  });
+  }
+  return { trashed };
 }
 
 // ---------- docs ----------

@@ -773,7 +773,8 @@ export interface ElectronAPI {
   listProjects(): Promise<Project[]>;
   createProject(data: { name: string; description: string; instructions: string }): Promise<Project>;
   updateProject(id: string, patch: Partial<Omit<Project, "id">>): Promise<Project>;
-  deleteProject(id: string): Promise<void>;
+  /** `trashed: false` — корзина была недоступна и папка удалена безвозвратно. */
+  deleteProject(id: string): Promise<{ trashed: boolean }>;
   buildSystemPrompt(id: string): Promise<string>;
   openProjectFolder(id: string): Promise<void>;
   pickBrandLogo(): Promise<string | null>;
