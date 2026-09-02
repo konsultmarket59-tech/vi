@@ -1322,7 +1322,10 @@ a:hover { color: var(--accent-hover); }
 
 /* Визуализация: предпросмотр макета в его собственном размере, уменьшенный до
    ширины панели — так видно пропорции, а не обрезанный кусок. */
-.viz-result { display: flex; gap: 16px; padding: 10px 0; align-items: flex-start; }
+/* Предпросмотр и кнопки — в столбик и с переносом: макет бывает 1920 пикселей
+   шириной, панель — вдвое уже, и строкой они не помещались (кнопка сохранения
+   уезжала за правый край окна). */
+.viz-result { display: flex; gap: 16px; padding: 10px 0; align-items: flex-start; flex-wrap: wrap; }
 .viz-preview-wrap {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1330,7 +1333,20 @@ a:hover { color: var(--accent-hover); }
   background: var(--surface-2);
   flex-shrink: 0;
 }
+.viz-problem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.viz-problem span { flex: 1; min-width: 240px; }
 .viz-preview { border: 0; display: block; transform-origin: top left; }
+.viz-preview-loading { padding: 20px; font-size: 12px; color: var(--text-dim); }
 .viz-result-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 
 .viz-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
