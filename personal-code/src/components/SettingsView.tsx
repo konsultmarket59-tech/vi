@@ -483,17 +483,32 @@ export default function SettingsView({ settings, onChange }: Props) {
         {!githubStatus && github.token && (
           <p className="hint">Токен сохранён. Нажмите «Проверить и сохранить», чтобы убедиться, что он ещё действует.</p>
         )}
-        <label className="field-label">Репозиторий с каноническим «Личным чатом»</label>
-        <input
-          className="input"
-          placeholder="владелец/репозиторий"
-          value={draft.sourceRepo}
-          onChange={(e) => set("sourceRepo", e.target.value)}
-        />
+        <div className="row">
+          <div className="col">
+            <label className="field-label">Репозиторий с каноническим «Личным чатом»</label>
+            <input
+              className="input"
+              placeholder="владелец/репозиторий"
+              value={draft.sourceRepo}
+              onChange={(e) => set("sourceRepo", e.target.value)}
+            />
+          </div>
+          <div className="col">
+            <label className="field-label">Ветка</label>
+            <input
+              className="input"
+              placeholder="main"
+              value={draft.sourceBranch}
+              onChange={(e) => set("sourceBranch", e.target.value)}
+            />
+          </div>
+        </div>
         <p className="hint">
           Отсюда берётся код для сборок на вкладках «Демо» и «Чистовая сборка». Ни папки с
           исходниками, ни установленного git на этом компьютере не нужно: приложение просит GitHub
-          переложить папку personal-chat из этого репозитория в репозиторий копии.
+          переложить папку personal-chat из этой ветки в репозиторий копии. <b>main</b> — то, что
+          уже принято и слито; тестировщик получает ровно этот код, поэтому исправления должны
+          сначала попасть сюда.
         </p>
 
         <div className="row">

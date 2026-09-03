@@ -57,6 +57,17 @@ function cleanup() {
   fs.rmSync(appData, { recursive: true, force: true });
 }
 
+// Файлы конфигурации пишутся прямо в папку приложения, поэтому убрать их надо и
+// тогда, когда тест не дошёл до конца: прерванный запуск оставлял «сборку с
+// лицензией» лежать в репозитории, и следом за ним начинали падать все
+// остальные тесты — на экране активации вместо приложения.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    cleanup();
+    process.exit(1);
+  });
+}
+
 (async () => {
   demoAccess.init(issuerData);
   licence.init(appData);

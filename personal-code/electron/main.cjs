@@ -518,7 +518,7 @@ function registerHandlers() {
     const settings = await settingsStore.load();
     return {
       repo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
-      branch: blueprints.DEFAULT_BRANCH,
+      branch: (settings.sourceBranch || "").trim() || "main",
     };
   });
   ipcMain.handle("copies:setRevoked", async (_e, id, revoked) => {
@@ -546,7 +546,7 @@ function registerHandlers() {
         // исходниками на компьютере не нужна.
         sourcePath: (options && options.sourcePath) || "",
         sourceRepo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
-        branch: (options && options.branch) || blueprints.DEFAULT_BRANCH,
+        branch: (options && options.branch) || (settings.sourceBranch || "").trim() || "main",
         token: account.token,
         publicKey: keys.publicKey,
         onLog: send,

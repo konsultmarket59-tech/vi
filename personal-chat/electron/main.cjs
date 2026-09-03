@@ -1543,8 +1543,13 @@ ipcMain.handle("report:reveal", (_e, file) => {
 
 ipcMain.handle("licence:status", (_e, options) => licence.status(options || {}));
 ipcMain.handle("licence:activate", (_e, contents) => licence.activate(contents));
-ipcMain.handle("licence:pickFile", async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle("licence:pickFile", async (event) => {
+  // Окно берём у того, кто спросил. Раньше здесь стояла переменная mainWindow,
+  // которой в этом файле нет вовсе: кнопка «Выбрать файл активации» падала с
+  // «mainWindow is not defined» — и ни один тестировщик не мог активировать
+  // копию, потому что этот экран у него первый и единственный.
+  const parentWin = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(parentWin, {
     title: "Выберите файл активации",
     filters: [{ name: "Файл активации", extensions: ["lic", "json"] }],
     properties: ["openFile"],

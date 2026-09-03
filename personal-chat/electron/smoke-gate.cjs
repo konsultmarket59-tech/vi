@@ -42,6 +42,17 @@ function cleanup() {
   for (const dir of [userData, dataRoot, issuerData]) fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// Файлы конфигурации пишутся прямо в папку приложения, поэтому убрать их надо и
+// тогда, когда тест не дошёл до конца: прерванный запуск оставлял «сборку с
+// лицензией» лежать в репозитории, и следом за ним начинали падать все
+// остальные тесты — на экране активации вместо приложения.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    cleanup();
+    process.exit(1);
+  });
+}
+
 async function waitFor(win, expression, label, timeout = 20000) {
   const deadline = Date.now() + timeout;
   let last;
@@ -138,13 +149,41 @@ async function waitFor(win, expression, label, timeout = 20000) {
       const licFile = path.join(issuerData, "test.lic");
       fs.writeFileSync(licFile, issued.contents);
 
-      // Goes through the same IPC the "Выбрать файл активации" button uses,
-      // minus the file dialog, which cannot be driven from a test.
-      const result = await win.webContents.executeJavaScript(
-        `window.api.activateLicence(${JSON.stringify(issued.contents)})`
-      );
-      check("активация принята", result.ok === true, JSON.stringify(result));
-      check("имя тестировщика записано", result.tester === "Мария Тестова", result.tester);
+      // Нажимаем настоящую кнопку. Подменяем только диалог выбора файла —
+      // всё остальное идёт тем же путём, что у тестировщика. Раньше здесь
+      // дёргался IPC напрямую «потому что диалог из теста не подёргать», и
+      // ровно в обойдённом куске жила ошибка: обработчик открывал диалог с
+      // несуществующей переменной mainWindow и падал. Тестировщик, для которого
+      // этот экран первый и единственный, не мог активировать копию вообще.
+      const { dialog } = require("electron");
+      const originalShowOpenDialog = dialog.showOpenDialog;
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [licFile] });
+      try {
+        const clicked = await win.webContents.executeJavaScript(`
+          (() => {
+            const button = [...document.querySelectorAll("button")].find((b) =>
+              /Выбрать файл активации/.test(b.textContent || "")
+            );
+            if (!button) return false;
+            button.click();
+            return true;
+          })()
+        `);
+        check("кнопка «Выбрать файл активации» на месте", clicked === true);
+        // После удачной активации приложение перезагружает окно само, поэтому
+        // ждём результат снаружи: изнутри страницы ждать нечем — её уже нет.
+        await waitFor(
+          win,
+          `!document.querySelector(".licence-gate") && !!document.querySelector(".sidebar")`,
+          "кнопка выбора файла активировала копию",
+          30000
+        );
+      } finally {
+        dialog.showOpenDialog = originalShowOpenDialog;
+      }
+      const activated = await win.webContents.executeJavaScript(`window.api.licenceStatus()`);
+      check("активация принята", activated.ok === true, JSON.stringify(activated));
+      check("имя тестировщика записано", activated.tester === "Мария Тестова", activated.tester);
 
       await win.webContents.reload();
       await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));

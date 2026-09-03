@@ -48,6 +48,7 @@ app.whenReady().then(async () => {
       proxyUsername: "логин",
       proxyPassword: "пароль",
       sourceRepo: "владелец/репозиторий",
+      sourceBranch: "проверочная",
     });
     check("сохранение вернуло то, что дали", saved.apiKey === "ключ-пользы");
 
@@ -71,6 +72,7 @@ app.whenReady().then(async () => {
     check("токен GitHub вернулся", after.gitToken === "токен-гитхаба");
     check("прокси вернулся целиком", after.proxyMode === "manual" && after.proxyUrl === "http://proxy.local:8080");
     check("репозиторий с исходниками вернулся", after.sourceRepo === "владелец/репозиторий");
+    check("и ветка, из которой собираются копии", after.sourceBranch === "проверочная", after.sourceBranch);
 
     console.log("\nсвежие настройки старая копия не затирает");
     app.setPath("userData", third);
