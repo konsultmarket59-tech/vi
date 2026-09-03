@@ -29,6 +29,11 @@ const sources = require("./sources.cjs");
 
 // Сборка установщика в репозитории копии. Файл кладётся туда же, где его ждёт
 // GitHub, и собирает именно эту копию.
+//
+// Публикация в релизы делается отдельным шагом, а electron-builder запускается
+// с `--publish never`: на CI он иначе пробует выложить сборку сам, требует
+// GH_TOKEN и падает — после того, как установщик уже собран. Ровно это и
+// случилось на первой настоящей сборке копии.
 const WORKFLOW_PATH = ".github/workflows/build.yml";
 const WORKFLOW_FILE = "build.yml";
 
@@ -52,7 +57,20 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm run electron:build:win
+      - run: npm run build
+      # --publish never обязателен: на CI electron-builder сам пытается выложить
+      # сборку в релизы и падает без GH_TOKEN — уже после того, как установщик
+      # собран. Публикуем ниже сами, своим шагом.
+      - run: npx electron-builder --win --publish never
+      # Установщик уже собран, и терять его из-за сбоя публикации нельзя:
+      # артефакт остаётся скачиваемым со страницы запуска в любом случае.
+      - name: Установщик как артефакт запуска
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ustanovshchik
+          path: release/*.exe
+          if-no-files-found: warn
       - name: Публикация установщика
         uses: softprops/action-gh-release@v2
         with:
