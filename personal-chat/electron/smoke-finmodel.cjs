@@ -305,6 +305,37 @@ server.listen(0, "127.0.0.1", () => {
       );
       await new Promise((r) => setTimeout(r, 600));
       check("раздел открывается", (await call(`!!document.querySelector(".fin-form")`)) === true);
+
+      // Невысокое окно — та самая обстановка, в которой раздел оказался
+      // неработающим: форма длинная, оболочка обрезает её по высоте, и если у
+      // колонки нет своей прокрутки, кнопка «Рассчитать» просто недостижима.
+      win.setSize(1280, 620);
+      await new Promise((r) => setTimeout(r, 500));
+      const scroll = JSON.parse(
+        await call(`(() => {
+          const form = document.querySelector(".fin-form");
+          const btn = [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Рассчитать");
+          const before = btn ? btn.getBoundingClientRect() : null;
+          form.scrollTop = form.scrollHeight;
+          const after = btn ? btn.getBoundingClientRect() : null;
+          return JSON.stringify({
+            longer: form.scrollHeight > form.clientHeight + 4,
+            scrolled: form.scrollTop > 0,
+            hasButton: !!btn,
+            reachable: !!after && after.top >= 0 && after.bottom <= window.innerHeight,
+            pageOverflows: document.documentElement.scrollHeight > window.innerHeight + 4,
+            beforeBottom: before ? Math.round(before.bottom) : null,
+            height: window.innerHeight,
+          });
+        })()`)
+      );
+      check("на низком окне форма не помещается целиком", scroll.longer, JSON.stringify(scroll));
+      check("и у неё есть своя прокрутка", scroll.scrolled, JSON.stringify(scroll));
+      check("кнопка «Рассчитать» существует", scroll.hasButton);
+      check("после прокрутки кнопка «Рассчитать» видна в окне", scroll.reachable, JSON.stringify(scroll));
+      check("страница целиком при этом не уезжает", !scroll.pageOverflows, JSON.stringify(scroll));
+      win.setSize(1400, 950);
+      await new Promise((r) => setTimeout(r, 400));
       check(
         "в форме есть все обязательные блоки",
         (await call(

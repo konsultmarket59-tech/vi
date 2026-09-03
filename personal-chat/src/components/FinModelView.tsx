@@ -337,27 +337,31 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
     );
 
   return (
-    <div className="view">
-      <div className="view-head">
-        <h2>💹 Финмодель</h2>
-        <p className="muted">
-          Считает модель формулами, а не на глаз. Агент нужен для двух вещей: достать кривую спроса
-          из вашей статистики и написать заключение по уже посчитанным числам.
-        </p>
-      </div>
-
-      {!settings.apiKey && (
-        <div className="warning-banner">
-          API-ключ не задан — расчёт и книга Excel работают и без него, но собрать допущения и
-          написать заключение агент не сможет.{" "}
-          <button className="link-btn" onClick={onOpenSettings}>
-            Открыть настройки
-          </button>
+    <div className="ops-view">
+      <div className="ops-app">
+        <div className="ops-app-titlebar">
+          <div className="ops-app-titlebar-title">
+            <span className="ops-app-icon">💹</span>
+            <h2>Финмодель</h2>
+          </div>
         </div>
-      )}
 
-      <div className="fin-columns">
-        <div className="fin-form">
+        {!settings.apiKey && (
+          <div className="warning-banner">
+            API-ключ не задан — расчёт и книга Excel работают и без него, но собрать допущения и
+            написать заключение агент не сможет.{" "}
+            <button className="link-btn" onClick={onOpenSettings}>
+              Открыть настройки
+            </button>
+          </div>
+        )}
+
+        <div className="fin-body">
+          <div className="fin-form">
+            <p className="fin-lead">
+              Считает модель формулами, а не на глаз. Агент нужен для двух вещей: достать кривую
+              спроса из вашей статистики и написать заключение по уже посчитанным числам.
+            </p>
           <section className="fin-block">
             <h3>Проект и продукт</h3>
             <label>
@@ -562,8 +566,9 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
           {error && <div className="fin-error">{error}</div>}
         </div>
 
-        <div className="fin-result">
-          {computed ? (
+          <div className="fin-right">
+            <div className="fin-result">
+            {computed ? (
             <>
               <h3>Сценарии</h3>
               <table className="fin-table">
@@ -621,34 +626,36 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
               Заполните форму и нажмите «Рассчитать». Расчёт делается формулами, поэтому его видно
               целиком: книга сохраняется с живыми формулами, и в ней можно менять цену или объём.
             </p>
-          )}
+            )}
+            </div>
+
+            {conv && (
+              <div className="fin-agent">
+                <div className="fin-agent-head">
+                  <strong>{mode === "advice" ? "Заключение экономиста" : "Допущения модели"}</strong>
+                  <button className="btn btn-secondary btn-small" onClick={() => setConv(null)}>
+                    Закрыть
+                  </button>
+                </div>
+                <ChatView
+                  conversation={conv}
+                  systemPrompt={systemPrompt}
+                  settings={settings}
+                  skills={skills}
+                  onUpdate={setConv}
+                  onSave={async () => {}}
+                  emptyHint={
+                    mode === "advice"
+                      ? "Напишите «дай заключение» — агент уже видит посчитанные числа."
+                      : "Напишите «собери допущения» — агент прочитает файлы и поищет официальные ставки."
+                  }
+                  onAssistantMessage={onAssistantMessage}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {conv && (
-        <div className="fin-agent">
-          <div className="fin-agent-head">
-            <strong>{mode === "advice" ? "Заключение экономиста" : "Допущения модели"}</strong>
-            <button className="btn btn-secondary btn-small" onClick={() => setConv(null)}>
-              Закрыть
-            </button>
-          </div>
-          <ChatView
-            conversation={conv}
-            systemPrompt={systemPrompt}
-            settings={settings}
-            skills={skills}
-            onUpdate={setConv}
-            onSave={async () => {}}
-            emptyHint={
-              mode === "advice"
-                ? "Напишите «дай заключение» — агент уже видит посчитанные числа."
-                : "Напишите «собери допущения» — агент прочитает файлы и поищет официальные ставки."
-            }
-            onAssistantMessage={onAssistantMessage}
-          />
-        </div>
-      )}
     </div>
   );
 }

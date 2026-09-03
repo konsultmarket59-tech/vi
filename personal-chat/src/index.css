@@ -1436,10 +1436,25 @@ a:hover { color: var(--accent-hover); }
 .profile-body { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-top: 8px; }
 
 /* Финмодель. Форма слева, итоги справа: цифры должны быть видны, пока правишь
-   исходные данные, — иначе непонятно, что именно меняет твоя правка. */
-.fin-columns { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
-.fin-form { flex: 1 1 460px; min-width: 380px; display: flex; flex-direction: column; gap: 16px; }
-.fin-result { flex: 1 1 380px; min-width: 320px; position: sticky; top: 12px; }
+   исходные данные, — иначе непонятно, что именно меняет твоя правка.
+
+   Прокрутка живёт в КАЖДОЙ колонке отдельно, а не на странице. Форма здесь
+   длинная — восемь блоков, — и на невысоком экране без своей прокрутки нижняя
+   часть вместе с кнопкой «Рассчитать» просто оказывается за краем окна:
+   оболочка раздела обрезает содержимое по высоте и сама не прокручивается. */
+.fin-body { display: flex; flex: 1; min-height: 0; gap: 20px; padding: 14px 16px; }
+.fin-form {
+  flex: 1 1 460px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.fin-right { flex: 1 1 380px; min-width: 300px; display: flex; flex-direction: column; min-height: 0; }
+.fin-result { overflow-y: auto; flex: 0 1 auto; }
+.fin-lead { font-size: 13px; color: var(--text-dim); margin: 0; }
 .fin-block {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1465,9 +1480,11 @@ button.fin-row-x, span.fin-row-x { flex: 0 0 24px; width: 24px; }
 button.fin-row-x { border: 0; background: none; cursor: pointer; color: var(--text-dim); }
 button.fin-row-x:hover { color: var(--accent); }
 
-/* Сезонность — двенадцать узких полей: так видно форму года целиком. */
-.fin-season { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.fin-season span { display: flex; flex-direction: column; width: 46px; }
+/* Сезонность — двенадцать узких полей: так видно форму года целиком. Сетка по
+   шесть, а не перенос по месту: перенос давал рваные 9+3, а два ровных
+   полугодия читаются как год. */
+.fin-season { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 4px; }
+.fin-season span { display: flex; flex-direction: column; min-width: 0; }
 .fin-season em { font-size: 10px; color: var(--text-dim); font-style: normal; text-align: center; }
 .fin-season input { width: 100%; padding: 3px; text-align: center; font-size: 12px; }
 
@@ -1488,6 +1505,17 @@ button.fin-row-x:hover { color: var(--accent); }
 .fin-table th:first-child, .fin-table td:first-child { text-align: left; }
 .fin-table .fin-base { font-weight: 600; }
 
-.fin-agent { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 12px; }
-.fin-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+/* Чат агента — под итогами в правой колонке, со своей высотой: иначе он либо
+   схлопывается в ноль, либо выдавливает итоги за край. */
+.fin-agent {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  flex: 1 1 auto;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.fin-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-shrink: 0; }
 .fin-agent-head strong { flex: 1; }
+.fin-agent > .chat-view { flex: 1; min-height: 0; }
