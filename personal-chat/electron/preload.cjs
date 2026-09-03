@@ -101,6 +101,13 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("dataviz:preview", html, presetId, paletteId, overrides),
   saveDataviz: (payload) => ipcRenderer.invoke("dataviz:save", payload),
 
+  finmodelOptions: () => ipcRenderer.invoke("finmodel:options"),
+  prepareFinmodelParams: (request) => ipcRenderer.invoke("finmodel:prepareParams", request),
+  parseFinmodelParams: (text, input) => ipcRenderer.invoke("finmodel:parseParams", text, input),
+  computeFinmodel: (input) => ipcRenderer.invoke("finmodel:compute", input),
+  prepareFinmodelAdvice: (input) => ipcRenderer.invoke("finmodel:prepareAdvice", input),
+  saveFinmodel: (payload) => ipcRenderer.invoke("finmodel:save", payload),
+
   // клининг
   pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
   prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),

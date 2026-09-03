@@ -2662,6 +2662,7 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
 // ---------- визуализация данных ----------
 
 const dataviz = require("./dataviz.cjs");
+const finmodel = require("./finmodel.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -2795,6 +2796,70 @@ ipcMain.handle("dataviz:save", async (_e, payload) => {
       renderPdf: (page, w, h, dest) => captureHtmlToPdf(page, w, h, dest),
     }
   );
+});
+
+// ---------- финмодель ----------
+
+ipcMain.handle("finmodel:options", () => ({
+  regimes: finmodel.TAX_REGIMES,
+  costKinds: finmodel.COST_KINDS,
+  rates: finmodel.DEFAULT_RATES,
+  months: finmodel.MONTHS,
+}));
+
+// Первый проход: агент читает статистику и ищет официальные ставки. Расчёта
+// здесь ещё нет — есть только просьба достать допущения из данных.
+ipcMain.handle("finmodel:prepareParams", async (_e, request) => {
+  const { input, dataPaths, searchRates } = request || {};
+  const normalized = finmodel.normalizeInput(input);
+  const references = [];
+  for (const filePath of dataPaths || []) {
+    references.push(await docflow.readReference(filePath, extractDocText));
+  }
+  return {
+    prompt:
+      finmodel.buildParamsPrompt({
+        input: normalized,
+        dataPaths: (dataPaths || []).filter(Boolean),
+        searchRates: searchRates !== false,
+      }) + (await userContextDigest()),
+    problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),
+  };
+});
+
+ipcMain.handle("finmodel:parseParams", (_e, text, input) =>
+  finmodel.parseParams(text, finmodel.normalizeInput(input))
+);
+
+ipcMain.handle("finmodel:compute", (_e, input) => {
+  const computed = finmodel.compute(input);
+  // Помесячные строки наружу не отдаём: их до 120 на сценарий, а экрану нужны
+  // только итоги и годы. Полная таблица и так уезжает в книгу.
+  const trim = (r) => ({
+    years: r.years,
+    investment: r.investment,
+    payback: r.payback,
+    npv: r.npv,
+    irr: r.irr,
+    breakEvenUnits: r.breakEvenUnits,
+    breakEvenRevenue: r.breakEvenRevenue,
+    marginPerUnit: r.marginPerUnit,
+    totalNet: r.totalNet,
+    totalRevenue: r.totalRevenue,
+  });
+  return { input: computed.input, pess: trim(computed.pess), base: trim(computed.base), opt: trim(computed.opt) };
+});
+
+// Второй проход: заключение пишется по уже посчитанным числам, а не по форме.
+ipcMain.handle("finmodel:prepareAdvice", async (_e, input) =>
+  finmodel.buildAdvicePrompt(finmodel.compute(input)) + (await userContextDigest())
+);
+
+ipcMain.handle("finmodel:save", async (_e, payload) => {
+  const { input, destDir, fileName, advice, sources } = payload || {};
+  if (!destDir) throw new Error("Не выбрана папка, куда сохранять.");
+  const { path: file } = await finmodel.save(input, { destDir, fileName, advice, sources });
+  return file;
 });
 
 // ---------- клининг ----------

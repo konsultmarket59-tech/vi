@@ -1434,3 +1434,60 @@ a:hover { color: var(--accent-hover); }
 .profile-box-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .profile-box-head strong { flex: 1; }
 .profile-body { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-top: 8px; }
+
+/* Финмодель. Форма слева, итоги справа: цифры должны быть видны, пока правишь
+   исходные данные, — иначе непонятно, что именно меняет твоя правка. */
+.fin-columns { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.fin-form { flex: 1 1 460px; min-width: 380px; display: flex; flex-direction: column; gap: 16px; }
+.fin-result { flex: 1 1 380px; min-width: 320px; position: sticky; top: 12px; }
+.fin-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fin-block h3 { margin: 0 0 10px; font-size: 14px; }
+.fin-block label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.fin-block label input,
+.fin-block label select,
+.fin-block label textarea { width: 100%; margin-top: 4px; }
+.fin-pair { display: flex; gap: 10px; }
+.fin-pair label { flex: 1; }
+.fin-block label.fin-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+.fin-block label.fin-check input { width: auto; margin-top: 2px; flex: 0 0 auto; }
+.fin-hint { font-size: 12px; color: var(--text-dim); margin: 6px 0 0; }
+
+.fin-rows { display: flex; flex-direction: column; gap: 6px; }
+.fin-row { display: flex; gap: 6px; align-items: center; }
+.fin-row input, .fin-row select { min-width: 0; }
+.fin-row-head { font-size: 11px; color: var(--text-dim); }
+.fin-row-head span { padding: 0 2px; }
+button.fin-row-x, span.fin-row-x { flex: 0 0 24px; width: 24px; }
+button.fin-row-x { border: 0; background: none; cursor: pointer; color: var(--text-dim); }
+button.fin-row-x:hover { color: var(--accent); }
+
+/* Сезонность — двенадцать узких полей: так видно форму года целиком. */
+.fin-season { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.fin-season span { display: flex; flex-direction: column; width: 46px; }
+.fin-season em { font-size: 10px; color: var(--text-dim); font-style: normal; text-align: center; }
+.fin-season input { width: 100%; padding: 3px; text-align: center; font-size: 12px; }
+
+.fin-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.fin-file { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.fin-file button { border: 0; background: none; cursor: pointer; color: var(--text-dim); margin-left: 4px; }
+
+.fin-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.fin-applied,
+.fin-saved,
+.fin-error { font-size: 12px; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+.fin-applied { border: 1px solid var(--border); }
+.fin-saved { border: 1px solid var(--accent); }
+.fin-error { border: 1px solid var(--accent); color: var(--accent); }
+
+.fin-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fin-table th, .fin-table td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+.fin-table th:first-child, .fin-table td:first-child { text-align: left; }
+.fin-table .fin-base { font-weight: 600; }
+
+.fin-agent { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 12px; }
+.fin-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.fin-agent-head strong { flex: 1; }
