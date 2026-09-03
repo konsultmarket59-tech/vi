@@ -124,7 +124,7 @@ function normalizeInput(raw = {}) {
     return v > 0 ? v : 1;
   });
 
-  const totalMonths = horizonYears * 12;
+  const totalMonths = horizonYears * 12 - (startMonth - 1);
   const rampRaw = Array.isArray(raw.rampUp) ? raw.rampUp : [];
   const rampUp = Array.from({ length: totalMonths }, (_, i) => {
     if (i < rampRaw.length) return Math.max(0, num(rampRaw[i], 1));
@@ -257,7 +257,9 @@ function usnVatRate(annualRevenue, rates) {
 function computeScenario(input, multiplier) {
   const regime = regimeById(input.tax.regime);
   const rates = input.rates;
-  const totalMonths = input.horizonYears * 12;
+  // Модель идёт от месяца старта до декабря последнего года горизонта: горизонт
+  // измеряется календарными годами, поэтому первый год короче на месяцы до старта.
+  const totalMonths = input.horizonYears * 12 - (input.startMonth - 1);
   const investment = input.investments.reduce((s, i) => s + i.amount, 0);
 
   const salaryFund = input.payroll.reduce((s, p) => s + p.count * p.salary, 0);
@@ -272,7 +274,11 @@ function computeScenario(input, multiplier) {
 
   const months = [];
   for (let t = 0; t < totalMonths; t++) {
-    const y = Math.floor(t / 12);
+    // Год здесь — КАЛЕНДАРНЫЙ, а не «двенадцать месяцев от старта». Так устроена
+    // и таблица, с которой списан модуль (старт в апреле, первый год неполный),
+    // и так же устроен закон: и минимальный налог, и порог НДС считаются за
+    // календарный год. Скользящий год дал бы и другую вёрстку, и другой налог.
+    const y = Math.floor((input.startMonth - 1 + t) / 12);
     const calMonth = (input.startMonth - 1 + t) % 12;
     const costIdx = priceIndex(input.inflation, y);
     const priceIdx = input.indexPrice ? costIdx : 1;
@@ -298,7 +304,7 @@ function computeScenario(input, multiplier) {
 
     const row = {
       t, year: y, calMonth,
-      label: `${MONTHS[calMonth]} ${input.startYear + Math.floor((input.startMonth - 1 + t) / 12)}`,
+      label: `${MONTHS[calMonth]} ${input.startYear + y}`,
       units, revenue, cogs, gross, payroll, percentPay, insurance, fixed, variable,
     };
     row.ebitda = gross - payroll - percentPay - insurance - fixed - variable;
@@ -636,6 +642,7 @@ function writeInputs(wb, input) {
   r = title(ws, r, "ПОСТОЯННЫЕ РАСХОДЫ (в месяц)");
   r = header(ws, r, ["Статья", "Сумма, ₽"]);
   const fixedFirst = r;
+  ref.fixedFirst = fixedFirst;
   const fixed = input.fixedCosts.length ? input.fixedCosts : [{ name: "—", monthly: 0 }];
   for (const c of fixed) {
     ws.getCell(r, 1).value = c.name || "—";
@@ -653,6 +660,7 @@ function writeInputs(wb, input) {
   r = title(ws, r, "ПЕРЕМЕННЫЕ РАСХОДЫ");
   r = header(ws, r, ["Статья", "Как считается", "Значение"]);
   const varFirst = r;
+  ref.varFirst = varFirst;
   const variable = input.variableCosts.length
     ? input.variableCosts
     : [{ name: "—", kind: "month", value: 0 }];
@@ -688,6 +696,7 @@ function writeInputs(wb, input) {
   r = title(ws, r, "ИНВЕСТИЦИИ");
   r = header(ws, r, ["Статья", "Сумма, ₽"]);
   const invFirst = r;
+  ref.investFirst = invFirst;
   const inv = input.investments.length ? input.investments : [{ name: "—", amount: 0 }];
   for (const c of inv) {
     ws.getCell(r, 1).value = c.name || "—";
@@ -781,6 +790,80 @@ function writeRates(wb, input, sources) {
   return ref;
 }
 
+// ---------------------------------------------------------------------------
+// Листы книги
+//
+// Вёрстка повторяет ту таблицу, с которой списан модуль: месяцы идут строками,
+// КАЛЕНДАРНЫЕ годы — колонками, три сценария лежат блоками один под другим, а
+// над каждым блоком написано словами, что здесь считается и по какой формуле.
+// Это не украшательство: финмодель читают люди, которые её не составляли —
+// банк, инвестор, бухгалтер, — и лист без объяснения, что такое «раскрутка»,
+// для них нечитаем.
+//
+// Книга разделена на два слоя. Помесячные листы «Расчёт …» — это движок: там
+// живут все формулы, по одной строке на месяц. Листы «Прогноз продаж»,
+// «Прибыль» и «Модель …» — представление: они только показывают те же числа в
+// той форме, в какой их принято читать. Так ни одно число не считается дважды:
+// иначе две копии формулы однажды разойдутся, и никто не заметит, какая права.
+
+const SHEET_INVEST = "Инвестиции";
+const SHEET_CONTENTS = "Что в книге";
+const SHEET_FC = "Прогноз продаж";
+const SHEET_PROFIT = "Прибыль";
+const CALC_SHEETS = { pess: "Расчёт песс", base: "Расчёт база", opt: "Расчёт опт" };
+const MODEL_SHEETS = { pess: "Модель песс", base: "Модель сред", opt: "Модель опт" };
+const SCEN_TITLES = {
+  pess: "ПЕССИМИСТИЧНЫЙ СЦЕНАРИЙ",
+  base: "СРЕДНИЙ СЦЕНАРИЙ",
+  opt: "ОПТИМИСТИЧНЫЙ СЦЕНАРИЙ",
+};
+const SCEN_ORDER = ["pess", "base", "opt"];
+
+const YELLOW = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF07A" } };
+const THIN = { style: "thin", color: { argb: "FFB9C0C8" } };
+const BOX = { top: THIN, left: THIN, bottom: THIN, right: THIN };
+
+/** Пояснение под заголовком — тем же тоном, что и примечания в исходной книге. */
+function note(ws, row, text, col = 1) {
+  const c = ws.getCell(row, col);
+  c.value = text;
+  c.font = { size: 10, italic: true, color: { argb: "FF5A626B" } };
+  return row + 1;
+}
+
+function boxed(ws, row, col, value, fmt) {
+  const c = ws.getCell(row, col);
+  c.value = value;
+  c.border = BOX;
+  if (fmt) c.numFmt = fmt;
+  return c;
+}
+
+/** Заголовок блока сценария с коэффициентом в жёлтой ячейке — как в оригинале. */
+function scenarioHead(ws, row, key, coefRef) {
+  const c = ws.getCell(row, 1);
+  c.value = SCEN_TITLES[key];
+  c.font = { bold: true, size: 12 };
+  const k = ws.getCell(row, 2);
+  k.value = { formula: `${SHEET_IN}!${coefRef}` };
+  k.numFmt = "0%";
+  k.fill = YELLOW;
+  k.font = { bold: true };
+  k.border = BOX;
+  return row + 1;
+}
+
+function coefRefOf(inRef, key) {
+  return key === "pess" ? inRef.scenPess : key === "base" ? inRef.scenBase : inRef.scenOpt;
+}
+
+/** Месяц календарного года → месяц проекта. Вне горизонта возвращает null. */
+function projectMonth(input, y, m) {
+  const t = y * 12 + m - (input.startMonth - 1);
+  const total = input.horizonYears * 12 - (input.startMonth - 1);
+  return t >= 0 && t < total ? t : null;
+}
+
 const COLS = {
   month: 1, season: 2, ramp: 3, units: 4, price: 5, revenue: 6, cogs: 7, gross: 8,
   salary: 9, percentPay: 10, insurance: 11, fixed: 12, variable: 13, ebitda: 14,
@@ -798,7 +881,7 @@ const L = (n) => {
 };
 
 /**
- * Расчётный лист одного сценария: месяц — строка, статья — колонка.
+ * Помесячный расчёт одного сценария — движок книги.
  *
  * Правила, которые по закону работают за год, а не за месяц, вынесены в
  * отдельные колонки: доплата до минимального налога и НДС при превышении порога
@@ -817,7 +900,13 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
   let r = 1;
   ws.getCell(r, 1).value = `${name} — ${input.projectName}`;
   ws.getCell(r, 1).font = { bold: true, size: 13 };
-  r += 2;
+  r += 1;
+  r = note(
+    ws,
+    r,
+    "Движок книги: по строке на месяц. Листы «Прогноз продаж», «Прибыль» и «Модель …» " +
+      "показывают эти же числа по годам и ничего не пересчитывают заново."
+  );
 
   const invRow = r;
   ws.getCell(r, 1).value = "Инвестиции";
@@ -858,7 +947,6 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
     ws.getColumn(helpCol + i).width = 18;
   });
 
-  // Годовые суммы — тоже на этом же листе, чтобы лист был самодостаточным.
   const yearCol = helpCol + payroll.length + 1;
   ws.getColumn(yearCol).width = 10;
   ws.getColumn(yearCol + 1).width = 18;
@@ -867,19 +955,24 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
   ws.getCell(headRow, yearCol).font = { bold: true };
   ws.getCell(headRow, yearCol + 1).font = { bold: true };
 
-  const totalMonths = input.horizonYears * 12;
+  const totalMonths = input.horizonYears * 12 - (input.startMonth - 1);
   const yearRevCell = (y) => `$${L(yearCol + 1)}$${firstRow + y}`;
+  // Границы календарных годов: первый год короче на месяцы до старта.
+  const yearRange = (y) => {
+    const from = Math.max(0, y * 12 - (input.startMonth - 1));
+    const to = Math.min(totalMonths - 1, (y + 1) * 12 - 1 - (input.startMonth - 1));
+    return { from: firstRow + from, to: firstRow + to };
+  };
 
   for (let t = 0; t < totalMonths; t++) {
-    const y = Math.floor(t / 12);
+    const y = Math.floor((input.startMonth - 1 + t) / 12);
     const calMonth = (input.startMonth - 1 + t) % 12;
     const idx = ratesRef.idx(y);
     const priceIdx = input.indexPrice ? idx : "1";
     const row = firstRow + t;
     const at = (key) => `${L(COLS[key])}${row}`;
 
-    ws.getCell(row, COLS.month).value =
-      `${MONTHS[calMonth]} ${input.startYear + Math.floor((input.startMonth - 1 + t) / 12)}`;
+    ws.getCell(row, COLS.month).value = `${MONTHS[calMonth]} ${input.startYear + y}`;
     ws.getCell(row, COLS.season).value = { formula: `${IN}$B$${inRef.seasonFirst + calMonth}` };
     ws.getCell(row, COLS.ramp).value = { formula: `${IN}$B$${inRef.rampFirst + t}` };
     ws.getCell(row, COLS.units).value = {
@@ -894,7 +987,6 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
       formula: `${at("revenue")}*${IN}${inRef.salesPercent}/100`,
     };
 
-    // Взносы по должностям.
     payroll.forEach((p, i) => {
       const cnt = `${IN}$B$${inRef.payrollFirst + i}`;
       const sal = `${IN}$C$${inRef.payrollFirst + i}`;
@@ -944,19 +1036,17 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
     }
     ws.getCell(row, COLS.tax).value = { formula: taxFormula };
 
-    // Доплата до минимального налога — только в последнем месяце года.
-    const isDec = t % 12 === 11 || t === totalMonths - 1;
-    if (regime.minRate && isDec) {
-      const from = firstRow + y * 12;
+    const range = yearRange(y);
+    const isLastOfYear = row === range.to;
+    if (regime.minRate && isLastOfYear) {
       ws.getCell(row, COLS.minTop).value = {
         formula:
-          `MAX(0,${yearRevCell(y)}*${RT}${ratesRef.minRate}-SUM(${L(COLS.tax)}${from}:${L(COLS.tax)}${row}))`,
+          `MAX(0,${yearRevCell(y)}*${RT}${ratesRef.minRate}-SUM(${L(COLS.tax)}${range.from}:${L(COLS.tax)}${row}))`,
       };
     } else {
       ws.getCell(row, COLS.minTop).value = 0;
     }
 
-    // НДС: на упрощёнке — при превышении годового порога, на ОСНО — всегда.
     let vatFormula = "0";
     if (regime.id === "osno") {
       vatFormula = input.tax.priceIncludesVat
@@ -973,8 +1063,7 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
       formula: `${at("ebitda")}-${at("tax")}-${at("minTop")}-${at("vat")}`,
     };
     ws.getCell(row, COLS.flow).value = { formula: at("net") };
-    // Первый месяц продолжает строку инвестиций, а не строку заголовка: над ним
-    // лежит шапка таблицы, и ссылка на неё давала #VALUE! в первой же ячейке.
+    // Первый месяц продолжает строку инвестиций, а не строку заголовка.
     ws.getCell(row, COLS.cumulative).value = {
       formula: `${L(COLS.cumulative)}${t === 0 ? invRow : row - 1}+${at("flow")}`,
     };
@@ -988,16 +1077,14 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
       ws.getCell(row, c).numFmt = MONEY;
     }
     ws.getCell(row, COLS.season).numFmt = COEF;
-    ws.getCell(row, COLS.ramp).numFmt = COEF;
+    ws.getCell(row, COLS.ramp).numFmt = "0%";
   }
 
-  // Годовые суммы выручки — на них ссылаются НДС и минимальный налог.
   for (let y = 0; y < input.horizonYears; y++) {
-    const from = firstRow + y * 12;
-    const to = Math.min(firstRow + y * 12 + 11, firstRow + totalMonths - 1);
+    const range = yearRange(y);
     ws.getCell(firstRow + y, yearCol).value = input.startYear + y;
     ws.getCell(firstRow + y, yearCol + 1).value = {
-      formula: `SUM(${L(COLS.revenue)}${from}:${L(COLS.revenue)}${to})`,
+      formula: `SUM(${L(COLS.revenue)}${range.from}:${L(COLS.revenue)}${range.to})`,
     };
     ws.getCell(firstRow + y, yearCol + 1).numFmt = MONEY;
   }
@@ -1014,7 +1101,516 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
     c.fill = TOTAL_FILL;
     c.font = { bold: true };
   }
-  return { firstRow, lastRow, totalRow, invRow, sheet: name };
+  return { firstRow, lastRow, totalRow, invRow, sheet: name, yearRange };
+}
+
+/**
+ * Лист «Прогноз продаж» — первый шаг, как в исходной книге: месяцы строками,
+ * календарные годы колонками, три сценария блоками. Числа берутся с помесячных
+ * листов, здесь только вёрстка.
+ */
+function writeForecast(wb, input, inRef, ratesRef, marks) {
+  const ws = wb.addWorksheet(SHEET_FC);
+  const n = input.horizonYears;
+  const rampCol = (y) => 2 + y;
+  const unitsCol = (y) => 3 + n + y;
+  const salesCol = (y) => 4 + 2 * n + y;
+
+  ws.getColumn(1).width = 24;
+  for (let c = 2; c <= salesCol(n - 1); c++) ws.getColumn(c).width = 15;
+
+  let r = 1;
+  ws.getCell(r, 1).value = `Прогноз продаж — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  r += 2;
+  ws.getCell(r, 1).value = "1. Расчёт прогноза продаж";
+  ws.getCell(r, 1).font = { bold: true };
+  r += 1;
+  r = note(ws, r, "Объём месяца = базовый объём × сезонность месяца × раскрутка × коэффициент сценария.");
+  r = note(ws, r, "Выручка = объём × цена. Цена индексируется на инфляцию начиная со второго года.");
+  r = note(
+    ws,
+    r,
+    "Раскрутка — какую долю от полной мощности проект даёт в этот месяц: пока набирается " +
+      "клиентская база, продажи ниже возможных."
+  );
+  r = note(
+    ws,
+    r,
+    `Первый год неполный: продажи начинаются в ${MONTHS[input.startMonth - 1]} ${input.startYear} года.`
+  );
+  r += 1;
+
+  const blocks = {};
+  for (const key of SCEN_ORDER) {
+    r = scenarioHead(ws, r, key, coefRefOf(inRef, key));
+    const calc = marks[key];
+    const head = r;
+    ws.getCell(head, 1).value = "Месяц";
+    for (let y = 0; y < n; y++) {
+      for (const [col, label] of [
+        [rampCol(y), `% раскрутки ${input.startYear + y}`],
+        [unitsCol(y), `объём, ед. ${input.startYear + y}`],
+        [salesCol(y), `прогноз продаж ${input.startYear + y}`],
+      ]) {
+        ws.getCell(head, col).value = label;
+      }
+    }
+    for (let c = 1; c <= salesCol(n - 1); c++) {
+      const cell = ws.getCell(head, c);
+      cell.font = { bold: true };
+      cell.fill = HEAD_FILL;
+      cell.alignment = { wrapText: true, vertical: "bottom" };
+    }
+    r += 1;
+
+    ws.getCell(r, 1).value = "Корр-ка на инфляцию (год к предыдущему)";
+    for (let y = 0; y < n; y++) {
+      const c = ws.getCell(r, salesCol(y));
+      c.value = { formula: `${SHEET_RATES}!$B$${ratesRef.inflFirst + y}` };
+      c.numFmt = "0.0%";
+    }
+    r += 1;
+
+    const first = r;
+    for (let m = 0; m < 12; m++) {
+      ws.getCell(r, 1).value = MONTHS[m];
+      for (let y = 0; y < n; y++) {
+        const t = projectMonth(input, y, m);
+        if (t === null) continue;
+        const src = (col) => `'${calc.sheet}'!${L(col)}${calc.firstRow + t}`;
+        boxed(ws, r, rampCol(y), { formula: src(COLS.ramp) }, "0%");
+        boxed(ws, r, unitsCol(y), { formula: src(COLS.units) }, MONEY);
+        boxed(ws, r, salesCol(y), { formula: src(COLS.revenue) }, MONEY);
+      }
+      r += 1;
+    }
+    const last = r - 1;
+
+    for (const label of ["ИТОГО", "Ср-мес"]) {
+      const isTotal = label === "ИТОГО";
+      ws.getCell(r, 1).value = label;
+      ws.getCell(r, 1).font = { bold: true };
+      for (let y = 0; y < n; y++) {
+        for (const col of [unitsCol(y), salesCol(y)]) {
+          const range = `${L(col)}${first}:${L(col)}${last}`;
+          const c = ws.getCell(r, col);
+          c.value = { formula: isTotal ? `SUM(${range})` : `IFERROR(SUM(${range})/COUNT(${range}),0)` };
+          c.numFmt = MONEY;
+          if (isTotal) {
+            c.font = { bold: true };
+            c.fill = TOTAL_FILL;
+          }
+        }
+      }
+      if (isTotal) blocks[key] = { first, last, totalRow: r };
+      r += 1;
+    }
+    r += 2;
+  }
+  return blocks;
+}
+
+/**
+ * Лист «Прибыль»: валовая слева, чистая в середине, накопленным итогом справа —
+ * та же раскладка, что в исходной книге, включая строку про окупаемость над
+ * каждым блоком.
+ */
+function writeProfit(wb, input, computed, marks) {
+  const ws = wb.addWorksheet(SHEET_PROFIT);
+  const n = input.horizonYears;
+  const grossCol = (y) => 2 + y;
+  const netCol = (y) => 3 + n + y;
+  const accCol = (y) => 4 + 2 * n + y;
+
+  ws.getColumn(1).width = 24;
+  for (let c = 2; c <= accCol(n - 1); c++) ws.getColumn(c).width = 15;
+
+  let r = 1;
+  ws.getCell(r, 1).value = `Расчёт прибыли — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  r += 2;
+  ws.getCell(r, 1).value = "2. Расчёт валовой прибыли";
+  ws.getCell(r, 1).font = { bold: true };
+  ws.getCell(r, netCol(0)).value = "3. Расчёт чистой прибыли";
+  ws.getCell(r, netCol(0)).font = { bold: true };
+  r += 1;
+  r = note(ws, r, "Валовая прибыль = выручка − себестоимость проданного.");
+  r = note(
+    ws,
+    r,
+    "Чистая прибыль = валовая − оклады − оплата от продаж − страховые взносы − постоянные " +
+      "расходы − переменные расходы − налоги."
+  );
+  r = note(
+    ws,
+    r,
+    "Накопленным итогом — сколько денег проект вернул с начала, считая вложенные инвестиции. " +
+      "Месяц, в котором эта колонка выходит в плюс, и есть окупаемость."
+  );
+  r += 1;
+
+  for (const key of SCEN_ORDER) {
+    const calc = marks[key];
+    const res = computed[key];
+    const c = ws.getCell(r, 1);
+    c.value = SCEN_TITLES[key];
+    c.font = { bold: true, size: 12 };
+    r += 1;
+    ws.getCell(r, 1).value = res.payback
+      ? `Окупаемость: ${res.payback.months} мес. — ${res.payback.label}`
+      : "Окупаемость: за горизонт не наступает";
+    ws.getCell(r, 1).font = { bold: true, color: { argb: "FFB3005A" } };
+    r += 1;
+
+    const head = r;
+    ws.getCell(head, 1).value = "Месяц";
+    for (let y = 0; y < n; y++) {
+      ws.getCell(head, grossCol(y)).value = `валовая ${input.startYear + y}`;
+      ws.getCell(head, netCol(y)).value = `чистая ${input.startYear + y}`;
+      ws.getCell(head, accCol(y)).value = `накопл. итог ${input.startYear + y}`;
+    }
+    for (let col = 1; col <= accCol(n - 1); col++) {
+      const cell = ws.getCell(head, col);
+      cell.font = { bold: true };
+      cell.fill = HEAD_FILL;
+      cell.alignment = { wrapText: true, vertical: "bottom" };
+    }
+    r += 1;
+
+    const first = r;
+    for (let m = 0; m < 12; m++) {
+      ws.getCell(r, 1).value = MONTHS[m];
+      for (let y = 0; y < n; y++) {
+        const t = projectMonth(input, y, m);
+        if (t === null) continue;
+        const src = (col) => `'${calc.sheet}'!${L(col)}${calc.firstRow + t}`;
+        boxed(ws, r, grossCol(y), { formula: src(COLS.gross) }, MONEY);
+        boxed(ws, r, netCol(y), { formula: src(COLS.net) }, MONEY);
+        boxed(ws, r, accCol(y), { formula: src(COLS.cumulative) }, MONEY);
+      }
+      r += 1;
+    }
+    const last = r - 1;
+
+    for (const label of ["ИТОГО за год", "Ср-мес"]) {
+      const isTotal = label.startsWith("ИТОГО");
+      ws.getCell(r, 1).value = label;
+      ws.getCell(r, 1).font = { bold: true };
+      for (let y = 0; y < n; y++) {
+        for (const col of [grossCol(y), netCol(y)]) {
+          const range = `${L(col)}${first}:${L(col)}${last}`;
+          const cell = ws.getCell(r, col);
+          cell.value = { formula: isTotal ? `SUM(${range})` : `IFERROR(SUM(${range})/COUNT(${range}),0)` };
+          cell.numFmt = MONEY;
+          if (isTotal) {
+            cell.font = { bold: true };
+            cell.fill = TOTAL_FILL;
+          }
+        }
+      }
+      r += 1;
+    }
+    r += 2;
+  }
+}
+
+/**
+ * Лист «Модель …» — годовая сводка одного сценария: доходы, расходы по статьям,
+ * прибыль, накопленный остаток инвестиций, штат и примечание про инфляцию.
+ * Повторяет лист «мод сред» исходной книги.
+ */
+function writeModel(wb, input, key, computed, marks, inRef, ratesRef) {
+  const ws = wb.addWorksheet(MODEL_SHEETS[key]);
+  const n = input.horizonYears;
+  const calc = marks[key];
+  const IN = `${SHEET_IN}!`;
+  const col = (y) => 2 + y;
+  const yearCells = (c) => {
+    const range = calc.yearRange(0);
+    return range;
+  };
+
+  ws.getColumn(1).width = 46;
+  for (let c = 2; c <= col(n - 1); c++) ws.getColumn(c).width = 16;
+
+  const monthsIn = (y) => {
+    const range = calc.yearRange(y);
+    return range.to - range.from + 1;
+  };
+  const sumYear = (c, y) => {
+    const range = calc.yearRange(y);
+    return `SUM('${calc.sheet}'!${L(c)}${range.from}:${L(c)}${range.to})`;
+  };
+
+  let r = 1;
+  ws.getCell(r, 1).value = `Модель — ${SCEN_TITLES[key].toLowerCase()}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  const k = ws.getCell(r, 3);
+  k.value = { formula: `${IN}${coefRefOf(inRef, key)}` };
+  k.numFmt = "0%";
+  k.fill = YELLOW;
+  k.font = { bold: true };
+  k.border = BOX;
+  r += 2;
+  r = note(
+    ws,
+    r,
+    "Что на листе: доходы и расходы по годам, годовая прибыль и то, сколько осталось вернуть " +
+      "из вложенного. Расходы показаны в среднем за месяц — как их удобно сравнивать с выручкой."
+  );
+  r += 1;
+
+  const line = (label, make, opts = {}) => {
+    const c1 = ws.getCell(r, 1);
+    c1.value = label;
+    if (opts.bold) c1.font = { bold: true };
+    if (opts.indent) c1.alignment = { indent: 1 };
+    for (let y = 0; y < n; y++) {
+      const cell = ws.getCell(r, col(y));
+      const v = make(y);
+      if (v !== null && v !== undefined) cell.value = v;
+      cell.numFmt = opts.fmt || MONEY;
+      if (opts.bold) {
+        cell.font = { bold: true };
+        cell.fill = opts.fill || TOTAL_FILL;
+      }
+      cell.border = BOX;
+    }
+    r += 1;
+  };
+  const section = (label) => {
+    const c = ws.getCell(r, 1);
+    c.value = label;
+    c.font = { bold: true, size: 12 };
+    r += 1;
+  };
+
+  // Шапка с годами.
+  ws.getCell(r, 1).value = "Показатель";
+  ws.getCell(r, 1).font = { bold: true };
+  ws.getCell(r, 1).fill = HEAD_FILL;
+  for (let y = 0; y < n; y++) {
+    const c = ws.getCell(r, col(y));
+    c.value = `${input.startYear + y} г.`;
+    c.font = { bold: true };
+    c.fill = HEAD_FILL;
+  }
+  r += 1;
+
+  section("ИНВЕСТИЦИИ");
+  for (const item of input.investments.length ? input.investments : [{ name: "—", amount: 0 }]) {
+    line(item.name || "—", (y) => (y === 0 ? item.amount : null), { indent: true });
+  }
+  line("ИТОГО инвестиции", (y) => (y === 0 ? { formula: `${IN}${inRef.investTotal}` } : null), { bold: true });
+  r += 1;
+
+  section("ДОХОДЫ");
+  line("Продажи (выручка за год)", (y) => ({ formula: sumYear(COLS.revenue, y) }), { indent: true });
+  line("Себестоимость проданного", (y) => ({ formula: sumYear(COLS.cogs, y) }), { indent: true });
+  line("Валовая прибыль за год", (y) => ({ formula: sumYear(COLS.gross, y) }), { bold: true });
+  line("Ср-мес валовая прибыль", (y) => ({ formula: `${L(col(y))}${r - 1}/${monthsIn(y)}` }), { indent: true });
+  r += 1;
+
+  section("РАСХОДЫ ПОСТОЯННЫЕ (в месяц)");
+  const fixedFirst = r;
+  const fixedList = input.fixedCosts.length ? input.fixedCosts : [{ name: "—", monthly: 0 }];
+  fixedList.forEach((item, i) => {
+    line(item.name || "—", (y) => ({ formula: `${IN}$B$${inRef.fixedFirst + i}*${ratesRef.idx(y)}` }), {
+      indent: true,
+    });
+  });
+  const fixedLast = r - 1;
+  line("ИТОГО постоянные в месяц", (y) => ({ formula: `SUM(${L(col(y))}${fixedFirst}:${L(col(y))}${fixedLast})` }), {
+    bold: true,
+  });
+  const fixedTotalRow = r - 1;
+  r += 1;
+
+  section("РАСХОДЫ ПЕРЕМЕННЫЕ (в среднем за месяц)");
+  const varFirst = r;
+  const varList = input.variableCosts.length ? input.variableCosts : [{ name: "—", kind: "month", value: 0 }];
+  varList.forEach((item, i) => {
+    const src = `${IN}$C$${inRef.varFirst + i}`;
+    line(
+      `${item.name || "—"} (${COST_KINDS.find((c) => c.id === item.kind)?.name || item.kind})`,
+      (y) => {
+        const months = monthsIn(y);
+        if (item.kind === "unit") return { formula: `${src}*${ratesRef.idx(y)}*${sumYear(COLS.units, y)}/${months}` };
+        if (item.kind === "revenue") return { formula: `${src}/100*${sumYear(COLS.revenue, y)}/${months}` };
+        return { formula: `${src}*${ratesRef.idx(y)}` };
+      },
+      { indent: true }
+    );
+  });
+  line("Оклады", (y) => ({ formula: `${sumYear(COLS.salary, y)}/${monthsIn(y)}` }), { indent: true });
+  line("Оплата % от продаж", (y) => ({ formula: `${sumYear(COLS.percentPay, y)}/${monthsIn(y)}` }), { indent: true });
+  line("Страховые взносы", (y) => ({ formula: `${sumYear(COLS.insurance, y)}/${monthsIn(y)}` }), { indent: true });
+  line(
+    "Налоги и НДС",
+    (y) => ({
+      formula: `(${sumYear(COLS.tax, y)}+${sumYear(COLS.minTop, y)}+${sumYear(COLS.vat, y)})/${monthsIn(y)}`,
+    }),
+    { indent: true }
+  );
+  const varLast = r - 1;
+  line("ИТОГО переменные в месяц", (y) => ({ formula: `SUM(${L(col(y))}${varFirst}:${L(col(y))}${varLast})` }), {
+    bold: true,
+  });
+  const varTotalRow = r - 1;
+  r += 1;
+
+  line(
+    "ИТОГО расходы в месяц",
+    (y) => ({ formula: `${L(col(y))}${fixedTotalRow}+${L(col(y))}${varTotalRow}` }),
+    { bold: true }
+  );
+  const perMonthRow = r - 1;
+  line("ИТОГО расходы за год", (y) => ({ formula: `${L(col(y))}${perMonthRow}*${monthsIn(y)}` }), { bold: true });
+  line("ИТОГ прибыль за год", (y) => ({ formula: sumYear(COLS.net, y) }), {
+    bold: true,
+    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F3EC" } },
+  });
+  const profitRow = r - 1;
+  line(
+    "Инвестиции − прибыль (накопленным итогом)",
+    (y) => ({
+      formula:
+        y === 0
+          ? `-${IN}${inRef.investTotal}+${L(col(0))}${profitRow}`
+          : `${L(col(y - 1))}${r}+${L(col(y))}${profitRow}`,
+    }),
+    { bold: true }
+  );
+  r += 1;
+
+  section("ШТАТ");
+  ws.getCell(r, 1).value = "Должность";
+  ws.getCell(r, 2).value = "Человек";
+  ws.getCell(r, 3).value = "Оклад, ₽";
+  ws.getCell(r, 4).value = "% от продаж";
+  for (let c = 1; c <= 4; c++) {
+    ws.getCell(r, c).font = { bold: true };
+    ws.getCell(r, c).fill = HEAD_FILL;
+  }
+  r += 1;
+  const staff = input.payroll.length ? input.payroll : [{ role: "—", count: 0, salary: 0, percentOfSales: 0 }];
+  staff.forEach((p, i) => {
+    ws.getCell(r, 1).value = p.role || "—";
+    ws.getCell(r, 2).value = { formula: `${IN}$B$${inRef.payrollFirst + i}` };
+    ws.getCell(r, 3).value = { formula: `${IN}$C$${inRef.payrollFirst + i}` };
+    ws.getCell(r, 4).value = { formula: `${IN}$D$${inRef.payrollFirst + i}` };
+    ws.getCell(r, 3).numFmt = MONEY;
+    r += 1;
+  });
+  ws.getCell(r, 1).value = "ФОТ (оклады) в месяц";
+  ws.getCell(r, 2).value = { formula: `${IN}${inRef.salaryFund}` };
+  ws.getCell(r, 2).numFmt = MONEY;
+  ws.getCell(r, 1).font = { bold: true };
+  r += 1;
+  ws.getCell(r, 1).value = "Рабочих месяцев в году";
+  for (let y = 0; y < n; y++) ws.getCell(r, col(y)).value = monthsIn(y);
+  r += 2;
+
+  ws.getCell(r, 1).value =
+    "* Примечание. Все расходы, кроме оплаты от продаж, начиная со второго года увеличены на " +
+    "инфляцию. Алгоритм — расходы каждого последующего года по сравнению с предыдущим. " +
+    "Первый год неполный: он считается с месяца старта продаж.";
+  ws.getCell(r, 1).font = { size: 10, italic: true, color: { argb: "FF5A626B" } };
+  ws.getCell(r, 1).alignment = { wrapText: true };
+}
+
+/** Лист «Инвестиции» — план и факт, как в исходной книге. */
+function writeInvest(wb, input, inRef) {
+  const ws = wb.addWorksheet(SHEET_INVEST);
+  ws.getColumn(1).width = 48;
+  ws.getColumn(2).width = 16;
+  ws.getColumn(3).width = 16;
+
+  let r = 1;
+  ws.getCell(r, 1).value = `Инвестиционные расходы — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  r += 2;
+  r = note(
+    ws,
+    r,
+    "Колонка «план» связана с расчётом: её итог участвует в окупаемости. Колонка «факт» — для " +
+      "вас: заполняйте по мере трат, чтобы видеть расхождение."
+  );
+  r += 1;
+  r = header(ws, r, ["Статья", "план", "факт"]);
+  const first = r;
+  const list = input.investments.length ? input.investments : [{ name: "—", amount: 0 }];
+  list.forEach((item, i) => {
+    ws.getCell(r, 1).value = item.name || "—";
+    boxed(ws, r, 2, { formula: `${SHEET_IN}!$B$${inRef.investFirst + i}` }, MONEY);
+    boxed(ws, r, 3, null, MONEY);
+    r += 1;
+  });
+  ws.getCell(r, 1).value = "ИТОГО";
+  ws.getCell(r, 1).font = { bold: true };
+  for (const c of [2, 3]) {
+    const cell = ws.getCell(r, c);
+    cell.value = { formula: `SUM(${L(c)}${first}:${L(c)}${r - 1})` };
+    cell.numFmt = MONEY;
+    cell.font = { bold: true };
+    cell.fill = TOTAL_FILL;
+  }
+  r += 2;
+  ws.getCell(r, 1).value = "Отклонение факта от плана";
+  ws.getCell(r, 2).value = { formula: `C${r - 2}-B${r - 2}` };
+  ws.getCell(r, 2).numFmt = MONEY;
+}
+
+/** Оглавление: что на каком листе и в каком порядке это читать. */
+function writeContents(wb, input) {
+  const ws = wb.addWorksheet(SHEET_CONTENTS);
+  ws.getColumn(1).width = 26;
+  ws.getColumn(2).width = 104;
+  let r = 1;
+  ws.getCell(r, 1).value = `Финансовая модель — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 16 };
+  r += 1;
+  ws.getCell(r, 1).value = `Составлено ${new Date().toLocaleDateString("ru-RU")}`;
+  ws.getCell(r, 1).font = { color: { argb: "FF5A626B" } };
+  r += 2;
+
+  const rows = [
+    [SHEET_INVEST, "Инвестиционные расходы: план и место для факта. Итог плана участвует в окупаемости."],
+    [SHEET_IN, "Все исходные данные: цена, объём, сезонность, раскрутка, штат, расходы. Голубые ячейки правятся — книга пересчитается."],
+    [SHEET_RATES, "Ставки налогов и взносов, МРОТ, инфляция по годам. Со ссылкой на источник и пометкой «проверьте»: закон меняется."],
+    [SHEET_FC, "1. Прогноз продаж. Раскрутка, объём в штуках и выручка по месяцам и годам — по всем трём сценариям."],
+    [SHEET_PROFIT, "2. Валовая прибыль и 3. чистая прибыль по месяцам и годам, с накопленным итогом и датой окупаемости."],
+    [MODEL_SHEETS.pess, "Годовая модель пессимистичного сценария: доходы, расходы по статьям, прибыль, остаток инвестиций, штат."],
+    [MODEL_SHEETS.base, "То же для среднего сценария."],
+    [MODEL_SHEETS.opt, "То же для оптимистичного сценария."],
+    [CALC_SHEETS.pess, "Помесячный расчёт пессимистичного сценария — движок книги. Здесь живут формулы, остальные листы только показывают эти числа."],
+    [CALC_SHEETS.base, "Помесячный расчёт среднего сценария."],
+    [CALC_SHEETS.opt, "Помесячный расчёт оптимистичного сценария."],
+    [SHEET_SUM, "Итоги: три сценария рядом, окупаемость, NPV, IRR, точка безубыточности."],
+    [SHEET_ADVICE, "Заключение экономиста по посчитанным числам."],
+  ];
+  r = header(ws, r, ["Лист", "Что на нём"]);
+  for (const [name, what] of rows) {
+    ws.getCell(r, 1).value = name;
+    ws.getCell(r, 1).font = { bold: true };
+    ws.getCell(r, 2).value = what;
+    ws.getCell(r, 2).alignment = { wrapText: true };
+    ws.getCell(r, 1).border = BOX;
+    ws.getCell(r, 2).border = BOX;
+    r += 1;
+  }
+  r += 1;
+  r = note(
+    ws,
+    r,
+    "Книга собрана на живых формулах: поменяйте цену или объём на листе «Исходные» — пересчитается всё."
+  );
+  note(
+    ws,
+    r,
+    "Сценарии отличаются только коэффициентом к объёму продаж; он показан жёлтой ячейкой в шапке каждого блока."
+  );
 }
 
 /**
@@ -1037,9 +1633,8 @@ function writeSummary(wb, input, marks, computed, inRef, ratesRef) {
   ws.getCell(r, 1).font = { bold: true, size: 14 };
   r += 2;
 
-  // Постоянная часть расходов — для точки безубыточности. По одной строке на
-  // должность: ступень взносов по МРОТ иначе не показать.
   r = title(ws, r, "ПОСТОЯННАЯ ЧАСТЬ РАСХОДОВ В МЕСЯЦ");
+  r = note(ws, r, "То, что придётся платить даже при нулевых продажах. Из неё считается точка безубыточности.");
   const constFirst = r;
   ws.getCell(r, 1).value = "Оклады";
   ws.getCell(r, 2).value = { formula: `${IN}${inRef.salaryFund}` };
@@ -1103,14 +1698,14 @@ function writeSummary(wb, input, marks, computed, inRef, ratesRef) {
   r += 2;
 
   r = title(ws, r, "СЦЕНАРИИ");
-  r = header(ws, r, ["Показатель", "Пессимистичный", "Базовый", "Оптимистичный"]);
-  const order = ["pess", "base", "opt"];
+  r = header(ws, r, ["Показатель", "Пессимистичный", "Средний", "Оптимистичный"]);
   const line = (label, make, fmt = MONEY) => {
     ws.getCell(r, 1).value = label;
-    order.forEach((key, i) => {
+    SCEN_ORDER.forEach((key, i) => {
       const cell = ws.getCell(r, i + 2);
       cell.value = make(marks[key], computed[key]);
       cell.numFmt = fmt;
+      cell.border = BOX;
     });
     r += 1;
   };
@@ -1118,9 +1713,7 @@ function writeSummary(wb, input, marks, computed, inRef, ratesRef) {
   const col = (m, key) => `'${m.sheet}'!${L(COLS[key])}${m.totalRow}`;
   line("Выручка за горизонт", (m) => ({ formula: col(m, "revenue") }));
   line("Валовая прибыль", (m) => ({ formula: col(m, "gross") }));
-  line("Налоги и НДС", (m) => ({
-    formula: `${col(m, "tax")}+${col(m, "minTop")}+${col(m, "vat")}`,
-  }));
+  line("Налоги и НДС", (m) => ({ formula: `${col(m, "tax")}+${col(m, "minTop")}+${col(m, "vat")}` }));
   line("Чистая прибыль за горизонт", (m) => ({ formula: col(m, "net") }));
   line("Инвестиции", () => ({ formula: `${IN}${inRef.investTotal}` }));
   line("Накопленный итог на конец горизонта", (m) => ({
@@ -1147,9 +1740,12 @@ function writeSummary(wb, input, marks, computed, inRef, ratesRef) {
     PCT
   );
   r += 1;
-  ws.getCell(r, 1).value =
+  note(
+    ws,
+    r,
     "IRR решается подбором, встроенный просмотрщик приложения такую функцию не считает. " +
-    "В Excel её можно проверить формулой ВСД по колонке «Денежный поток».";
+      "В Excel её можно проверить формулой ВСД по колонке «Денежный поток» помесячного листа."
+  );
   return ws;
 }
 
@@ -1181,6 +1777,9 @@ function writeAdvice(wb, input, advice) {
 /**
  * Собирает книгу и кладёт её в указанную папку. Ничего не копирует внутрь
  * приложения: путь приходит снаружи, файл остаётся у человека.
+ *
+ * Порядок листов — порядок чтения: оглавление, инвестиции, исходные данные и
+ * ставки, потом прогноз → прибыль → модели по сценариям, и лишь затем движок.
  */
 async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) {
   const ExcelJS = require("exceljs");
@@ -1191,15 +1790,32 @@ async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) 
   wb.creator = "Личный чат";
   wb.created = new Date();
 
+  writeContents(wb, input);
   const inRef = writeInputs(wb, input);
   const ratesRef = writeRates(wb, input, sources);
-  const marks = {
-    pess: writeScenarioSheet(wb, input, "Расчёт песс", inRef.scenPess, inRef, ratesRef),
-    base: writeScenarioSheet(wb, input, "Расчёт база", inRef.scenBase, inRef, ratesRef),
-    opt: writeScenarioSheet(wb, input, "Расчёт опт", inRef.scenOpt, inRef, ratesRef),
-  };
+  writeInvest(wb, input, inRef);
+
+  const marks = {};
+  for (const key of SCEN_ORDER) {
+    marks[key] = writeScenarioSheet(wb, input, CALC_SHEETS[key], coefRefOf(inRef, key), inRef, ratesRef);
+  }
+  writeForecast(wb, input, inRef, ratesRef, marks);
+  writeProfit(wb, input, computed, marks);
+  for (const key of SCEN_ORDER) writeModel(wb, input, key, computed, marks, inRef, ratesRef);
   writeSummary(wb, input, marks, computed, inRef, ratesRef);
   writeAdvice(wb, input, advice);
+
+  // Листы движка ставим в конец: они нужны для проверки, но читают книгу не с них.
+  const order = [
+    SHEET_CONTENTS, SHEET_INVEST, SHEET_IN, SHEET_RATES, SHEET_FC, SHEET_PROFIT,
+    MODEL_SHEETS.pess, MODEL_SHEETS.base, MODEL_SHEETS.opt,
+    SHEET_SUM, SHEET_ADVICE,
+    CALC_SHEETS.pess, CALC_SHEETS.base, CALC_SHEETS.opt,
+  ];
+  order.forEach((name, i) => {
+    const sheet = wb.getWorksheet(name);
+    if (sheet) sheet.orderNo = i + 1;
+  });
 
   const safe = (fileName || `Финмодель — ${input.projectName}`)
     .replace(/[\\/:*?"<>|]/g, " ")
@@ -1217,6 +1833,12 @@ module.exports.writeSummary = writeSummary;
 module.exports.save = save;
 module.exports.COLS = COLS;
 module.exports.L = L;
+module.exports.CALC_SHEETS = CALC_SHEETS;
+module.exports.MODEL_SHEETS = MODEL_SHEETS;
+module.exports.SHEET_FC = SHEET_FC;
+module.exports.SHEET_PROFIT = SHEET_PROFIT;
+module.exports.SHEET_CONTENTS = SHEET_CONTENTS;
+module.exports.SHEET_INVEST = SHEET_INVEST;
 
 // ---------------------------------------------------------------------------
 // Агент

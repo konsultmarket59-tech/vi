@@ -31,6 +31,7 @@ function check(label, condition, detail = "") {
 const near = (a, b, tol = 1) => typeof a === "number" && Number.isFinite(a) && Math.abs(a - b) <= tol;
 
 const fm = require("./finmodel.cjs");
+const MONTHS_OF = fm.MONTHS;
 const excel = require("./excel.cjs");
 
 // Ответ агента с допущениями — как он приходит из чата.
@@ -80,7 +81,7 @@ const SAMPLE = {
   baseVolume: 100,
   horizonYears: 2,
   startYear: 2026,
-  startMonth: 1,
+  startMonth: 4,
   tax: { regime: "usn6" },
   payroll: [
     { role: "Продавец", count: 2, salary: 50000, percentOfSales: 1 },
@@ -103,14 +104,21 @@ async function mathChecks() {
   const r = fm.compute(SAMPLE);
   const m0 = r.base.months[0];
 
-  // Объём: 100 базовых × сезонность января 0.8 × раскрутка 0.3.
-  check("объём первого месяца — база × сезон × раскрутка", near(m0.units, 24, 0.01), m0.units);
-  check("выручка = объём × цена", near(m0.revenue, 24000), m0.revenue);
-  check("валовая = выручка − себестоимость", near(m0.gross, 24000 - 14400), m0.gross);
+  // Старт в апреле: первый месяц проекта — апрель, сезонность апреля 1, раскрутка 0.3.
+  check("первый месяц — месяц старта, а не январь", m0.label.startsWith("апрель"), m0.label);
+  const units0 = SAMPLE.baseVolume * SAMPLE.seasonality[SAMPLE.startMonth - 1] * SAMPLE.rampUp[0];
+  check("объём первого месяца — база × сезон × раскрутка", near(m0.units, units0, 0.01), m0.units);
+  check("выручка = объём × цена", near(m0.revenue, units0 * SAMPLE.price), m0.revenue);
+  check("валовая = выручка − себестоимость", near(m0.gross, units0 * (SAMPLE.price - SAMPLE.unitCost)), m0.gross);
+  check(
+    "первый календарный год неполный",
+    r.base.years[0].revenue < r.base.years[1].revenue && r.base.months.length === SAMPLE.horizonYears * 12 - (SAMPLE.startMonth - 1),
+    `месяцев ${r.base.months.length}`
+  );
 
   // Взносы: льгота МСП действует только на часть сверх МРОТ.
   const rates = r.input.rates;
-  const perSeller = 50000 + (24000 * 1) / 100 / 2;
+  const perSeller = 50000 + (m0.revenue * 1) / 100 / 2;
   const expect =
     2 * (rates.minWage * rates.insurance + (perSeller - rates.minWage) * rates.insuranceReduced) +
     1 * (rates.minWage * rates.insurance + (20000 > rates.minWage ? (20000 - rates.minWage) * rates.insuranceReduced : 0));
@@ -122,8 +130,9 @@ async function mathChecks() {
   check("проверка ступени не выродилась", Math.abs(expect - expectTotal) < 1e-6 || true);
 
   // Инфляция: первый год базовый, со второго расходы растут.
-  check("в первый год инфляция не применяется", near(r.base.months[0].fixed, 33000), r.base.months[0].fixed);
-  check("во второй год расходы выросли на 8%", near(r.base.months[12].fixed, 33000 * 1.08), r.base.months[12].fixed);
+  const fixedMonth = SAMPLE.fixedCosts.reduce((s2, c) => s2 + c.monthly, 0);
+  check("в первый год инфляция не применяется", near(r.base.months[0].fixed, fixedMonth), r.base.months[0].fixed);
+  check("во второй год расходы выросли на 8%", near(r.base.months[12].fixed, fixedMonth * 1.08), r.base.months[12].fixed);
   check("выручка второго года тоже проиндексирована", r.base.years[1].revenue > r.base.years[0].revenue);
 
   // Сценарии.
@@ -182,7 +191,13 @@ async function workbookChecks() {
 
   const model = await excel.loadWorkbook(file);
   const names = model.sheets.map((s) => s.name);
-  check("в книге есть все листы", ["Исходные", "Ставки", "Расчёт база", "Итоги", "Заключение"].every((n) => names.includes(n)), names.join(", "));
+  const wanted = [
+    "Что в книге", "Инвестиции", "Исходные", "Ставки", "Прогноз продаж", "Прибыль",
+    "Модель песс", "Модель сред", "Модель опт", "Итоги", "Заключение",
+    "Расчёт песс", "Расчёт база", "Расчёт опт",
+  ];
+  check("в книге есть все листы", wanted.every((n) => names.includes(n)), names.join(", "));
+  check("листы идут в порядке чтения", names[0] === "Что в книге" && names.indexOf("Прогноз продаж") < names.indexOf("Прибыль"), names.join(", "));
 
   excel.recalculate(model);
   const sheet = model.sheets.find((s) => s.name === "Расчёт база");
@@ -193,7 +208,9 @@ async function workbookChecks() {
   const firstRow = 5;
   const keys = ["units", "revenue", "cogs", "gross", "insurance", "fixed", "variable", "ebitda", "tax", "net", "cumulative"];
   let mismatches = [];
-  for (const t of [0, 1, 5, 11, 12, 23]) {
+  // Индексы внутри горизонта: при старте в апреле месяцев меньше, чем 12 × лет.
+  const probes = [0, 1, 5, 8, 9, computed.base.months.length - 1];
+  for (const t of probes) {
     for (const key of keys) {
       const cellKey = fm.L(fm.COLS[key]) + (firstRow + t);
       const got = value(cellKey);
@@ -214,6 +231,83 @@ async function workbookChecks() {
     }
   }
   check("во всей книге нет ошибок в формулах", errors.length === 0, errors.slice(0, 4).join(" | "));
+
+  // Вёрстка исходной книги: пояснения словами, три сценария, календарные годы.
+  const textOf = (name) =>
+    Object.values(model.sheets.find((s) => s.name === name).cells)
+      .map((c) => String(c.value || ""))
+      .join(" \n ");
+
+  const fc = textOf("Прогноз продаж");
+  check("на прогнозе написано, что это первый шаг", fc.includes("1. Расчёт прогноза продаж"), fc.slice(0, 80));
+  check("объяснено, как считается объём", fc.includes("базовый объём × сезонность"), "");
+  check("объяснено, что такое раскрутка", fc.includes("Раскрутка —"), "");
+  for (const scen of ["ПЕССИМИСТИЧНЫЙ СЦЕНАРИЙ", "СРЕДНИЙ СЦЕНАРИЙ", "ОПТИМИСТИЧНЫЙ СЦЕНАРИЙ"]) {
+    check(`на прогнозе есть блок «${scen.toLowerCase()}»`, fc.includes(scen));
+  }
+  check("колонки — календарные годы", fc.includes(`прогноз продаж ${SAMPLE.startYear}`), "");
+  check("строки — месяцы", fc.includes("январь") && fc.includes("декабрь"));
+
+  const pf = textOf("Прибыль");
+  check("на прибыли есть шаг 2", pf.includes("2. Расчёт валовой прибыли"));
+  check("и шаг 3", pf.includes("3. Расчёт чистой прибыли"));
+  check("формула валовой прибыли объяснена", pf.includes("выручка − себестоимость"));
+  check("окупаемость подписана над каждым сценарием", (pf.match(/Окупаемость:/g) || []).length === 3, String((pf.match(/Окупаемость:/g) || []).length));
+
+  for (const sheet of ["Модель песс", "Модель сред", "Модель опт"]) {
+    const t = textOf(sheet);
+    check(`«${sheet}»: сказано, что на листе`, t.includes("Что на листе:"), t.slice(0, 60));
+    check(`«${sheet}»: есть блоки доходов и расходов`,
+      t.includes("ДОХОДЫ") && t.includes("РАСХОДЫ ПОСТОЯННЫЕ") && t.includes("РАСХОДЫ ПЕРЕМЕННЫЕ"));
+    check(`«${sheet}»: есть штат и примечание про инфляцию`,
+      t.includes("ШТАТ") && t.includes("Примечание") && t.includes("инфляцию"));
+    check(`«${sheet}»: есть остаток инвестиций`, t.includes("Инвестиции − прибыль"));
+  }
+
+  const contents = textOf("Что в книге");
+  // Само оглавление в списке не нужно — человек уже на нём.
+  const missing = wanted.filter((n) => n !== "Что в книге" && !contents.includes(n));
+  check("оглавление объясняет каждый лист", missing.length === 0, missing.join(", "));
+
+  // Числа на листах-представлениях обязаны совпадать с движком: два места, где
+  // считается одно и то же, однажды разойдутся, и никто не заметит, какое право.
+  const findRows = (sheet, label) => {
+    const rows = [];
+    for (const [key, cell] of Object.entries(model.sheets.find((s) => s.name === sheet).cells)) {
+      if (key.startsWith("A") && String(cell.value || "").trim() === label) rows.push(Number(key.slice(1)));
+    }
+    return rows.sort((a, b) => a - b);
+  };
+  const cell = (sheet, key) => {
+    const c = model.sheets.find((s) => s.name === sheet).cells[key];
+    return c && (c.computed !== undefined ? c.computed : c.value);
+  };
+  const yearsN = computed.input.horizonYears;
+  const salesCol = fm.L(4 + 2 * yearsN);
+  const startRows = findRows("Прогноз продаж", MONTHS_OF[computed.input.startMonth - 1]);
+  ["pess", "base", "opt"].forEach((key, i) => {
+    check(
+      `прогноз ${key}: выручка первого месяца как в движке`,
+      near(cell("Прогноз продаж", salesCol + startRows[i]), computed[key].months[0].revenue, 2),
+      String(cell("Прогноз продаж", salesCol + startRows[i]))
+    );
+  });
+  const profitRows = findRows("Прибыль", MONTHS_OF[computed.input.startMonth - 1]);
+  check(
+    "прибыль: валовая первого месяца как в движке",
+    near(cell("Прибыль", "B" + profitRows[1]), computed.base.months[0].gross, 2)
+  );
+  const yearRow = findRows("Модель сред", "Продажи (выручка за год)")[0];
+  check(
+    "модель: выручка первого года как в движке",
+    near(cell("Модель сред", "B" + yearRow), computed.base.years[0].revenue, 2),
+    String(cell("Модель сред", "B" + yearRow))
+  );
+  check(
+    "первый год неполный — до старта продаж пусто",
+    cell("Прогноз продаж", salesCol + findRows("Прогноз продаж", "январь")[1]) === undefined ||
+      SAMPLE.startMonth === 1
+  );
 
   // Книга должна быть живой: меняем цену — пересчитывается выручка. Ячейку
   // правим тем же вызовом, каким это делает редактор таблиц в приложении.
