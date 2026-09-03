@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("api", {
   revealReport: (file) => ipcRenderer.invoke("report:reveal", file),
 
   copyPlugins: () => ipcRenderer.invoke("copies:plugins"),
+  copySource: () => ipcRenderer.invoke("copies:source"),
   listCopies: () => ipcRenderer.invoke("copies:list"),
   saveCopy: (copy) => ipcRenderer.invoke("copies:save", copy),
   deleteCopy: (id) => ipcRenderer.invoke("copies:delete", id),
@@ -85,6 +86,7 @@ contextBridge.exposeInMainWorld("api", {
   // agent
   agentSend: (message, options) => ipcRenderer.invoke("agent:send", message, options),
   agentHistory: () => ipcRenderer.invoke("agent:history"),
+  agentSetModel: (model) => ipcRenderer.invoke("agent:setModel", model),
   agentClear: () => ipcRenderer.invoke("agent:clear"),
   agentApply: (proposal) => ipcRenderer.invoke("agent:apply", proposal),
   agentRun: (command) => ipcRenderer.invoke("agent:run", command),
@@ -107,4 +109,15 @@ contextBridge.exposeInMainWorld("api", {
 
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
   pickTextFile: () => ipcRenderer.invoke("app:pickTextFile"),
+});
+
+// Ошибки в окне сами до главного процесса не доходят, и падение, описанное как
+// «просто пропало», не оставило бы в отчёте ни строки. Пересылка — это то, что
+// делает отчёт о проблеме пригодным для чтения.
+window.addEventListener("error", (event) => {
+  ipcRenderer.invoke("report:log", "error", `${event.message} (${event.filename}:${event.lineno})`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  ipcRenderer.invoke("report:log", "error", reason?.stack || String(reason));
 });

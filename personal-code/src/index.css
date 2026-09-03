@@ -433,3 +433,29 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .conn-error .conn-mark { color: var(--danger); }
 
 .conn-checking, .conn-stale { color: var(--text-dim); }
+
+/* Экран падения интерфейса: белое окно без единого слова — худшее, что может
+   увидеть человек, оставшийся с приложением один на один. */
+.crash-screen {
+  max-width: 760px; margin: 0 auto; padding: 40px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.crash-screen h2 { margin: 0; font-size: 20px; }
+.crash-screen p { margin: 0; color: var(--text-dim); line-height: 1.5; }
+.crash-text {
+  max-height: 320px; overflow: auto; padding: 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-hover);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* Выбор модели над полем ввода агента: видно, кто пишет код, и можно сменить
+   на сильную для сложной правки или дешёвую для мелочи — не уходя в настройки. */
+.agent-model {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 0; font-size: 12px;
+}
+.agent-model-label { color: var(--text-dim); flex: none; }
+.agent-model-input { flex: 1; min-width: 0; font-size: 12px; padding: 4px 8px; }
+.agent-model .hint { margin: 0; font-size: 12px; }
+.agent-model .link-like { font-size: 12px; flex: none; }

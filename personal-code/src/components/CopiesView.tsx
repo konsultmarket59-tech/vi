@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatCopy, DemoKeyInfo, PublishResult } from "../lib/types";
+import type { ChatCopy, CopySource, DemoKeyInfo, PublishResult } from "../lib/types";
+import { errorText } from "./ConnectionStatus";
 
 interface Props {
   /** demo — ключ вшит и скрыт от человека; paid — человек работает со своим ключом. */
@@ -49,7 +50,11 @@ export default function CopiesView({ kind }: Props) {
   const [list, setList] = useState<ChatCopy[]>([]);
   const [plugins, setPlugins] = useState<{ id: string; name: string }[]>([]);
   const [draft, setDraft] = useState<Partial<ChatCopy>>(emptyCopy(kind));
+  // Код берётся из канонического репозитория на GitHub. Папка на компьютере —
+  // осознанное исключение: собрать из того, что автор правит прямо сейчас.
+  const [source, setSource] = useState<CopySource | null>(null);
   const [sourcePath, setSourcePath] = useState("");
+  const [fromFolder, setFromFolder] = useState(false);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [result, setResult] = useState<PublishResult | null>(null);
@@ -67,12 +72,27 @@ export default function CopiesView({ kind }: Props) {
         setPlugins(p);
         setKeyInfo(k);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setError(errorText(e)));
+    // Откуда берётся код — отдельно и со своей обработкой отказа: это подпись
+    // под формой, и ни задерживать из-за неё список копий, ни терять его, если
+    // она не ответит, нельзя.
+    window.api
+      .copySource()
+      .then(setSource)
+      .catch(() => setSource(null));
   }, []);
 
-  useEffect(() => setDraft(emptyCopy(kind)), [kind]);
+  useEffect(() => {
+    setDraft(emptyCopy(kind));
+  }, [kind]);
   useEffect(() => window.api.onPublishLog((line) => setLog((prev) => [...prev, line])), []);
-  useEffect(() => logEnd.current?.scrollIntoView({ block: "end" }), [log]);
+  useEffect(() => {
+    // Фигурные скобки здесь обязательны: scrollIntoView в этой версии Chromium
+    // возвращает Promise, а React считает возвращённое из эффекта значение
+    // функцией очистки и вызывает его на следующем запуске. Со стрелкой без
+    // скобок это роняло весь интерфейс в белый экран при нажатии «Собрать».
+    logEnd.current?.scrollIntoView({ block: "end" });
+  }, [log]);
 
   const mine = list.filter((c) => c.kind === kind);
   const demos = list.filter((c) => c.kind === "demo");
@@ -100,7 +120,9 @@ export default function CopiesView({ kind }: Props) {
       if (success) setNotice(success);
       return value;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // errorText снимает обёртку Electron: имя IPC-метода человеку ничего не
+      // говорит и только прячет настоящую причину.
+      setError(errorText(e));
       return null;
     } finally {
       setBusy(false);
@@ -129,15 +151,16 @@ export default function CopiesView({ kind }: Props) {
     }
     const saved = await save();
     if (!saved) return;
-    if (!sourcePath) {
-      setError("Сначала выберите папку с исходниками «Личного чата» — из неё берётся код.");
+    if (fromFolder && !sourcePath) {
+      setError("Выберите папку с исходниками «Личного чата» или вернитесь к коду с GitHub.");
       return;
     }
     setLog([]);
     setResult(null);
     setBusy(true);
     try {
-      const built = await window.api.publishCopy(saved.id, { sourcePath });
+      // Пустой sourcePath — обычный случай: приложение само скачает канонический код.
+      const built = await window.api.publishCopy(saved.id, { sourcePath: fromFolder ? sourcePath : "" });
       setResult(built);
       if (built.ok) {
         if (built.all) setList(built.all);
@@ -146,7 +169,7 @@ export default function CopiesView({ kind }: Props) {
         setError(built.message || "Сборка не запустилась.");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -508,12 +531,53 @@ export default function CopiesView({ kind }: Props) {
         />
 
         <h4 className="field-label">Откуда брать код</h4>
-        <div className="row">
-          <code className="folder-path">{sourcePath || "папка с исходниками «Личного чата» не выбрана"}</code>
-          <button type="button" className="btn" onClick={pickSources}>
-            Выбрать папку
-          </button>
-        </div>
+        {fromFolder ? (
+          <>
+            <div className="row">
+              <code className="folder-path">
+                {sourcePath || "папка с исходниками «Личного чата» не выбрана"}
+              </code>
+              <button type="button" className="btn" onClick={pickSources}>
+                Выбрать папку
+              </button>
+            </div>
+            <p className="hint">
+              Сборка пойдёт из этой папки — тем кодом, что лежит в ней прямо сейчас. Для этого
+              пути нужен установленный git: снимок папки собирает он.{" "}
+              <button
+                type="button"
+                className="link-like"
+                onClick={() => {
+                  setFromFolder(false);
+                  setSourcePath("");
+                }}
+              >
+                Вернуться к коду с GitHub
+              </button>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="conn-status conn-ok" role="status">
+              <span className="conn-mark" aria-hidden="true">
+                ✓
+              </span>
+              <span className="conn-text">
+                Код берётся с GitHub: <code>{source?.repo || "…"}</code>, ветка{" "}
+                <code>{source?.branch || "…"}</code>. Папка на компьютере не нужна — приложение
+                скачает его само перед сборкой.
+              </span>
+            </p>
+            <p className="hint">
+              GitHub сам передаёт код в репозиторий копии — на этом компьютере ничего не
+              скачивается, и git для этого не нужен. Репозиторий и ветку можно поменять в
+              «Настройках».{" "}
+              <button type="button" className="link-like" onClick={() => setFromFolder(true)}>
+                Собрать из папки на компьютере
+              </button>
+            </p>
+          </>
+        )}
         <p className="hint">
           В репозиторий копии уезжает снимок папки personal-chat из канонической ветки — одним
           коммитом, без истории и без «Личного кода».

@@ -174,6 +174,9 @@ app.whenReady().then(async () => {
       `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо").click()`
     );
     await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "форма копии открылась");
+    // Плагины приходят из главного процесса: снимок текста до их появления
+    // проверял бы пустую страницу.
+    await waitFor(win, `document.querySelectorAll(".plugin-card, .module-card").length > 2`, "плагины подгрузились");
     const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
     // Всё, что нужно для одной копии, вводится на одной странице: имя, срок,
     // ключ, конфигурация, плагины, репозиторий — и кнопка «Собрать».
@@ -192,6 +195,21 @@ app.whenReady().then(async () => {
       "все восемь плагинов на месте",
       pluginNames.every((name) => demoText.includes(name)),
       pluginNames.filter((n) => !demoText.includes(n)).join(", ")
+    );
+    // Папки с исходниками на компьютере может не быть вовсе — код берётся из
+    // канонического репозитория, и страница обязана говорить об этом, а не
+    // требовать папку.
+    check("код берётся с GitHub, а не из папки", demoText.includes("Код берётся с GitHub"), demoText.slice(-400));
+    check(
+      "и это сказано зелёной галочкой, а не серым текстом",
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".conn-ok")].some(n => /Код берётся с GitHub/.test(n.textContent||""))`
+      )
+    );
+    check(
+      "папку на компьютере всё ещё можно выбрать осознанно",
+      demoText.includes("Собрать из папки на компьютере"),
+      ""
     );
     check(
       "кнопка «Собрать» на месте",

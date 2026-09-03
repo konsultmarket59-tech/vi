@@ -18,7 +18,6 @@
 // раньше — отдельный ключ с небольшим балансом, который не жалко отозвать.
 
 const path = require("node:path");
-const fs = require("node:fs/promises");
 
 const git = require("./git.cjs");
 const github = require("./github.cjs");
@@ -26,6 +25,7 @@ const blueprints = require("./blueprints.cjs");
 const demoAccess = require("./demoAccess.cjs");
 const copies = require("./copies.cjs");
 const buildPipeline = require("./build.cjs");
+const sources = require("./sources.cjs");
 
 // Сборка установщика в репозитории копии. Файл кладётся туда же, где его ждёт
 // GitHub, и собирает именно эту копию.
@@ -132,23 +132,44 @@ async function copyConfigFiles(copy, { publicKey = "" } = {}) {
 /**
  * Собирает копию в её репозитории на GitHub.
  *
- * Порядок: проверить исходники и токен → создать репозиторий, если его ещё нет
- * → положить туда снимок канонического кода → дописать конфигурацию копии и
- * рабочий процесс сборки → запустить сборку.
+ * Порядок: взять канонический код → создать репозиторий, если его ещё нет →
+ * положить туда снимок кода → дописать конфигурацию копии и рабочий процесс
+ * сборки → запустить сборку.
+ *
+ * Код по умолчанию берётся прямо из канонического репозитория на GitHub: папки
+ * с исходниками на компьютере может не быть вовсе, и требовать её значило бы
+ * запрещать сборку там, где установлено одно приложение. `sourcePath` остаётся
+ * как осознанное исключение — собрать из папки, которую автор правит прямо
+ * сейчас, ещё не отправив изменения в канонический репозиторий.
  */
-async function publish(copy, { sourcePath, branch, token, publicKey = "", onLog = () => {} } = {}) {
+async function publish(
+  copy,
+  { sourcePath = "", sourceRepo = "", branch, token, publicKey = "", onLog = () => {} } = {}
+) {
   const log = (line) => onLog(String(line));
   const normalized = copies.normalize(copy);
   if (!token) throw new Error("Не задан токен GitHub — вкладка «Настройки».");
 
-  log("Проверяю папку с исходниками «Личного чата»…");
-  await buildPipeline.assertChatSources(sourcePath);
-  await buildPipeline.switchToBranch(sourcePath, branch, log);
-
+  // Токен проверяется первым: код тоже скачивается из закрытого репозитория, и
+  // упасть на этом внятной ошибкой лучше, чем молчаливым отказом git.
   const account = await github.testConnection(token);
   if (!account.ok) throw new Error(`GitHub не принял токен: ${account.error}`);
   const owner = account.login;
   log(`GitHub: ${owner}`);
+
+  // Код либо берётся с GitHub (обычный случай, git на компьютере не нужен),
+  // либо из папки, которую автор правит прямо сейчас — тогда снимок собирает
+  // локальный git, и без него этот путь честно не работает.
+  let canonical = null;
+  if (sourcePath) {
+    log("Проверяю папку с исходниками «Личного чата»…");
+    await buildPipeline.assertChatSources(sourcePath);
+    await buildPipeline.switchToBranch(sourcePath, branch, log);
+  } else {
+    log(`Читаю канонический «Личный чат» с GitHub (ветка ${branch})…`);
+    canonical = await sources.canonicalFiles(token, { repo: sourceRepo || sources.DEFAULT_SOURCE_REPO, branch });
+    log(`Файлов в чате: ${canonical.files.length}.`);
+  }
 
   let repo = null;
   const existing = await github.listRepos(token).catch(() => []);
@@ -164,34 +185,45 @@ async function publish(copy, { sourcePath, branch, token, publicKey = "", onLog 
     });
   }
 
-  const url = `https://github.com/${repo.fullName}.git`;
-  log("Кладу код чата снимком в один коммит (без истории монорепозитория)…");
-  const commit = await snapshotCommit(
-    sourcePath,
-    branch,
-    `${normalized.displayName}: код от ${new Date().toLocaleDateString("ru-RU")}`
-  );
-  await pushSnapshot(sourcePath, commit, url, token);
-  log("Код в репозитории.");
-
+  const message = `${normalized.displayName}: код от ${new Date().toLocaleDateString("ru-RU")}`;
   const { files, priceProblems } = await copyConfigFiles(normalized, { publicKey });
   for (const problem of priceProblems) log(`Цены: ${problem}`);
-  for (const file of files) {
-    log(`Записываю ${file.path}…`);
-    await github.commitFile(token, owner, repo.name, file.path, file.content, file.message, undefined, "main");
-  }
+  const extraFiles = [
+    ...files,
+    { path: WORKFLOW_PATH, content: workflowYaml(normalized.displayName) },
+  ];
 
-  log("Записываю рабочий процесс сборки…");
-  await github.commitFile(
-    token,
-    owner,
-    repo.name,
-    WORKFLOW_PATH,
-    workflowYaml(normalized.displayName),
-    "Сборка установщика этой копии",
-    undefined,
-    "main"
-  );
+  log("Кладу код чата снимком в один коммит (без истории монорепозитория)…");
+  let snapshot;
+  if (canonical) {
+    // Код, конфигурация копии и рабочий процесс — одним коммитом: каждый
+    // отдельный коммит в main запускал бы на GitHub ещё одну сборку.
+    snapshot = await sources.publishSnapshot(token, {
+      from: canonical,
+      to: repo.fullName,
+      message,
+      extraFiles,
+      onLog: log,
+    });
+  } else {
+    const commit = await snapshotCommit(sourcePath, branch, message);
+    await pushSnapshot(sourcePath, commit, `https://github.com/${repo.fullName}.git`, token);
+    for (const file of extraFiles) {
+      log(`Записываю ${file.path}…`);
+      await github.commitFile(
+        token,
+        owner,
+        repo.name,
+        file.path,
+        file.content,
+        file.message || "Настройки сборки этой копии",
+        undefined,
+        "main"
+      );
+    }
+    snapshot = { commit, files: 0 };
+  }
+  log("Код в репозитории.");
 
   log("Запускаю сборку установщика на GitHub…");
   let started = false;
@@ -205,6 +237,8 @@ async function publish(copy, { sourcePath, branch, token, publicKey = "", onLog 
   }
 
   return {
+    source: canonical ? `${canonical.source.full}@${canonical.branch}` : sourcePath,
+    commit: snapshot.commit,
     repo: repo.fullName,
     repoUrl: `https://github.com/${repo.fullName}`,
     actionsUrl: `https://github.com/${repo.fullName}/actions`,

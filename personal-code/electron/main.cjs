@@ -23,6 +23,7 @@ const report = require("./report.cjs");
 const github = require("./github.cjs");
 const copies = require("./copies.cjs");
 const publish = require("./publish.cjs");
+const sources = require("./sources.cjs");
 
 let mainWindow = null;
 
@@ -72,10 +73,9 @@ async function openWorkspace(dir) {
 
 // Архив плагинов живёт в «Документы\\Личный код», пока не выбрана другая папка.
 // Одно место, которое об этом знает, чтобы настройка и запуск не разошлись.
-function dataRootOf(settings) {
-  const chosen = (settings?.dataRoot || "").trim();
-  return chosen || settingsStore.stripWindowsExtendedPrefix(app.getPath("documents"));
-}
+// Папка с данными — одно определение на всё приложение, в settings.cjs: там же
+// рядом лежит резервная копия настроек, и разъехаться этим двум местам нельзя.
+const dataRootOf = settingsStore.dataRootOf;
 
 async function applyDataRoot() {
   const settings = await settingsStore.load();
@@ -201,9 +201,14 @@ function trimHistory(messages) {
  * for, and stop as soon as it produces either a plain answer, a file-edit
  * proposal, or a command to run. Nothing is written to disk here.
  */
-async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
+async function runAgentTurn(root, userMessage, { openFile = null, model = "" } = {}) {
   const settings = await settingsStore.load();
   const conversation = await readConversation(root);
+  // Модель выбирается для этой рабочей папки: сильная для сложных правок,
+  // дешёвая для мелочей. Пусто — та, что в «Настройках».
+  const chosen = String(model || conversation.model || "").trim();
+  if (model !== undefined && String(model).trim()) conversation.model = String(model).trim();
+  const modelSettings = chosen ? { ...settings, model: chosen } : settings;
   const context = await agent.buildContext(root, { openFile });
 
   const history = trimHistory(conversation.messages);
@@ -218,7 +223,7 @@ async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
   ];
 
   const transcript = [];
-  let reply = await settingsStore.callModel(settings, messages);
+  let reply = await settingsStore.callModel(modelSettings, messages);
 
   for (let round = 0; round < agent.TOOL_ROUND_LIMIT; round++) {
     const toolOutput =
@@ -228,7 +233,8 @@ async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
     transcript.push({ role: "user", content: toolOutput });
     messages.push({ role: "assistant", content: reply });
     messages.push({ role: "user", content: toolOutput });
-    reply = await settingsStore.callModel(settings, messages);
+    // Продолжение того же хода — той же моделью, что и начало.
+    reply = await settingsStore.callModel(modelSettings, messages);
   }
 
   let proposal = null;
@@ -283,8 +289,15 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   settingsStore.init();
+  // Служебная папка приложения пуста — значит, это первый запуск после
+  // переустановки или переезда: настройки берём из копии рядом с данными,
+  // чтобы ключ Polza, токен GitHub и прокси не пришлось вводить заново.
+  await settingsStore.restoreFromBackup();
   demoAccess.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("userData")));
   await applyDataRoot();
+  // А если копии ещё нет (настройки заводились до появления этой возможности) —
+  // делаем её сейчас, не дожидаясь, пока человек что-нибудь изменит.
+  await settingsStore.backup(await settingsStore.load());
   await settingsStore.applyProxy(await settingsStore.load());
   const saved = await settingsStore.readSection("workspace", "");
   if (saved && fsSync.existsSync(saved)) currentRoot = saved;
@@ -449,6 +462,14 @@ function registerHandlers() {
   // agent
   ipcMain.handle("agent:send", (_e, message, options) => runAgentTurn(requireRoot(), message, options || {}));
   ipcMain.handle("agent:history", () => readConversation(requireRoot()));
+  /** Модель для этой рабочей папки; пустая строка — вернуться к «Настройкам». */
+  ipcMain.handle("agent:setModel", async (_e, model) => {
+    const root = requireRoot();
+    const conversation = await readConversation(root);
+    conversation.model = String(model || "").trim();
+    await writeConversation(root, conversation);
+    return { model: conversation.model };
+  });
   ipcMain.handle("agent:clear", async () => {
     const root = requireRoot();
     await writeConversation(root, { root, messages: [] });
@@ -492,6 +513,14 @@ function registerHandlers() {
     await settingsStore.writeSection("copies", all);
     return all;
   });
+  /** Откуда берётся код копий — показывается на вкладках сборки. */
+  ipcMain.handle("copies:source", async () => {
+    const settings = await settingsStore.load();
+    return {
+      repo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
+      branch: blueprints.DEFAULT_BRANCH,
+    };
+  });
   ipcMain.handle("copies:setRevoked", async (_e, id, revoked) => {
     const all = copies.setRevoked(await storedCopies(), id, revoked);
     await settingsStore.writeSection("copies", all);
@@ -511,8 +540,12 @@ function registerHandlers() {
       if (!copy) throw new Error("Копия не найдена.");
       const account = await github.getAccount(await appDataDir());
       const keys = await demoAccess.keyInfo();
+      const settings = await settingsStore.load();
       const result = await publish.publish(copy, {
+        // Пустой sourcePath — обычный случай: код берётся с GitHub, папка с
+        // исходниками на компьютере не нужна.
         sourcePath: (options && options.sourcePath) || "",
+        sourceRepo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
         branch: (options && options.branch) || blueprints.DEFAULT_BRANCH,
         token: account.token,
         publicKey: keys.publicKey,
