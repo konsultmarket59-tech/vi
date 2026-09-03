@@ -1086,330 +1086,6 @@ a:hover { color: var(--accent-hover); }
 
 .settings-actions { display: flex; gap: 10px; margin: 14px 0; }
 
-/* Design section */
-.design-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.design-view .ops-toolbar div { align-items: center; }
-.design-view .ops-toolbar select { margin-right: 4px; }
-
-.design-layout { display: flex; flex: 1; overflow: hidden; }
-.design-gallery { flex: 1; overflow-y: auto; padding: 16px 24px; }
-.design-empty-hint { max-width: 480px; }
-
-.design-card-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
-.design-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--bg-panel);
-}
-.design-card.active { border-color: var(--accent); }
-.design-card-preview {
-  height: 140px;
-  overflow: hidden;
-  background: #fff;
-  position: relative;
-}
-.design-card-preview .design-html-preview,
-.design-card-preview .design-svg-preview {
-  width: 900px;
-  height: 600px;
-  transform: scale(0.16);
-  transform-origin: top left;
-  pointer-events: none;
-}
-.design-card-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
-.design-card-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.design-card-type { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
-
-.design-viewer { width: 420px; min-width: 420px; border-left: 1px solid var(--border); overflow-y: auto; }
-.design-viewer-header { display: flex; align-items: center; justify-content: space-between; }
-.design-viewer-header h3 { margin: 0; }
-.design-viewer-preview {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: auto;
-  max-height: 420px;
-  background: #fff;
-  margin: 10px 0;
-}
-.design-export-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-
-.design-html-preview { width: 100%; height: 400px; border: none; display: block; background: #fff; }
-.design-svg-preview { display: flex; align-items: center; justify-content: center; padding: 10px; background: #fff; }
-.design-svg-preview svg { max-width: 100%; max-height: 100%; }
-
-.design-pending-preview {
-  margin: 0 16px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.design-pending-preview .design-html-preview { height: 320px; }
-
-/* Brand kit preview */
-.brand-preview {
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-bottom-width: 3px;
-  border-radius: 8px;
-  background: #fff;
-  margin-top: 10px;
-  max-width: 620px;
-}
-.brand-preview-simple { display: flex; align-items: center; gap: 14px; }
-.brand-preview-full {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 16px;
-}
-.brand-preview-center { text-align: center; }
-.brand-preview-right { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.brand-preview-contacts { text-align: right; font-size: 11px; color: #555; line-height: 1.5; white-space: nowrap; }
-.brand-preview-qr { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
-.brand-header-image-preview {
-  display: block;
-  width: 100%;
-  max-width: 620px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin: 10px 0;
-}
-.brand-preview-logo { max-height: 44px; max-width: 140px; }
-.brand-preview-company { font-weight: 700; color: #111; font-size: 15px; }
-.brand-preview-tagline { font-size: 12px; color: #777; margin-top: 2px; }
-
-.web-tool-status {
-  font-size: 12px;
-  color: var(--text-dim);
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 10px;
-  margin-bottom: 8px;
-  display: inline-block;
-}
-
-/* Chat attachments */
-.chat-attachments-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 24px 0;
-}
-
-.attachment-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 4px 6px 4px 10px;
-  font-size: 12px;
-  max-width: 320px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.attachment-chip-error { border-color: var(--danger); }
-.attachment-size { color: var(--text-dim); font-size: 11px; }
-.attachment-error { color: var(--danger); font-size: 11px; }
-
-.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-
-.attach-btn {
-  align-self: flex-end;
-  font-size: 20px;
-  line-height: 1;
-  padding: 6px 14px;
-}
-
-.chatbot-ai-block {
-  margin: 12px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-input);
-}
-.chatbot-ai-block label { margin-top: 8px; }
-.chatbot-ai-block > label:first-child { margin-top: 0; }
-
-/* Excel */
-.excel-file-name { font-weight: 400; color: var(--text-dim); font-size: 14px; }
-.excel-formula-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.excel-cell-ref {
-  min-width: 56px;
-  font-weight: 600;
-  font-size: 13px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 8px;
-  text-align: center;
-}
-.excel-formula-bar input {
-  flex: 1;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  padding: 7px 10px;
-  font-size: 13px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.excel-recalc-note { padding: 6px 20px 0; margin: 0; }
-.excel-table th {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-dim);
-  font-weight: 600;
-  padding: 4px 8px;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-.excel-table td {
-  padding: 5px 9px;
-  font-size: 13px;
-  min-width: 90px;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: cell;
-}
-.excel-cell-formula { color: var(--accent-text); }
-.excel-cell-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
-
-/* The proposal banner sits above the chat, so it must stay a couple of lines tall:
-   the cell-by-cell list is worth having but only on demand, and even expanded it
-   scrolls inside itself rather than eating the working area. */
-.excel-pending-edit {
-  display: block;
-  line-height: 1.5;
-}
-.excel-pending-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.excel-pending-details {
-  max-height: 140px;
-  overflow-y: auto;
-  margin-top: 6px;
-  padding-right: 6px;
-}
-.excel-pending-sheet { margin-top: 2px; }
-.excel-pending-actions { display: flex; gap: 8px; margin-top: 8px; }
-
-/* GitHub Actions runs */
-.run-list { list-style: none; padding: 0; margin: 10px 0; }
-.run-list li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
-.run-status {
-  min-width: 96px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 12px;
-  text-align: center;
-  background: var(--bg-input);
-  color: var(--text-dim);
-}
-.run-success { background: #e3f3e6; color: #1f6b32; }
-.run-failure { background: #fbe4e2; color: #a8341f; }
-.run-running { background: #fff3df; color: #8a5a15; }
-.run-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.run-title { font-weight: 500; }
-.run-commit { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.run-date { color: var(--text-dim); font-size: 12px; white-space: nowrap; }
-
-.cloud-files .doc-list li { gap: 12px; }
-.cloud-files .doc-name { display: flex; align-items: center; gap: 4px; }
-
-/* Connection diagnostics run to several sentences and carry their own line breaks
-   (e.g. the certificate instructions for MAX), so they must not be collapsed. */
-.chatbot-test-result { white-space: pre-line; }
-
-/* Docked agent: the table keeps most of the width, the conversation gets a column
-   wide enough to read but not so wide the grid becomes useless. Both panes scroll
-   on their own so neither pushes the other off-screen. */
-/* .ops-app-body раскладывает содержимое колонкой; докнутый агент должен встать
-   рядом с таблицей, а не под ней, поэтому направление задаётся явно — без этого
-   панели складывались стопкой и наезжали друг на друга. */
-.excel-split { display: flex; flex-direction: row; gap: 0; align-items: stretch; overflow: hidden; }
-.excel-grid-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
-.excel-agent-pane {
-  width: 420px;
-  min-width: 320px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-panel);
-}
-.excel-ask-btn { white-space: nowrap; }
-
-.direct-date { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
-.direct-date input { width: auto; margin: 0; }
-
-/* Sits above the export bar and stays visually quiet — it is a nudge, not an error. */
-.chat-fold-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 6px 16px;
-  border-top: 1px solid var(--border);
-}
-
-/* Список Яндекс-аккаунтов: активный подсвечен, чтобы было видно, с чьим Диском и
-   Директом вы сейчас работаете — это же и определяет, что покажет раздел «Директ». */
-.account-list .account-row { gap: 10px; align-items: center; flex-wrap: wrap; }
-.account-row.active { background: var(--bg-active); border-radius: 8px; }
-.account-pick { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px; cursor: pointer; }
-.account-pick input { width: auto; margin: 0; }
-
-/* Переключатель аккаунта стоит прямо в шапке раздела: он определяет, чьи кампании
-   вы видите, и это должно быть видно всегда, а не только на вкладке подключения. */
-.direct-account-picker { width: auto; margin: 0 0 0 6px; padding: 4px 8px; font-size: 13px; }
-
-/* Материалы проекта дизайна: группы ассетов идут списком, каждая со своей подписью,
-   потому что смысл у них разный — исходники вставляются, референсы нет. */
-.design-project-panel .design-asset-group { margin-top: 18px; }
-.design-project-panel .design-asset-group h3 { margin-bottom: 2px; }
-
-/* Плашка предложенного дизайна: слева что это, справа — что с ним можно сделать.
-   Экспорт стоит прямо здесь, чтобы сохранить результат, не заводя его в галерею. */
-.design-pending-banner {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.design-pending-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.design-pending-actions .design-export-actions { margin: 0; }
-
 /* Word: документ как список блоков. Номер слева — то, чем оперирует агент, поэтому
    он всегда на виду; заголовки крупнее, чтобы структура читалась с одного взгляда. */
 .word-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; }
@@ -1573,3 +1249,285 @@ a:hover { color: var(--accent-hover); }
 .doc-include { margin-right: 8px; flex-shrink: 0; }
 .doc-name-off { color: var(--text-dim); text-decoration: line-through; }
 .context-warn { display: block; margin-top: 4px; color: var(--accent-text); }
+
+/* Документооборот: слева задание, справа агент — форма всегда на виду, потому что
+   именно её человек перепроверяет перед тем, как документ уйдёт контрагенту. */
+.docflow-body { display: flex; flex: 1; overflow: hidden; gap: 0; }
+.docflow-side {
+  width: 340px;
+  min-width: 340px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.docflow-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0 16px; }
+
+.docflow-form { display: flex; flex-direction: column; gap: 14px; }
+.docflow-field { display: flex; flex-direction: column; gap: 6px; }
+.docflow-field > label { font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.docflow-field select,
+.docflow-field input[type="month"] { width: 100%; margin: 0; }
+.docflow-field .hint { margin: 0; }
+.docflow-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.docflow-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.docflow-check input { margin: 0; }
+.docflow-path {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.docflow-path-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.docflow-prepared { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 0; }
+.docflow-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.docflow-badge-warn { border-color: var(--accent); color: var(--accent-text); }
+
+.docflow-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; margin: 6px 0; }
+.docflow-saved {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.docflow-refs h3 { margin: 18px 0 6px; font-size: 14px; }
+.docflow-note { margin: 6px 16px; }
+
+/* Word: переключатель «правки / анализ» и живой предпросмотр правки в документе.
+   Старый текст остаётся зачёркнутым рядом с новым — видно ровно то, что изменится. */
+.word-mode-switch { display: flex; gap: 4px; padding: 8px 0 4px; }
+.word-block-incoming {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-left: 2px solid var(--accent);
+}
+.word-text-old { text-decoration: line-through; color: var(--text-dim); display: block; }
+.word-text-new { display: block; color: var(--text); }
+.word-text-removed { display: block; font-size: 12px; color: var(--text-dim); font-style: italic; }
+
+/* Excel: ячейка, которую агент диктует прямо сейчас. Та же логика, что и у
+   подсветки абзацев в Word — видно, что изменится, до подтверждения. */
+.excel-cell-incoming {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  font-weight: 600;
+}
+
+/* Визуализация: предпросмотр макета в его собственном размере, уменьшенный до
+   ширины панели — так видно пропорции, а не обрезанный кусок. */
+/* Предпросмотр и кнопки — в столбик и с переносом: макет бывает 1920 пикселей
+   шириной, панель — вдвое уже, и строкой они не помещались (кнопка сохранения
+   уезжала за правый край окна). */
+.viz-result { display: flex; gap: 16px; padding: 10px 0; align-items: flex-start; flex-wrap: wrap; }
+.viz-preview-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.viz-problem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.viz-problem span { flex: 1; min-width: 240px; }
+.viz-preview { border: 0; display: block; transform-origin: top left; }
+.viz-preview-loading { padding: 20px; font-size: 12px; color: var(--text-dim); }
+.viz-result-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+
+.viz-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.viz-swatch input[type="color"] {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  background: none;
+}
+.viz-color-row { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+.viz-color-row label { display: flex; align-items: center; gap: 6px; }
+.viz-color-row input[type="color"] {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+}
+
+/* Клининг: план разбора списком — его человек читает целиком перед тем,
+   как разрешить трогать свои файлы. */
+.cleanup-plan { max-height: 320px; overflow-y: auto; margin: 8px 0; }
+.cleanup-plan-row {
+  font-size: 12.5px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+/* Удаление проекта стоит рядом с переименованием, но заметно тише: промахнуться
+   мимо ✎ и снести проект целиком — не та ошибка, которую стоит облегчать. */
+.sidebar-item-remove {
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.sidebar-item-project:hover .sidebar-item-remove { opacity: 0.6; }
+.sidebar-item-remove:hover { opacity: 1; color: var(--accent-text, #c4004a); }
+
+/* Выдачи задач по расписанию: отдельный список над чатами, чтобы еженедельная
+   задача не вытесняла из списка разговоры, которые человек вёл руками. */
+.task-run-item { display: flex; align-items: center; gap: 4px; }
+.task-run-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  border: 0;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+}
+.task-run-open:hover { background: var(--surface-2); }
+.task-run-view { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.task-run-view-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.task-run-view .msg-content { white-space: pre-wrap; }
+
+/* Профиль проекта — то, по чему остальные разделы узнают контекст человека. */
+.profile-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.profile-box-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.profile-box-head strong { flex: 1; }
+.profile-body { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-top: 8px; }
+
+/* Финмодель. Форма слева, итоги справа: цифры должны быть видны, пока правишь
+   исходные данные, — иначе непонятно, что именно меняет твоя правка.
+
+   Прокрутка живёт в КАЖДОЙ колонке отдельно, а не на странице. Форма здесь
+   длинная — восемь блоков, — и на невысоком экране без своей прокрутки нижняя
+   часть вместе с кнопкой «Рассчитать» просто оказывается за краем окна:
+   оболочка раздела обрезает содержимое по высоте и сама не прокручивается. */
+.fin-body { display: flex; flex: 1; min-height: 0; gap: 20px; padding: 14px 16px; }
+.fin-form {
+  flex: 1 1 460px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.fin-right { flex: 1 1 380px; min-width: 300px; display: flex; flex-direction: column; min-height: 0; }
+.fin-result { overflow-y: auto; flex: 0 1 auto; }
+.fin-lead { font-size: 13px; color: var(--text-dim); margin: 0; }
+.fin-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fin-block h3 { margin: 0 0 10px; font-size: 14px; }
+.fin-block label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.fin-block label input,
+.fin-block label select,
+.fin-block label textarea { width: 100%; margin-top: 4px; }
+.fin-pair { display: flex; gap: 10px; }
+.fin-pair label { flex: 1; }
+.fin-block label.fin-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+.fin-block label.fin-check input { width: auto; margin-top: 2px; flex: 0 0 auto; }
+.fin-hint { font-size: 12px; color: var(--text-dim); margin: 6px 0 0; }
+
+.fin-rows { display: flex; flex-direction: column; gap: 6px; }
+.fin-row { display: flex; gap: 6px; align-items: center; }
+.fin-row input, .fin-row select { min-width: 0; }
+.fin-row-head { font-size: 11px; color: var(--text-dim); }
+.fin-row-head span { padding: 0 2px; }
+button.fin-row-x, span.fin-row-x { flex: 0 0 24px; width: 24px; }
+button.fin-row-x { border: 0; background: none; cursor: pointer; color: var(--text-dim); }
+button.fin-row-x:hover { color: var(--accent); }
+
+/* Сезонность — двенадцать узких полей: так видно форму года целиком. Сетка по
+   шесть, а не перенос по месту: перенос давал рваные 9+3, а два ровных
+   полугодия читаются как год. */
+.fin-season { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 4px; }
+.fin-season span { display: flex; flex-direction: column; min-width: 0; }
+.fin-season em { font-size: 10px; color: var(--text-dim); font-style: normal; text-align: center; }
+.fin-season input { width: 100%; padding: 3px; text-align: center; font-size: 12px; }
+
+.fin-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.fin-file { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.fin-file button { border: 0; background: none; cursor: pointer; color: var(--text-dim); margin-left: 4px; }
+
+.fin-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.fin-applied,
+.fin-saved,
+.fin-error { font-size: 12px; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+.fin-applied { border: 1px solid var(--border); }
+.fin-saved { border: 1px solid var(--accent); }
+.fin-error { border: 1px solid var(--accent); color: var(--accent); }
+
+.fin-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fin-table th, .fin-table td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+.fin-table th:first-child, .fin-table td:first-child { text-align: left; }
+.fin-table .fin-base { font-weight: 600; }
+
+/* Чат агента — под итогами в правой колонке, со своей высотой: иначе он либо
+   схлопывается в ноль, либо выдавливает итоги за край. */
+.fin-agent {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  flex: 1 1 auto;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.fin-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-shrink: 0; }
+.fin-agent-head strong { flex: 1; }
+.fin-agent > .chat-view { flex: 1; min-height: 0; }

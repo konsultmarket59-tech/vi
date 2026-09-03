@@ -129,6 +129,26 @@ export interface ScheduledTask {
   updatedAt: number;
 }
 
+/** Короткое резюме проекта — контекст для разделов, у которых своего проекта нет. */
+export interface ProjectProfile {
+  чем_занимается: string;
+  о_чём_проект: string;
+  ключевые_сущности: string[];
+  как_принято_называть: string;
+  чего_избегать: string;
+  fingerprint: string;
+  updatedAt: number;
+}
+
+export interface TaskRunSummary {
+  id: string;
+  taskId: string;
+  title: string;
+  createdAt: number;
+  preview: string;
+  chars: number;
+}
+
 export interface Settings {
   baseUrl: string;
   apiKey: string;
@@ -144,6 +164,11 @@ export interface Settings {
   searchApiKey?: string;
   /** Сборка с предустановленным ключом: поле ключа скрыто, показывается расход. */
   managed?: boolean;
+  /**
+   * Просить провайдера кэшировать неизменную часть промпта. Экономит на входе,
+   * который у проектов с документами составляет основную часть счёта.
+   */
+  promptCache?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -159,6 +184,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchEnabled: true,
   searchProvider: "duckduckgo",
   searchApiKey: "",
+  promptCache: true,
 };
 
 export interface StorageEntry {
@@ -351,86 +377,6 @@ export interface MediaGenerationResult {
   costRub?: number;
 }
 
-export type DesignType =
-  | "post"
-  | "document"
-  | "presentation"
-  | "design-system"
-  | "website"
-  | "graphic"
-  | "motion"
-  | "other";
-export type DesignFormat = "html" | "svg";
-
-export interface DesignDoc {
-  id: string;
-  title: string;
-  type: DesignType;
-  format: DesignFormat;
-  content: string;
-  /** Motion designs only: how long the clip runs, as declared by the assistant. */
-  durationSec?: number;
-  projectId?: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-/** The kinds of material a design project can point at on the computer. */
-export type DesignAssetKind = "logos" | "fonts" | "sources" | "references" | "system";
-
-export interface DesignProject {
-  id: string;
-  name: string;
-  /** Optional link to an app project, purely to inherit its brand kit. */
-  linkedProjectId: string;
-  /** Which design system the project works in; empty for none. */
-  systemId: string;
-  notes: string;
-  assets: Record<DesignAssetKind, string[]>;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export type DesignSystemAssetKind = "fonts" | "logos" | "rules";
-
-/** A brand's design system — several can exist, and a project picks one. */
-export interface DesignSystem {
-  id: string;
-  name: string;
-  /** Palette and rules as text, for what is quicker to type than to attach. */
-  notes: string;
-  assets: Record<DesignSystemAssetKind, string[]>;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface DesignAsset {
-  id: string;
-  /** A project's own kind, or "system:fonts" etc. for design-system material. */
-  kind: DesignAssetKind | string;
-  /** Set on design-system material: which system it came from. */
-  systemName?: string;
-  path: string;
-  name: string;
-  ext: string;
-  size?: number;
-  missing: boolean;
-  isFont: boolean;
-  isImage: boolean;
-  /** CSS family name for a font asset; empty otherwise. */
-  fontFamily: string;
-  text?: string;
-}
-
-export interface DesignRenderResult {
-  path: string;
-  width?: number;
-  height?: number;
-  frames?: number;
-  fps?: number;
-  durationSec?: number;
-}
-
 export type CloudProvider = "yandex" | "google";
 
 export interface DirectSettings {
@@ -570,6 +516,257 @@ export interface WordDocument {
   blocks: WordBlock[];
 }
 
+/** Вид документа в документообороте: от него зависят нумерация и правило даты. */
+export interface DocKind {
+  id: string;
+  name: string;
+  numbered: boolean;
+  dateRule: "today" | "monthStart" | "monthEnd";
+}
+
+export interface Counterparty {
+  id: string;
+  name: string;
+  requisitesPath: string;
+}
+
+export interface DocTemplate {
+  id: string;
+  name: string;
+  kind: string;
+  path: string;
+}
+
+export interface DocSource {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface DocflowConfig {
+  counterparties: Counterparty[];
+  templates: DocTemplate[];
+  sources: DocSource[];
+  /** Документ сверки — по нему считаются номера и в него пишется каждая выдача. */
+  ledgerPath: string;
+  archivePath: string;
+  outputPath: string;
+}
+
+export interface DocflowPrepared {
+  prompt: string;
+  images: ChatAttachment[];
+  nextNumber: number;
+  date: string;
+  templateBlocks: number;
+  ledgerFound: boolean;
+  ledgerColumns: Record<string, number>;
+  problems: string[];
+}
+
+export interface DocflowMeta {
+  number: string;
+  date: string;
+  counterparty: string;
+  sum: string;
+  filename: string;
+}
+
+export interface DocflowSaveResult {
+  docxPath: string;
+  pdfPath: string;
+  /** "word" — печатал настоящий Word, "render" — приблизительная вёрстка приложения. */
+  pdfVia: string;
+  pdfError: string;
+  ledgerRow: string[] | null;
+  ledgerError: string;
+}
+
+export interface CanvasPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface VizPalette {
+  id: string;
+  name: string;
+  background: string;
+  text: string;
+  muted: string;
+  accent: string;
+  series: string[];
+}
+
+export interface VizKind {
+  id: string;
+  name: string;
+  hint: string;
+}
+
+export interface DatavizPrepared {
+  prompt: string;
+  images: ChatAttachment[];
+  preset: CanvasPreset;
+  palette: VizPalette;
+  problems: string[];
+}
+
+export interface TaxRegime {
+  id: string;
+  name: string;
+  rate: number;
+  minRate?: number;
+  vat?: number;
+  hint: string;
+}
+
+export interface CostKind {
+  id: "month" | "unit" | "revenue";
+  name: string;
+}
+
+export interface PayrollRow {
+  role: string;
+  count: number;
+  salary: number;
+  percentOfSales: number;
+}
+
+export interface NamedAmount {
+  name: string;
+  monthly?: number;
+  amount?: number;
+}
+
+export interface VariableCostRow {
+  name: string;
+  kind: "month" | "unit" | "revenue";
+  value: number;
+}
+
+/** Ставки, которые задаёт закон, а не проект. Все попадают в книгу отдельными
+ *  ячейками: законодательство меняется, и жёсткая константа однажды соврёт. */
+export interface FinRates {
+  insurance: number;
+  insuranceReduced: number;
+  minWage: number;
+  useReducedInsurance: boolean;
+  vatThreshold: number;
+  vatRateLow: number;
+  vatRateMid: number;
+  vatLowLimit: number;
+  ipFixedContribution: number;
+  discountRate: number;
+  inflation: number;
+  npdLimit: number;
+}
+
+export interface FinModelInput {
+  projectName: string;
+  productName: string;
+  price: number;
+  unitCost: number;
+  baseVolume: number;
+  startYear: number;
+  startMonth: number;
+  horizonYears: number;
+  seasonality: number[];
+  rampUp: number[];
+  inflation: number[];
+  indexPrice: boolean;
+  scenarios: { pess: number; base: number; opt: number };
+  tax: {
+    regime: string;
+    patentYear: number;
+    npdLegal: boolean;
+    priceIncludesVat: boolean;
+    ipWithoutStaff: boolean;
+  };
+  payroll: PayrollRow[];
+  fixedCosts: { name: string; monthly: number }[];
+  variableCosts: VariableCostRow[];
+  investments: { name: string; amount: number }[];
+  rates: FinRates;
+  notes: string;
+}
+
+export interface FinYear {
+  year: number;
+  index: number;
+  revenue: number;
+  units: number;
+  cogs: number;
+  gross: number;
+  payroll: number;
+  insurance: number;
+  fixed: number;
+  variable: number;
+  ebitda: number;
+  tax: number;
+  vat: number;
+  net: number;
+  minTaxTopUp: number;
+  vatOnThreshold: number;
+}
+
+/** Итоги одного сценария. Помесячные строки на экран не отдаются — их до 120
+ *  на сценарий, и место им в книге, а не в интерфейсе. */
+export interface FinScenario {
+  years: FinYear[];
+  investment: number;
+  payback: { months: number; label: string } | null;
+  npv: number;
+  irr: number | null;
+  breakEvenUnits: number | null;
+  breakEvenRevenue: number | null;
+  marginPerUnit: number;
+  totalNet: number;
+  totalRevenue: number;
+}
+
+export interface FinComputed {
+  input: FinModelInput;
+  pess: FinScenario;
+  base: FinScenario;
+  opt: FinScenario;
+}
+
+/** Допущения, которые агент достал из статистики и официальных источников. */
+export interface FinParams {
+  baseVolume: number | null;
+  seasonality: number[] | null;
+  rampUp: number[] | null;
+  inflation: number[] | null;
+  minWage: number | null;
+  sources: { inflation: string; minWage: string };
+  comment: string;
+}
+
+/** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
+export type CleanupOp =
+  | { op: "mkdir"; target: string }
+  | { op: "move"; from: string; to: string }
+  | { op: "rename"; from: string; to: string };
+
+export interface CleanupPrepared {
+  prompt: string;
+  fileCount: number;
+  folderCount: number;
+  truncated: boolean;
+}
+
+export interface CleanupApplied {
+  done: { op: string; target?: string; from?: string; to?: string }[];
+  failed: { op: CleanupOp; error: string }[];
+}
+
+export interface CleanupLedgerSheet {
+  name: string;
+  rows: string[][];
+}
+
 export type WordEditOp =
   | { op: "set"; index: number; text: string }
   | { op: "insert"; index: number; text: string; style: string }
@@ -666,6 +863,8 @@ export interface UsageEntry {
   model: string;
   promptTokens?: number;
   completionTokens?: number;
+  /** Часть входа, прочитанная из кэша провайдера. */
+  cachedTokens?: number;
   exact: boolean;
   source: string;
 }
@@ -675,6 +874,7 @@ export interface UsageModelRow {
   calls: number;
   promptTokens: number;
   completionTokens: number;
+  cachedTokens: number;
   tokens: number;
   /** null — цена для этой модели не задана в сборке. */
   cost: number | null;
@@ -691,6 +891,7 @@ export interface UsageSummary {
     cost: number | null;
     currency: string;
     estimated: boolean;
+    cachedTokens: number;
   } | null;
 }
 
@@ -723,7 +924,8 @@ export interface ElectronAPI {
   listProjects(): Promise<Project[]>;
   createProject(data: { name: string; description: string; instructions: string }): Promise<Project>;
   updateProject(id: string, patch: Partial<Omit<Project, "id">>): Promise<Project>;
-  deleteProject(id: string): Promise<void>;
+  /** `trashed: false` — корзина была недоступна и папка удалена безвозвратно. */
+  deleteProject(id: string): Promise<{ trashed: boolean }>;
   buildSystemPrompt(id: string): Promise<string>;
   openProjectFolder(id: string): Promise<void>;
   pickBrandLogo(): Promise<string | null>;
@@ -826,54 +1028,6 @@ export interface ElectronAPI {
   pickReferenceImage(): Promise<string | null>;
   onMediaProgress(callback: (status: string) => void): () => void;
 
-  // design section
-  listDesignProjects(): Promise<DesignProject[]>;
-  createDesignProject(name: string): Promise<DesignProject>;
-  updateDesignProject(id: string, patch: Partial<DesignProject>): Promise<DesignProject | null>;
-  removeDesignProject(id: string): Promise<DesignProject[]>;
-  pickDesignAssets(id: string, kind: DesignAssetKind): Promise<DesignProject | null>;
-  removeDesignAsset(id: string, kind: DesignAssetKind, assetPath: string): Promise<DesignProject | null>;
-  listDesignAssets(id: string): Promise<DesignAsset[]>;
-  listDesignSystems(): Promise<DesignSystem[]>;
-  createDesignSystem(name: string): Promise<DesignSystem>;
-  updateDesignSystem(id: string, patch: Partial<DesignSystem>): Promise<DesignSystem | null>;
-  removeDesignSystem(id: string): Promise<DesignSystem[]>;
-  pickDesignSystemAssets(id: string, kind: DesignSystemAssetKind): Promise<DesignSystem | null>;
-  removeDesignSystemAsset(id: string, kind: DesignSystemAssetKind, assetPath: string): Promise<DesignSystem | null>;
-  /** Replaces ASSET:… references with embedded data and adds @font-face rules. */
-  applyDesignAssets(id: string, html: string): Promise<string>;
-  renderDesign(payload: {
-    kind: "png" | "mp4";
-    html: string;
-    width: number;
-    height: number;
-    fps?: number;
-    durationSec?: number;
-    defaultName: string;
-    projectId?: string;
-  }): Promise<DesignRenderResult | null>;
-  onDesignRenderProgress(callback: (progress: { frame: number; total: number }) => void): () => void;
-
-  listDesignDocs(projectId?: string): Promise<DesignDoc[]>;
-  saveDesignDoc(payload: {
-    id?: string | null;
-    title: string;
-    type: DesignType;
-    format: DesignFormat;
-    content: string;
-    durationSec?: number;
-    projectId?: string;
-  }): Promise<DesignDoc>;
-  deleteDesignDoc(id: string, projectId?: string): Promise<void>;
-  buildDesignAgentPrompt(projectId?: string): Promise<string>;
-  getDesignAgentConversation(projectId?: string): Promise<Conversation | null>;
-  saveDesignAgentConversation(projectId: string | undefined, conv: Conversation): Promise<Conversation>;
-  openDesignFolder(projectId?: string): Promise<void>;
-
-  // export (shared by chat exports and the design section)
-  exportToJpg(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
-  exportSvgFile(payload: { svg: string; defaultName: string; projectId?: string }): Promise<string | null>;
-
   // project design system
   pickDesignSystemFiles(): Promise<string[]>;
   pickDesignSystemFolder(): Promise<string | null>;
@@ -934,15 +1088,107 @@ export interface ElectronAPI {
   insertWordParagraph(afterIndex: number, text: string, style?: string): Promise<WordDocument>;
   applyWordAgentEdit(edit: WordEdit): Promise<WordDocument>;
   saveWordFile(saveAs?: boolean): Promise<string | null>;
-  buildWordAgentPrompt(): Promise<string>;
+  buildWordAgentPrompt(mode?: "edit" | "analyze"): Promise<string>;
+  saveWordAnalysis(markdown: string, defaultName: string): Promise<string | null>;
   getWordAgentConversation(): Promise<Conversation | null>;
   saveWordAgentConversation(conv: Conversation): Promise<Conversation>;
+
+  // документооборот
+  getDocflowConfig(): Promise<DocflowConfig>;
+  saveDocflowConfig(config: DocflowConfig): Promise<DocflowConfig>;
+  docflowKinds(): Promise<DocKind[]>;
+  parseDocflowResult(text: string): Promise<{ meta: DocflowMeta; ops: WordEditOp[]; markdown: string } | null>;
+  pickDocflowFile(kind: "template" | "ledger" | "data"): Promise<string[]>;
+  pickDocflowFolder(): Promise<string | null>;
+  listDocflowFolder(folderPath: string): Promise<string[]>;
+  openDocflowFolder(folderPath: string): Promise<void>;
+  prepareDocflow(request: {
+    kindId: string;
+    mode: "template" | "lawyer";
+    month?: string;
+    templatePath?: string;
+    requisitesPath?: string;
+    dataPaths?: string[];
+    sourcePaths?: string[];
+    ledgerPath?: string;
+    counterpartyName?: string;
+  }): Promise<DocflowPrepared>;
+  saveDocflowResult(payload: {
+    mode: "template" | "lawyer";
+    templatePath?: string;
+    ops?: WordEditOp[];
+    markdown?: string;
+    meta: DocflowMeta;
+    outputDir: string;
+    kindId: string;
+    ledgerPath?: string;
+    writeLedger: boolean;
+  }): Promise<DocflowSaveResult>;
 
   // Excel workbooks
   pickExcelFile(): Promise<string | null>;
   openExcelFile(filePath: string): Promise<ExcelWorkbook>;
   newExcelWorkbook(name: string): Promise<ExcelWorkbook>;
   applyExcelAgentEdit(edit: ExcelEdit): Promise<{ workbook: ExcelWorkbook; createdSheets: string[] }>;
+
+  // визуализация данных
+  datavizOptions(): Promise<{ presets: CanvasPreset[]; palettes: VizPalette[]; kinds: VizKind[] }>;
+  prepareDataviz(request: {
+    kindId: string;
+    presetId: string;
+    paletteId: string;
+    paletteOverrides?: Partial<VizPalette>;
+    sourcePaths?: string[];
+    extraStyle?: string;
+  }): Promise<DatavizPrepared>;
+  parseDatavizResult(text: string): Promise<{ title: string; html: string } | null>;
+  previewDataviz(
+    html: string,
+    presetId: string,
+    paletteId: string,
+    overrides?: Partial<VizPalette>
+  ): Promise<string>;
+  saveDataviz(payload: {
+    html: string;
+    title: string;
+    presetId: string;
+    paletteId: string;
+    paletteOverrides?: Partial<VizPalette>;
+    outputDir: string;
+    formats: string[];
+  }): Promise<{ png?: string; pdf?: string; html?: string }>;
+
+  // финмодель
+  finmodelOptions(): Promise<{
+    regimes: TaxRegime[];
+    costKinds: CostKind[];
+    rates: FinRates;
+    months: string[];
+  }>;
+  prepareFinmodelParams(request: {
+    input: Partial<FinModelInput>;
+    dataPaths?: string[];
+    searchRates?: boolean;
+  }): Promise<{ prompt: string; problems: string[] }>;
+  parseFinmodelParams(text: string, input: Partial<FinModelInput>): Promise<FinParams | null>;
+  computeFinmodel(input: Partial<FinModelInput>): Promise<FinComputed>;
+  prepareFinmodelAdvice(input: Partial<FinModelInput>): Promise<string>;
+  saveFinmodel(payload: {
+    input: Partial<FinModelInput>;
+    destDir: string;
+    fileName?: string;
+    advice?: string;
+    sources?: { inflation?: string; minWage?: string };
+  }): Promise<string>;
+
+  // клининг
+  pickCleanupFolder(): Promise<string | null>;
+  prepareCleanup(request: { folderPath: string; mode: "tidy" | "ledger"; notes?: string }): Promise<CleanupPrepared>;
+  parseCleanupPlan(text: string): Promise<{ ops: CleanupOp[] } | null>;
+  parseCleanupLedger(text: string): Promise<{ sheets: CleanupLedgerSheet[] } | null>;
+  applyCleanupPlan(folderPath: string, plan: { ops: CleanupOp[] }): Promise<CleanupApplied>;
+  undoCleanup(folderPath: string, done: CleanupApplied["done"]): Promise<{ restored: unknown[]; failed: unknown[] }>;
+  saveCleanupLedger(sheets: CleanupLedgerSheet[], defaultName: string): Promise<string | null>;
   runExcelAgentTools(text: string): Promise<string | null>;
   setExcelCells(edits: { sheet: string; cell: string; value: string }[]): Promise<ExcelWorkbook>;
   saveExcelFile(saveAs?: boolean): Promise<string | null>;
@@ -962,6 +1208,15 @@ export interface ElectronAPI {
   listTasks(projectId: string): Promise<ScheduledTask[]>;
   saveTask(projectId: string, task: Partial<ScheduledTask> & { title: string; prompt: string }): Promise<ScheduledTask>;
   deleteTask(projectId: string, id: string): Promise<void>;
+  listTaskRuns(projectId: string): Promise<TaskRunSummary[]>;
+  readTaskRun(projectId: string, runId: string): Promise<Conversation | null>;
+  deleteTaskRun(projectId: string, runId: string): Promise<TaskRunSummary[]>;
+
+  // профиль проекта
+  readProjectProfile(projectId: string): Promise<{ profile: ProjectProfile | null; stale: boolean }>;
+  buildProfileRequest(projectId: string): Promise<string>;
+  saveProjectProfile(projectId: string, answerText: string): Promise<ProjectProfile>;
+  userContextDigest(): Promise<string>;
   onTaskRan(callback: (payload: { projectId: string; task: ScheduledTask; conversationId: string }) => void): () => void;
 }
 

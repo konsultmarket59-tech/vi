@@ -87,7 +87,14 @@ function cleanup() {
   check("неделя включает сегодняшние записи", week.totals.calls === 3, JSON.stringify(week.totals));
   check("месяц включает сегодняшние записи", month.totals.calls === 3, JSON.stringify(month.totals));
   check("начало недели не позже начала дня", new Date(week.from) <= new Date(day.from));
-  check("начало месяца не позже начала недели", new Date(month.from) <= new Date(week.from));
+  // Начало месяца НЕ обязано быть раньше начала недели: в первые дни месяца неделя
+  // начинается в прошлом месяце (1 сентября 2026 — вторник, неделя с 31 августа).
+  // Проверять надо то, что обе границы не в будущем и месяц покрывает не меньше недели.
+  check("обе границы периода не в будущем", new Date(month.from) <= new Date() && new Date(week.from) <= new Date());
+  check(
+    "месяц охватывает период не короче недели",
+    Date.now() - new Date(month.from).getTime() >= Date.now() - new Date(week.from).getTime() - 7 * 24 * 3600 * 1000
+  );
 
   check("нулевая запись не сохраняется", (await usage.record({ model: "x", promptTokens: 0, completionTokens: 0 })) === null);
   check("оценка по длине считает хоть что-то", usage.estimateTokens("привет мир") > 0);

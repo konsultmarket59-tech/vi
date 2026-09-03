@@ -49,6 +49,9 @@ async function record(entry) {
     model: String(entry.model || "неизвестно"),
     promptTokens,
     completionTokens,
+    // Часть входа, прочитанная из кэша провайдера. Ноль здесь при большом входе —
+    // главный признак того, что кэш не работает и вход оплачивается полностью.
+    cachedTokens: Math.max(0, Math.round(Number(entry.cachedTokens) || 0)),
     exact: entry.exact === true,
     source: String(entry.source || "чат"),
   };
@@ -115,18 +118,23 @@ async function summary(period = "day", { prices = {}, currency = "₽" } = {}) {
       model: row.model,
       promptTokens: 0,
       completionTokens: 0,
+      cachedTokens: 0,
       calls: 0,
       exact: true,
     };
     current.promptTokens += row.promptTokens;
     current.completionTokens += row.completionTokens;
+    current.cachedTokens += row.cachedTokens || 0;
     current.calls += 1;
     if (!row.exact) current.exact = false;
     byModel.set(row.model, current);
   }
 
   const models = [...byModel.values()].map((entry) => {
-    const cost = costOf(entry.model, entry.promptTokens, entry.completionTokens, prices);
+    // Кэшированный вход у Anthropic стоит примерно десятую часть обычного, поэтому
+    // считаем его отдельно — иначе экономия от кэша в отчёте не видна.
+    const fresh = Math.max(0, entry.promptTokens - entry.cachedTokens);
+    const cost = costOf(entry.model, fresh + entry.cachedTokens * 0.1, entry.completionTokens, prices);
     if (cost === null) known = false;
     return { ...entry, tokens: entry.promptTokens + entry.completionTokens, cost };
   });
@@ -147,6 +155,7 @@ async function summary(period = "day", { prices = {}, currency = "₽" } = {}) {
       cost: known ? cost : null,
       currency,
       estimated: anyEstimated,
+      cachedTokens: models.reduce((sum, m) => sum + (m.cachedTokens || 0), 0),
     },
   };
 }

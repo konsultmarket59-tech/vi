@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatAttachment, ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
 import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
-import { streamChat, listModels, ApiError, type ApiContentPart, type ApiMessage } from "../lib/api";
+import {
+  streamChat,
+  listModels,
+  ApiError,
+  type ApiContentPart,
+  type ApiMessage,
+  type SplitSystemPrompt,
+} from "../lib/api";
 import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } from "../lib/exportHtml";
 import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
@@ -17,6 +24,8 @@ interface Props {
   brand?: BrandKit;
   emptyHint?: string;
   onAssistantMessage?: (content: string) => void;
+  /** Каждый кусочек ответа по мере поступления — для живого предпросмотра правок. */
+  onStreamingText?: (text: string) => void;
   skills?: Skill[];
   /**
    * Extra read-only tools this chat offers, on top of web search. Returns text to
@@ -31,7 +40,7 @@ interface Props {
    * caller can push the same question twice by bumping the counter alongside it —
    * used by the Excel grid to ask about whichever cell is selected.
    */
-  prefill?: { text: string; nonce: number };
+  prefill?: { text: string; attachments?: ChatAttachment[]; autoSend?: boolean; nonce: number };
 }
 
 type ExportFormat = "pdf" | "png" | "docx" | "xlsx";
@@ -179,6 +188,7 @@ export default function ChatView({
   brand,
   emptyHint,
   onAssistantMessage,
+  onStreamingText,
   skills,
   extraTools,
   extraToolLabel,
@@ -213,7 +223,9 @@ export default function ChatView({
   useEffect(() => {
     if (!prefill) return;
     setInput(prefill.text);
+    if (prefill.attachments?.length) setAttachments(prefill.attachments);
     inputRef.current?.focus();
+    if (prefill.autoSend) void send(prefill.text);
   }, [prefill?.nonce]);
 
   useEffect(() => {
@@ -260,8 +272,8 @@ export default function ChatView({
     setMediaError(null);
   }, [conversation.id]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
     // Attachments alone are a valid turn ("посмотри этот файл") — don't require typed text.
     if ((!text && attachments.length === 0) || busy) return;
     setError(null);
@@ -290,9 +302,17 @@ export default function ChatView({
 
     const attachedSkill = skills?.find((s) => s.id === attachedSkillId);
     const skillPrompt = attachedSkill
-      ? `\n\n--- Навык (вызван для этого сообщения): ${attachedSkill.name} ---\n${
-          attachedSkill.description ? attachedSkill.description + "\n" : ""
-        }${attachedSkill.content}`
+      ? `\n\n=== НАВЫК, ВЫЗВАННЫЙ ДЛЯ ЭТОГО СООБЩЕНИЯ: ${attachedSkill.name} ===\n` +
+        "Это инструкция к исполнению, а не справка. Выполняй её буквально: все указанные форматы, " +
+        "структуру, количество пунктов и ограничения. Если требование навыка противоречит общему стилю — " +
+        "побеждает навык. Если выполнить какое-то требование нельзя, скажи об этом прямо, а не молча пропусти.\n" +
+        `${attachedSkill.description ? attachedSkill.description + "\n" : ""}${attachedSkill.content}`
+      : "";
+    // Напоминание идёт последней строкой запроса — там, где модель читает
+    // внимательнее всего. Одного упоминания в начале системного промпта не хватало:
+    // на длинном контексте параметры навыка терялись.
+    const skillReminder = attachedSkill
+      ? `\n\n[Применяется навык «${attachedSkill.name}» — следуй всем его правилам и параметрам буквально.]`
       : "";
     // Only the tail of a long chat travels with each request; anything folded away
     // earlier is represented by its summary, and anything merely over budget is
@@ -309,13 +329,20 @@ export default function ChatView({
         "Если пользователь ссылается на что-то, чего ты не видишь, попроси напомнить.)"
       : "";
 
+    // Системное сообщение делится на две части ради кэша провайдера: он работает по
+    // совпадению НАЧАЛА промпта, поэтому всё неизменное — инструкции проекта,
+    // документы, постоянные подсказки — идёт первым и одинаково от запроса к
+    // запросу, а всё, что меняется (вызванный навык, пересказ свёрнутой истории),
+    // уезжает в хвост. Раньше вызванный навык вклинивался в середину и ломал
+    // совпадение на каждом сообщении, где его меняли.
+    const system: SplitSystemPrompt = {
+      stable:
+        systemPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT +
+        (webToolsHint ? "\n\n" + webToolsHint : ""),
+      variable: skillPrompt + historyNote + dropNote,
+    };
+
     const apiMessages: ApiMessage[] = [
-      {
-        role: "system",
-        content:
-          systemPrompt + skillPrompt + "\n\n" + CHART_SYNTAX_HINT + "\n\n" + MEDIA_SYNTAX_HINT +
-          (webToolsHint ? "\n\n" + webToolsHint : "") + historyNote + dropNote,
-      },
       ...(await Promise.all(
         sentMessages.map(async (m) => {
           if (!m.attachments || m.attachments.length === 0) {
@@ -337,6 +364,19 @@ export default function ChatView({
       )),
     ];
 
+    // Напоминание про навык дописывается к последнему сообщению пользователя, а не
+    // отправляется отдельным: лишнее сообщение в истории модель иногда принимает за
+    // реплику собеседника и начинает отвечать на него, а не на вопрос.
+    if (skillReminder && apiMessages.length > 0) {
+      const last = apiMessages[apiMessages.length - 1];
+      if (last.role === "user") {
+        last.content =
+          typeof last.content === "string"
+            ? last.content + skillReminder
+            : [...last.content, { type: "text", text: skillReminder }];
+      }
+    }
+
     setBusy(true);
     setStreamingText("");
     const controller = new AbortController();
@@ -350,8 +390,14 @@ export default function ChatView({
       let full = await streamChat(
         effectiveSettings,
         apiMessages,
-        (chunk) => setStreamingText((prev) => prev + chunk),
-        controller.signal
+        (chunk) =>
+          setStreamingText((prev) => {
+            const next = prev + chunk;
+            onStreamingText?.(next);
+            return next;
+          }),
+        controller.signal,
+        system
       );
 
       // Web-tool loop. Search and page reads are read-only, so unlike the app's
@@ -366,11 +412,20 @@ export default function ChatView({
         apiMessages.push({ role: "assistant", content: full });
         apiMessages.push({ role: "user", content: toolOutput });
         setStreamingText("");
+        // Системная часть передаётся и здесь: она больше не лежит первым элементом
+        // apiMessages, и без неё раунды с инструментами остались бы без инструкций
+        // проекта, документов и навыков.
         full = await streamChat(
           effectiveSettings,
           apiMessages,
-          (chunk) => setStreamingText((prev) => prev + chunk),
-          controller.signal
+          (chunk) =>
+          setStreamingText((prev) => {
+            const next = prev + chunk;
+            onStreamingText?.(next);
+            return next;
+          }),
+          controller.signal,
+          system
         );
       }
       setWebToolStatus("");
@@ -787,7 +842,7 @@ export default function ChatView({
             Остановить
           </button>
         ) : (
-          <button className="btn btn-primary" onClick={send} disabled={!input.trim() && attachments.length === 0}>
+          <button className="btn btn-primary" onClick={() => send()} disabled={!input.trim() && attachments.length === 0}>
             Отправить
           </button>
         )}

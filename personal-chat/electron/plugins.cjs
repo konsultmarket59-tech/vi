@@ -17,7 +17,10 @@ const MODULE_IDS = [
   "skills",
   "excel",
   "word",
-  "design",
+  "docflow",
+  "dataviz",
+  "finmodel",
+  "cleanup",
   "media",
   "cloud",
   "direct",
@@ -26,10 +29,10 @@ const MODULE_IDS = [
 ];
 
 // The base every build shares: chat with a model picker, projects and
-// instructions, skills, scheduled tasks, files from the computer, saving
-// results, and design. These stay on whatever the file says; everything else is
-// an optional plugin.
-const ALWAYS_ON = ["projects", "skills", "design"];
+// instructions, skills, scheduled tasks, files from the computer and saving
+// results. These stay on whatever the file says; everything else is an optional
+// plugin.
+const ALWAYS_ON = ["projects", "skills"];
 
 function candidatePaths(app) {
   const paths = [path.join(__dirname, "..", "plugins.json")];

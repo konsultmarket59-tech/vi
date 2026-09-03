@@ -413,13 +413,160 @@ async function clearProjectBrandHeaderImage(id) {
   return updateProject(id, { brand });
 }
 
+/**
+ * Удаляет проект вместе с его чатами, документами и задачами по расписанию.
+ *
+ * Сначала — в корзину системы: из неё папку можно вернуть, а проект нередко
+ * удаляют «на всякий случай», обнаружив потом, что в его документах лежал
+ * единственный экземпляр договора. Насовсем удаляем только если корзина
+ * недоступна (сетевой диск, флешка), и тогда ГОВОРИМ об этом: раньше приложение
+ * молча делало необратимое, а человек был уверен, что всё лежит в корзине.
+ */
 async function deleteProject(id) {
   const root = await getRootPath();
   const dir = projectDir(root, id);
-  await shell.trashItem(dir).catch(async () => {
+  let trashed = true;
+  try {
+    await shell.trashItem(dir);
+  } catch {
+    trashed = false;
     await fs.rm(dir, { recursive: true, force: true });
+  }
+  return { trashed };
+}
+
+// ---------- результаты задач по расписанию ----------
+
+function taskRunsDir(root, projectId) {
+  return path.join(projectDir(root, projectId), "task-runs");
+}
+
+async function saveTaskRun(projectId, run) {
+  const root = await getRootPath();
+  const dir = taskRunsDir(root, projectId);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, run.id + ".json"), JSON.stringify(run, null, 2), "utf-8");
+  return run;
+}
+
+/** Список запусков: только заголовки и даты, без текстов — их читают по одному. */
+async function listTaskRuns(projectId) {
+  const root = await getRootPath();
+  const dir = taskRunsDir(root, projectId);
+  const entries = await fs.readdir(dir).catch(() => []);
+  const runs = [];
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue;
+    const run = await readJson(path.join(dir, name), null);
+    if (!run) continue;
+    const answer = run.messages?.find((m) => m.role === "assistant")?.content || "";
+    runs.push({
+      id: run.id,
+      taskId: run.taskId || "",
+      title: run.taskTitle || run.title || "Задача",
+      createdAt: run.createdAt,
+      preview: answer.replace(/\s+/g, " ").trim().slice(0, 160),
+      chars: answer.length,
+    });
+  }
+  return runs.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+async function readTaskRun(projectId, runId) {
+  const root = await getRootPath();
+  return readJson(path.join(taskRunsDir(root, projectId), runId + ".json"), null);
+}
+
+async function deleteTaskRun(projectId, runId) {
+  const root = await getRootPath();
+  await fs.rm(path.join(taskRunsDir(root, projectId), runId + ".json"), { force: true });
+  return listTaskRuns(projectId);
+}
+
+ipcMain.handle("tasks:listRuns", (_e, projectId) => listTaskRuns(projectId));
+ipcMain.handle("tasks:readRun", (_e, projectId, runId) => readTaskRun(projectId, runId));
+ipcMain.handle("tasks:deleteRun", (_e, projectId, runId) => deleteTaskRun(projectId, runId));
+
+// ---------- профиль проекта ----------
+
+const PROFILE_SAMPLE_DOCS = 5;
+const PROFILE_SAMPLE_CHARS = 4000;
+
+async function projectFingerprint(projectId) {
+  const root = await getRootPath();
+  const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  const docs = await listDocs(projectId).catch(() => []);
+  return { meta, docs, fingerprint: profile.fingerprint(meta, docs) };
+}
+
+/** Профиль с пометкой, не устарел ли он относительно текущего содержимого проекта. */
+async function readProjectProfile(projectId) {
+  const root = await getRootPath();
+  const { fingerprint } = await projectFingerprint(projectId);
+  const saved = await profile.read(projectDir(root, projectId));
+  return { profile: saved, stale: profile.isStale(saved, fingerprint) };
+}
+
+/** Готовит запрос на сборку профиля — сам запрос к модели делает окно. */
+async function buildProfileRequest(projectId) {
+  const { meta, docs } = await projectFingerprint(projectId);
+  if (!meta) throw new Error("Проект не найден: " + projectId);
+  const root = await getRootPath();
+
+  // В резюме идут только начала нескольких документов: цель — понять, о чём проект,
+  // а не пересказать базу. Полное чтение здесь стоило бы как обычный запрос в чат.
+  const samples = [];
+  for (const doc of docs.slice(0, PROFILE_SAMPLE_DOCS)) {
+    try {
+      const text = await extractDocText(path.join(docsDir(root, projectId), doc.name));
+      samples.push({ name: doc.name, text: text.slice(0, PROFILE_SAMPLE_CHARS) });
+    } catch {
+      // Нечитаемый документ профилю не помеха — он соберётся по остальным.
+    }
+  }
+  return profile.buildRequestPrompt({
+    name: meta.name,
+    description: meta.description,
+    instructions: meta.instructions,
+    docs,
+    samples,
   });
 }
+
+async function saveProjectProfile(projectId, answerText) {
+  const parsed = profile.parseProfile(answerText);
+  if (!parsed) throw new Error("Не удалось разобрать ответ модели как профиль проекта.");
+  const root = await getRootPath();
+  const { fingerprint } = await projectFingerprint(projectId);
+  return profile.save(projectDir(root, projectId), {
+    ...parsed,
+    fingerprint,
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * Общая справка «чем занимается человек» из профилей всех проектов.
+ *
+ * Её получают разделы, у которых своего проекта нет: Word, Excel, визуализация,
+ * клининг, документооборот. Собирается из данных пользователя — в коде никакого
+ * конкретного бизнеса быть не должно, приложением пользуется не один человек.
+ */
+async function userContextDigest() {
+  const root = await getRootPath();
+  const projects = await listProjects().catch(() => []);
+  const profiles = [];
+  for (const p of projects) {
+    const saved = await profile.read(projectDir(root, p.id));
+    if (saved) profiles.push({ name: p.name, profile: saved });
+  }
+  return profile.digest(profiles);
+}
+
+ipcMain.handle("profile:read", (_e, projectId) => readProjectProfile(projectId));
+ipcMain.handle("profile:buildRequest", (_e, projectId) => buildProfileRequest(projectId));
+ipcMain.handle("profile:save", (_e, projectId, answerText) => saveProjectProfile(projectId, answerText));
+ipcMain.handle("profile:digest", () => userContextDigest());
 
 // ---------- docs ----------
 
@@ -669,7 +816,6 @@ async function saveSkillCreatorConversation(conv) {
 const media = require("./media.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
-const design = require("./design.cjs");
 const tasks = require("./tasks.cjs");
 const plugins = require("./plugins.cjs");
 const licence = require("./licence.cjs");
@@ -683,8 +829,9 @@ usage.init(USER_DATA_PATH);
 const websearch = require("./websearch.cjs");
 const excel = require("./excel.cjs");
 const word = require("./word.cjs");
+const docflow = require("./docflow.cjs");
+const profile = require("./profile.cjs");
 const exportDocs = require("./exportDocs.cjs");
-const motion = require("./motion.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
 const cloud = require("./cloud.cjs");
@@ -751,10 +898,19 @@ async function buildSystemPrompt(projectId) {
   }
 
   const docs = await listDocs(projectId);
+  // Один и тот же файл часто оказывается и внутри проекта, и во внешней папке,
+  // подключённой к тому же проекту. Раньше он уходил в промпт ДВУМЯ копиями и
+  // оплачивался дважды на каждом сообщении. Считаем такими же файлы с совпавшими
+  // именем и размером; при совпадении имени, но разном размере это разные версии —
+  // их оставляем обе, иначе молча спрятали бы правку.
+  const includedDocs = new Set();
+  const duplicates = [];
+
   if (docs.length > 0) {
     parts.push("\n\n=== ДОКУМЕНТЫ ПРОЕКТА (база знаний) ===");
     for (const doc of docs) {
       if (excluded.has(`docs/${doc.name}`)) continue;
+      includedDocs.add(`${doc.name.toLowerCase()}:${doc.size}`);
       const filePath = path.join(docsDir(root, projectId), doc.name);
       let content;
       try {
@@ -773,6 +929,10 @@ async function buildSystemPrompt(projectId) {
         parts.push(`\n\n=== ДОКУМЕНТЫ ИЗ ВНЕШНЕЙ ПАПКИ (${meta.externalDocsPath}) ===`);
         for (const doc of externalDocs) {
           if (excluded.has(`external/${doc.name}`)) continue;
+          if (includedDocs.has(`${doc.name.toLowerCase()}:${doc.size}`)) {
+            duplicates.push(doc.name);
+            continue;
+          }
           const filePath = path.join(meta.externalDocsPath, doc.name);
           let content;
           try {
@@ -791,6 +951,12 @@ async function buildSystemPrompt(projectId) {
     }
   }
 
+  if (duplicates.length > 0) {
+    parts.push(
+      `\n\n[Не продублированы из внешней папки (эти файлы уже есть в документах проекта): ${duplicates.join(", ")}]`
+    );
+  }
+
   let full = parts.join("\n");
   if (full.length > MAX_TOTAL_CHARS) {
     full = full.slice(0, MAX_TOTAL_CHARS) + "\n\n[...общий контекст обрезан по лимиту...]";
@@ -800,6 +966,36 @@ async function buildSystemPrompt(projectId) {
 
 // ---------- scheduled tasks ----------
 
+// Same rule as supportsPromptCaching() in src/lib/api.ts: cache_control is an
+// Anthropic-family thing, other models risk a rejected request over it.
+function supportsPromptCaching(model) {
+  return /(^|\/)(anthropic|claude)/i.test(model || "");
+}
+
+// Задачи по расписанию и ИИ-боты гоняют один и тот же неизменный системный
+// промпт (инструкции + документы проекта) по несколько раз за один прогон —
+// раунды поиска в интернете дописывают только небольшой хвост сообщений
+// поверх него. Без метки кэша каждый раунд оплачивает эти документы заново;
+// самый частый случай — недельный дайджест с 4–5 раундами поиска — именно
+// поэтому и обходился на порядок дороже, чем должен был.
+function buildSystemMessage(text, settings) {
+  const withCache = settings.promptCache !== false && supportsPromptCaching(settings.model) && backgroundCacheFieldWorks !== false;
+  if (!withCache) return { role: "system", content: text };
+  return { role: "system", content: [{ type: "text", text, cache_control: { type: "ephemeral" } }] };
+}
+
+function stripCacheControl(messages) {
+  return messages.map((m) =>
+    Array.isArray(m.content) ? { ...m, content: m.content.map((part) => part.text).join("\n\n") } : m
+  );
+}
+
+// Помнит на время работы приложения, принимает ли шлюз cache_control в этих
+// фоновых (не-стриминговых) запросах — тот же приём, что и в src/lib/api.ts
+// для обычного чата, только на процесс целиком: одного отказа достаточно,
+// чтобы больше не пробовать и не терять на этом время следующих раундов.
+let backgroundCacheFieldWorks;
+
 // Non-streaming chat completion, same wire format as src/lib/api.ts's
 // streamChat but called from the main process (no window/EventSource
 // involved) — used to run a scheduled task's prompt unattended.
@@ -807,17 +1003,25 @@ async function callModelOnce(settings, messages) {
   if (!settings.apiKey) throw new Error("Не задан API-ключ. Откройте настройки и вставьте ключ Polza.ai.");
   if (!settings.model) throw new Error("Не задана модель в настройках.");
   const url = settings.baseUrl.replace(/\/+$/, "") + "/chat/completions";
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: settings.temperature,
-      max_tokens: settings.maxTokens,
-      stream: false,
-    }),
-  });
+  const send = (msgs) =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        model: settings.model,
+        messages: msgs,
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens,
+        stream: false,
+      }),
+    });
+
+  let res = await send(messages);
+  const hadCache = messages.some((m) => Array.isArray(m.content));
+  if (!res.ok && (res.status === 400 || res.status === 422) && hadCache) {
+    backgroundCacheFieldWorks = false;
+    res = await send(stripCacheControl(messages));
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`Ошибка API (${res.status} ${res.statusText}). ${detail.slice(0, 500)}`);
@@ -829,17 +1033,21 @@ async function callModelOnce(settings, messages) {
   // счётчик, что и обычный чат.
   const reported = body?.usage;
   if (reported?.prompt_tokens || reported?.completion_tokens) {
+    const cached = reported?.prompt_tokens_details?.cached_tokens ?? reported?.cache_read_input_tokens ?? 0;
     await usage.record({
       model: settings.model,
       promptTokens: reported.prompt_tokens,
       completionTokens: reported.completion_tokens,
+      cachedTokens: cached,
       exact: true,
       source: "фон",
     });
   } else {
     await usage.record({
       model: settings.model,
-      promptTokens: usage.estimateTokens(messages.map((m) => m.content).join("\n")),
+      promptTokens: usage.estimateTokens(
+        messages.map((m) => (Array.isArray(m.content) ? m.content.map((p) => p.text).join("\n") : m.content)).join("\n")
+      ),
       completionTokens: usage.estimateTokens(content),
       exact: false,
       source: "фон",
@@ -866,7 +1074,7 @@ async function runScheduledTask(root, task) {
   // plain text or we hit the round limit.
   const webOn = settings.searchEnabled !== false;
   const messages = [
-    { role: "system", content: systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
+    buildSystemMessage(systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), settings),
     { role: "user", content: task.prompt },
   ];
   let reply = await callModelOnce(settings, messages);
@@ -891,14 +1099,17 @@ async function runScheduledTask(root, task) {
     createdAt: now,
     updatedAt: Date.now(),
   };
-  await saveConversation(task.projectId, conv);
+  // Результат задачи кладётся в отдельную папку, а не в чаты проекта: задача
+  // выполняется сама и каждую неделю, и её выдачи быстро вытесняли из списка
+  // те чаты, которые человек вёл руками.
+  await saveTaskRun(task.projectId, { ...conv, taskId: task.id, taskTitle: task.title });
   const updated = await tasks.save(root, task.projectId, {
     ...task,
     lastRunAt: now,
     lastConversationId: conv.id,
     enabled: task.recurrence === "once" ? false : task.enabled,
   });
-  broadcast("tasks:ran", { projectId: task.projectId, task: updated, conversationId: conv.id });
+  broadcast("tasks:ran", { projectId: task.projectId, task: updated, runId: conv.id });
 }
 
 
@@ -940,7 +1151,7 @@ async function chatbotAiResponder({ platform, account, lead, messages }) {
     "с человеком, не придумывай факты, цены и условия.";
 
   const apiMessages = [
-    { role: "system", content: projectPrompt + botRules + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : "") },
+    buildSystemMessage(projectPrompt + botRules + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), settings),
     ...messages,
   ];
 
@@ -1220,31 +1431,6 @@ async function exportHtmlToPng({ html, defaultName, projectId }) {
   return result.filePath;
 }
 
-async function exportHtmlToJpg({ html, defaultName, projectId }) {
-  const parentWin = BrowserWindow.getFocusedWindow();
-  const defaultDir = await resolveExportDir(projectId);
-  const result = await dialog.showSaveDialog(parentWin, {
-    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".jpg"),
-    filters: [{ name: "JPEG", extensions: ["jpg"] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-  const image = await captureHtmlAsImage(html);
-  await fs.writeFile(result.filePath, image.toJPEG(92));
-  return result.filePath;
-}
-
-async function exportSvgToFile({ svg, defaultName, projectId }) {
-  const parentWin = BrowserWindow.getFocusedWindow();
-  const defaultDir = await resolveExportDir(projectId);
-  const result = await dialog.showSaveDialog(parentWin, {
-    defaultPath: path.join(defaultDir, sanitizeFileName(defaultName) + ".svg"),
-    filters: [{ name: "SVG", extensions: ["svg"] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-  await fs.writeFile(result.filePath, svg, "utf-8");
-  return result.filePath;
-}
-
 // ---------- window ----------
 
 function createWindow() {
@@ -1254,6 +1440,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     autoHideMenuBar: true,
+    icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -1721,9 +1908,24 @@ ipcMain.handle("word:save", async (_e, saveAs) => {
   return dest;
 });
 
-ipcMain.handle("word:buildAgentPrompt", async () => {
+ipcMain.handle("word:buildAgentPrompt", async (_e, mode) => {
   if (!openDocument) throw new Error("Документ не открыт.");
-  return word.buildAgentPrompt(openDocument);
+  return word.buildAgentPrompt(openDocument, mode || "edit") + (await userContextDigest());
+});
+
+// Результат анализа — отдельный документ, а не правка исходного: разбор не должен
+// уметь испортить то, что разбирает.
+ipcMain.handle("word:saveAnalysis", async (_e, markdown, defaultName) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showSaveDialog(win, {
+    title: "Сохранить результат анализа",
+    defaultPath: sanitizeFileName(defaultName || "Анализ документа") + ".docx",
+    filters: [{ name: "Документы Word", extensions: ["docx"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  const sections = await exportDocs.parseBlocks(markdown || "");
+  const buffer = await exportDocs.buildDocx({ title: defaultName || "Анализ документа", sections, brand: null });
+  return exportDocs.writeBuffer(result.filePath, buffer);
 });
 
 ipcMain.handle("word:getAgentConversation", () => readDocumentChat("word", documentChatKey(openDocument)));
@@ -2174,8 +2376,6 @@ ipcMain.handle("export:toDocx", (_e, payload) => exportChatToFile(payload, "docx
 ipcMain.handle("export:toXlsx", (_e, payload) => exportChatToFile(payload, "xlsx"));
 ipcMain.handle("export:toPdf", (_e, payload) => exportHtmlToPdf(payload));
 ipcMain.handle("export:toPng", (_e, payload) => exportHtmlToPng(payload));
-ipcMain.handle("export:toJpg", (_e, payload) => exportHtmlToJpg(payload));
-ipcMain.handle("export:svgFile", (_e, payload) => exportSvgToFile(payload));
 
 ipcMain.handle("meta:skillCreatorPrompt", () => SKILL_CREATOR_PROMPT);
 ipcMain.handle("skillCreator:get", () => getSkillCreatorConversation());
@@ -2295,163 +2495,425 @@ ipcMain.handle("media:pickReferenceImage", async () => {
   return result.filePaths[0];
 });
 
-// ---------- design section IPC ----------
+// ---------- документооборот ----------
 
-// ---------- Дизайн ----------
-
-/** Проекты дизайна, с одноразовым переносом старых макетов при первом обращении. */
-async function designProjects() {
-  const root = await getRootPath();
-  const existing = await design.listProjects(root);
-  if (existing.length > 0) return existing;
-  return design.migrateLegacy(root, await listProjects());
+/** PDF из готовой разметки в файл по заданному пути — запасной путь, когда нет Word. */
+async function renderHtmlToPdfFile(html, destPath) {
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width: 900 });
+  try {
+    const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: "A4" });
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.writeFile(destPath, pdf);
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+  return destPath;
 }
 
-ipcMain.handle("design:listProjects", () => designProjects());
-ipcMain.handle("design:createProject", async (_e, name) => design.createProject(await getRootPath(), name));
-ipcMain.handle("design:updateProject", async (_e, id, patch) => design.updateProject(await getRootPath(), id, patch));
-ipcMain.handle("design:removeProject", async (_e, id) => {
-  await design.removeProject(await getRootPath(), id);
-  return designProjects();
-});
+ipcMain.handle("docflow:getConfig", async () => docflow.loadConfig(await getRootPath()));
+ipcMain.handle("docflow:saveConfig", async (_e, config) => docflow.saveConfig(await getRootPath(), config));
+ipcMain.handle("docflow:kinds", () => docflow.DOC_KINDS);
+ipcMain.handle("docflow:parse", (_e, text) => docflow.parseResult(text));
 
-// Ассеты выбираются диалогом: пути к файлам на компьютере, файлы не копируются.
-ipcMain.handle("design:pickAssets", async (_e, id, kind) => {
+ipcMain.handle("docflow:pickFile", async (_e, kind) => {
+  const filters = {
+    template: [{ name: "Документы Word", extensions: ["docx"] }],
+    ledger: [{ name: "Документ сверки", extensions: ["xlsx", "docx"] }],
+    data: [
+      { name: "Данные и документы", extensions: ["xlsx", "csv", "docx", "pdf", "txt", "md", "png", "jpg", "jpeg", "webp"] },
+    ],
+  }[kind] || [{ name: "Все файлы", extensions: ["*"] }];
+
   const win = BrowserWindow.getFocusedWindow();
-  const filters =
-    kind === "fonts"
-      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
-      : kind === "system"
-        ? [{ name: "Файлы дизайн-системы", extensions: ["md", "txt", "json", "css", "svg", "png", "jpg", "jpeg"] }]
-        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp", "gif", "avif"] }];
-  const picked = await dialog.showOpenDialog(win, {
-    title: "Выберите файлы",
-    properties: ["openFile", "multiSelections"],
+  const result = await dialog.showOpenDialog(win, {
+    properties: kind === "data" ? ["openFile", "multiSelections"] : ["openFile"],
     filters,
   });
-  if (picked.canceled || picked.filePaths.length === 0) return null;
-  return design.addAssets(await getRootPath(), id, kind, picked.filePaths);
+  if (result.canceled || result.filePaths.length === 0) return [];
+  return result.filePaths;
 });
 
-ipcMain.handle("design:removeAsset", async (_e, id, kind, assetPath) =>
-  design.removeAsset(await getRootPath(), id, kind, assetPath)
-);
-
-ipcMain.handle("design:listAssets", async (_e, id) => design.collectAssets(await getRootPath(), id));
-
-// ---- дизайн-системы ----
-
-ipcMain.handle("design:listSystems", async () => design.listSystems(await getRootPath()));
-ipcMain.handle("design:createSystem", async (_e, name) => design.createSystem(await getRootPath(), name));
-ipcMain.handle("design:updateSystem", async (_e, id, patch) => design.updateSystem(await getRootPath(), id, patch));
-ipcMain.handle("design:removeSystem", async (_e, id) => {
-  await design.removeSystem(await getRootPath(), id);
-  return design.listSystems(await getRootPath());
-});
-
-ipcMain.handle("design:pickSystemAssets", async (_e, id, kind) => {
+ipcMain.handle("docflow:pickFolder", async () => {
   const win = BrowserWindow.getFocusedWindow();
-  const filters =
-    kind === "fonts"
-      ? [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2"] }]
-      : kind === "rules"
-        ? [{ name: "Правила", extensions: ["md", "txt", "json", "css", "svg"] }]
-        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "svg", "webp"] }];
-  const picked = await dialog.showOpenDialog(win, {
-    title: "Выберите файлы дизайн-системы",
-    properties: ["openFile", "multiSelections"],
-    filters,
-  });
-  if (picked.canceled || picked.filePaths.length === 0) return null;
-  return design.addSystemAssets(await getRootPath(), id, kind, picked.filePaths);
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
 });
 
-ipcMain.handle("design:removeSystemAsset", async (_e, id, kind, assetPath) =>
-  design.removeSystemAsset(await getRootPath(), id, kind, assetPath)
-);
+ipcMain.handle("docflow:listFolder", async (_e, folderPath) => docflow.listFolder(folderPath));
+ipcMain.handle("docflow:openFolder", async (_e, folderPath) => {
+  if (folderPath) await shell.openPath(folderPath);
+});
 
 /**
- * Подставляет ассеты в разметку. Renderer вызывает это и для предпросмотра, и перед
- * экспортом — чтобы то, что видно на экране, совпадало с тем, что уйдёт в файл.
+ * Собирает всё, что нужно агенту: тексты исходников, блоки шаблона, хвост документа
+ * сверки и посчитанные номер с датой. Номер и дата считаются ЗДЕСЬ, а не моделью:
+ * «посмотри в сверке крайний номер и прибавь единицу» — ровно та арифметика, которую
+ * модель периодически делает неправильно, а цена ошибки в документе высокая.
  */
-ipcMain.handle("design:applyAssets", async (_e, id, html) => {
-  if (!id) return html;
-  const assets = await design.collectAssets(await getRootPath(), id, { withData: true });
-  return design.applyAssets(html, assets);
-});
+ipcMain.handle("docflow:prepare", async (_e, request) => {
+  const { kindId, mode, month, templatePath, requisitesPath, dataPaths, ledgerPath, counterpartyName, sourcePaths } =
+    request || {};
 
-ipcMain.handle("design:list", async (_e, projectId) => design.list(await getRootPath(), projectId));
-ipcMain.handle("design:save", async (_e, projectId, doc) => design.save(await getRootPath(), projectId, doc));
-ipcMain.handle("design:delete", async (_e, projectId, id) => design.remove(await getRootPath(), projectId, id));
-
-ipcMain.handle("design:buildAgentPrompt", async (_e, projectId) => {
-  const root = await getRootPath();
-  const projects = await designProjects();
-  const project = projects.find((p) => p.id === projectId) || null;
-
-  // Фирменный стиль берётся из проекта приложения, если дизайн-проект к нему привязан.
-  let brand;
-  let designSystem = "";
-  const linked = project?.linkedProjectId;
-  if (linked) {
-    const meta = await readJson(path.join(projectDir(root, linked), "project.json"), null);
-    brand = meta?.brand;
-    if (meta?.designSystemPaths?.length) designSystem = await readDesignSystem(meta.designSystemPaths);
-  }
-
-  const assets = projectId ? await design.collectAssets(root, projectId) : [];
-  const systems = await design.listSystems(root);
-  const system = systems.find((x) => x.id === project?.systemId) || null;
-  const base = design.buildAgentSystemPrompt(brand, project, assets, system);
-  if (!designSystem.trim()) return base;
-  return `${base}\n\n=== ДИЗАЙН-СИСТЕМА ПРИВЯЗАННОГО ПРОЕКТА ===\nСтрого придерживайся её во всех макетах.${designSystem}`;
-});
-
-ipcMain.handle("design:getAgentConversation", async (_e, projectId) => design.getAgentConversation(await getRootPath(), projectId));
-ipcMain.handle("design:saveAgentConversation", async (_e, projectId, conv) => design.saveAgentConversation(await getRootPath(), projectId, conv));
-
-/**
- * Экспорт макета в точный размер (PNG) или ролика (MP4).
- *
- * Оба идут не через общий HTML-экспорт, а через motion.cjs: тот рендерит полосами,
- * поэтому макет выше экрана не обрезается — см. комментарий в самом модуле.
- */
-ipcMain.handle("design:render", async (_e, payload) => {
-  const { kind, html, width, height, fps, durationSec, defaultName, projectId } = payload || {};
-  const win = BrowserWindow.getFocusedWindow();
-  const ext = kind === "mp4" ? "mp4" : "png";
-  const result = await dialog.showSaveDialog(win, {
-    defaultPath: path.join(await resolveExportDir(), sanitizeFileName(defaultName || "design") + "." + ext),
-    filters: [{ name: kind === "mp4" ? "Видео MP4" : "PNG", extensions: [ext] }],
-  });
-  if (result.canceled || !result.filePath) return null;
-
-  const root = await getRootPath();
-  const assets = projectId ? await design.collectAssets(root, projectId, { withData: true }) : [];
-  const ready = design.applyAssets(html, assets);
-
-  const send = (progress) => {
-    if (!win.isDestroyed()) win.webContents.send("design:renderProgress", progress);
+  const references = [];
+  const images = [];
+  const addRef = async (filePath, title) => {
+    if (!filePath) return;
+    const ref = await docflow.readReference(filePath, extractDocText);
+    references.push({ ...ref, title });
+    if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
   };
 
-  if (kind === "mp4") {
-    const out = await motion.renderMp4({
-      html: ready,
-      width,
-      height,
-      fps,
-      durationSec,
-      outPath: result.filePath,
-      onProgress: send,
-    });
-    return out;
+  await addRef(requisitesPath, "РЕКВИЗИТЫ КОНТРАГЕНТА");
+  for (const p of sourcePaths || []) await addRef(p, "ИСХОДНЫЕ ДАННЫЕ (тарифы, прайс)");
+  for (const p of dataPaths || []) await addRef(p, "ДАННЫЕ ДЛЯ ДОКУМЕНТА");
+
+  const ledger = await docflow.readLedger(ledgerPath).catch(() => null);
+  const kind = docflow.kindById(kindId);
+  const nextNumber = ledger && kind.numbered ? docflow.lastNumber(ledger, kind.name) + 1 : 0;
+  const date = docflow.documentDate(kindId, month);
+
+  let templateText = "";
+  let templateBlocks = 0;
+  if (mode !== "lawyer" && templatePath) {
+    const model = await word.loadDocument(templatePath);
+    templateText = word.toAgentText(model);
+    templateBlocks = model.blocks.length;
   }
-  return motion.renderPng({ html: ready, width, height, outPath: result.filePath });
+
+  const prompt = docflow.buildPrompt({
+    kindId,
+    month,
+    references,
+    ledgerText: docflow.ledgerToText(ledger),
+    nextNumber,
+    date,
+    templateText,
+    mode,
+    counterpartyName,
+  });
+
+  return {
+    prompt: prompt + (await userContextDigest()),
+    images,
+    nextNumber,
+    date,
+    templateBlocks,
+    ledgerFound: Boolean(ledger && ledger.format !== "none" && ledger.format !== "unsupported"),
+    ledgerColumns: ledger?.columns || {},
+    problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),
+  };
 });
 
-ipcMain.handle("design:openFolder", async (_e, projectId) => {
-  const root = await getRootPath();
-  const dir = design.designDir(root, projectId);
-  await ensureDir(dir);
-  await shell.openPath(dir);
+/**
+ * Сохраняет подтверждённый документ: .docx (заполненный шаблон или собранный с нуля),
+ * рядом .pdf, и запись в документе сверки. Запись делается последней — если сохранение
+ * файла не удалось, в сверке не появится строка про документ, которого нет.
+ */
+ipcMain.handle("docflow:save", async (_e, payload) => {
+  const { mode, templatePath, ops, markdown, meta, outputDir, kindId, ledgerPath, writeLedger } = payload || {};
+  if (!outputDir) throw new Error("Не выбрана папка, куда сохранять документ.");
+
+  const kind = docflow.kindById(kindId);
+  const baseName = docflow.sanitizeFileName(
+    meta?.filename || `${kind.name}${meta?.number ? ` №${meta.number}` : ""}${meta?.date ? ` от ${meta.date}` : ""}`
+  );
+  const docxPath = path.join(outputDir, `${baseName}.docx`);
+  const pdfPath = path.join(outputDir, `${baseName}.pdf`);
+
+  if (mode === "lawyer") {
+    if (!markdown) throw new Error("Агент не вернул текст документа.");
+    await docflow.buildFromMarkdown(markdown, baseName, docxPath);
+  } else {
+    if (!templatePath) throw new Error("Не выбран шаблон документа.");
+    if (!ops || ops.length === 0) throw new Error("Агент не предложил ни одной правки к шаблону.");
+    await docflow.fillTemplate(templatePath, ops, docxPath);
+  }
+
+  let pdf = null;
+  let pdfError = "";
+  try {
+    pdf = await docflow.docxToPdf(docxPath, pdfPath, { renderHtmlToPdf: renderHtmlToPdfFile });
+  } catch (e) {
+    pdfError = e.message;
+  }
+
+  let ledgerRow = null;
+  let ledgerError = "";
+  if (writeLedger && ledgerPath) {
+    try {
+      const ledger = await docflow.readLedger(ledgerPath);
+      ledgerRow = await docflow.appendLedgerRow(ledgerPath, ledger, {
+        number: meta?.number || "",
+        date: meta?.date || "",
+        kind: kind.name,
+        counterparty: meta?.counterparty || "",
+        sum: meta?.sum || "",
+      });
+    } catch (e) {
+      ledgerError = e.message;
+    }
+  }
+
+  return {
+    docxPath,
+    pdfPath: pdf?.path || "",
+    pdfVia: pdf?.via || "",
+    pdfError,
+    ledgerRow: ledgerRow?.values || null,
+    ledgerError,
+  };
+});
+
+// ---------- визуализация данных ----------
+
+const dataviz = require("./dataviz.cjs");
+const finmodel = require("./finmodel.cjs");
+
+/**
+ * PNG макета в его собственном размере.
+ *
+ * Снимок окна ограничен высотой экрана, поэтому высокий макет (пост 1080×1920 на
+ * ноутбучном экране) снимается полосами: страница сдвигается трансформом, каждая
+ * полоса снимается отдельно. Склеиваются полосы в скрытом окне через canvas — так
+ * не нужен ни ffmpeg, ни библиотека обработки изображений: браузер, который у нас
+ * и так есть, умеет это сам.
+ */
+async function captureHtmlToPng(html, width, height, destPath) {
+  const maxStrip = 900;
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width, height: Math.min(height, maxStrip) });
+  const strips = [];
+  try {
+    if (height <= maxStrip) {
+      const image = await win.webContents.capturePage();
+      await fs.writeFile(destPath, image.toPNG());
+      return destPath;
+    }
+    for (let offset = 0; offset < height; offset += maxStrip) {
+      const stripHeight = Math.min(maxStrip, height - offset);
+      await win.webContents.executeJavaScript(
+        `document.body.style.transform = "translateY(${-offset}px)"; document.body.style.transformOrigin = "top left";`
+      );
+      win.setContentSize(width, stripHeight);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const image = await win.webContents.capturePage();
+      strips.push({ dataUrl: image.toDataURL(), height: stripHeight });
+    }
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+
+  const stitcher = await renderHtmlInHiddenWindow(
+    `<!doctype html><meta charset="utf-8"><body style="margin:0"><canvas id="c"></canvas></body>`,
+    { width: 200, height: 200 }
+  );
+  try {
+    const dataUrl = await stitcher.win.webContents.executeJavaScript(`
+      (async () => {
+        const strips = ${JSON.stringify(strips)};
+        const canvas = document.getElementById("c");
+        canvas.width = ${width};
+        canvas.height = ${height};
+        const ctx = canvas.getContext("2d");
+        let y = 0;
+        for (const strip of strips) {
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = strip.dataUrl;
+          });
+          ctx.drawImage(img, 0, y, ${width}, strip.height);
+          y += strip.height;
+        }
+        return canvas.toDataURL("image/png");
+      })()
+    `);
+    await fs.writeFile(destPath, Buffer.from(dataUrl.split(",")[1], "base64"));
+  } finally {
+    await cleanupHiddenWindow(stitcher.win, stitcher.tmpFile);
+  }
+  return destPath;
+}
+
+/** PDF макета ровно в его размере, без полей — не A4 с отступами. */
+async function captureHtmlToPdf(html, width, height, destPath) {
+  const { win, tmpFile } = await renderHtmlInHiddenWindow(html, { width, height: Math.min(height, 900) });
+  try {
+    const pdf = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: { width: width / 96, height: height / 96 }, // printToPDF меряет страницу в дюймах
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
+    await fs.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.writeFile(destPath, pdf);
+  } finally {
+    await cleanupHiddenWindow(win, tmpFile);
+  }
+  return destPath;
+}
+
+ipcMain.handle("dataviz:options", () => ({
+  presets: dataviz.CANVAS_PRESETS,
+  palettes: dataviz.PALETTES,
+  kinds: dataviz.VIZ_KINDS,
+}));
+
+ipcMain.handle("dataviz:prepare", async (_e, request) => {
+  const { kindId, presetId, paletteId, paletteOverrides, sourcePaths, extraStyle } = request || {};
+  const references = [];
+  const images = [];
+  for (const filePath of sourcePaths || []) {
+    const ref = await docflow.readReference(filePath, extractDocText);
+    references.push(ref);
+    if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+  }
+
+  const preset = dataviz.presetById(presetId);
+  const palette = dataviz.resolvePalette(paletteId, paletteOverrides);
+  return {
+    prompt: dataviz.buildPrompt({ kindId, preset, palette, references, extraStyle }) + (await userContextDigest()),
+    images,
+    preset,
+    palette,
+    problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),
+  };
+});
+
+ipcMain.handle("dataviz:parse", (_e, text) => dataviz.parseResult(text));
+
+// Предпросмотр отдаётся строкой и показывается в <iframe sandbox> — разметка от
+// модели не должна выполняться в окне самого приложения.
+ipcMain.handle("dataviz:preview", (_e, html, presetId, paletteId, paletteOverrides) =>
+  dataviz.wrapDocument(html, dataviz.presetById(presetId), dataviz.resolvePalette(paletteId, paletteOverrides))
+);
+
+ipcMain.handle("dataviz:save", async (_e, payload) => {
+  const { html, title, presetId, paletteId, paletteOverrides, outputDir, formats } = payload || {};
+  if (!outputDir) throw new Error("Не выбрана папка, куда сохранять.");
+  const preset = dataviz.presetById(presetId);
+  const palette = dataviz.resolvePalette(paletteId, paletteOverrides);
+  return dataviz.save(
+    { html, title, preset, palette, outputDir, formats: formats?.length ? formats : ["png", "pdf", "html"] },
+    {
+      renderPng: (page, w, h, dest) => captureHtmlToPng(page, w, h, dest),
+      renderPdf: (page, w, h, dest) => captureHtmlToPdf(page, w, h, dest),
+    }
+  );
+});
+
+// ---------- финмодель ----------
+
+ipcMain.handle("finmodel:options", () => ({
+  regimes: finmodel.TAX_REGIMES,
+  costKinds: finmodel.COST_KINDS,
+  rates: finmodel.DEFAULT_RATES,
+  months: finmodel.MONTHS,
+}));
+
+// Первый проход: агент читает статистику и ищет официальные ставки. Расчёта
+// здесь ещё нет — есть только просьба достать допущения из данных.
+ipcMain.handle("finmodel:prepareParams", async (_e, request) => {
+  const { input, dataPaths, searchRates } = request || {};
+  const normalized = finmodel.normalizeInput(input);
+  const references = [];
+  for (const filePath of dataPaths || []) {
+    references.push(await docflow.readReference(filePath, extractDocText));
+  }
+  return {
+    prompt:
+      finmodel.buildParamsPrompt({
+        input: normalized,
+        dataPaths: (dataPaths || []).filter(Boolean),
+        searchRates: searchRates !== false,
+      }) + (await userContextDigest()),
+    problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),
+  };
+});
+
+ipcMain.handle("finmodel:parseParams", (_e, text, input) =>
+  finmodel.parseParams(text, finmodel.normalizeInput(input))
+);
+
+ipcMain.handle("finmodel:compute", (_e, input) => {
+  const computed = finmodel.compute(input);
+  // Помесячные строки наружу не отдаём: их до 120 на сценарий, а экрану нужны
+  // только итоги и годы. Полная таблица и так уезжает в книгу.
+  const trim = (r) => ({
+    years: r.years,
+    investment: r.investment,
+    payback: r.payback,
+    npv: r.npv,
+    irr: r.irr,
+    breakEvenUnits: r.breakEvenUnits,
+    breakEvenRevenue: r.breakEvenRevenue,
+    marginPerUnit: r.marginPerUnit,
+    totalNet: r.totalNet,
+    totalRevenue: r.totalRevenue,
+  });
+  return { input: computed.input, pess: trim(computed.pess), base: trim(computed.base), opt: trim(computed.opt) };
+});
+
+// Второй проход: заключение пишется по уже посчитанным числам, а не по форме.
+ipcMain.handle("finmodel:prepareAdvice", async (_e, input) =>
+  finmodel.buildAdvicePrompt(finmodel.compute(input)) + (await userContextDigest())
+);
+
+ipcMain.handle("finmodel:save", async (_e, payload) => {
+  const { input, destDir, fileName, advice, sources } = payload || {};
+  if (!destDir) throw new Error("Не выбрана папка, куда сохранять.");
+  const { path: file } = await finmodel.save(input, { destDir, fileName, advice, sources });
+  return file;
+});
+
+// ---------- клининг ----------
+
+const cleanup = require("./cleanup.cjs");
+
+ipcMain.handle("cleanup:pickFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle("cleanup:prepare", async (_e, request) => {
+  const { folderPath, mode, notes } = request || {};
+  if (!folderPath) throw new Error("Папка не выбрана.");
+  const scanned = await cleanup.scan(folderPath);
+  const inventory = await cleanup.describe(folderPath, scanned, extractDocText);
+  return {
+    prompt:
+      cleanup.buildPrompt({ mode, inventory, folderName: path.basename(folderPath), notes }) +
+      (await userContextDigest()),
+    fileCount: scanned.files.length,
+    folderCount: scanned.folders.length,
+    truncated: scanned.truncated,
+  };
+});
+
+ipcMain.handle("cleanup:parsePlan", (_e, text) => cleanup.parsePlan(text));
+ipcMain.handle("cleanup:parseLedger", (_e, text) => cleanup.parseLedger(text));
+
+ipcMain.handle("cleanup:applyPlan", async (_e, folderPath, plan) => {
+  if (!folderPath) throw new Error("Папка не выбрана.");
+  return cleanup.applyPlan(folderPath, plan);
+});
+
+ipcMain.handle("cleanup:undo", async (_e, folderPath, done) => {
+  if (!folderPath) throw new Error("Папка не выбрана.");
+  return cleanup.undoPlan(folderPath, done);
+});
+
+ipcMain.handle("cleanup:saveLedger", async (_e, sheets, defaultName) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showSaveDialog(win, {
+    title: "Сохранить сверку",
+    defaultPath: sanitizeFileName(defaultName || "Сверка документов") + ".xlsx",
+    filters: [{ name: "Книга Excel", extensions: ["xlsx"] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+  return cleanup.writeLedgerWorkbook(sheets, result.filePath);
 });

@@ -82,6 +82,7 @@ export default function UsagePanel() {
                 <th>Модель</th>
                 <th>Запросов</th>
                 <th>Токенов</th>
+                <th>Из кэша</th>
                 <th>Стоимость</th>
               </tr>
             </thead>
@@ -94,6 +95,13 @@ export default function UsagePanel() {
                   </td>
                   <td>{row.calls}</td>
                   <td>{formatTokens(row.tokens)}</td>
+                  <td>
+                    {row.cachedTokens > 0 ? (
+                      formatTokens(row.cachedTokens)
+                    ) : (
+                      <span className="hint">—</span>
+                    )}
+                  </td>
                   <td>
                     {row.cost === null ? (
                       <span className="hint">цена не задана</span>
@@ -110,6 +118,7 @@ export default function UsagePanel() {
                   <th>Итого</th>
                   <th>{totals.calls}</th>
                   <th>{formatTokens(totals.tokens)}</th>
+                  <th>{totals.cachedTokens > 0 ? formatTokens(totals.cachedTokens) : "—"}</th>
                   <th>
                     {totals.cost === null ? (
                       <span className="hint">не полностью</span>
@@ -122,6 +131,13 @@ export default function UsagePanel() {
             )}
           </table>
 
+          {totals && totals.cachedTokens === 0 && totals.tokens > 50000 && (
+            <p className="hint hint-warn">
+              Из кэша не пришло ничего, а входа много — значит весь контекст оплачивается заново
+              на каждом сообщении. Проверьте, что кэш включён в настройках и что выбрана модель
+              Claude: у остальных провайдер такое обычно не поддерживает.
+            </p>
+          )}
           {totals?.estimated && (
             <p className="hint">
               Часть запросов помечена как «оценка»: сервис не вернул точный расход токенов, и он

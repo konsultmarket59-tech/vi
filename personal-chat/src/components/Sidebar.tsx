@@ -6,10 +6,13 @@ export type View =
   | { kind: "skills" }
   | { kind: "excel" }
   | { kind: "word" }
+  | { kind: "docflow" }
+  | { kind: "dataviz" }
+  | { kind: "finmodel" }
+  | { kind: "cleanup" }
   | { kind: "cloud" }
   | { kind: "direct" }
   | { kind: "media" }
-  | { kind: "design" }
   | { kind: "github" }
   | { kind: "chatbots" }
   | { kind: "settings" };
@@ -21,8 +24,11 @@ const MODULE_ITEMS = [
   { id: "skills", label: "🧩 Навыки" },
   { id: "excel", label: "📗 Excel" },
   { id: "word", label: "📘 Word" },
+  { id: "docflow", label: "📁 Документооборот" },
+  { id: "dataviz", label: "📊 Визуализация" },
+  { id: "finmodel", label: "💹 Финмодель" },
+  { id: "cleanup", label: "🧹 Клининг" },
   { id: "media", label: "🎨 Медиа" },
-  { id: "design", label: "🖌️ Дизайн" },
   { id: "cloud", label: "☁️ Облако" },
   { id: "direct", label: "📣 Директ" },
   { id: "github", label: "🐙 GitHub" },
@@ -53,6 +59,37 @@ export default function Sidebar({ projects, view, modules, productName, onSelect
     if (!name || name === p.name) return;
     const updated = await window.api.updateProject(p.id, { name });
     onProjectsChange(projects.map((x) => (x.id === p.id ? updated : x)));
+  }
+
+  /**
+   * Удаляет проект целиком: чаты, документы, задачи по расписанию.
+   *
+   * Подтверждение перечисляет, что именно исчезнет, и куда это денется — иначе
+   * человек нажимает «ок», не зная, что вместе с проектом уходят и документы,
+   * которые лежали только в нём.
+   */
+  async function removeProject(p: Project) {
+    const ok = confirm(
+      `Удалить проект «${p.name}»?\n\n` +
+        "Вместе с ним удалятся его чаты, документы и задачи по расписанию.\n" +
+        "Папка проекта уйдёт в корзину компьютера — оттуда её можно вернуть."
+    );
+    if (!ok) return;
+    try {
+      const result = await window.api.deleteProject(p.id);
+      onProjectsChange(projects.filter((x) => x.id !== p.id));
+      // Открытый проект только что перестал существовать — уводим с него, иначе
+      // экран остался бы на «Проект не найден».
+      if (view.kind === "project" && view.id === p.id) onSelectView({ kind: "settings" });
+      if (result && result.trashed === false) {
+        alert(
+          `Проект «${p.name}» удалён, но корзина компьютера оказалась недоступна — ` +
+            "папка удалена безвозвратно."
+        );
+      }
+    } catch (e) {
+      alert(`Не удалось удалить проект: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function createEmptyProject() {
@@ -114,6 +151,9 @@ export default function Sidebar({ projects, view, modules, productName, onSelect
               </button>
               <button className="sidebar-item-rename" onClick={() => startRename(p)} title="Переименовать проект">
                 ✎
+              </button>
+              <button className="sidebar-item-remove" onClick={() => removeProject(p)} title="Удалить проект">
+                ✕
               </button>
             </div>
           )

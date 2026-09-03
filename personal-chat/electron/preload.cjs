@@ -78,7 +78,44 @@ contextBridge.exposeInMainWorld("api", {
   insertWordParagraph: (afterIndex, text, style) => ipcRenderer.invoke("word:insertParagraph", afterIndex, text, style),
   applyWordAgentEdit: (edit) => ipcRenderer.invoke("word:applyAgentEdit", edit),
   saveWordFile: (saveAs) => ipcRenderer.invoke("word:save", saveAs),
-  buildWordAgentPrompt: () => ipcRenderer.invoke("word:buildAgentPrompt"),
+  buildWordAgentPrompt: (mode) => ipcRenderer.invoke("word:buildAgentPrompt", mode),
+  saveWordAnalysis: (markdown, defaultName) => ipcRenderer.invoke("word:saveAnalysis", markdown, defaultName),
+
+  // документооборот
+  getDocflowConfig: () => ipcRenderer.invoke("docflow:getConfig"),
+  saveDocflowConfig: (config) => ipcRenderer.invoke("docflow:saveConfig", config),
+  docflowKinds: () => ipcRenderer.invoke("docflow:kinds"),
+  parseDocflowResult: (text) => ipcRenderer.invoke("docflow:parse", text),
+  pickDocflowFile: (kind) => ipcRenderer.invoke("docflow:pickFile", kind),
+  pickDocflowFolder: () => ipcRenderer.invoke("docflow:pickFolder"),
+  listDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:listFolder", folderPath),
+  openDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:openFolder", folderPath),
+  prepareDocflow: (request) => ipcRenderer.invoke("docflow:prepare", request),
+  saveDocflowResult: (payload) => ipcRenderer.invoke("docflow:save", payload),
+
+  // визуализация данных
+  datavizOptions: () => ipcRenderer.invoke("dataviz:options"),
+  prepareDataviz: (request) => ipcRenderer.invoke("dataviz:prepare", request),
+  parseDatavizResult: (text) => ipcRenderer.invoke("dataviz:parse", text),
+  previewDataviz: (html, presetId, paletteId, overrides) =>
+    ipcRenderer.invoke("dataviz:preview", html, presetId, paletteId, overrides),
+  saveDataviz: (payload) => ipcRenderer.invoke("dataviz:save", payload),
+
+  finmodelOptions: () => ipcRenderer.invoke("finmodel:options"),
+  prepareFinmodelParams: (request) => ipcRenderer.invoke("finmodel:prepareParams", request),
+  parseFinmodelParams: (text, input) => ipcRenderer.invoke("finmodel:parseParams", text, input),
+  computeFinmodel: (input) => ipcRenderer.invoke("finmodel:compute", input),
+  prepareFinmodelAdvice: (input) => ipcRenderer.invoke("finmodel:prepareAdvice", input),
+  saveFinmodel: (payload) => ipcRenderer.invoke("finmodel:save", payload),
+
+  // клининг
+  pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
+  prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),
+  parseCleanupPlan: (text) => ipcRenderer.invoke("cleanup:parsePlan", text),
+  parseCleanupLedger: (text) => ipcRenderer.invoke("cleanup:parseLedger", text),
+  applyCleanupPlan: (folderPath, plan) => ipcRenderer.invoke("cleanup:applyPlan", folderPath, plan),
+  undoCleanup: (folderPath, done) => ipcRenderer.invoke("cleanup:undo", folderPath, done),
+  saveCleanupLedger: (sheets, defaultName) => ipcRenderer.invoke("cleanup:saveLedger", sheets, defaultName),
   getWordAgentConversation: () => ipcRenderer.invoke("word:getAgentConversation"),
   saveWordAgentConversation: (conv) => ipcRenderer.invoke("word:saveAgentConversation", conv),
 
@@ -138,6 +175,15 @@ contextBridge.exposeInMainWorld("api", {
   listTasks: (projectId) => ipcRenderer.invoke("tasks:list", projectId),
   saveTask: (projectId, task) => ipcRenderer.invoke("tasks:save", projectId, task),
   deleteTask: (projectId, id) => ipcRenderer.invoke("tasks:delete", projectId, id),
+  listTaskRuns: (projectId) => ipcRenderer.invoke("tasks:listRuns", projectId),
+  readTaskRun: (projectId, runId) => ipcRenderer.invoke("tasks:readRun", projectId, runId),
+  deleteTaskRun: (projectId, runId) => ipcRenderer.invoke("tasks:deleteRun", projectId, runId),
+
+  // профиль проекта
+  readProjectProfile: (projectId) => ipcRenderer.invoke("profile:read", projectId),
+  buildProfileRequest: (projectId) => ipcRenderer.invoke("profile:buildRequest", projectId),
+  saveProjectProfile: (projectId, answerText) => ipcRenderer.invoke("profile:save", projectId, answerText),
+  userContextDigest: () => ipcRenderer.invoke("profile:digest"),
   onTaskRan: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("tasks:ran", listener);
@@ -153,8 +199,6 @@ contextBridge.exposeInMainWorld("api", {
   exportChatToXlsx: (payload) => ipcRenderer.invoke("export:toXlsx", payload),
   exportToPdf: (payload) => ipcRenderer.invoke("export:toPdf", payload),
   exportToPng: (payload) => ipcRenderer.invoke("export:toPng", payload),
-  exportToJpg: (payload) => ipcRenderer.invoke("export:toJpg", payload),
-  exportSvgFile: (payload) => ipcRenderer.invoke("export:svgFile", payload),
 
   // misc
   getSkillCreatorPrompt: () => ipcRenderer.invoke("meta:skillCreatorPrompt"),
@@ -214,36 +258,6 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
     return () => ipcRenderer.removeListener("media:progress", listener);
   },
 
-  // design section
-  // Проекты дизайна и их ассеты
-  listDesignProjects: () => ipcRenderer.invoke("design:listProjects"),
-  createDesignProject: (name) => ipcRenderer.invoke("design:createProject", name),
-  updateDesignProject: (id, patch) => ipcRenderer.invoke("design:updateProject", id, patch),
-  removeDesignProject: (id) => ipcRenderer.invoke("design:removeProject", id),
-  pickDesignAssets: (id, kind) => ipcRenderer.invoke("design:pickAssets", id, kind),
-  removeDesignAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeAsset", id, kind, assetPath),
-  listDesignAssets: (id) => ipcRenderer.invoke("design:listAssets", id),
-  listDesignSystems: () => ipcRenderer.invoke("design:listSystems"),
-  createDesignSystem: (name) => ipcRenderer.invoke("design:createSystem", name),
-  updateDesignSystem: (id, patch) => ipcRenderer.invoke("design:updateSystem", id, patch),
-  removeDesignSystem: (id) => ipcRenderer.invoke("design:removeSystem", id),
-  pickDesignSystemAssets: (id, kind) => ipcRenderer.invoke("design:pickSystemAssets", id, kind),
-  removeDesignSystemAsset: (id, kind, assetPath) => ipcRenderer.invoke("design:removeSystemAsset", id, kind, assetPath),
-  applyDesignAssets: (id, html) => ipcRenderer.invoke("design:applyAssets", id, html),
-  renderDesign: (payload) => ipcRenderer.invoke("design:render", payload),
-  onDesignRenderProgress: (callback) => {
-    const listener = (_e, progress) => callback(progress);
-    ipcRenderer.on("design:renderProgress", listener);
-    return () => ipcRenderer.removeListener("design:renderProgress", listener);
-  },
-
-  listDesignDocs: (projectId) => ipcRenderer.invoke("design:list", projectId),
-  saveDesignDoc: (payload) => ipcRenderer.invoke("design:save", payload.projectId, payload),
-  deleteDesignDoc: (id, projectId) => ipcRenderer.invoke("design:delete", projectId, id),
-  buildDesignAgentPrompt: (projectId) => ipcRenderer.invoke("design:buildAgentPrompt", projectId),
-  getDesignAgentConversation: (projectId) => ipcRenderer.invoke("design:getAgentConversation", projectId),
-  saveDesignAgentConversation: (projectId, conv) => ipcRenderer.invoke("design:saveAgentConversation", projectId, conv),
-  openDesignFolder: (projectId) => ipcRenderer.invoke("design:openFolder", projectId),
 });
 
 // Errors thrown in the window never reach the main process on their own, so a

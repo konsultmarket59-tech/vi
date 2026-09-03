@@ -175,7 +175,8 @@ app.whenReady().then(async () => {
     );
     await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "список модулей загружен");
     const moduleCount = await win.webContents.executeJavaScript(`document.querySelectorAll(".module-card").length`);
-    check("модулей показано 10", moduleCount === 10, String(moduleCount));
+    const expectedModules = require("./blueprints.cjs").MODULES.length;
+    check(`модулей показано ${expectedModules}`, moduleCount === expectedModules, String(moduleCount));
     // Всё, что нужно для одной копии, вводится на этой же вкладке — иначе
     // порядок шагов приходится помнить, и пропущенный шаг тихо уезжает в сборку.
     const buildText = await win.webContents.executeJavaScript(text(".settings-view"));
