@@ -174,6 +174,9 @@ app.whenReady().then(async () => {
       `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо").click()`
     );
     await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "форма копии открылась");
+    // Плагины приходят из главного процесса: снимок текста до их появления
+    // проверял бы пустую страницу.
+    await waitFor(win, `document.querySelectorAll(".plugin-card, .module-card").length > 2`, "плагины подгрузились");
     const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
     // Всё, что нужно для одной копии, вводится на одной странице: имя, срок,
     // ключ, конфигурация, плагины, репозиторий — и кнопка «Собрать».

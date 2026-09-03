@@ -266,6 +266,7 @@ node electron/smoke-plugin-archive.cjs              # версии плагин�
 node electron/test-connection-error.cjs             # объяснения сбоев подключения
 node electron/test-sources.cjs                      # код копий берётся с GitHub, а не из папки
 xvfb-run -a npx electron electron/smoke-app.cjs     # интерфейс целиком
+xvfb-run -a npx electron electron/smoke-copy-build.cjs  # «Собрать» не роняет окно
 xvfb-run -a npx electron electron/smoke-settings-backup.cjs  # настройки переживают переустановку
 xvfb-run -a npx electron electron/smoke-agent.cjs   # агент против поддельного сервера моделей
 xvfb-run -a npx electron electron/smoke-connection.cjs  # галочка и ошибка в настройках

@@ -109,3 +109,14 @@ contextBridge.exposeInMainWorld("api", {
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
   pickTextFile: () => ipcRenderer.invoke("app:pickTextFile"),
 });
+
+// Ошибки в окне сами до главного процесса не доходят, и падение, описанное как
+// «просто пропало», не оставило бы в отчёте ни строки. Пересылка — это то, что
+// делает отчёт о проблеме пригодным для чтения.
+window.addEventListener("error", (event) => {
+  ipcRenderer.invoke("report:log", "error", `${event.message} (${event.filename}:${event.lineno})`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  ipcRenderer.invoke("report:log", "error", reason?.stack || String(reason));
+});

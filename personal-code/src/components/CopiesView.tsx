@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatCopy, CopySource, DemoKeyInfo, PublishResult } from "../lib/types";
+import { errorText } from "./ConnectionStatus";
 
 interface Props {
   /** demo — ключ вшит и скрыт от человека; paid — человек работает со своим ключом. */
@@ -65,24 +66,33 @@ export default function CopiesView({ kind }: Props) {
   const demo = kind === "demo";
 
   useEffect(() => {
-    Promise.all([
-      window.api.listCopies(),
-      window.api.copyPlugins(),
-      window.api.demoKeyInfo(),
-      window.api.copySource(),
-    ])
-      .then(([c, p, k, s]) => {
+    Promise.all([window.api.listCopies(), window.api.copyPlugins(), window.api.demoKeyInfo()])
+      .then(([c, p, k]) => {
         setList(c);
         setPlugins(p);
         setKeyInfo(k);
-        setSource(s);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setError(errorText(e)));
+    // Откуда берётся код — отдельно и со своей обработкой отказа: это подпись
+    // под формой, и ни задерживать из-за неё список копий, ни терять его, если
+    // она не ответит, нельзя.
+    window.api
+      .copySource()
+      .then(setSource)
+      .catch(() => setSource(null));
   }, []);
 
-  useEffect(() => setDraft(emptyCopy(kind)), [kind]);
+  useEffect(() => {
+    setDraft(emptyCopy(kind));
+  }, [kind]);
   useEffect(() => window.api.onPublishLog((line) => setLog((prev) => [...prev, line])), []);
-  useEffect(() => logEnd.current?.scrollIntoView({ block: "end" }), [log]);
+  useEffect(() => {
+    // Фигурные скобки здесь обязательны: scrollIntoView в этой версии Chromium
+    // возвращает Promise, а React считает возвращённое из эффекта значение
+    // функцией очистки и вызывает его на следующем запуске. Со стрелкой без
+    // скобок это роняло весь интерфейс в белый экран при нажатии «Собрать».
+    logEnd.current?.scrollIntoView({ block: "end" });
+  }, [log]);
 
   const mine = list.filter((c) => c.kind === kind);
   const demos = list.filter((c) => c.kind === "demo");
@@ -110,7 +120,9 @@ export default function CopiesView({ kind }: Props) {
       if (success) setNotice(success);
       return value;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // errorText снимает обёртку Electron: имя IPC-метода человеку ничего не
+      // говорит и только прячет настоящую причину.
+      setError(errorText(e));
       return null;
     } finally {
       setBusy(false);
@@ -157,7 +169,7 @@ export default function CopiesView({ kind }: Props) {
         setError(built.message || "Сборка не запустилась.");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
