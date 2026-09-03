@@ -270,25 +270,34 @@ export default function SettingsView({ settings, onChange }: Props) {
             <label className="field-label">Адрес прокси</label>
             <input
               className="input"
-              placeholder="http://127.0.0.1:8080 или socks5://127.0.0.1:1080"
+              placeholder="http://123.45.67.89:8080"
               value={draft.proxyUrl}
               onChange={(e) => set("proxyUrl", e.target.value)}
             />
-            <div className="row">
-              <div className="col">
-                <label className="field-label">Логин прокси</label>
-                <input className="input" value={draft.proxyUsername} onChange={(e) => set("proxyUsername", e.target.value)} />
-              </div>
-              <div className="col">
-                <label className="field-label">Пароль прокси</label>
-                <input
-                  className="input"
-                  type="password"
-                  value={draft.proxyPassword}
-                  onChange={(e) => set("proxyPassword", e.target.value)}
-                />
-              </div>
-            </div>
+            <p className="hint">
+              Формат — <code>http://адрес:порт</code> (или <code>socks5://адрес:порт</code>). Логин и пароль
+              вписывайте в поля ниже, а не в сам адрес: адрес с логином внутри Chromium не принимает. Учтите,
+              что для SOCKS5 авторизация по логину/паролю не поддерживается — для прокси с паролем
+              используйте вариант <code>http://</code>.
+            </p>
+          </>
+        )}
+
+        {draft.proxyMode !== "direct" && (
+          <>
+            <p className="hint">
+              Логин и пароль — только если прокси их требует (признак — ошибка «407 Proxy Authentication
+              Required»). Это данные от прокси, а не от Polza.
+            </p>
+            <label className="field-label">Логин прокси</label>
+            <input className="input" value={draft.proxyUsername} onChange={(e) => set("proxyUsername", e.target.value)} />
+            <label className="field-label">Пароль прокси</label>
+            <input
+              className="input"
+              type="password"
+              value={draft.proxyPassword}
+              onChange={(e) => set("proxyPassword", e.target.value)}
+            />
           </>
         )}
 
