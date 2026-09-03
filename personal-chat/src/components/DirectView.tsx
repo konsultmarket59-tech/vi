@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ConnectionStatus, { CHECKING, errorText, failed, ok } from "./ConnectionStatus";
+import type { ConnectionStatusValue } from "./ConnectionStatus";
 import type {
   CloudAccounts,
   Conversation,
@@ -46,7 +48,7 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     yandex: { activeId: "", accounts: [] },
     google: { token: "" },
   });
-  const [connection, setConnection] = useState<string | null>(null);
+  const [connection, setConnection] = useState<ConnectionStatusValue | null>(null);
   const [testing, setTesting] = useState(false);
 
   const [campaigns, setCampaigns] = useState<DirectCampaign[]>([]);
@@ -106,15 +108,20 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
 
   async function test() {
     setTesting(true);
+    setConnection(CHECKING);
     try {
       const result = await window.api.testDirectConnection();
       setConnection(
         result.ok
-          ? `Подключено: ${result.login}${result.info ? ` (${result.info})` : ""}${
-              result.currency ? `, валюта ${result.currency}` : ""
-            } ✓`
-          : `Ошибка: ${result.error}`
+          ? ok(
+              `Подключено: ${result.login}${result.info ? ` (${result.info})` : ""}${
+                result.currency ? `, валюта ${result.currency}` : ""
+              }.`
+            )
+          : failed(result.error ? errorText(result.error) : "Не удалось подключиться к Яндекс.Директу.")
       );
+    } catch (e) {
+      setConnection(failed(errorText(e)));
     } finally {
       setTesting(false);
     }
@@ -283,7 +290,7 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
                 Сохранить
               </button>
             </div>
-            {connection && <p className="hint chatbot-test-result">{connection}</p>}
+            <ConnectionStatus status={connection} />
             {note && <p className="hint">{note}</p>}
           </div>
         )}

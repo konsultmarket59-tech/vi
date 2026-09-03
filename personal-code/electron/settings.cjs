@@ -8,6 +8,7 @@ const { app, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { setProxyCredentials } = require("./netFetch.cjs");
+const connectionError = require("./connectionError.cjs");
 
 // On some Windows setups (a OneDrive-redirected Documents folder does this)
 // app.getPath() returns a "\\?\"-prefixed extended-length path that path.join
@@ -143,26 +144,17 @@ async function testProxy(draft) {
     const res = await fetch(settings.baseUrl.replace(/\/+$/, "") + "/models", {
       headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {},
     });
-    if (res.status === 407) {
-      return {
-        ok: false,
-        message:
-          "Прокси требует логин и пароль, а те, что указаны, он не принял. Проверьте, " +
-          "что это логин от прокси, а не от Polza.",
-      };
-    }
+    if (res.status === 407) return { ok: false, message: connectionError.fromStatus(407) };
     if (res.status === 401 || res.status === 403) {
-      return { ok: false, message: `Прокси работает, но API-ключ отклонён (${res.status}).` };
+      return { ok: false, message: `Прокси работает, но ключ API отклонён (${res.status}).` };
     }
-    if (!res.ok) return { ok: false, message: `Ответ сервера: ${res.status} ${res.statusText}.` };
+    if (!res.ok) {
+      const byStatus = connectionError.fromStatus(res.status);
+      return { ok: false, message: byStatus || `Ответ сервера: ${res.status} ${res.statusText}.` };
+    }
     return { ok: true, message: "Соединение установлено, ключ принят." };
   } catch (e) {
-    const msg = String(e?.message || e);
-    let hint = "";
-    if (msg.includes("ERR_PROXY_CONNECTION_FAILED")) hint = " Адрес или порт прокси недоступны.";
-    if (msg.includes("ERR_NAME_NOT_RESOLVED")) hint = " Не удалось разрешить имя хоста.";
-    if (msg.includes("ERR_CERT")) hint = " Windows не доверяет сертификату этого адреса.";
-    return { ok: false, message: msg + hint };
+    return { ok: false, message: connectionError.explain(e, { what: "Адрес API" }) };
   } finally {
     await applyProxy(await load());
   }
@@ -171,12 +163,20 @@ async function testProxy(draft) {
 async function listModels(settings) {
   const active = settings?.apiKey ? settings : await load();
   if (!active.apiKey) throw new Error("Не задан API-ключ. Вставьте ключ Polza в настройках.");
-  const res = await fetch(active.baseUrl.replace(/\/+$/, "") + "/models", {
-    headers: { Authorization: `Bearer ${active.apiKey}` },
-  });
+  let res;
+  try {
+    res = await fetch(active.baseUrl.replace(/\/+$/, "") + "/models", {
+      headers: { Authorization: `Bearer ${active.apiKey}` },
+    });
+  } catch (e) {
+    // Понятная причина собирается здесь, а не в окне: так её одинаково видят и
+    // настройки, и всё остальное, что дёргает список моделей.
+    throw new Error(connectionError.explain(e, { what: "Адрес API" }));
+  }
   if (!res.ok) {
+    const byStatus = connectionError.fromStatus(res.status);
     const detail = await res.text().catch(() => "");
-    throw new Error(`Не удалось получить список моделей (${res.status}). ${detail.slice(0, 300)}`);
+    throw new Error(byStatus || `Сервис ответил ${res.status} ${res.statusText}. ${detail.slice(0, 200)}`.trim());
   }
   const body = await res.json();
   const rows = Array.isArray(body?.data) ? body.data : [];

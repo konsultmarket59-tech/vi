@@ -268,6 +268,50 @@ app.whenReady().then(async () => {
     const settingsText = await win.webContents.executeJavaScript(text(".settings-view"));
     check("есть раздел прокси", settingsText.includes("Прокси"), "");
     check("есть поле ключа Polza", settingsText.includes("Polza"), "");
+    // По умолчанию режим «Системный» — логин и пароль прокси видны сразу
+    // (прокси Windows тоже может требовать авторизацию), но поле адреса и
+    // разъяснение формата появляются только в ручном режиме.
+    check("логин прокси виден в системном режиме", settingsText.includes("Логин прокси"), "");
+    check("поля адреса нет в системном режиме", !settingsText.includes("Адрес прокси"), "");
+    const proxySelect = () =>
+      `[...document.querySelectorAll("select.input")].find(s => [...s.options].some(o => o.value === "direct"))`;
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const select = ${proxySelect()};
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(select, "manual");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 200));
+    const manualText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("ручной режим показывает адрес и логин", manualText.includes("Адрес прокси") && manualText.includes("Логин прокси"), "");
+    check("объясняет формат адреса и предел SOCKS5", manualText.includes("socks5://адрес:порт") && manualText.includes("SOCKS5"), "");
+
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const select = ${proxySelect()};
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(select, "direct");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 200));
+    const directText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("прямое соединение прячет логин и пароль", !directText.includes("Логин прокси"), "");
+    // Возвращаем «Системный», чтобы дальнейшие проверки не унаследовали
+    // прямое соединение.
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const select = ${proxySelect()};
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(select, "system");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()
+    `);
     // Те же разделы, что и в «Личном чате»: человек ходит между двумя
     // приложениями и не должен искать одну и ту же настройку в разных местах.
     check("есть раздел «Папка с данными»", settingsText.includes("Папка с данными"), "");

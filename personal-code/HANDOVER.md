@@ -226,6 +226,27 @@ GitHub (создаётся или переиспользуется) → туда
 
 ---
 
+## Подключилось или нет
+
+Раньше на этот вопрос отвечал серый текст: и «Подключено», и «Ошибка» выглядели одинаково,
+а причиной отказа был код движка вроде `net::ERR_UNSAFE_PORT`. Теперь у ответа есть состояние
+и оно видно с одного взгляда — `ConnectionStatus.tsx`: зелёная галочка, если подключение
+работает, красный крест с объяснением, если нет, и отдельное «данные изменились» вместо старой
+галочки, которая иначе висела бы над непроверенным ключом и врала.
+
+Проверка запускается и по кнопке «Проверить подключение», и сама — когда человек ушёл из поля,
+дозаполнив данные. Так работают все подключения обоих приложений: ключ Polza, прокси, GitHub,
+облака, Директ, чат-боты. Копия тестировщика собирается из `personal-chat`, поэтому получает
+то же поведение.
+
+Причину отказа переводит общий словарь `connectionError.cjs` (главный процесс) и такой же
+список в `ConnectionStatus.tsx` (окно) — часть запросов уходит прямо из интерфейса и до
+главного процесса не доходит, а браузерный `fetch` сводит все сетевые сбои к «Failed to fetch».
+Неопознанное показывается как есть: выдумывать причину хуже, чем показать техническую.
+`test-connection-error.cjs` следит за тем, чтобы эти списки не разъехались.
+
+---
+
 ## Как проверять
 
 ```
@@ -234,14 +255,17 @@ npm run build                                        # типы + сборка
 npx oxlint                                           # линтер
 node electron/smoke-backend.cjs                      # файлы, git, правки, сборка, копии, лицензии
 node electron/smoke-plugin-archive.cjs               # версии плагинов, ветка, выгрузка
+node electron/test-connection-error.cjs              # объяснения сбоев подключения, оба приложения
 xvfb-run -a npx electron electron/smoke-app.cjs      # весь интерфейс
 xvfb-run -a npx electron electron/smoke-agent.cjs    # агент против поддельного сервера
+xvfb-run -a npx electron electron/smoke-connection.cjs  # галочка и ошибка в настройках
 
 cd ../personal-chat
 node electron/smoke-licence.cjs                      # выдача, отзыв, срок, подделки
 node electron/smoke-managed.cjs                      # ключ в сборке, учёт, скрытие навыков
 xvfb-run -a npx electron electron/smoke-plugins.cjs  # plugins.json меняет сборку
 xvfb-run -a npx electron electron/smoke-gate.cjs     # активация, имя копии, расход, навыки
+xvfb-run -a npx electron electron/smoke-connection.cjs  # то же в копии тестировщика
 xvfb-run -a npx electron electron/bench-chat.cjs     # размер промпта, кэши, галочка документа
 ```
 
