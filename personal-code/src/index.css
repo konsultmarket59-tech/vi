@@ -448,3 +448,14 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   font-family: var(--mono); font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* Выбор модели над полем ввода агента: видно, кто пишет код, и можно сменить
+   на сильную для сложной правки или дешёвую для мелочи — не уходя в настройки. */
+.agent-model {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px 0; font-size: 12px;
+}
+.agent-model-label { color: var(--text-dim); flex: none; }
+.agent-model-input { flex: 1; min-width: 0; font-size: 12px; padding: 4px 8px; }
+.agent-model .hint { margin: 0; font-size: 12px; }
+.agent-model .link-like { font-size: 12px; flex: none; }

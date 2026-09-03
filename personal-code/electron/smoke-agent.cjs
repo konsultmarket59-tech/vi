@@ -257,6 +257,52 @@ server.listen(0, "127.0.0.1", () => {
         JSON.stringify((requests[1]?.body.messages || []).filter((m) => m.role === "system")).includes("WEB SEARCH")
       );
       await win.webContents.executeJavaScript(`window.api.saveSettings({ searchEnabled: false })`);
+
+      console.log("\nвыбор модели над полем ввода");
+      // Модель выбирается для этой рабочей папки: сильная — на сложную правку,
+      // дешёвая — на мелочь. Проверяем не надпись, а то, какой модели ушёл запрос.
+      SCRIPT_NOW = ["Понял."];
+      const listed = await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll("#agent-model-list option")].map(o=>o.value).join(",")`
+      );
+      check("список моделей предложен", listed.includes("anthropic/claude-opus-5"), listed);
+      check(
+        "живой каталог сервиса тоже в списке",
+        listed.includes("test/model"),
+        listed
+      );
+      await win.webContents.executeJavaScript(`
+        (() => {
+          const input = document.querySelector(".agent-model-input");
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+          setter.call(input, "test/сильная");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })()
+      `);
+      await new Promise((r) => setTimeout(r, 400));
+      await ask("Сделай мелочь");
+      check("запрос ушёл выбранной модели", requests[0]?.body.model === "test/сильная", requests[0]?.body.model);
+
+      // Выбор относится к папке, а не к одному сообщению: он должен пережить
+      // перезагрузку окна, иначе им никто не станет пользоваться.
+      await win.webContents.reload();
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await waitFor(win, `!!document.querySelector(".agent-model-input")`, "окно перезагрузилось");
+      await new Promise((r) => setTimeout(r, 800));
+      check(
+        "выбор сохранился после перезагрузки",
+        (await win.webContents.executeJavaScript(`document.querySelector(".agent-model-input").value`)) ===
+          "test/сильная",
+        await win.webContents.executeJavaScript(`document.querySelector(".agent-model-input").value`)
+      );
+
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".agent-model .link-like")].find(b=>/сбросить/.test(b.textContent||"")).click()`
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      await ask("И ещё мелочь");
+      check("после сброса снова модель из настроек", requests[0]?.body.model === "test/model", requests[0]?.body.model);
     } catch (e) {
       failures++;
       console.log("  FAIL непойманная ошибка —", e.message);

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentMessage, CommandResult, PendingCommand, Proposal } from "../lib/types";
+import type { AgentMessage, CommandResult, ModelInfo, PendingCommand, Proposal } from "../lib/types";
+import { CURATED_MODELS, mergeModelLists } from "../lib/curatedModels";
 import { renderMarkdown, stripProtocolBlocks } from "../lib/markdown";
 import DiffView from "./DiffView";
 
@@ -22,6 +23,11 @@ export default function AgentPanel({ workspaceRoot, openFile, onFilesChanged, di
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [command, setCommand] = useState<PendingCommand | null>(null);
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
+  // Модель, которой работает агент в этой папке: сильная для сложных правок,
+  // дешёвая для мелочей. Пусто — та, что выбрана в «Настройках».
+  const [model, setModel] = useState("");
+  const [defaultModel, setDefaultModel] = useState("");
+  const [models, setModels] = useState<ModelInfo[]>(CURATED_MODELS);
   const scroller = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -39,7 +45,9 @@ export default function AgentPanel({ workspaceRoot, openFile, onFilesChanged, di
     window.api
       .agentHistory()
       .then((c) => {
-        if (!stale) setMessages(c.messages);
+        if (stale) return;
+        setMessages(c.messages);
+        setModel(c.model || "");
       })
       .catch(() => {
         if (!stale) setMessages([]);
@@ -52,6 +60,25 @@ export default function AgentPanel({ workspaceRoot, openFile, onFilesChanged, di
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [messages, proposal, command, commandResult, busy]);
+
+  useEffect(() => {
+    window.api
+      .getSettings()
+      .then((s) => setDefaultModel(s.model))
+      .catch(() => setDefaultModel(""));
+    // Живой каталог Polza поверх короткого списка. Не ответит (нет ключа, нет
+    // сети) — останется короткий: выбор модели не должен зависеть от сети.
+    window.api
+      .listModels()
+      .then((live) => setModels(mergeModelLists(CURATED_MODELS, live)))
+      .catch(() => setModels(CURATED_MODELS));
+  }, []);
+
+  /** Выбор сохраняется сразу: он относится к папке, а не к одному сообщению. */
+  function chooseModel(next: string) {
+    setModel(next);
+    void window.api.agentSetModel(next).catch(() => {});
+  }
 
   function absorb(turn: Awaited<ReturnType<typeof window.api.agentSend>>) {
     setMessages(turn.messages);
@@ -68,7 +95,7 @@ export default function AgentPanel({ workspaceRoot, openFile, onFilesChanged, di
     setError("");
     setBusy(true);
     try {
-      absorb(await window.api.agentSend(text, { openFile }));
+      absorb(await window.api.agentSend(text, { openFile, model }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -243,6 +270,34 @@ export default function AgentPanel({ workspaceRoot, openFile, onFilesChanged, di
         {error && <p className="error-text">{error}</p>}
       </div>
 
+      <div className="agent-model">
+        <label className="agent-model-label" htmlFor="agent-model-input">
+          Модель
+        </label>
+        <input
+          id="agent-model-input"
+          className="input agent-model-input"
+          list="agent-model-list"
+          placeholder={defaultModel || "как в «Настройках»"}
+          value={model}
+          onChange={(e) => chooseModel(e.target.value)}
+          disabled={disabled}
+        />
+        <datalist id="agent-model-list">
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </datalist>
+        {model ? (
+          <button type="button" className="link-like" onClick={() => chooseModel("")}>
+            сбросить к настройкам
+          </button>
+        ) : (
+          <span className="hint">по умолчанию из «Настроек»</span>
+        )}
+      </div>
       <div className="agent-input">
         <textarea
           className="textarea"

@@ -542,7 +542,8 @@ export default function CopiesView({ kind }: Props) {
               </button>
             </div>
             <p className="hint">
-              Сборка пойдёт из этой папки — тем кодом, что лежит в ней прямо сейчас.{" "}
+              Сборка пойдёт из этой папки — тем кодом, что лежит в ней прямо сейчас. Для этого
+              пути нужен установленный git: снимок папки собирает он.{" "}
               <button
                 type="button"
                 className="link-like"
@@ -568,9 +569,9 @@ export default function CopiesView({ kind }: Props) {
               </span>
             </p>
             <p className="hint">
-              Скачивается только папка personal-chat (около 2 МБ), а не весь репозиторий, и хранится
-              в {source?.folder ? <code>{source.folder}</code> : "папке с данными"}. Репозиторий
-              можно поменять в «Настройках».{" "}
+              GitHub сам передаёт код в репозиторий копии — на этом компьютере ничего не
+              скачивается, и git для этого не нужен. Репозиторий и ветку можно поменять в
+              «Настройках».{" "}
               <button type="button" className="link-like" onClick={() => setFromFolder(true)}>
                 Собрать из папки на компьютере
               </button>

@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld("api", {
   // agent
   agentSend: (message, options) => ipcRenderer.invoke("agent:send", message, options),
   agentHistory: () => ipcRenderer.invoke("agent:history"),
+  agentSetModel: (model) => ipcRenderer.invoke("agent:setModel", model),
   agentClear: () => ipcRenderer.invoke("agent:clear"),
   agentApply: (proposal) => ipcRenderer.invoke("agent:apply", proposal),
   agentRun: (command) => ipcRenderer.invoke("agent:run", command),

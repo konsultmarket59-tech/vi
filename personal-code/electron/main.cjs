@@ -201,9 +201,14 @@ function trimHistory(messages) {
  * for, and stop as soon as it produces either a plain answer, a file-edit
  * proposal, or a command to run. Nothing is written to disk here.
  */
-async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
+async function runAgentTurn(root, userMessage, { openFile = null, model = "" } = {}) {
   const settings = await settingsStore.load();
   const conversation = await readConversation(root);
+  // Модель выбирается для этой рабочей папки: сильная для сложных правок,
+  // дешёвая для мелочей. Пусто — та, что в «Настройках».
+  const chosen = String(model || conversation.model || "").trim();
+  if (model !== undefined && String(model).trim()) conversation.model = String(model).trim();
+  const modelSettings = chosen ? { ...settings, model: chosen } : settings;
   const context = await agent.buildContext(root, { openFile });
 
   const history = trimHistory(conversation.messages);
@@ -218,7 +223,7 @@ async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
   ];
 
   const transcript = [];
-  let reply = await settingsStore.callModel(settings, messages);
+  let reply = await settingsStore.callModel(modelSettings, messages);
 
   for (let round = 0; round < agent.TOOL_ROUND_LIMIT; round++) {
     const toolOutput =
@@ -228,7 +233,8 @@ async function runAgentTurn(root, userMessage, { openFile = null } = {}) {
     transcript.push({ role: "user", content: toolOutput });
     messages.push({ role: "assistant", content: reply });
     messages.push({ role: "user", content: toolOutput });
-    reply = await settingsStore.callModel(settings, messages);
+    // Продолжение того же хода — той же моделью, что и начало.
+    reply = await settingsStore.callModel(modelSettings, messages);
   }
 
   let proposal = null;
@@ -456,6 +462,14 @@ function registerHandlers() {
   // agent
   ipcMain.handle("agent:send", (_e, message, options) => runAgentTurn(requireRoot(), message, options || {}));
   ipcMain.handle("agent:history", () => readConversation(requireRoot()));
+  /** Модель для этой рабочей папки; пустая строка — вернуться к «Настройкам». */
+  ipcMain.handle("agent:setModel", async (_e, model) => {
+    const root = requireRoot();
+    const conversation = await readConversation(root);
+    conversation.model = String(model || "").trim();
+    await writeConversation(root, conversation);
+    return { model: conversation.model };
+  });
   ipcMain.handle("agent:clear", async () => {
     const root = requireRoot();
     await writeConversation(root, { root, messages: [] });
@@ -505,7 +519,6 @@ function registerHandlers() {
     return {
       repo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
       branch: blueprints.DEFAULT_BRANCH,
-      folder: path.join(await appDataDir(), "Исходники"),
     };
   });
   ipcMain.handle("copies:setRevoked", async (_e, id, revoked) => {
@@ -533,7 +546,6 @@ function registerHandlers() {
         // исходниками на компьютере не нужна.
         sourcePath: (options && options.sourcePath) || "",
         sourceRepo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
-        mirrorDir: path.join(await appDataDir(), "Исходники"),
         branch: (options && options.branch) || blueprints.DEFAULT_BRANCH,
         token: account.token,
         publicKey: keys.publicKey,

@@ -126,6 +126,11 @@ export interface AgentMessage {
   createdAt: number;
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+}
+
 export interface AgentTurn {
   reply: string;
   proposal: Proposal | null;
@@ -216,8 +221,6 @@ export interface CopySource {
   /** Репозиторий с каноническим «Личным чатом», вида «владелец/репозиторий». */
   repo: string;
   branch: string;
-  /** Папка, куда приложение складывает скачанный код. */
-  folder: string;
 }
 
 export interface PublishResult {
@@ -225,6 +228,8 @@ export interface PublishResult {
   message?: string;
   /** Откуда взят код этой сборки: репозиторий@ветка или папка на компьютере. */
   source?: string;
+  /** Коммит-снимок, который лёг в репозиторий копии. */
+  commit?: string;
   all?: ChatCopy[];
   repo?: string;
   repoUrl?: string;
@@ -360,8 +365,9 @@ declare global {
       gitPull(options?: { remote?: string; branch?: string }): Promise<{ ok: boolean; output: string; status: GitStatus }>;
       gitFetch(options?: { remote?: string }): Promise<{ ok: boolean; output: string; status: GitStatus }>;
 
-      agentSend(message: string, options?: { openFile?: string | null }): Promise<AgentTurn>;
-      agentHistory(): Promise<{ root: string; messages: AgentMessage[] }>;
+      agentSend(message: string, options?: { openFile?: string | null; model?: string }): Promise<AgentTurn>;
+      agentHistory(): Promise<{ root: string; messages: AgentMessage[]; model?: string }>;
+      agentSetModel(model: string): Promise<{ model: string }>;
       agentClear(): Promise<{ root: string; messages: AgentMessage[] }>;
       agentApply(proposal: Proposal): Promise<{ applied: { path: string; action: string; to: string | null }[] }>;
       agentRun(command: string): Promise<CommandResult>;

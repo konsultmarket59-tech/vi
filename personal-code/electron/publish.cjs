@@ -144,7 +144,7 @@ async function copyConfigFiles(copy, { publicKey = "" } = {}) {
  */
 async function publish(
   copy,
-  { sourcePath = "", sourceRepo = "", mirrorDir = "", branch, token, publicKey = "", onLog = () => {} } = {}
+  { sourcePath = "", sourceRepo = "", branch, token, publicKey = "", onLog = () => {} } = {}
 ) {
   const log = (line) => onLog(String(line));
   const normalized = copies.normalize(copy);
@@ -157,20 +157,18 @@ async function publish(
   const owner = account.login;
   log(`GitHub: ${owner}`);
 
-  let source = { repo: "", branch, head: "" };
+  // Код либо берётся с GitHub (обычный случай, git на компьютере не нужен),
+  // либо из папки, которую автор правит прямо сейчас — тогда снимок собирает
+  // локальный git, и без него этот путь честно не работает.
+  let canonical = null;
   if (sourcePath) {
     log("Проверяю папку с исходниками «Личного чата»…");
     await buildPipeline.assertChatSources(sourcePath);
     await buildPipeline.switchToBranch(sourcePath, branch, log);
   } else {
-    if (!mirrorDir) throw new Error("Некуда положить канонический код — не задана папка с данными.");
-    source = await sources.ensure(mirrorDir, {
-      repo: sourceRepo || sources.DEFAULT_SOURCE_REPO,
-      branch,
-      token,
-      onLog: log,
-    });
-    sourcePath = source.path;
+    log(`Читаю канонический «Личный чат» с GitHub (ветка ${branch})…`);
+    canonical = await sources.canonicalFiles(token, { repo: sourceRepo || sources.DEFAULT_SOURCE_REPO, branch });
+    log(`Файлов в чате: ${canonical.files.length}.`);
   }
 
   let repo = null;
@@ -187,34 +185,45 @@ async function publish(
     });
   }
 
-  const url = `https://github.com/${repo.fullName}.git`;
-  log("Кладу код чата снимком в один коммит (без истории монорепозитория)…");
-  const commit = await snapshotCommit(
-    sourcePath,
-    branch,
-    `${normalized.displayName}: код от ${new Date().toLocaleDateString("ru-RU")}`
-  );
-  await pushSnapshot(sourcePath, commit, url, token);
-  log("Код в репозитории.");
-
+  const message = `${normalized.displayName}: код от ${new Date().toLocaleDateString("ru-RU")}`;
   const { files, priceProblems } = await copyConfigFiles(normalized, { publicKey });
   for (const problem of priceProblems) log(`Цены: ${problem}`);
-  for (const file of files) {
-    log(`Записываю ${file.path}…`);
-    await github.commitFile(token, owner, repo.name, file.path, file.content, file.message, undefined, "main");
-  }
+  const extraFiles = [
+    ...files,
+    { path: WORKFLOW_PATH, content: workflowYaml(normalized.displayName) },
+  ];
 
-  log("Записываю рабочий процесс сборки…");
-  await github.commitFile(
-    token,
-    owner,
-    repo.name,
-    WORKFLOW_PATH,
-    workflowYaml(normalized.displayName),
-    "Сборка установщика этой копии",
-    undefined,
-    "main"
-  );
+  log("Кладу код чата снимком в один коммит (без истории монорепозитория)…");
+  let snapshot;
+  if (canonical) {
+    // Код, конфигурация копии и рабочий процесс — одним коммитом: каждый
+    // отдельный коммит в main запускал бы на GitHub ещё одну сборку.
+    snapshot = await sources.publishSnapshot(token, {
+      from: canonical,
+      to: repo.fullName,
+      message,
+      extraFiles,
+      onLog: log,
+    });
+  } else {
+    const commit = await snapshotCommit(sourcePath, branch, message);
+    await pushSnapshot(sourcePath, commit, `https://github.com/${repo.fullName}.git`, token);
+    for (const file of extraFiles) {
+      log(`Записываю ${file.path}…`);
+      await github.commitFile(
+        token,
+        owner,
+        repo.name,
+        file.path,
+        file.content,
+        file.message || "Настройки сборки этой копии",
+        undefined,
+        "main"
+      );
+    }
+    snapshot = { commit, files: 0 };
+  }
+  log("Код в репозитории.");
 
   log("Запускаю сборку установщика на GitHub…");
   let started = false;
@@ -228,7 +237,8 @@ async function publish(
   }
 
   return {
-    source: source.repo ? `${source.repo}@${source.branch} (${source.head})` : sourcePath,
+    source: canonical ? `${canonical.source.full}@${canonical.branch}` : sourcePath,
+    commit: snapshot.commit,
     repo: repo.fullName,
     repoUrl: `https://github.com/${repo.fullName}`,
     actionsUrl: `https://github.com/${repo.fullName}/actions`,

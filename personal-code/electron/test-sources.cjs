@@ -1,24 +1,17 @@
-// Канонический код берётся из GitHub, а не из папки на компьютере:
+// Копия «Личного чата» уезжает в свой репозиторий без git на компьютере:
 //   node electron/test-sources.cjs
 //
-// Проверяется на настоящем репозитории (локальном — чтобы тест не зависел от
-// сети и от чужого токена): что скачивается только папка чата, что повторный
-// запуск подтягивает новые коммиты, что смена репозитория не оставляет старый
-// код и что из полученной папки собирается тот самый снимок, который уезжает
-// в репозиторий копии.
+// Проверка идёт против поддельного GitHub, поднятого здесь же: настоящий из
+// теста не подёргаешь, а проверять надо именно разговор с ним — что читается
+// только папка personal-chat, что файлы попадают в репозиторий копии целиком
+// (включая двоичные), что коммит без родителя, а ветка ставится принудительно.
+//
+// Почему это важно: раньше снимок собирал локальный git, и на компьютере без
+// него сборка останавливалась словами «Git не найден» — при том что весь код
+// лежит на GitHub.
 
 const assert = require("node:assert");
-const os = require("node:os");
-const path = require("node:path");
-const fs = require("node:fs");
-const { execFileSync } = require("node:child_process");
-
-const sources = require("./sources.cjs");
-const git = require("./git.cjs");
-const publish = require("./publish.cjs");
-
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-sources-"));
-const CANONICAL = "claude/personal-claude-chat-docs-untwa4";
+const http = require("node:http");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -38,137 +31,204 @@ async function expectThrows(label, fn, pattern) {
   }
 }
 
-/** Размер папки целиком — без внешних команд, чтобы тест шёл и на Windows. */
-function folderSize(dir) {
-  let bytes = 0;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) bytes += folderSize(full);
-    else if (entry.isFile()) bytes += fs.statSync(full).size;
+// Канонический репозиторий: чат вперемешку с тяжёлыми папками монорепозитория.
+const CANONICAL = {
+  "personal-chat/package.json": '{ "name": "personal-chat" }',
+  "personal-chat/electron/main.cjs": "// чат\n",
+  "personal-chat/build/icon.ico": Buffer.from([0, 1, 2, 250, 251, 252]).toString("base64"),
+  "music/track.wav": "тяжёлое",
+  "personal-code/electron/main.cjs": "// другое приложение\n",
+  "README.md": "# монорепозиторий\n",
+};
+
+const state = { blobs: new Map(), trees: [], commits: [], refs: new Map(), calls: [] };
+
+function shaOf(text) {
+  return require("node:crypto").createHash("sha1").update(text).digest("hex");
+}
+
+const server = http.createServer((req, res) => {
+  const [urlPath] = req.url.split("?");
+  state.calls.push(`${req.method} ${urlPath}`);
+  let body = "";
+  req.on("data", (chunk) => (body += chunk));
+  req.on("end", () => {
+    const json = (code, data) => {
+      res.writeHead(code, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(data));
+    };
+
+    // дерево канонической ветки
+    let m = urlPath.match(/^\/repos\/([^/]+)\/([^/]+)\/git\/trees\/(.+)$/);
+    if (m && req.method === "GET") {
+      if (decodeURIComponent(m[3]) !== "каноническая") return json(404, { message: "Not Found" });
+      return json(200, {
+        truncated: false,
+        tree: Object.entries(CANONICAL).map(([p, content]) => ({
+          path: p,
+          type: "blob",
+          mode: "100644",
+          sha: "src-" + shaOf(p).slice(0, 8),
+          size: content.length,
+        })),
+      });
+    }
+    // чтение файла канонического репозитория
+    m = urlPath.match(/^\/repos\/([^/]+)\/([^/]+)\/git\/blobs\/(.+)$/);
+    if (m && req.method === "GET") {
+      const found = Object.entries(CANONICAL).find(([p]) => "src-" + shaOf(p).slice(0, 8) === m[3]);
+      if (!found) return json(404, { message: "Not Found" });
+      const [p, content] = found;
+      // Двоичный файл в канонической ветке уже лежит в base64 — как и отдаёт GitHub.
+      const base64 = p.endsWith(".ico") ? content : Buffer.from(content, "utf-8").toString("base64");
+      return json(200, { encoding: "base64", content: base64 });
+    }
+    // запись файла в репозиторий копии
+    if (urlPath.endsWith("/git/blobs") && req.method === "POST") {
+      const { content } = JSON.parse(body);
+      const sha = "dst-" + shaOf(content).slice(0, 8);
+      state.blobs.set(sha, content);
+      return json(201, { sha });
+    }
+    if (urlPath.endsWith("/git/trees") && req.method === "POST") {
+      const tree = JSON.parse(body).tree;
+      state.trees.push(tree);
+      return json(201, { sha: "tree-1" });
+    }
+    if (urlPath.endsWith("/git/commits") && req.method === "POST") {
+      const commit = JSON.parse(body);
+      state.commits.push(commit);
+      return json(201, { sha: "commit-1" });
+    }
+    m = urlPath.match(/^\/repos\/[^/]+\/[^/]+\/git\/ref\/heads\/(.+)$/);
+    if (m && req.method === "GET") {
+      const sha = state.refs.get(m[1]);
+      return sha ? json(200, { object: { sha } }) : json(404, { message: "Not Found" });
+    }
+    if (urlPath.endsWith("/git/refs") && req.method === "POST") {
+      const { ref, sha } = JSON.parse(body);
+      state.refs.set(ref.replace("refs/heads/", ""), sha);
+      return json(201, { ref });
+    }
+    m = urlPath.match(/^\/repos\/[^/]+\/[^/]+\/git\/refs\/heads\/(.+)$/);
+    if (m && req.method === "PATCH") {
+      const { sha, force } = JSON.parse(body);
+      state.refs.set(m[1], sha);
+      state.forced = force;
+      return json(200, { object: { sha } });
+    }
+    json(404, { message: "Not Found" });
+  });
+});
+
+server.listen(0, "127.0.0.1", async () => {
+  process.env.GITHUB_API_BASE = `http://127.0.0.1:${server.address().port}`;
+  const sources = require("./sources.cjs");
+
+  try {
+    console.log("читаем канонический чат");
+    const canonical = await sources.canonicalFiles("test-token", { repo: "владелец/моно", branch: "каноническая" });
+    const paths = canonical.files.map((f) => f.path).sort();
+    check("взята только папка чата", paths.length === 3, paths.join(", "));
+    check("пути без префикса personal-chat", paths.includes("package.json"), paths.join(", "));
+    check("вложенные файлы на месте", paths.includes("electron/main.cjs"), paths.join(", "));
+    check("тяжёлые папки монорепозитория не взяты", !paths.some((p) => p.includes("music")), paths.join(", "));
+    check("«Личного кода» в копии нет", !paths.some((p) => p.includes("personal-code")), paths.join(", "));
+
+    console.log("\nперекладываем в репозиторий копии");
+    const log = [];
+    const result = await sources.publishSnapshot("test-token", {
+      from: canonical,
+      to: "владелец/личный-чат-мария",
+      message: "снимок",
+      onLog: (l) => log.push(l),
+    });
+    check("все файлы записаны", result.files === 3, String(result.files));
+    check("ветка копии — main", result.branch === "main", result.branch);
+    check("шаги видны человеку", log.some((l) => /Перекладываю файлы/.test(l)), log.join(" | "));
+
+    const tree = state.trees[0];
+    check("дерево собрано из тех же путей", tree.length === 3 && tree.every((e) => e.type === "blob"));
+    const icon = tree.find((e) => e.path === "build/icon.ico");
+    check(
+      "двоичный файл перенесён байт в байт",
+      state.blobs.get(icon.sha) === CANONICAL["personal-chat/build/icon.ico"],
+      state.blobs.get(icon.sha)
+    );
+    const text = tree.find((e) => e.path === "package.json");
+    check(
+      "текстовый файл перенесён как есть",
+      Buffer.from(state.blobs.get(text.sha), "base64").toString("utf-8") === CANONICAL["personal-chat/package.json"]
+    );
+
+    const commit = state.commits[0];
+    check("коммит без родителя — истории монорепозитория в копии нет", commit.parents.length === 0);
+    check("коммит с понятным сообщением", commit.message === "снимок", commit.message);
+    check("ветка поставлена на этот коммит", state.refs.get("main") === "commit-1", String(state.refs.get("main")));
+
+    console.log("\nконфигурация копии едет тем же коммитом");
+    state.trees.length = 0;
+    state.commits.length = 0;
+    const withConfig = await sources.publishSnapshot("test-token", {
+      from: canonical,
+      to: "владелец/личный-чат-мария",
+      message: "снимок с настройками",
+      extraFiles: [
+        { path: "plugins.json", content: '{"modules":[]}' },
+        { path: ".github/workflows/build.yml", content: "name: Сборка\n" },
+      ],
+    });
+    check("код и настройки в одном дереве", withConfig.files === 5, String(withConfig.files));
+    check(
+      "рабочий процесс на месте",
+      withConfig.paths.includes(".github/workflows/build.yml"),
+      withConfig.paths.join(", ")
+    );
+    // Отдельные коммиты в main запускали бы на GitHub по сборке на каждый.
+    check("коммит по-прежнему один", state.commits.length === 1, String(state.commits.length));
+    const cfg = state.trees[0].find((e) => e.path === "plugins.json");
+    check(
+      "настройки записаны как текст",
+      Buffer.from(state.blobs.get(cfg.sha), "base64").toString("utf-8") === '{"modules":[]}'
+    );
+
+    console.log("\nповторная сборка поверх прежней");
+    state.trees.length = 0;
+    state.commits.length = 0;
+    await sources.publishSnapshot("test-token", { from: canonical, to: "владелец/личный-чат-мария", message: "второй" });
+    check("ветка переставлена принудительно", state.forced === true, String(state.forced));
+    check("снова один коммит без родителя", state.commits[0].parents.length === 0);
+
+    console.log("\nошибки объясняются, а не молчат");
+    await expectThrows(
+      "чужая ветка — понятная ошибка",
+      () => sources.canonicalFiles("test-token", { repo: "владелец/моно", branch: "нет-такой" }),
+      /Не удалось прочитать/
+    );
+    await expectThrows(
+      "мусор вместо репозитория",
+      () => sources.canonicalFiles("test-token", { repo: "просто текст", branch: "каноническая" }),
+      /владелец\/репозиторий/
+    );
+    await expectThrows(
+      "без ветки не начинаем",
+      () => sources.canonicalFiles("test-token", { repo: "владелец/моно", branch: "" }),
+      /каноническая ветка/
+    );
+
+    console.log("\nгит не понадобился");
+    check(
+      "весь разговор — только с GitHub API",
+      state.calls.every((c) => /^(GET|POST|PATCH) \/repos\//.test(c)),
+      state.calls.slice(0, 3).join(" | ")
+    );
+    assert.ok(state.calls.length > 5);
+  } catch (e) {
+    failures++;
+    console.log("  FAIL непойманная ошибка —", e.message);
+  } finally {
+    console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
+    server.close();
+    process.exit(failures === 0 ? 0 : 1);
   }
-  return bytes;
-}
-
-function run(dir, args) {
-  return execFileSync("git", args, { cwd: dir, encoding: "utf-8" }).trim();
-}
-
-/** Репозиторий, похожий на настоящий: папка чата и тяжёлые файлы рядом с ней. */
-function makeUpstream(name) {
-  const dir = path.join(root, name);
-  fs.mkdirSync(path.join(dir, "personal-chat", "electron"), { recursive: true });
-  fs.mkdirSync(path.join(dir, "music"), { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, "personal-chat", "package.json"),
-    JSON.stringify({ name: "personal-chat", version: "1.0.0" }, null, 2)
-  );
-  fs.writeFileSync(path.join(dir, "personal-chat", "electron", "main.cjs"), "// чат\n");
-  // Тяжёлая часть монорепозитория: её быть в скачанной папке не должно.
-  fs.writeFileSync(path.join(dir, "music", "track.wav"), Buffer.alloc(2 * 1024 * 1024, 7));
-  fs.writeFileSync(path.join(dir, "personal-code.txt"), "другое приложение\n");
-
-  run(dir, ["init", "-q", "-b", CANONICAL]);
-  run(dir, ["config", "user.email", "test@example.com"]);
-  run(dir, ["config", "user.name", "Тест"]);
-  // Без этого локальный сервер откажет в неполном клоне (--filter).
-  run(dir, ["config", "uploadpack.allowFilter", "true"]);
-  run(dir, ["add", "-A"]);
-  run(dir, ["commit", "-q", "-m", "первый коммит"]);
-  return dir;
-}
-
-(async () => {
-  const upstream = makeUpstream("канонический");
-  const url = `file://${upstream}`;
-  const mirror = path.join(root, "Исходники");
-  const log = [];
-
-  console.log("первое скачивание");
-  const first = await sources.ensure(mirror, { repo: url, branch: CANONICAL, onLog: (l) => log.push(l) });
-  check("вернулась папка чата", fs.existsSync(path.join(first.path, "package.json")), first.path);
-  check(
-    "это действительно «Личный чат»",
-    JSON.parse(fs.readFileSync(path.join(first.path, "package.json"), "utf-8")).name === "personal-chat"
-  );
-  const mirrorRoot = path.dirname(first.path);
-  check("тяжёлые папки монорепозитория не скачаны", !fs.existsSync(path.join(mirrorRoot, "music", "track.wav")));
-  check(`скачано мало — ${Math.round(folderSize(mirrorRoot) / 1024)} КБ`, folderSize(mirrorRoot) < 4 * 1024 * 1024);
-  check("шаги видны человеку", log.some((l) => /Скачиваю канонический код/.test(l)), log.join(" | "));
-
-  console.log("\nповторный запуск подтягивает новое");
-  fs.writeFileSync(path.join(upstream, "personal-chat", "electron", "main.cjs"), "// чат, версия 2\n");
-  run(upstream, ["add", "-A"]);
-  run(upstream, ["commit", "-q", "-m", "второй коммит"]);
-  const second = await sources.ensure(mirror, { repo: url, branch: CANONICAL, onLog: () => {} });
-  check(
-    "код обновился до последнего коммита",
-    fs.readFileSync(path.join(second.path, "electron", "main.cjs"), "utf-8").includes("версия 2")
-  );
-  check("папка та же, а не вторая рядом", second.path === first.path);
-  check("вернулся коммит, из которого собран снимок", /^[0-9a-f]{7,}$/.test(second.head), second.head);
-
-  console.log("\nиз скачанного собирается снимок для копии");
-  const commit = await publish.snapshotCommit(second.path, CANONICAL, "снимок");
-  const bare = path.join(root, "копия.git");
-  run(root, ["init", "-q", "--bare", bare]);
-  // Снимок должен уходить целиком: неполный клон не имеет права оставить
-  // недостающие файлы на потом — в репозитории копии их взять будет негде.
-  await git.run(path.dirname(second.path), ["push", bare, `${commit}:refs/heads/main`]);
-  const files = run(root, ["-C", bare, "ls-tree", "--name-only", "-r", "main"]).split("\n");
-  check("в снимке лежит чат", files.includes("package.json") && files.includes("electron/main.cjs"), files.join(", "));
-  check("и ничего из остального монорепозитория", !files.some((f) => f.startsWith("music/")), files.join(", "));
-  check(
-    "в снимке свежая версия файла",
-    run(root, ["-C", bare, "show", "main:electron/main.cjs"]).includes("версия 2")
-  );
-
-  console.log("\nошибки объясняются, а не молчат");
-  await expectThrows(
-    "чужая ветка — понятная ошибка",
-    () => sources.ensure(path.join(root, "Исходники-2"), { repo: url, branch: "нет-такой-ветки", onLog: () => {} }),
-    /ветк|branch|not found/i
-  );
-  await expectThrows(
-    "мусор вместо репозитория — понятная ошибка",
-    () => sources.ensure(path.join(root, "Исходники-3"), { repo: "просто текст", branch: CANONICAL }),
-    /владелец\/репозиторий/
-  );
-  await expectThrows(
-    "без ветки не начинаем",
-    () => sources.ensure(mirror, { repo: url, branch: "" }),
-    /каноническая ветка/
-  );
-
-  console.log("\nсмена репозитория не оставляет старый код");
-  const other = makeUpstream("другой");
-  fs.writeFileSync(path.join(other, "personal-chat", "метка.txt"), "другой источник\n");
-  run(other, ["add", "-A"]);
-  run(other, ["commit", "-q", "-m", "метка"]);
-  // Тот же слог папки: важно, что содержимое заменяется, а не смешивается.
-  const swapped = await sources.ensure(mirror, { repo: `file://${other}`, branch: CANONICAL, onLog: () => {} });
-  check("код взят из нового репозитория", fs.existsSync(path.join(swapped.path, "метка.txt")));
-
-  console.log("\nв репозитории без папки чата сборка не начнётся");
-  const wrong = path.join(root, "без-чата");
-  fs.mkdirSync(wrong, { recursive: true });
-  fs.writeFileSync(path.join(wrong, "README.md"), "# пусто\n");
-  run(wrong, ["init", "-q", "-b", CANONICAL]);
-  run(wrong, ["config", "user.email", "test@example.com"]);
-  run(wrong, ["config", "user.name", "Тест"]);
-  run(wrong, ["config", "uploadpack.allowFilter", "true"]);
-  run(wrong, ["add", "-A"]);
-  run(wrong, ["commit", "-q", "-m", "пусто"]);
-  await expectThrows(
-    "нет папки personal-chat — говорим об этом прямо",
-    () => sources.ensure(path.join(root, "Исходники-4"), { repo: `file://${wrong}`, branch: CANONICAL, onLog: () => {} }),
-    /нет папки personal-chat/
-  );
-
-  console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
-  fs.rmSync(root, { recursive: true, force: true });
-  process.exit(failures === 0 ? 0 : 1);
-})().catch((e) => {
-  console.error("Тест упал:", e);
-  fs.rmSync(root, { recursive: true, force: true });
-  process.exit(1);
 });
