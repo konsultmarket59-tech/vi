@@ -35,6 +35,8 @@ const DEFAULT_SETTINGS = {
   gitTokenUser: "",
   // Доступ агента в интернет — тот же набор, что и в «Личном чате», чтобы
   // настройка называлась и вела себя одинаково в обоих приложениях.
+  // Кэш неизменной части промпта — то же имя настройки, что в «Личном чате».
+  promptCache: true,
   searchEnabled: false,
   searchProvider: "duckduckgo",
   searchApiKey: "",
@@ -184,22 +186,76 @@ async function listModels(settings) {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+// Тот же признак, что и в «Личном чате»: cache_control — это про модели
+// Anthropic, остальные могут отклонить запрос из-за него.
+function supportsPromptCaching(model) {
+  return /(^|\/)(anthropic|claude)/i.test(model || "");
+}
+
+// Помнит на время работы приложения, принимает ли шлюз cache_control: одного
+// отказа достаточно, чтобы больше не пробовать и не терять время на повторах.
+let cacheFieldWorks;
+
+/**
+ * Помечает неизменную часть разговора как кэшируемую. У агента это системная
+ * инструкция и карта проекта — они уходят одинаковыми в каждый раунд, а
+ * оплачиваются без кэша каждый раз заново.
+ *
+ * Метка ставится на последнее системное сообщение: кэш работает по префиксу, а
+ * дальше идёт переписка, которая меняется от раунда к раунду.
+ */
+function withCacheMarkers(messages) {
+  let lastSystem = -1;
+  messages.forEach((m, i) => {
+    if (m.role === "system") lastSystem = i;
+  });
+  if (lastSystem === -1) return messages;
+  return messages.map((m, i) =>
+    i === lastSystem && typeof m.content === "string"
+      ? { ...m, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] }
+      : m
+  );
+}
+
+function stripCacheMarkers(messages) {
+  return messages.map((m) =>
+    Array.isArray(m.content) ? { ...m, content: m.content.map((part) => part.text).join("\n\n") } : m
+  );
+}
+
 /** One non-streaming completion. The agent loop calls this per round. */
 async function callModel(settings, messages, { signal } = {}) {
   if (!settings.apiKey) throw new Error("Не задан API-ключ. Вставьте ключ Polza в настройках.");
   if (!settings.model) throw new Error("Не выбрана модель.");
-  const res = await fetch(settings.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: settings.temperature,
-      max_tokens: settings.maxTokens,
-      stream: false,
-    }),
-    signal,
-  });
+
+  const wantCache =
+    settings.promptCache !== false && supportsPromptCaching(settings.model) && cacheFieldWorks !== false;
+  const send = (payload) =>
+    fetch(settings.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        model: settings.model,
+        messages: payload,
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens,
+        stream: false,
+      }),
+      signal,
+    });
+
+  const sent = wantCache ? withCacheMarkers(messages) : messages;
+  let res = await send(sent);
+
+  // Шлюз может не принять cache_control — тогда повторяем без него, а не
+  // показываем человеку ошибку из-за необязательной оптимизации.
+  if (!res.ok && wantCache && sent !== messages) {
+    cacheFieldWorks = false;
+    res = await send(stripCacheMarkers(sent));
+  } else if (res.ok && wantCache && sent !== messages) {
+    cacheFieldWorks = true;
+  }
+
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`Ошибка API (${res.status} ${res.statusText}). ${detail.slice(0, 500)}`);
@@ -212,6 +268,8 @@ async function callModel(settings, messages, { signal } = {}) {
 
 module.exports = {
   DEFAULT_SETTINGS,
+  supportsPromptCaching,
+  withCacheMarkers,
   init,
   load,
   save,

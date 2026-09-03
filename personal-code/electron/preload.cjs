@@ -18,6 +18,23 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("blueprints:buildLog", listener);
   },
   dataFolder: () => ipcRenderer.invoke("settings:dataFolder"),
+
+  reportInfo: () => ipcRenderer.invoke("report:info"),
+  logProblem: (level, message) => ipcRenderer.invoke("report:log", level, message),
+  writeReport: (description) => ipcRenderer.invoke("report:write", description),
+  revealReport: (file) => ipcRenderer.invoke("report:reveal", file),
+
+  getGitHubAccount: () => ipcRenderer.invoke("github:getAccount"),
+  saveGitHubAccount: (account) => ipcRenderer.invoke("github:saveAccount", account),
+  testGitHubConnection: (token) => ipcRenderer.invoke("github:test", token),
+  listGitHubRepos: () => ipcRenderer.invoke("github:listRepos"),
+  createGitHubRepo: (options) => ipcRenderer.invoke("github:createRepo", options),
+  listGitHubBranches: (owner, repo) => ipcRenderer.invoke("github:listBranches", owner, repo),
+  listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows", owner, repo),
+  runGitHubWorkflow: (owner, repo, workflowId, ref) =>
+    ipcRenderer.invoke("github:runWorkflow", owner, repo, workflowId, ref),
+  listGitHubWorkflowRuns: (owner, repo, workflowId, limit) =>
+    ipcRenderer.invoke("github:workflowRuns", owner, repo, workflowId, limit),
   chooseDataFolder: () => ipcRenderer.invoke("settings:chooseDataFolder"),
   openDataFolder: () => ipcRenderer.invoke("settings:openDataFolder"),
   storageReport: () => ipcRenderer.invoke("settings:storageReport"),

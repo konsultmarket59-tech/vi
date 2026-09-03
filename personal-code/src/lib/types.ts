@@ -12,6 +12,7 @@ export interface Settings {
   gitUserEmail: string;
   gitToken: string;
   gitTokenUser: string;
+  promptCache: boolean;
   searchEnabled: boolean;
   searchProvider: "duckduckgo" | "tavily";
   searchApiKey: string;
@@ -32,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gitUserEmail: "",
   gitToken: "",
   gitTokenUser: "",
+  promptCache: true,
   searchEnabled: false,
   searchProvider: "duckduckgo",
   searchApiKey: "",
@@ -229,6 +231,46 @@ export interface SearchMatch {
   text: string;
 }
 
+export interface ReportInfo {
+  version: string;
+  productName: string;
+  tester: string;
+  expiresAt: string;
+  gated: boolean;
+  log: { total: number; errors: number; since: string };
+}
+
+export interface GitHubAccount {
+  token: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  description: string;
+  private: boolean;
+  updatedAt: number;
+  defaultBranch: string;
+}
+
+export interface GitHubWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  status: string;
+  conclusion: string;
+  createdAt: string;
+  url: string;
+  branch?: string;
+}
+
 export interface StorageReport {
   rootPath: string;
   totalBytes: number;
@@ -246,6 +288,26 @@ declare global {
       chooseDataFolder(): Promise<{ settings: Settings; folder: string } | null>;
       openDataFolder(): Promise<string>;
       storageReport(): Promise<StorageReport>;
+
+      reportInfo(): Promise<ReportInfo>;
+      logProblem(level: string, message: string): Promise<boolean>;
+      writeReport(description: string): Promise<{ file: string }>;
+      revealReport(file: string): Promise<boolean>;
+
+      getGitHubAccount(): Promise<GitHubAccount>;
+      saveGitHubAccount(account: GitHubAccount): Promise<GitHubAccount>;
+      testGitHubConnection(token: string): Promise<{ ok: boolean; login?: string; error?: string }>;
+      listGitHubRepos(): Promise<GitHubRepo[]>;
+      createGitHubRepo(options: { name: string; description?: string; private?: boolean }): Promise<GitHubRepo>;
+      listGitHubBranches(owner: string, repo: string): Promise<{ name: string; sha: string }[]>;
+      listGitHubWorkflows(owner: string, repo: string): Promise<GitHubWorkflow[]>;
+      runGitHubWorkflow(owner: string, repo: string, workflowId: number | string, ref: string): Promise<boolean>;
+      listGitHubWorkflowRuns(
+        owner: string,
+        repo: string,
+        workflowId: number | string,
+        limit?: number
+      ): Promise<GitHubWorkflowRun[]>;
 
       pickWorkspace(): Promise<WorkspaceInfo | null>;
       openWorkspace(dir: string): Promise<WorkspaceInfo>;

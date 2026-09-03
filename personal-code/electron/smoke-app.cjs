@@ -259,11 +259,17 @@ app.whenReady().then(async () => {
     ));
     check("есть раздел «Доступ в интернет»", settingsText.includes("Доступ в интернет"), "");
     check("есть раздел «Обслуживание»", settingsText.includes("Обслуживание"), "");
+    // Те же разделы и теми же словами, что в «Личном чате»: человек ходит между
+    // двумя приложениями, и настройка не должна называться по-разному.
+    check("есть «Настройки подключения»", settingsText.includes("Настройки подключения"), "");
+    check("есть кэш промпта", settingsText.includes("Кэшировать неизменную часть промпта"), "");
+    check("есть отчёт о проблеме", settingsText.includes("О программе и отчёт о проблеме"), "");
+    check("есть подключение к GitHub", settingsText.includes("Токен GitHub"), "");
 
     // Поисковик прячется, пока поиск не разрешён, и появляется, когда разрешён.
     check("выбор поисковика скрыт, пока поиск выключен", !settingsText.includes("DuckDuckGo"), "");
     await win.webContents.executeJavaScript(
-      `document.querySelector(".checkbox-row input[type=checkbox]").click()`
+      `document.querySelector(".search-toggle input[type=checkbox]").click()`
     );
     await new Promise((r) => setTimeout(r, 300));
     check(
@@ -271,7 +277,7 @@ app.whenReady().then(async () => {
       (await win.webContents.executeJavaScript(text(".settings-view"))).includes("DuckDuckGo")
     );
     await win.webContents.executeJavaScript(
-      `document.querySelector(".checkbox-row input[type=checkbox]").click()`
+      `document.querySelector(".search-toggle input[type=checkbox]").click()`
     );
 
     const report = await win.webContents.executeJavaScript(`window.api.storageReport()`);

@@ -19,8 +19,14 @@ const demoAccess = require("./demoAccess.cjs");
 const pluginArchive = require("./pluginArchive.cjs");
 const websearch = require("./websearch.cjs");
 const buildPipeline = require("./build.cjs");
+const report = require("./report.cjs");
+const github = require("./github.cjs");
 
 let mainWindow = null;
+
+// Свой журнал ошибок — тот же, что в «Личном чате»: приложение ничего никуда не
+// отправляет само, но по кнопке кладёт файл с описанием на рабочий стол.
+report.install();
 
 app.on("login", (event, _webContents, _details, authInfo, callback) => {
   // Only proxy challenges — the proxy password must never be offered to an
@@ -74,6 +80,14 @@ async function applyDataRoot() {
   const root = dataRootOf(settings);
   pluginArchive.init(root);
   return root;
+}
+
+/** Папка приложения внутри выбранной папки с данными: там же, где архив плагинов. */
+async function appDataDir() {
+  const settings = await settingsStore.load();
+  const dir = path.join(dataRootOf(settings), "Личный код");
+  await fs.mkdir(dir, { recursive: true });
+  return dir;
 }
 
 function conversationsDir() {
@@ -316,6 +330,54 @@ function registerHandlers() {
     return shell.openPath(dir);
   });
   ipcMain.handle("settings:storageReport", () => storageReport());
+
+  // отчёт о проблеме — как в «Личном чате»
+  ipcMain.handle("report:info", () => ({
+    version: app.getVersion(),
+    productName: "Личный код",
+    tester: "",
+    expiresAt: "",
+    gated: false,
+    log: report.summary(),
+  }));
+  ipcMain.handle("report:log", (_e, level, message) => report.recordFromRenderer(level, message));
+  ipcMain.handle("report:write", (_e, description) =>
+    report.write({ description, version: app.getVersion(), productName: "Личный код", tester: "" })
+  );
+  ipcMain.handle("report:reveal", (_e, file) => {
+    shell.showItemInFolder(file);
+    return true;
+  });
+
+  // GitHub — тот же модуль, что в «Личном чате»: подключение по токену, список
+  // репозиториев, создание, коммиты и запуск сборок.
+  ipcMain.handle("github:getAccount", async () => github.getAccount(await appDataDir()));
+  ipcMain.handle("github:saveAccount", async (_e, account) => github.saveAccount(await appDataDir(), account));
+  ipcMain.handle("github:test", (_e, token) => github.testConnection(token));
+  ipcMain.handle("github:listRepos", async () => {
+    const account = await github.getAccount(await appDataDir());
+    return github.listRepos(account.token);
+  });
+  ipcMain.handle("github:createRepo", async (_e, options) => {
+    const account = await github.getAccount(await appDataDir());
+    return github.createRepo(account.token, options || {});
+  });
+  ipcMain.handle("github:listBranches", async (_e, owner, repo) => {
+    const account = await github.getAccount(await appDataDir());
+    return github.listBranches(account.token, owner, repo);
+  });
+  ipcMain.handle("github:listWorkflows", async (_e, owner, repo) => {
+    const account = await github.getAccount(await appDataDir());
+    return github.listWorkflows(account.token, owner, repo);
+  });
+  ipcMain.handle("github:runWorkflow", async (_e, owner, repo, workflowId, ref) => {
+    const account = await github.getAccount(await appDataDir());
+    return github.runWorkflow(account.token, owner, repo, workflowId, ref);
+  });
+  ipcMain.handle("github:workflowRuns", async (_e, owner, repo, workflowId, limit) => {
+    const account = await github.getAccount(await appDataDir());
+    return github.listWorkflowRuns(account.token, owner, repo, workflowId, limit || 10);
+  });
   ipcMain.handle("settings:testProxy", (_e, draft) => settingsStore.testProxy(draft || {}));
   ipcMain.handle("models:list", (_e, draft) => settingsStore.listModels(draft));
 
