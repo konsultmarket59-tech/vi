@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatCopy, DemoKeyInfo, PublishResult } from "../lib/types";
+import type { ChatCopy, CopySource, DemoKeyInfo, PublishResult } from "../lib/types";
 
 interface Props {
   /** demo — ключ вшит и скрыт от человека; paid — человек работает со своим ключом. */
@@ -49,7 +49,11 @@ export default function CopiesView({ kind }: Props) {
   const [list, setList] = useState<ChatCopy[]>([]);
   const [plugins, setPlugins] = useState<{ id: string; name: string }[]>([]);
   const [draft, setDraft] = useState<Partial<ChatCopy>>(emptyCopy(kind));
+  // Код берётся из канонического репозитория на GitHub. Папка на компьютере —
+  // осознанное исключение: собрать из того, что автор правит прямо сейчас.
+  const [source, setSource] = useState<CopySource | null>(null);
   const [sourcePath, setSourcePath] = useState("");
+  const [fromFolder, setFromFolder] = useState(false);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [result, setResult] = useState<PublishResult | null>(null);
@@ -61,11 +65,17 @@ export default function CopiesView({ kind }: Props) {
   const demo = kind === "demo";
 
   useEffect(() => {
-    Promise.all([window.api.listCopies(), window.api.copyPlugins(), window.api.demoKeyInfo()])
-      .then(([c, p, k]) => {
+    Promise.all([
+      window.api.listCopies(),
+      window.api.copyPlugins(),
+      window.api.demoKeyInfo(),
+      window.api.copySource(),
+    ])
+      .then(([c, p, k, s]) => {
         setList(c);
         setPlugins(p);
         setKeyInfo(k);
+        setSource(s);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -129,15 +139,16 @@ export default function CopiesView({ kind }: Props) {
     }
     const saved = await save();
     if (!saved) return;
-    if (!sourcePath) {
-      setError("Сначала выберите папку с исходниками «Личного чата» — из неё берётся код.");
+    if (fromFolder && !sourcePath) {
+      setError("Выберите папку с исходниками «Личного чата» или вернитесь к коду с GitHub.");
       return;
     }
     setLog([]);
     setResult(null);
     setBusy(true);
     try {
-      const built = await window.api.publishCopy(saved.id, { sourcePath });
+      // Пустой sourcePath — обычный случай: приложение само скачает канонический код.
+      const built = await window.api.publishCopy(saved.id, { sourcePath: fromFolder ? sourcePath : "" });
       setResult(built);
       if (built.ok) {
         if (built.all) setList(built.all);
@@ -508,12 +519,52 @@ export default function CopiesView({ kind }: Props) {
         />
 
         <h4 className="field-label">Откуда брать код</h4>
-        <div className="row">
-          <code className="folder-path">{sourcePath || "папка с исходниками «Личного чата» не выбрана"}</code>
-          <button type="button" className="btn" onClick={pickSources}>
-            Выбрать папку
-          </button>
-        </div>
+        {fromFolder ? (
+          <>
+            <div className="row">
+              <code className="folder-path">
+                {sourcePath || "папка с исходниками «Личного чата» не выбрана"}
+              </code>
+              <button type="button" className="btn" onClick={pickSources}>
+                Выбрать папку
+              </button>
+            </div>
+            <p className="hint">
+              Сборка пойдёт из этой папки — тем кодом, что лежит в ней прямо сейчас.{" "}
+              <button
+                type="button"
+                className="link-like"
+                onClick={() => {
+                  setFromFolder(false);
+                  setSourcePath("");
+                }}
+              >
+                Вернуться к коду с GitHub
+              </button>
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="conn-status conn-ok" role="status">
+              <span className="conn-mark" aria-hidden="true">
+                ✓
+              </span>
+              <span className="conn-text">
+                Код берётся с GitHub: <code>{source?.repo || "…"}</code>, ветка{" "}
+                <code>{source?.branch || "…"}</code>. Папка на компьютере не нужна — приложение
+                скачает его само перед сборкой.
+              </span>
+            </p>
+            <p className="hint">
+              Скачивается только папка personal-chat (около 2 МБ), а не весь репозиторий, и хранится
+              в {source?.folder ? <code>{source.folder}</code> : "папке с данными"}. Репозиторий
+              можно поменять в «Настройках».{" "}
+              <button type="button" className="link-like" onClick={() => setFromFolder(true)}>
+                Собрать из папки на компьютере
+              </button>
+            </p>
+          </>
+        )}
         <p className="hint">
           В репозиторий копии уезжает снимок папки personal-chat из канонической ветки — одним
           коммитом, без истории и без «Личного кода».

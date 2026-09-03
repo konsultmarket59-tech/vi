@@ -193,6 +193,21 @@ app.whenReady().then(async () => {
       pluginNames.every((name) => demoText.includes(name)),
       pluginNames.filter((n) => !demoText.includes(n)).join(", ")
     );
+    // Папки с исходниками на компьютере может не быть вовсе — код берётся из
+    // канонического репозитория, и страница обязана говорить об этом, а не
+    // требовать папку.
+    check("код берётся с GitHub, а не из папки", demoText.includes("Код берётся с GitHub"), demoText.slice(-400));
+    check(
+      "и это сказано зелёной галочкой, а не серым текстом",
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".conn-ok")].some(n => /Код берётся с GitHub/.test(n.textContent||""))`
+      )
+    );
+    check(
+      "папку на компьютере всё ещё можно выбрать осознанно",
+      demoText.includes("Собрать из папки на компьютере"),
+      ""
+    );
     check(
       "кнопка «Собрать» на месте",
       await win.webContents.executeJavaScript(

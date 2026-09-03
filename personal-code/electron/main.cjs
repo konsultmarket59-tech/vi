@@ -23,6 +23,7 @@ const report = require("./report.cjs");
 const github = require("./github.cjs");
 const copies = require("./copies.cjs");
 const publish = require("./publish.cjs");
+const sources = require("./sources.cjs");
 
 let mainWindow = null;
 
@@ -72,10 +73,9 @@ async function openWorkspace(dir) {
 
 // Архив плагинов живёт в «Документы\\Личный код», пока не выбрана другая папка.
 // Одно место, которое об этом знает, чтобы настройка и запуск не разошлись.
-function dataRootOf(settings) {
-  const chosen = (settings?.dataRoot || "").trim();
-  return chosen || settingsStore.stripWindowsExtendedPrefix(app.getPath("documents"));
-}
+// Папка с данными — одно определение на всё приложение, в settings.cjs: там же
+// рядом лежит резервная копия настроек, и разъехаться этим двум местам нельзя.
+const dataRootOf = settingsStore.dataRootOf;
 
 async function applyDataRoot() {
   const settings = await settingsStore.load();
@@ -283,8 +283,15 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   settingsStore.init();
+  // Служебная папка приложения пуста — значит, это первый запуск после
+  // переустановки или переезда: настройки берём из копии рядом с данными,
+  // чтобы ключ Polza, токен GitHub и прокси не пришлось вводить заново.
+  await settingsStore.restoreFromBackup();
   demoAccess.init(settingsStore.stripWindowsExtendedPrefix(app.getPath("userData")));
   await applyDataRoot();
+  // А если копии ещё нет (настройки заводились до появления этой возможности) —
+  // делаем её сейчас, не дожидаясь, пока человек что-нибудь изменит.
+  await settingsStore.backup(await settingsStore.load());
   await settingsStore.applyProxy(await settingsStore.load());
   const saved = await settingsStore.readSection("workspace", "");
   if (saved && fsSync.existsSync(saved)) currentRoot = saved;
@@ -492,6 +499,15 @@ function registerHandlers() {
     await settingsStore.writeSection("copies", all);
     return all;
   });
+  /** Откуда берётся код копий — показывается на вкладках сборки. */
+  ipcMain.handle("copies:source", async () => {
+    const settings = await settingsStore.load();
+    return {
+      repo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
+      branch: blueprints.DEFAULT_BRANCH,
+      folder: path.join(await appDataDir(), "Исходники"),
+    };
+  });
   ipcMain.handle("copies:setRevoked", async (_e, id, revoked) => {
     const all = copies.setRevoked(await storedCopies(), id, revoked);
     await settingsStore.writeSection("copies", all);
@@ -511,8 +527,13 @@ function registerHandlers() {
       if (!copy) throw new Error("Копия не найдена.");
       const account = await github.getAccount(await appDataDir());
       const keys = await demoAccess.keyInfo();
+      const settings = await settingsStore.load();
       const result = await publish.publish(copy, {
+        // Пустой sourcePath — обычный случай: код берётся с GitHub, папка с
+        // исходниками на компьютере не нужна.
         sourcePath: (options && options.sourcePath) || "",
+        sourceRepo: (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO,
+        mirrorDir: path.join(await appDataDir(), "Исходники"),
         branch: (options && options.branch) || blueprints.DEFAULT_BRANCH,
         token: account.token,
         publicKey: keys.publicKey,

@@ -44,10 +44,89 @@ const DEFAULT_SETTINGS = {
   // Папка, где лежит архив плагинов. Пустая строка — «Документы», как по
   // умолчанию; пользователь может перенести её на другой диск.
   dataRoot: "",
+  // Репозиторий с каноническим «Личным чатом»: код копий берётся оттуда, а не
+  // из папки на компьютере — папки может не быть вовсе.
+  sourceRepo: "konsultmarket59-tech/vi",
 };
 
 let configPath = null;
 let cachedProxyAuth = { username: "", password: "" };
+
+/**
+ * Папка с данными: выбранная человеком или «Документы» по умолчанию. Здесь же
+ * лежат архив плагинов и токен GitHub — настройки не должны жить в другом месте.
+ */
+function dataRootOf(settings) {
+  const chosen = (settings?.dataRoot || "").trim();
+  return chosen || stripWindowsExtendedPrefix(app.getPath("documents"));
+}
+
+/**
+ * Вторая копия настроек — рядом с данными, а не в служебной папке приложения.
+ *
+ * Служебную папку сносит переустановка «начисто», смена имени приложения или
+ * переезд на другой компьютер, и тогда ключ Polza, токен GitHub и прокси нужно
+ * вводить заново — притом что всё остальное (плагины, копии) лежит в папке с
+ * данными и переживает это спокойно. Файл обычный, не зашифрованный: у того,
+ * кто откроет папку, ключ будет перед глазами — ровно как у токена GitHub,
+ * который лежит там же с самого начала.
+ */
+function backupFile(settings) {
+  return path.join(dataRootOf(settings), "Личный код", "настройки.json");
+}
+
+/**
+ * Указатель на перенесённую папку с данными — в «Документах», где приложение
+ * ищет по умолчанию. Без него обещание «настройки переживут переустановку»
+ * было бы правдой только для тех, кто папку не переносил: на чистом месте
+ * искать её было бы негде. Секретов в файле нет, только путь.
+ */
+function pointerFile() {
+  return path.join(stripWindowsExtendedPrefix(app.getPath("documents")), "Личный код", "папка-с-данными.txt");
+}
+
+async function backup(settings) {
+  try {
+    const file = backupFile(settings);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, JSON.stringify({ settings, savedAt: new Date().toISOString() }, null, 2), "utf-8");
+    const pointer = pointerFile();
+    if (path.resolve(file) !== path.resolve(backupFile({}))) {
+      await fs.mkdir(path.dirname(pointer), { recursive: true });
+      await fs.writeFile(pointer, dataRootOf(settings), "utf-8");
+    }
+    return file;
+  } catch {
+    // Резервная копия — удобство, а не условие работы: недоступная папка не
+    // должна мешать сохранить настройки.
+    return "";
+  }
+}
+
+/**
+ * Возвращает настройки из резервной копии, если в служебной папке их нет.
+ * Ничего не перезаписывает молча: восстановление идёт только на пустом месте,
+ * иначе свежая настройка проиграла бы старому файлу.
+ */
+async function restoreFromBackup() {
+  const config = await readConfig();
+  if (config.settings && Object.keys(config.settings).length) return null;
+  try {
+    let file = backupFile({});
+    try {
+      const moved = (await fs.readFile(pointerFile(), "utf-8")).trim();
+      if (moved) file = backupFile({ dataRoot: moved });
+    } catch {
+      // Указателя нет — значит, папку не переносили.
+    }
+    const saved = JSON.parse(await fs.readFile(file, "utf-8"));
+    if (!saved?.settings || !Object.keys(saved.settings).length) return null;
+    await writeConfig({ ...config, settings: { ...DEFAULT_SETTINGS, ...saved.settings } });
+    return saved.settings;
+  } catch {
+    return null;
+  }
+}
 
 function init() {
   configPath = path.join(stripWindowsExtendedPrefix(app.getPath("userData")), "config.json");
@@ -75,6 +154,7 @@ async function save(settings) {
   const config = await readConfig();
   const merged = { ...DEFAULT_SETTINGS, ...(config.settings || {}), ...settings };
   await writeConfig({ ...config, settings: merged });
+  await backup(merged);
   // Proxy changes must take effect without restarting the app.
   await applyProxy(merged);
   return merged;
@@ -273,6 +353,10 @@ module.exports = {
   init,
   load,
   save,
+  dataRootOf,
+  backupFile,
+  backup,
+  restoreFromBackup,
   readSection,
   writeSection,
   applyProxy,

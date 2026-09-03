@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("api", {
   revealReport: (file) => ipcRenderer.invoke("report:reveal", file),
 
   copyPlugins: () => ipcRenderer.invoke("copies:plugins"),
+  copySource: () => ipcRenderer.invoke("copies:source"),
   listCopies: () => ipcRenderer.invoke("copies:list"),
   saveCopy: (copy) => ipcRenderer.invoke("copies:save", copy),
   deleteCopy: (id) => ipcRenderer.invoke("copies:delete", id),

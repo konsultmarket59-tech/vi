@@ -193,6 +193,13 @@ export default function SettingsView({ settings, onChange }: Props) {
           и файлами — ничего не уходит в облако и не хранится в этом приложении отдельно. Код проектов
           лежит там, где вы его открыли, и никуда не копируется.
         </p>
+        <p className="hint">
+          Здесь же лежит копия этих настроек — файл <code>настройки.json</code>. Благодаря ей ключ
+          Polza, токен GitHub и прокси переживают переустановку приложения и переезд на другой
+          компьютер: на чистом месте они читаются из этой папки (если вы её переносили, в
+          «Документах» остаётся указатель, где её искать). Файл обычный, не зашифрованный — у того,
+          кто получит доступ к папке, ключ будет перед глазами.
+        </p>
         <div className="row">
           <code className="folder-path">{dataFolder || "…"}</code>
           <button type="button" className="btn" onClick={changeDataFolder}>
@@ -476,6 +483,19 @@ export default function SettingsView({ settings, onChange }: Props) {
         {!githubStatus && github.token && (
           <p className="hint">Токен сохранён. Нажмите «Проверить и сохранить», чтобы убедиться, что он ещё действует.</p>
         )}
+        <label className="field-label">Репозиторий с каноническим «Личным чатом»</label>
+        <input
+          className="input"
+          placeholder="владелец/репозиторий"
+          value={draft.sourceRepo}
+          onChange={(e) => set("sourceRepo", e.target.value)}
+        />
+        <p className="hint">
+          Отсюда берётся код для сборок на вкладках «Демо» и «Чистовая сборка». Папка с исходниками
+          на компьютере не нужна: приложение скачивает из этого репозитория одну папку personal-chat
+          (около 2 МБ) и держит её в папке с данными.
+        </p>
+
         <div className="row">
           <div className="col">
             <label className="field-label">Имя для коммитов</label>

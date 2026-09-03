@@ -17,6 +17,8 @@ export interface Settings {
   searchProvider: "duckduckgo" | "tavily";
   searchApiKey: string;
   dataRoot: string;
+  /** Репозиторий с каноническим «Личным чатом» — откуда берётся код копий. */
+  sourceRepo: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchProvider: "duckduckgo",
   searchApiKey: "",
   dataRoot: "",
+  sourceRepo: "konsultmarket59-tech/vi",
 };
 
 export interface TreeNode {
@@ -209,9 +212,19 @@ export interface ChatCopy {
   updatedAt: number;
 }
 
+export interface CopySource {
+  /** Репозиторий с каноническим «Личным чатом», вида «владелец/репозиторий». */
+  repo: string;
+  branch: string;
+  /** Папка, куда приложение складывает скачанный код. */
+  folder: string;
+}
+
 export interface PublishResult {
   ok: boolean;
   message?: string;
+  /** Откуда взят код этой сборки: репозиторий@ветка или папка на компьютере. */
+  source?: string;
   all?: ChatCopy[];
   repo?: string;
   repoUrl?: string;
@@ -285,11 +298,12 @@ declare global {
       revealReport(file: string): Promise<boolean>;
 
       copyPlugins(): Promise<{ id: string; name: string }[]>;
+      copySource(): Promise<CopySource>;
       listCopies(): Promise<ChatCopy[]>;
       saveCopy(copy: Partial<ChatCopy>): Promise<{ all: ChatCopy[]; saved: ChatCopy }>;
       deleteCopy(id: string): Promise<ChatCopy[]>;
       setCopyRevoked(id: string, revoked: boolean): Promise<ChatCopy[]>;
-      publishCopy(id: string, options: { sourcePath: string; branch?: string }): Promise<PublishResult>;
+      publishCopy(id: string, options?: { sourcePath?: string; branch?: string }): Promise<PublishResult>;
       openCopyCode(id: string): Promise<WorkspaceInfo>;
       issueCopyLicence(
         id: string,
