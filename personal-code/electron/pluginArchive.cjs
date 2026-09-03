@@ -71,6 +71,8 @@ async function listVersions(pluginDir) {
       version: number,
       dir,
       note: manifest.note || "",
+      branch: manifest.branch || "",
+      commit: manifest.commit || "",
       createdAt: manifest.createdAt || "",
       skills: skills.length,
       sources,
@@ -94,6 +96,7 @@ async function list() {
       id: entry.name,
       name: meta.name || entry.name,
       description: meta.description || "",
+      branch: meta.branch || "",
       dir: pluginDir,
       latest: versions[0]?.version || 0,
       versions,
@@ -111,7 +114,19 @@ async function list() {
  * различие делается здесь одним параметром, а не двумя разными операциями,
  * потому что содержимое в обоих случаях складывается одинаково.
  */
-async function addVersion({ pluginId = "", name = "", description = "", note = "", skills = [], sourcePaths = [] }) {
+async function addVersion({
+  pluginId = "",
+  name = "",
+  description = "",
+  note = "",
+  skills = [],
+  sourcePaths = [],
+  // Ветка репозитория, в которой живёт код этого плагина, и коммит, из которого
+  // взята версия. Без этого через полгода не ответить на вопрос «а откуда это»:
+  // навыки в архиве лежат копией, а код продолжают писать в репозитории.
+  branch = "",
+  commit = "",
+} = {}) {
   const dir = root();
   const cleanName = String(name || "").trim();
   if (!pluginId && !cleanName) throw new Error("Не указано название плагина.");
@@ -128,6 +143,7 @@ async function addVersion({ pluginId = "", name = "", description = "", note = "
         id,
         name: cleanName || existingMeta.name || id,
         description: description || existingMeta.description || "",
+        branch: String(branch || existingMeta.branch || "").trim(),
         updatedAt: new Date().toISOString(),
       },
       null,
@@ -188,6 +204,8 @@ async function addVersion({ pluginId = "", name = "", description = "", note = "
         name: cleanName || existingMeta.name || id,
         version: next,
         note: String(note || "").trim(),
+        branch: String(branch || existingMeta.branch || "").trim(),
+        commit: String(commit || "").trim(),
         skills: cleanSkills.map((s) => s.name),
         sources: copied,
         createdAt: new Date().toISOString(),
@@ -198,7 +216,14 @@ async function addVersion({ pluginId = "", name = "", description = "", note = "
     "utf-8"
   );
 
-  return { id, version: next, dir: versionDir, skills: cleanSkills.length, sources: copied.length };
+  return {
+    id,
+    version: next,
+    dir: versionDir,
+    skills: cleanSkills.length,
+    sources: copied.length,
+    branch: String(branch || existingMeta.branch || "").trim(),
+  };
 }
 
 async function uniqueId(dir, base) {

@@ -37,6 +37,7 @@ const SCRIPT = [
   ].join("\n"),
 ];
 
+let SCRIPT_NOW = SCRIPT;
 const requests = [];
 let served = 0;
 
@@ -48,8 +49,14 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ data: [{ id: "test/model", name: "Test" }] }));
     }
+    // Страница для проверки доступа в интернет: настоящий HTTP-запрос, только
+    // до собственного сервера теста, а не до чужого сайта.
+    if (req.url.endsWith("/page")) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      return res.end("<html><title>Документация</title><body><p>Метод useFoo принимает два аргумента.</p></body></html>");
+    }
     requests.push({ auth: req.headers.authorization, body: JSON.parse(body || "{}") });
-    const content = SCRIPT[Math.min(served, SCRIPT.length - 1)];
+    const content = SCRIPT_NOW[Math.min(served, SCRIPT_NOW.length - 1)];
     served++;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }));
@@ -201,6 +208,55 @@ server.listen(0, "127.0.0.1", () => {
         "после отклонения файл остался прежним",
         fs.readFileSync(path.join(repo, "src", "app.js"), "utf-8") === ORIGINAL
       );
+      console.log("\nдоступ в интернет");
+      // Читающий инструмент, как и чтение файла: выполняется сразу, результат
+      // возвращается модели. Проверяем и то, что без разрешения он не работает.
+      const pageUrl = `http://127.0.0.1:${port}/page`;
+      SCRIPT_NOW = [
+        `Посмотрю документацию.\n===WEB FETCH===\nURL: ${pageUrl}\n===END===`,
+        "В документации сказано: метод принимает два аргумента.",
+      ];
+
+      const ask = async (question) => {
+        served = 0;
+        requests.length = 0;
+        await win.webContents.executeJavaScript(`
+          (() => {
+            const box = document.querySelector(".agent-input .textarea");
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+            setter.call(box, ${JSON.stringify(question)});
+            box.dispatchEvent(new Event("input", { bubbles: true }));
+            return true;
+          })()
+        `);
+        await win.webContents.executeJavaScript(
+          `[...document.querySelectorAll(".agent-input .btn")].find(b=>b.textContent==="Отправить").click()`
+        );
+        const deadline = Date.now() + 20000;
+        while (Date.now() < deadline) {
+          const thinking = await win.webContents.executeJavaScript(
+            `[...document.querySelectorAll(".bubble-content")].some(b => b.textContent === "Думаю…")`
+          );
+          if (requests.length >= 1 && !thinking) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        return requests;
+      };
+
+      await win.webContents.executeJavaScript(`window.api.saveSettings({ searchEnabled: false })`);
+      await ask("Что там в документации?");
+      check("без разрешения в интернет не ходим", requests.length === 1, String(requests.length));
+
+      await win.webContents.executeJavaScript(`window.api.saveSettings({ searchEnabled: true })`);
+      await ask("А теперь посмотри документацию");
+      check("с разрешением страница прочитана и отдана модели", requests.length === 2, String(requests.length));
+      const fedBack = JSON.stringify(requests[1]?.body.messages || []);
+      check("текст страницы вернулся модели", fedBack.includes("два аргумента"), fedBack.slice(-300));
+      check(
+        "правила поиска попали в системную инструкцию",
+        JSON.stringify((requests[1]?.body.messages || []).filter((m) => m.role === "system")).includes("WEB SEARCH")
+      );
+      await win.webContents.executeJavaScript(`window.api.saveSettings({ searchEnabled: false })`);
     } catch (e) {
       failures++;
       console.log("  FAIL непойманная ошибка —", e.message);

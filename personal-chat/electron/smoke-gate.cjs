@@ -113,6 +113,17 @@ async function waitFor(win, expression, label, timeout = 20000) {
       );
       check("код компьютера показан целиком", /^[0-9A-F]{5}(-[0-9A-F]{5}){3}$/.test(shown.trim()), shown);
 
+      // Условие копии видно на самом экране активации, а не только в переписке
+      // с автором: тестировщик читает его до того, как начнёт работать.
+      check(
+        "предупреждение о непередаваемости показано",
+        /не для продажи[\s\S]*не может быть передана/i.test(
+          await win.webContents.executeJavaScript(
+            `(document.querySelector(".licence-terms")||{}).textContent || ""`
+          )
+        )
+      );
+
       await win.webContents.capturePage().then((img) =>
         fs.writeFileSync(path.join(os.tmpdir(), "chat-gate.png"), img.toPNG())
       );
@@ -193,6 +204,87 @@ async function waitFor(win, expression, label, timeout = 20000) {
         refused = e.message;
       }
       check("изменить предустановленный навык нельзя", /нельзя изменить/.test(refused), refused);
+
+      console.log("\nсрок кончился и продлён задним числом");
+      // Обещание тестировщику: истёкший срок — это закрытая дверь, а не потеря
+      // работы. Проверяем на настоящих файлах: заводим проект с документом,
+      // подкладываем просроченную лицензию, ждём экран «срок истёк», активируем
+      // заново и смотрим, что проект и документ на месте.
+      const project = await win.webContents.executeJavaScript(
+        `window.api.createProject({ name: "Проект до срока", description: "", instructions: "Проверка сохранности." })`
+      );
+      const docsDir = path.join(dataRoot, "projects", project.id, "docs");
+      fs.mkdirSync(docsDir, { recursive: true });
+      fs.writeFileSync(path.join(docsDir, "договор.md"), "Текст, который нельзя потерять.\n", "utf-8");
+
+      const expiredLicence = {
+        id: require("node:crypto").randomUUID(),
+        tester: "Мария Тестова",
+        displayName: "Личный чат Марии",
+        machine: demoAccess.normalizeMachineCode(shown),
+        product: "Личный чат",
+        issuedAt: new Date(Date.now() - 60 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        revocationUrl: "",
+      };
+      fs.writeFileSync(
+        path.join(userData, "licence.json"),
+        JSON.stringify({ licence: expiredLicence, signature: await demoAccess.sign(expiredLicence) }, null, 2),
+        "utf-8"
+      );
+      fs.rmSync(path.join(userData, "licence-state.json"), { force: true });
+
+      await win.webContents.reload();
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await waitFor(win, `!!document.querySelector(".licence-gate")`, "после окончания срока показан экран активации");
+      const expiredHeading = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-heading")||{}).textContent || ""`
+      );
+      check("названа именно причина «срок»", /срок/i.test(expiredHeading), expiredHeading);
+      check(
+        "сказано, что данные сохранены",
+        /остались на месте|не удаляются/i.test(
+          await win.webContents.executeJavaScript(`document.querySelector(".licence-card").textContent`)
+        )
+      );
+      check(
+        "папка проекта на диске не тронута",
+        fs.existsSync(path.join(dataRoot, "projects", project.id, "project.json")) &&
+          fs.readFileSync(path.join(docsDir, "договор.md"), "utf-8").includes("нельзя потерять")
+      );
+
+      // Продление приходит позже окончания срока — как это и бывает.
+      const renewalSource = demoAccess.save([], {
+        name: "Мария Тестова",
+        displayName: "Личный чат Марии",
+        machineCode: shown,
+      }).all;
+      const renewal = await demoAccess.issue(renewalSource, renewalSource[0].id, {
+        days: 30,
+        productName: "Личный чат",
+      });
+      const renewedResult = await win.webContents.executeJavaScript(
+        `window.api.activateLicence(${JSON.stringify(renewal.contents)})`
+      );
+      check("продление принято", renewedResult.ok === true, JSON.stringify(renewedResult));
+
+      await win.webContents.reload();
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await waitFor(win, `!!document.querySelector(".sidebar")`, "после продления приложение снова открывается");
+      const projectsAfter = await win.webContents.executeJavaScript(`window.api.listProjects()`);
+      check(
+        "проект на месте после продления",
+        projectsAfter.some((p) => p.id === project.id),
+        JSON.stringify(projectsAfter.map((p) => p.name))
+      );
+      const docsAfter = await win.webContents.executeJavaScript(
+        `window.api.listDocs(${JSON.stringify(project.id)})`
+      );
+      check(
+        "документ проекта на месте после продления",
+        docsAfter.some((d) => d.name === "договор.md"),
+        JSON.stringify(docsAfter)
+      );
 
       console.log("\nотчёт о проблеме");
       const info = await win.webContents.executeJavaScript(`window.api.reportInfo()`);

@@ -12,6 +12,9 @@ const git = require("./git.cjs");
 const agent = require("./agent.cjs");
 const blueprints = require("./blueprints.cjs");
 const demoAccess = require("./demoAccess.cjs");
+const buildPipeline = require("./build.cjs");
+const pluginArchive = require("./pluginArchive.cjs");
+const copies = require("./copies.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -322,6 +325,103 @@ function writeSample(rel, content) {
   const parsed = JSON.parse(fs.readFileSync(exported.file, "utf-8"));
   check("записанный конфиг читается", parsed.productName === "Тексты" && parsed.modules.word === true);
 
+  console.log("\nсборка одной кнопкой");
+  // Всё, что раньше делалось вручную по трём вкладкам, теперь один проход.
+  // Установщик здесь не собираем — на это нужен настоящий проект и минуты; всё
+  // остальное проверяем на настоящих файлах.
+  const chatDir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-chat-"));
+  fs.writeFileSync(
+    path.join(chatDir, "package.json"),
+    JSON.stringify({ name: "personal-chat", version: "1.0.0" }, null, 2)
+  );
+
+  const archiveHome = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-archive-"));
+  pluginArchive.init(archiveHome);
+  demoAccess.init(archiveHome);
+  await demoAccess.createKeys();
+  const plugin = await pluginArchive.addVersion({
+    name: "Копирайтинг",
+    description: "Навыки для текстов",
+    skills: [{ name: "Пост во ВКонтакте", description: "Пишет пост", content: "Правила поста…" }],
+  });
+
+  const blueprint = {
+    name: "Для фокус-группы",
+    productName: "Личный чат Марии",
+    modules: ["word"],
+    sourcePath: chatDir,
+    branch: "",
+    apiKey: "polza-test-key",
+    model: "anthropic/claude-sonnet-5",
+    pricesText: "anthropic/claude-sonnet-5 300,5 1500",
+    skills: [{ id: plugin.id, version: plugin.version }],
+    demoGated: true,
+    revocationUrl: "https://example.invalid/revoked.json",
+  };
+
+  const lines = [];
+  const built = await buildPipeline.build(blueprint, { onLog: (l) => lines.push(l), skipInstaller: true });
+  check("сборка прошла шаги без установщика", built.installerBuilt === false);
+  check("рассказала, что делает", lines.length >= 4, lines.join(" | "));
+
+  const pluginsJson = JSON.parse(fs.readFileSync(path.join(chatDir, "plugins.json"), "utf-8"));
+  check("модули записаны", pluginsJson.modules.word === true && pluginsJson.modules.excel === false);
+  check("имя копии записано", pluginsJson.productName === "Личный чат Марии", pluginsJson.productName);
+
+  const managed = JSON.parse(fs.readFileSync(path.join(chatDir, "managed-config.json"), "utf-8"));
+  check("ключ моделей вшит", managed.apiKey === "polza-test-key", JSON.stringify(managed.apiKey));
+  check(
+    "цена с запятой понята правильно",
+    managed.prices["anthropic/claude-sonnet-5"]?.input === 300.5,
+    JSON.stringify(managed.prices)
+  );
+
+  const licenceConfig = JSON.parse(fs.readFileSync(path.join(chatDir, "licence-config.json"), "utf-8"));
+  check("открытый ключ подписи уехал в сборку", Boolean(licenceConfig.publicKey));
+  check("закрытый ключ в сборку не уехал", !JSON.stringify(licenceConfig).includes("privateKey"));
+  check("ссылка на список отзыва записана", licenceConfig.revocationUrl.includes("revoked.json"));
+
+  const bundled = fs.readdirSync(path.join(chatDir, "bundled-skills"));
+  check("навык из архива вшит", bundled.length === 1, bundled.join(","));
+
+  // Сборка без активации: файла лицензии остаться не должно, иначе копия
+  // неожиданно попросит активацию у самой владелицы.
+  await buildPipeline.build({ ...blueprint, demoGated: false, skills: [] }, { skipInstaller: true });
+  check("без активации файл лицензии убран", !fs.existsSync(path.join(chatDir, "licence-config.json")));
+  check(
+    "снятый плагин исчез из сборки",
+    fs.readdirSync(path.join(chatDir, "bundled-skills")).length === 0
+  );
+
+  await expectThrows(
+    "чужая папка отклоняется до сборки",
+    () => buildPipeline.build({ ...blueprint, sourcePath: root }, { skipInstaller: true }),
+    /не папка с исходниками|personal-chat/
+  );
+
+  // Ветка: незакоммиченные правки важнее удобства — сборка останавливается.
+  execFileSync("git", ["init", "-b", "main"], { cwd: chatDir });
+  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: chatDir });
+  execFileSync("git", ["config", "user.name", "Тест"], { cwd: chatDir });
+  execFileSync("git", ["add", "-A"], { cwd: chatDir });
+  execFileSync("git", ["commit", "-m", "исходники"], { cwd: chatDir });
+  execFileSync("git", ["branch", "релиз"], { cwd: chatDir });
+  fs.writeFileSync(path.join(chatDir, "черновик.txt"), "незакоммиченная правка\n");
+  await expectThrows(
+    "с незакоммиченными правками на другую ветку не переключаемся",
+    () => buildPipeline.build({ ...blueprint, branch: "релиз" }, { skipInstaller: true }),
+    /незакоммиченные/
+  );
+  fs.rmSync(path.join(chatDir, "черновик.txt"));
+  await buildPipeline.build({ ...blueprint, branch: "релиз" }, { skipInstaller: true });
+  check(
+    "на чистой копии ветка переключается",
+    execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: chatDir, encoding: "utf-8" }).trim() === "релиз"
+  );
+
+  fs.rmSync(chatDir, { recursive: true, force: true });
+  fs.rmSync(archiveHome, { recursive: true, force: true });
+
   console.log("\nдемо-доступ: таблица цен");
   // Цену пишут по-русски, с запятой. Если считать запятую разделителем колонок,
   // «300,5 1500» превращается в «300» и «5» — и расход показывается втрое-в-сотни
@@ -340,6 +440,81 @@ function writeSample(rel, content) {
   check("запятая с пробелом — тоже разделитель", spacedCsv.prices["модель"]?.output === 1500, JSON.stringify(spacedCsv));
   const broken = demoAccess.parsePrices("модель 300");
   check("неполная строка объясняется, а не молчит", broken.problems.length === 1, JSON.stringify(broken));
+
+  console.log("\nкопии: имя, репозиторий, модули");
+  check("репозиторий предлагается по имени", copies.repoNameFor("Мария Тестова").startsWith("personal-chat-"));
+  check("название в окне — «Личный чат Имя»", copies.displayNameFor("Марии") === "Личный чат Марии");
+
+  let copyStore = [];
+  const demoDraft = {
+    name: "Мария Тестова",
+    kind: "demo",
+    apiKey: "polza-demo-key",
+    days: 5,
+    plugins: ["docflow", "finmodel"],
+    machineCode: "1A2B3-C4D5E-6F7A8-B9C0D",
+  };
+  await expectThrows(
+    "демо без ключа отклоняется",
+    () => copies.save([], { ...demoDraft, apiKey: "" }),
+    /ключ Polza/
+  );
+  ({ all: copyStore } = copies.save(copyStore, demoDraft));
+  const demoCopy = copyStore[0];
+  check(
+    "демо получает базу, офис и выбранные плагины",
+    JSON.stringify(copies.modulesOf(demoCopy).sort()) ===
+      JSON.stringify(["docflow", "excel", "finmodel", "projects", "skills", "word"].sort()),
+    JSON.stringify(copies.modulesOf(demoCopy))
+  );
+  check("демо-копия всегда просит активацию", copies.toBlueprint(demoCopy).demoGated === true);
+
+  console.log("\nкопии: выдача, отзыв, перевыдача");
+  const licence1 = copies.licenceFor(demoCopy, {});
+  check("лицензия подписана на код компьютера копии", licence1.machine === demoCopy.machineCode);
+  copyStore = [copies.withIssuedLicence(demoCopy, licence1)];
+  check("выданная лицензия записана в копию", copyStore[0].licenceId === licence1.id);
+
+  copyStore = copies.setRevoked(copyStore, copyStore[0].id, true);
+  check("отозванный id попадает в список отзыва", copies.revokedIds(copyStore).includes(licence1.id));
+
+  // Перевыдача после отзыва не должна тихо вернуть старую копию к жизни — тот
+  // же дефект, что уже чинился в demoAccess.cjs, здесь проверяется отдельно,
+  // потому что copies.cjs — независимая реализация того же правила.
+  const licence2 = copies.licenceFor(copyStore[0], {});
+  copyStore = [copies.withIssuedLicence(copyStore[0], licence2)];
+  check("новый файл получил другой id", licence2.id !== licence1.id);
+  check(
+    "старый отозванный id остаётся в списке и после перевыдачи",
+    copies.revokedIds(copyStore).includes(licence1.id) && !copies.revokedIds(copyStore).includes(licence2.id),
+    JSON.stringify(copies.revokedIds(copyStore))
+  );
+
+  await expectThrows(
+    "лицензия без кода компьютера не выдаётся",
+    () => copies.licenceFor({ ...demoCopy, machineCode: "" }, {}),
+    /код компьютера/
+  );
+
+  console.log("\nкопии: оплаченная копия и защита от копирования");
+  const paidDraft = {
+    name: "Мария Тестова",
+    kind: "paid",
+    fromCopyId: demoCopy.id,
+    repoName: demoCopy.repoName,
+    days: 365,
+  };
+  const { all: withPaid } = copies.save(copyStore, paidDraft);
+  const paidCopy = withPaid.find((c) => c.kind === "paid");
+  check("оплаченная копия не несёт вшитого ключа", paidCopy.apiKey === "");
+  check("оплаченная копия защищена от копирования по умолчанию", copies.toBlueprint(paidCopy).demoGated === true);
+  const unprotected = copies.normalize({ ...paidCopy, copyProtection: false });
+  check("защиту можно снять явно", copies.toBlueprint(unprotected).demoGated === false);
+  await expectThrows(
+    "два разных id не делят один репозиторий, если не переносится явно",
+    () => copies.save(withPaid, { name: "Другой Клиент", kind: "demo", apiKey: "k", repoName: demoCopy.repoName }),
+    /уже занят/
+  );
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   fs.rmSync(root, { recursive: true, force: true });

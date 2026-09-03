@@ -1173,6 +1173,18 @@ a:hover { color: var(--accent-hover); }
 }
 
 .licence-heading { margin: 6px 0 14px; font-size: 22px; }
+
+/* Условие копии: рамка слева, чтобы читалось как условие, а не как подпись. */
+.licence-terms {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
 .licence-message { margin: 0 0 16px; line-height: 1.6; }
 .licence-step { margin: 18px 0 8px; }
 
@@ -1322,7 +1334,10 @@ a:hover { color: var(--accent-hover); }
 
 /* Визуализация: предпросмотр макета в его собственном размере, уменьшенный до
    ширины панели — так видно пропорции, а не обрезанный кусок. */
-.viz-result { display: flex; gap: 16px; padding: 10px 0; align-items: flex-start; }
+/* Предпросмотр и кнопки — в столбик и с переносом: макет бывает 1920 пикселей
+   шириной, панель — вдвое уже, и строкой они не помещались (кнопка сохранения
+   уезжала за правый край окна). */
+.viz-result { display: flex; gap: 16px; padding: 10px 0; align-items: flex-start; flex-wrap: wrap; }
 .viz-preview-wrap {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1330,7 +1345,20 @@ a:hover { color: var(--accent-hover); }
   background: var(--surface-2);
   flex-shrink: 0;
 }
+.viz-problem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.viz-problem span { flex: 1; min-width: 240px; }
 .viz-preview { border: 0; display: block; transform-origin: top left; }
+.viz-preview-loading { padding: 20px; font-size: 12px; color: var(--text-dim); }
 .viz-result-actions { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 
 .viz-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1418,3 +1446,88 @@ a:hover { color: var(--accent-hover); }
 .profile-box-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .profile-box-head strong { flex: 1; }
 .profile-body { display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-top: 8px; }
+
+/* Финмодель. Форма слева, итоги справа: цифры должны быть видны, пока правишь
+   исходные данные, — иначе непонятно, что именно меняет твоя правка.
+
+   Прокрутка живёт в КАЖДОЙ колонке отдельно, а не на странице. Форма здесь
+   длинная — восемь блоков, — и на невысоком экране без своей прокрутки нижняя
+   часть вместе с кнопкой «Рассчитать» просто оказывается за краем окна:
+   оболочка раздела обрезает содержимое по высоте и сама не прокручивается. */
+.fin-body { display: flex; flex: 1; min-height: 0; gap: 20px; padding: 14px 16px; }
+.fin-form {
+  flex: 1 1 460px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.fin-right { flex: 1 1 380px; min-width: 300px; display: flex; flex-direction: column; min-height: 0; }
+.fin-result { overflow-y: auto; flex: 0 1 auto; }
+.fin-lead { font-size: 13px; color: var(--text-dim); margin: 0; }
+.fin-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fin-block h3 { margin: 0 0 10px; font-size: 14px; }
+.fin-block label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.fin-block label input,
+.fin-block label select,
+.fin-block label textarea { width: 100%; margin-top: 4px; }
+.fin-pair { display: flex; gap: 10px; }
+.fin-pair label { flex: 1; }
+.fin-block label.fin-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
+.fin-block label.fin-check input { width: auto; margin-top: 2px; flex: 0 0 auto; }
+.fin-hint { font-size: 12px; color: var(--text-dim); margin: 6px 0 0; }
+
+.fin-rows { display: flex; flex-direction: column; gap: 6px; }
+.fin-row { display: flex; gap: 6px; align-items: center; }
+.fin-row input, .fin-row select { min-width: 0; }
+.fin-row-head { font-size: 11px; color: var(--text-dim); }
+.fin-row-head span { padding: 0 2px; }
+button.fin-row-x, span.fin-row-x { flex: 0 0 24px; width: 24px; }
+button.fin-row-x { border: 0; background: none; cursor: pointer; color: var(--text-dim); }
+button.fin-row-x:hover { color: var(--accent); }
+
+/* Сезонность — двенадцать узких полей: так видно форму года целиком. Сетка по
+   шесть, а не перенос по месту: перенос давал рваные 9+3, а два ровных
+   полугодия читаются как год. */
+.fin-season { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 4px; }
+.fin-season span { display: flex; flex-direction: column; min-width: 0; }
+.fin-season em { font-size: 10px; color: var(--text-dim); font-style: normal; text-align: center; }
+.fin-season input { width: 100%; padding: 3px; text-align: center; font-size: 12px; }
+
+.fin-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.fin-file { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.fin-file button { border: 0; background: none; cursor: pointer; color: var(--text-dim); margin-left: 4px; }
+
+.fin-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.fin-applied,
+.fin-saved,
+.fin-error { font-size: 12px; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+.fin-applied { border: 1px solid var(--border); }
+.fin-saved { border: 1px solid var(--accent); }
+.fin-error { border: 1px solid var(--accent); color: var(--accent); }
+
+.fin-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fin-table th, .fin-table td { text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+.fin-table th:first-child, .fin-table td:first-child { text-align: left; }
+.fin-table .fin-base { font-weight: 600; }
+
+/* Чат агента — под итогами в правой колонке, со своей высотой: иначе он либо
+   схлопывается в ноль, либо выдавливает итоги за край. */
+.fin-agent {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  flex: 1 1 auto;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.fin-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-shrink: 0; }
+.fin-agent-head strong { flex: 1; }
+.fin-agent > .chat-view { flex: 1; min-height: 0; }

@@ -38,9 +38,10 @@ export default function DataVizView({ settings, skills, onOpenSettings }: Props)
 
   const [prepared, setPrepared] = useState<DatavizPrepared | null>(null);
   const [conv, setConv] = useState<Conversation | null>(null);
-  const [prefill, setPrefill] = useState<{ text: string; attachments?: ChatAttachment[]; nonce: number } | undefined>();
+  const [prefill, setPrefill] = useState<{ text: string; attachments?: ChatAttachment[]; autoSend?: boolean; nonce: number } | undefined>();
   const [result, setResult] = useState<{ title: string; html: string } | null>(null);
   const [previewHtml, setPreviewHtml] = useState("");
+  const [parseProblem, setParseProblem] = useState("");
   const [savedPaths, setSavedPaths] = useState<{ png?: string; pdf?: string; html?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +57,10 @@ export default function DataVizView({ settings, skills, onOpenSettings }: Props)
   const preset = presets.find((p) => p.id === presetId);
   const palette = palettes.find((p) => p.id === paletteId);
   const activeSeries = overrides.series || palette?.series || [];
+  // Предпросмотр всегда в одну колонку фиксированной ширины: панель бывает узкой,
+  // а макет — 1920 пикселей шириной.
+  const previewWidth = 320;
+  const previewScale = previewWidth / (preset?.width || 1080);
 
   async function prepare() {
     setError(null);
@@ -97,13 +102,40 @@ export default function DataVizView({ settings, skills, onOpenSettings }: Props)
 
   async function onAssistantMessage(content: string) {
     setSavedPaths(null);
+    setParseProblem("");
     const parsed = await window.api.parseDatavizResult(content).catch(() => null);
     setResult(parsed);
     if (parsed) {
       setPreviewHtml(await window.api.previewDataviz(parsed.html, presetId, paletteId, overrides));
-    } else {
-      setPreviewHtml("");
+      return;
     }
+    setPreviewHtml("");
+    // Молчание здесь — худшее, что можно сделать: человек видит пустое место и не
+    // понимает, ждать ему или переделывать. Причин ровно две, и обе различимы.
+    if (content.includes("===ВИЗУАЛИЗАЦИЯ===")) {
+      setParseProblem(
+        "Агент начал макет, но не дописал его до конца — ответ оборвался. Обычно это упирается в лимит " +
+          "«Max tokens» в настройках: макет на весь холст длинный. Поднимите лимит или попросите макет проще."
+      );
+    } else {
+      setParseProblem(
+        "Агент ответил, но не прислал макет в нужном формате — сохранять нечего. Нажмите «Переделать»: " +
+          "приложение напомнит ему формат."
+      );
+    }
+  }
+
+  /** Просит агента вернуть ответ в том формате, который приложение умеет сохранить. */
+  function askAgain() {
+    setParseProblem("");
+    setPrefill({
+      text:
+        "Пришли, пожалуйста, тот же макет строго в формате из инструкции: блок ===ВИЗУАЛИЗАЦИЯ=== " +
+        "со строкой TITLE, затем ===HTML=== с разметкой целиком и закрывающая строка ===КОНЕЦ===. " +
+        "Разметку не сокращай и не оборачивай в markdown.",
+      autoSend: true,
+      nonce: Date.now(),
+    });
   }
 
   async function save() {
@@ -319,22 +351,48 @@ export default function DataVizView({ settings, skills, onOpenSettings }: Props)
               </div>
             )}
 
+            {parseProblem && (
+              <div className="viz-problem">
+                <span>{parseProblem}</span>
+                <button className="btn btn-secondary btn-small" onClick={askAgain}>
+                  Переделать
+                </button>
+              </div>
+            )}
+
             {result && (
               <div className="viz-result">
-                <div className="viz-preview-wrap">
+                <div
+                  className="viz-preview-wrap"
+                  // Размер коробки — уже уменьшенный. transform не меняет разметку:
+                  // без этого коробка занимала полные 1080×1350, вылезала за окно и
+                  // выталкивала кнопку сохранения за его правый край.
+                  style={{ width: previewWidth, height: Math.round((preset?.height || 1350) * previewScale) }}
+                >
                   {/* Разметку от модели показываем в изолированном фрейме без скриптов:
-                      в окне самого приложения ей выполняться незачем. */}
-                  <iframe
-                    className="viz-preview"
-                    sandbox=""
-                    srcDoc={previewHtml}
-                    style={{
-                      width: preset?.width,
-                      height: preset?.height,
-                      transform: `scale(${Math.min(1, 420 / (preset?.width || 1080))})`,
-                    }}
-                    title="Предпросмотр"
-                  />
+                      в окне самого приложения ей выполняться незачем.
+
+                      Фрейм появляется ТОЛЬКО с готовой разметкой и пересоздаётся по
+                      ключу на каждый новый макет. Пустой фрейм, которому srcdoc
+                      подставляют следом, оставался белым: загрузка пустого документа
+                      и загрузка разметки — две гонки, и выигрывала пустая. Проверено
+                      отдельным опытом, а не додумано. */}
+                  {previewHtml ? (
+                    <iframe
+                      key={`${result.title}:${previewHtml.length}`}
+                      className="viz-preview"
+                      sandbox=""
+                      srcDoc={previewHtml}
+                      style={{
+                        width: preset?.width,
+                        height: preset?.height,
+                        transform: `scale(${previewScale})`,
+                      }}
+                      title="Предпросмотр"
+                    />
+                  ) : (
+                    <div className="viz-preview-loading">Готовлю предпросмотр…</div>
+                  )}
                 </div>
                 <div className="viz-result-actions">
                   <strong>{result.title}</strong>

@@ -613,6 +613,137 @@ export interface DatavizPrepared {
   problems: string[];
 }
 
+export interface TaxRegime {
+  id: string;
+  name: string;
+  rate: number;
+  minRate?: number;
+  vat?: number;
+  hint: string;
+}
+
+export interface CostKind {
+  id: "month" | "unit" | "revenue";
+  name: string;
+}
+
+export interface PayrollRow {
+  role: string;
+  count: number;
+  salary: number;
+  percentOfSales: number;
+}
+
+export interface NamedAmount {
+  name: string;
+  monthly?: number;
+  amount?: number;
+}
+
+export interface VariableCostRow {
+  name: string;
+  kind: "month" | "unit" | "revenue";
+  value: number;
+}
+
+/** Ставки, которые задаёт закон, а не проект. Все попадают в книгу отдельными
+ *  ячейками: законодательство меняется, и жёсткая константа однажды соврёт. */
+export interface FinRates {
+  insurance: number;
+  insuranceReduced: number;
+  minWage: number;
+  useReducedInsurance: boolean;
+  vatThreshold: number;
+  vatRateLow: number;
+  vatRateMid: number;
+  vatLowLimit: number;
+  ipFixedContribution: number;
+  discountRate: number;
+  inflation: number;
+  npdLimit: number;
+}
+
+export interface FinModelInput {
+  projectName: string;
+  productName: string;
+  price: number;
+  unitCost: number;
+  baseVolume: number;
+  startYear: number;
+  startMonth: number;
+  horizonYears: number;
+  seasonality: number[];
+  rampUp: number[];
+  inflation: number[];
+  indexPrice: boolean;
+  scenarios: { pess: number; base: number; opt: number };
+  tax: {
+    regime: string;
+    patentYear: number;
+    npdLegal: boolean;
+    priceIncludesVat: boolean;
+    ipWithoutStaff: boolean;
+  };
+  payroll: PayrollRow[];
+  fixedCosts: { name: string; monthly: number }[];
+  variableCosts: VariableCostRow[];
+  investments: { name: string; amount: number }[];
+  rates: FinRates;
+  notes: string;
+}
+
+export interface FinYear {
+  year: number;
+  index: number;
+  revenue: number;
+  units: number;
+  cogs: number;
+  gross: number;
+  payroll: number;
+  insurance: number;
+  fixed: number;
+  variable: number;
+  ebitda: number;
+  tax: number;
+  vat: number;
+  net: number;
+  minTaxTopUp: number;
+  vatOnThreshold: number;
+}
+
+/** Итоги одного сценария. Помесячные строки на экран не отдаются — их до 120
+ *  на сценарий, и место им в книге, а не в интерфейсе. */
+export interface FinScenario {
+  years: FinYear[];
+  investment: number;
+  payback: { months: number; label: string } | null;
+  npv: number;
+  irr: number | null;
+  breakEvenUnits: number | null;
+  breakEvenRevenue: number | null;
+  marginPerUnit: number;
+  totalNet: number;
+  totalRevenue: number;
+}
+
+export interface FinComputed {
+  input: FinModelInput;
+  pess: FinScenario;
+  base: FinScenario;
+  opt: FinScenario;
+}
+
+/** Допущения, которые агент достал из статистики и официальных источников. */
+export interface FinParams {
+  baseVolume: number | null;
+  seasonality: number[] | null;
+  rampUp: number[] | null;
+  inflation: number[] | null;
+  minWage: number | null;
+  sources: { inflation: string; minWage: string };
+  comment: string;
+}
+
 /** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
 export type CleanupOp =
   | { op: "mkdir"; target: string }
@@ -1026,6 +1157,29 @@ export interface ElectronAPI {
     outputDir: string;
     formats: string[];
   }): Promise<{ png?: string; pdf?: string; html?: string }>;
+
+  // финмодель
+  finmodelOptions(): Promise<{
+    regimes: TaxRegime[];
+    costKinds: CostKind[];
+    rates: FinRates;
+    months: string[];
+  }>;
+  prepareFinmodelParams(request: {
+    input: Partial<FinModelInput>;
+    dataPaths?: string[];
+    searchRates?: boolean;
+  }): Promise<{ prompt: string; problems: string[] }>;
+  parseFinmodelParams(text: string, input: Partial<FinModelInput>): Promise<FinParams | null>;
+  computeFinmodel(input: Partial<FinModelInput>): Promise<FinComputed>;
+  prepareFinmodelAdvice(input: Partial<FinModelInput>): Promise<string>;
+  saveFinmodel(payload: {
+    input: Partial<FinModelInput>;
+    destDir: string;
+    fileName?: string;
+    advice?: string;
+    sources?: { inflation?: string; minWage?: string };
+  }): Promise<string>;
 
   // клининг
   pickCleanupFolder(): Promise<string | null>;

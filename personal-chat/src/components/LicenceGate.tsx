@@ -56,7 +56,24 @@ export default function LicenceGate({ status, onActivated }: Props) {
         <div className="licence-product">{status.productName || "Личный чат"} — демо-версия</div>
         <h1 className="licence-heading">{HEADINGS[status.reason] || "Активация"}</h1>
 
+        {/* Условие копии — на самом видном месте и на каждом экране шлюза, а не
+            один раз при первом запуске: копия остаётся именной всё время, пока
+            ею пользуются. */}
+        <p className="licence-terms">
+          Данная версия не для продажи и не может быть передана другому пользователю. Чтобы начать
+          работу, сообщите код разработчику — он показан ниже.
+        </p>
+
         {status.message && <p className="licence-message">{status.message}</p>}
+
+        {status.reason === "expired" && (
+          <p className="hint">
+            Проекты, документы, чаты и навыки остались на месте — они лежат обычными файлами в вашей
+            папке с данными и при истечении срока не удаляются. Как только придёт новый файл
+            активации, работа продолжится с того же места, даже если продление произошло намного
+            позже окончания срока.
+          </p>
+        )}
 
         {status.reason === "revoked" && (
           <p className="hint">
