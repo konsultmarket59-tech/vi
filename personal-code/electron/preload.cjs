@@ -10,19 +10,27 @@ contextBridge.exposeInMainWorld("api", {
   testProxy: (draft) => ipcRenderer.invoke("settings:testProxy", draft),
   listModels: (draft) => ipcRenderer.invoke("models:list", draft),
   pickChatSources: () => ipcRenderer.invoke("blueprints:pickSource"),
-  buildBlueprint: (blueprint, options) => ipcRenderer.invoke("blueprints:build", blueprint, options),
-  openReleaseFolder: (dir) => ipcRenderer.invoke("blueprints:openRelease", dir),
-  onBuildLog: (handler) => {
-    const listener = (_e, line) => handler(line);
-    ipcRenderer.on("blueprints:buildLog", listener);
-    return () => ipcRenderer.removeListener("blueprints:buildLog", listener);
-  },
   dataFolder: () => ipcRenderer.invoke("settings:dataFolder"),
 
   reportInfo: () => ipcRenderer.invoke("report:info"),
   logProblem: (level, message) => ipcRenderer.invoke("report:log", level, message),
   writeReport: (description) => ipcRenderer.invoke("report:write", description),
   revealReport: (file) => ipcRenderer.invoke("report:reveal", file),
+
+  copyPlugins: () => ipcRenderer.invoke("copies:plugins"),
+  listCopies: () => ipcRenderer.invoke("copies:list"),
+  saveCopy: (copy) => ipcRenderer.invoke("copies:save", copy),
+  deleteCopy: (id) => ipcRenderer.invoke("copies:delete", id),
+  setCopyRevoked: (id, revoked) => ipcRenderer.invoke("copies:setRevoked", id, revoked),
+  publishCopy: (id, options) => ipcRenderer.invoke("copies:publish", id, options),
+  openCopyCode: (id) => ipcRenderer.invoke("copies:openCode", id),
+  issueCopyLicence: (id, days) => ipcRenderer.invoke("copies:issue", id, days),
+  exportCopyRevocations: () => ipcRenderer.invoke("copies:exportRevocations"),
+  onPublishLog: (handler) => {
+    const listener = (_e, line) => handler(line);
+    ipcRenderer.on("copies:publishLog", listener);
+    return () => ipcRenderer.removeListener("copies:publishLog", listener);
+  },
 
   getGitHubAccount: () => ipcRenderer.invoke("github:getAccount"),
   saveGitHubAccount: (account) => ipcRenderer.invoke("github:saveAccount", account),
@@ -82,22 +90,9 @@ contextBridge.exposeInMainWorld("api", {
   agentRun: (command) => ipcRenderer.invoke("agent:run", command),
   agentReport: (text) => ipcRenderer.invoke("agent:report", text),
 
-  // blueprints
-  blueprintModules: () => ipcRenderer.invoke("blueprints:modules"),
-  listBlueprints: () => ipcRenderer.invoke("blueprints:list"),
-  saveBlueprint: (blueprint) => ipcRenderer.invoke("blueprints:save", blueprint),
-  deleteBlueprint: (id) => ipcRenderer.invoke("blueprints:delete", id),
-  exportBlueprint: (blueprint) => ipcRenderer.invoke("blueprints:export", blueprint),
-
-  // demo access
+  // ключ подписи демо-доступа
   demoKeyInfo: () => ipcRenderer.invoke("demo:keyInfo"),
   demoCreateKeys: () => ipcRenderer.invoke("demo:createKeys"),
-  listTesters: () => ipcRenderer.invoke("demo:list"),
-  saveTester: (tester) => ipcRenderer.invoke("demo:save", tester),
-  deleteTester: (id) => ipcRenderer.invoke("demo:delete", id),
-  setTesterRevoked: (id, revoked) => ipcRenderer.invoke("demo:setRevoked", id, revoked),
-  issueLicence: (id, options) => ipcRenderer.invoke("demo:issue", id, options),
-  exportRevocations: () => ipcRenderer.invoke("demo:exportRevocations"),
 
   // архив плагинов
   listPlugins: () => ipcRenderer.invoke("plugins:list"),
@@ -111,4 +106,5 @@ contextBridge.exposeInMainWorld("api", {
   exportPluginsToBuild: (selections) => ipcRenderer.invoke("plugins:exportToBuild", selections),
 
   openExternal: (url) => ipcRenderer.invoke("app:openExternal", url),
+  pickTextFile: () => ipcRenderer.invoke("app:pickTextFile"),
 });

@@ -14,6 +14,7 @@ const blueprints = require("./blueprints.cjs");
 const demoAccess = require("./demoAccess.cjs");
 const buildPipeline = require("./build.cjs");
 const pluginArchive = require("./pluginArchive.cjs");
+const copies = require("./copies.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -439,6 +440,81 @@ function writeSample(rel, content) {
   check("запятая с пробелом — тоже разделитель", spacedCsv.prices["модель"]?.output === 1500, JSON.stringify(spacedCsv));
   const broken = demoAccess.parsePrices("модель 300");
   check("неполная строка объясняется, а не молчит", broken.problems.length === 1, JSON.stringify(broken));
+
+  console.log("\nкопии: имя, репозиторий, модули");
+  check("репозиторий предлагается по имени", copies.repoNameFor("Мария Тестова").startsWith("personal-chat-"));
+  check("название в окне — «Личный чат Имя»", copies.displayNameFor("Марии") === "Личный чат Марии");
+
+  let copyStore = [];
+  const demoDraft = {
+    name: "Мария Тестова",
+    kind: "demo",
+    apiKey: "polza-demo-key",
+    days: 5,
+    plugins: ["docflow", "finmodel"],
+    machineCode: "1A2B3-C4D5E-6F7A8-B9C0D",
+  };
+  await expectThrows(
+    "демо без ключа отклоняется",
+    () => copies.save([], { ...demoDraft, apiKey: "" }),
+    /ключ Polza/
+  );
+  ({ all: copyStore } = copies.save(copyStore, demoDraft));
+  const demoCopy = copyStore[0];
+  check(
+    "демо получает базу, офис и выбранные плагины",
+    JSON.stringify(copies.modulesOf(demoCopy).sort()) ===
+      JSON.stringify(["docflow", "excel", "finmodel", "projects", "skills", "word"].sort()),
+    JSON.stringify(copies.modulesOf(demoCopy))
+  );
+  check("демо-копия всегда просит активацию", copies.toBlueprint(demoCopy).demoGated === true);
+
+  console.log("\nкопии: выдача, отзыв, перевыдача");
+  const licence1 = copies.licenceFor(demoCopy, {});
+  check("лицензия подписана на код компьютера копии", licence1.machine === demoCopy.machineCode);
+  copyStore = [copies.withIssuedLicence(demoCopy, licence1)];
+  check("выданная лицензия записана в копию", copyStore[0].licenceId === licence1.id);
+
+  copyStore = copies.setRevoked(copyStore, copyStore[0].id, true);
+  check("отозванный id попадает в список отзыва", copies.revokedIds(copyStore).includes(licence1.id));
+
+  // Перевыдача после отзыва не должна тихо вернуть старую копию к жизни — тот
+  // же дефект, что уже чинился в demoAccess.cjs, здесь проверяется отдельно,
+  // потому что copies.cjs — независимая реализация того же правила.
+  const licence2 = copies.licenceFor(copyStore[0], {});
+  copyStore = [copies.withIssuedLicence(copyStore[0], licence2)];
+  check("новый файл получил другой id", licence2.id !== licence1.id);
+  check(
+    "старый отозванный id остаётся в списке и после перевыдачи",
+    copies.revokedIds(copyStore).includes(licence1.id) && !copies.revokedIds(copyStore).includes(licence2.id),
+    JSON.stringify(copies.revokedIds(copyStore))
+  );
+
+  await expectThrows(
+    "лицензия без кода компьютера не выдаётся",
+    () => copies.licenceFor({ ...demoCopy, machineCode: "" }, {}),
+    /код компьютера/
+  );
+
+  console.log("\nкопии: оплаченная копия и защита от копирования");
+  const paidDraft = {
+    name: "Мария Тестова",
+    kind: "paid",
+    fromCopyId: demoCopy.id,
+    repoName: demoCopy.repoName,
+    days: 365,
+  };
+  const { all: withPaid } = copies.save(copyStore, paidDraft);
+  const paidCopy = withPaid.find((c) => c.kind === "paid");
+  check("оплаченная копия не несёт вшитого ключа", paidCopy.apiKey === "");
+  check("оплаченная копия защищена от копирования по умолчанию", copies.toBlueprint(paidCopy).demoGated === true);
+  const unprotected = copies.normalize({ ...paidCopy, copyProtection: false });
+  check("защиту можно снять явно", copies.toBlueprint(unprotected).demoGated === false);
+  await expectThrows(
+    "два разных id не делят один репозиторий, если не переносится явно",
+    () => copies.save(withPaid, { name: "Другой Клиент", kind: "demo", apiKey: "k", repoName: demoCopy.repoName }),
+    /уже занят/
+  );
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   fs.rmSync(root, { recursive: true, force: true });

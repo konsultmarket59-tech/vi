@@ -53,7 +53,7 @@ async function assertChatSources(dir) {
  * Переводит папку исходников на нужную ветку. Незакоммиченные правки не трогаем
  * и ничего не переключаем молча: чужая незавершённая работа дороже удобства.
  */
-async function useBranch(dir, branch, log) {
+async function switchToBranch(dir, branch, log) {
   if (!branch) return { branch: "", switched: false };
   if (!git.isRepo(dir)) {
     log(`Папка не под git — собираю как есть, ветка «${branch}» не проверяется.`);
@@ -136,7 +136,7 @@ async function build(blueprint, { onLog = () => {}, skipInstaller = false } = {}
   log("Проверяю папку исходников…");
   await assertChatSources(dir);
 
-  const branch = await useBranch(dir, normalized.branch, log);
+  const branch = await switchToBranch(dir, normalized.branch, log);
 
   log("Записываю набор модулей (plugins.json)…");
   const modules = await blueprints.exportTo(normalized, dir);
@@ -206,4 +206,4 @@ async function build(blueprint, { onLog = () => {}, skipInstaller = false } = {}
   return { ...result, branch, modules, demo, skills, installerBuilt: true };
 }
 
-module.exports = { CANONICAL_BRANCH, assertChatSources, useBranch, builtInstallers, build };
+module.exports = { CANONICAL_BRANCH, assertChatSources, switchToBranch, builtInstallers, build };

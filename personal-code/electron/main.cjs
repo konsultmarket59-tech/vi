@@ -21,6 +21,8 @@ const websearch = require("./websearch.cjs");
 const buildPipeline = require("./build.cjs");
 const report = require("./report.cjs");
 const github = require("./github.cjs");
+const copies = require("./copies.cjs");
+const publish = require("./publish.cjs");
 
 let mainWindow = null;
 
@@ -461,21 +463,8 @@ function registerHandlers() {
   // Feeding a command's output back lets the agent react to a failing test run.
   ipcMain.handle("agent:report", async (_e, text) => runAgentTurn(requireRoot(), text, {}));
 
-  // blueprints
-  ipcMain.handle("blueprints:modules", () => blueprints.MODULES);
-  ipcMain.handle("blueprints:list", async () => blueprints.list(await settingsStore.readSection("blueprints", [])));
-  ipcMain.handle("blueprints:save", async (_e, blueprint) => {
-    const stored = await settingsStore.readSection("blueprints", []);
-    const { all, saved } = blueprints.save(stored, blueprint);
-    await settingsStore.writeSection("blueprints", all);
-    return { all, saved };
-  });
-  ipcMain.handle("blueprints:delete", async (_e, id) => {
-    const stored = await settingsStore.readSection("blueprints", []);
-    const all = blueprints.remove(stored, id);
-    await settingsStore.writeSection("blueprints", all);
-    return all;
-  });
+  // Сборки: только выбор папки исходников остался нужен UI — сама сборка
+  // теперь ведётся через копии (copies:publish), а не отдельным экраном.
   ipcMain.handle("blueprints:pickSource", async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "Папка с исходниками «Личного чата»",
@@ -488,63 +477,111 @@ function registerHandlers() {
     await buildPipeline.assertChatSources(dir);
     return dir;
   });
-  ipcMain.handle("blueprints:build", async (event, blueprint, options) => {
+
+  // копии «Личного чата»: демо и оплаченные
+  const storedCopies = () => settingsStore.readSection("copies", []);
+  ipcMain.handle("copies:plugins", () => copies.PLUGINS);
+  ipcMain.handle("copies:list", async () => copies.list(await storedCopies()));
+  ipcMain.handle("copies:save", async (_e, copy) => {
+    const { all, saved } = copies.save(await storedCopies(), copy);
+    await settingsStore.writeSection("copies", all);
+    return { all, saved };
+  });
+  ipcMain.handle("copies:delete", async (_e, id) => {
+    const all = copies.remove(await storedCopies(), id);
+    await settingsStore.writeSection("copies", all);
+    return all;
+  });
+  ipcMain.handle("copies:setRevoked", async (_e, id, revoked) => {
+    const all = copies.setRevoked(await storedCopies(), id, revoked);
+    await settingsStore.writeSection("copies", all);
+    return all;
+  });
+  /**
+   * Собирает копию в её репозитории на GitHub. Долгая операция, поэтому каждый
+   * шаг уходит в окно строкой по мере выполнения.
+   */
+  ipcMain.handle("copies:publish", async (event, id, options) => {
     const send = (line) => {
-      if (!event.sender.isDestroyed()) event.sender.send("blueprints:buildLog", line);
+      if (!event.sender.isDestroyed()) event.sender.send("copies:publishLog", line);
     };
     try {
-      const result = await buildPipeline.build(blueprint, { onLog: send, ...(options || {}) });
-      send("");
-      return { ok: true, ...result };
+      const all = copies.list(await storedCopies());
+      const copy = all.find((c) => c.id === id);
+      if (!copy) throw new Error("Копия не найдена.");
+      const account = await github.getAccount(await appDataDir());
+      const keys = await demoAccess.keyInfo();
+      const result = await publish.publish(copy, {
+        sourcePath: (options && options.sourcePath) || "",
+        branch: (options && options.branch) || blueprints.DEFAULT_BRANCH,
+        token: account.token,
+        publicKey: keys.publicKey,
+        onLog: send,
+      });
+      const updated = all.map((c) =>
+        c.id === id ? copies.normalize({ ...c, repoFullName: result.repo, builtAt: new Date().toISOString() }) : c
+      );
+      await settingsStore.writeSection("copies", updated);
+      send("Готово.");
+      return { ok: true, all: updated, ...result };
     } catch (e) {
-      send(`Сборка остановлена: ${e.message}`);
+      send(`Остановлено: ${e.message}`);
       return { ok: false, message: e.message };
     }
   });
-  ipcMain.handle("blueprints:openRelease", (_e, dir) => shell.openPath(dir));
-  ipcMain.handle("blueprints:export", async (_e, blueprint) => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Куда положить plugins.json (папка исходников «Личного чата»)",
-      properties: ["openDirectory"],
-    });
-    if (result.canceled || !result.filePaths[0]) return null;
-    return blueprints.exportTo(blueprint, result.filePaths[0]);
+  /**
+   * Открывает код копии как рабочую папку: клонирует её репозиторий рядом с
+   * архивом плагинов, если его ещё нет, и подтягивает изменения, если есть.
+   * После этого копия правится теми же вкладками «Код» и «Git», что и всё
+   * остальное — отдельного редактора для копий заводить незачем.
+   */
+  ipcMain.handle("copies:openCode", async (_e, id) => {
+    const all = copies.list(await storedCopies());
+    const copy = all.find((c) => c.id === id);
+    if (!copy) throw new Error("Копия не найдена.");
+    if (!copy.repoFullName) throw new Error("У копии ещё нет репозитория — сначала соберите её.");
+    const account = await github.getAccount(await appDataDir());
+    if (!account.token) throw new Error("Не задан токен GitHub — вкладка «Настройки».");
+
+    const dir = path.join(await appDataDir(), "Копии", copy.repoName);
+    const url = `https://github.com/${copy.repoFullName}.git`;
+    if (!fsSync.existsSync(path.join(dir, ".git"))) {
+      await fs.mkdir(path.dirname(dir), { recursive: true });
+      await git.run(path.dirname(dir), ["clone", url, dir], {
+        timeout: 300_000,
+        token: account.token,
+        tokenUser: "x-access-token",
+      });
+    } else {
+      await git
+        .run(dir, ["pull", "--ff-only"], { timeout: 300_000, token: account.token, tokenUser: "x-access-token" })
+        .catch(() => {});
+    }
+    return openWorkspace(dir);
   });
 
-  // demo access
-  const testers = () => settingsStore.readSection("testers", []);
-  ipcMain.handle("demo:keyInfo", () => demoAccess.keyInfo());
-  ipcMain.handle("demo:createKeys", () => demoAccess.createKeys());
-  ipcMain.handle("demo:list", async () => demoAccess.list(await testers()));
-  ipcMain.handle("demo:save", async (_e, tester) => {
-    const { all, saved } = demoAccess.save(await testers(), tester);
-    await settingsStore.writeSection("testers", all);
-    return { all, saved };
-  });
-  ipcMain.handle("demo:delete", async (_e, id) => {
-    const all = demoAccess.remove(await testers(), id);
-    await settingsStore.writeSection("testers", all);
-    return all;
-  });
-  ipcMain.handle("demo:setRevoked", async (_e, id, revoked) => {
-    const all = demoAccess.setRevoked(await testers(), id, revoked);
-    await settingsStore.writeSection("testers", all);
-    return all;
-  });
-  ipcMain.handle("demo:issue", async (_e, id, options) => {
-    const result = await demoAccess.issue(await testers(), id, options || {});
+  /** Выдаёт файл активации для копии — по коду компьютера, который прислал человек. */
+  ipcMain.handle("copies:issue", async (_e, id, days) => {
+    const all = copies.list(await storedCopies());
+    const copy = all.find((c) => c.id === id);
+    if (!copy) throw new Error("Копия не найдена.");
+    const licence = copies.licenceFor(copy, { days });
+    const file = { licence, signature: await demoAccess.sign(licence) };
     const target = await dialog.showSaveDialog(mainWindow, {
       title: "Куда сохранить файл активации",
-      defaultPath: result.fileName,
+      defaultPath: `${copy.repoName || "licence"}.lic`,
       filters: [{ name: "Файл активации", extensions: ["lic"] }],
     });
     if (target.canceled || !target.filePath) return null;
-    await fs.writeFile(target.filePath, result.contents, "utf-8");
-    await settingsStore.writeSection("testers", result.all);
-    return { all: result.all, tester: result.tester, file: target.filePath };
+    await fs.writeFile(target.filePath, JSON.stringify(file, null, 2), "utf-8");
+    const updated = all.map((c) => (c.id === id ? copies.withIssuedLicence(c, licence) : c));
+    await settingsStore.writeSection("copies", updated);
+    return { all: updated, file: target.filePath, expiresAt: licence.expiresAt };
   });
-  ipcMain.handle("demo:exportRevocations", async () => {
-    const contents = await demoAccess.revocationList(await testers());
+  /** Подписанный список отзыва по всем копиям — один файл на всех. */
+  ipcMain.handle("copies:exportRevocations", async () => {
+    const payload = { revoked: copies.revokedIds(await storedCopies()), updatedAt: new Date().toISOString() };
+    const contents = JSON.stringify({ list: payload, signature: await demoAccess.sign(payload) }, null, 2);
     const target = await dialog.showSaveDialog(mainWindow, {
       title: "Куда сохранить список отзыва",
       defaultPath: "revoked.json",
@@ -552,8 +589,15 @@ function registerHandlers() {
     });
     if (target.canceled || !target.filePath) return null;
     await fs.writeFile(target.filePath, contents, "utf-8");
-    return { file: target.filePath, contents };
+    return { file: target.filePath, count: payload.revoked.length };
   });
+
+  // Ключ подписи демо-доступа. Список тестировщиков и выдачу лицензий ведёт
+  // теперь copies.cjs — тестировщик и копия это одно и то же, — но сам ключ
+  // (создать один раз, закрытая половина не покидает компьютер) остаётся здесь.
+  ipcMain.handle("demo:keyInfo", () => demoAccess.keyInfo());
+  ipcMain.handle("demo:createKeys", () => demoAccess.createKeys());
+
   // plugin archive
   ipcMain.handle("plugins:list", () => pluginArchive.list());
   ipcMain.handle("plugins:addVersion", async (_e, payload) => {
@@ -656,6 +700,23 @@ function registerHandlers() {
     });
     if (result.canceled || !result.filePaths[0]) return null;
     return pluginArchive.exportToBuild(result.filePaths[0], selections || []);
+  });
+
+  /** Открыть текстовый файл с диска — отчёт о проблеме, лист ошибок, лог. */
+  ipcMain.handle("app:pickTextFile", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Файл с описанием проблемы",
+      properties: ["openFile"],
+      filters: [
+        { name: "Текст", extensions: ["txt", "md", "log", "json", "csv"] },
+        { name: "Все файлы", extensions: ["*"] },
+      ],
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const file = result.filePaths[0];
+    const stat = await fs.stat(file);
+    if (stat.size > 2_000_000) throw new Error("Файл слишком большой — до 2 МБ.");
+    return { name: path.basename(file), path: file, content: await fs.readFile(file, "utf-8") };
   });
 
   ipcMain.handle("app:openExternal", (_e, url) => {

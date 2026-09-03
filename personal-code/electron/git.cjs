@@ -324,6 +324,9 @@ async function discard(root, files) {
 
 module.exports = {
   GitError,
+  // Плоский доступ к git для тех мест, где нужна команда, которой нет в этом
+  // модуле как отдельной функции (например сборка снимка папки в коммит).
+  run,
   isRepo,
   status,
   diff,

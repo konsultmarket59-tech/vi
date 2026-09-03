@@ -169,43 +169,68 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-git.png"), img.toPNG())
     );
 
-    console.log("\nвкладка Сборки");
+    console.log("\nвкладка Демо");
     await win.webContents.executeJavaScript(
-      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Сборки").click()`
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо").click()`
     );
-    await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "список модулей загружен");
-    const moduleCount = await win.webContents.executeJavaScript(`document.querySelectorAll(".module-card").length`);
-    const expectedModules = require("./blueprints.cjs").MODULES.length;
-    check(`модулей показано ${expectedModules}`, moduleCount === expectedModules, String(moduleCount));
-    // Всё, что нужно для одной копии, вводится на этой же вкладке — иначе
-    // порядок шагов приходится помнить, и пропущенный шаг тихо уезжает в сборку.
-    const buildText = await win.webContents.executeJavaScript(text(".settings-view"));
-    check("есть выбор папки исходников", buildText.includes("Откуда собирать"), "");
-    check("есть ветка репозитория", buildText.includes("Ветка репозитория"), "");
-    check("есть ключ Polza для копии", buildText.includes("Ключ Polza для этой копии"), "");
-    check("есть таблица цен", buildText.includes("Цены моделей"), "");
-    check("есть выбор навыков", buildText.includes("Навыки, вшитые в сборку"), "");
-    check("есть переключатель активации", buildText.includes("Копия требует файл активации"), "");
+    await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "форма копии открылась");
+    const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
+    // Всё, что нужно для одной копии, вводится на одной странице: имя, срок,
+    // ключ, конфигурация, плагины, репозиторий — и кнопка «Собрать».
+    // Без ключа подписи демо-копию нельзя активировать, поэтому сборка должна
+    // отказывать заранее, а не проваливаться после десяти минут push'а на GitHub.
+    check("предлагает создать ключ подписи", demoText.includes("Создать ключ"), demoText.slice(0, 200));
+    check("честно описывает предел защиты", demoText.includes("не от целенаправленного взлома"), "");
+    check("спрашивает, кому копия", demoText.includes("Кому — имя или название компании"), "");
+    check("спрашивает срок доступа", demoText.includes("Срок доступа, дней"), "");
+    check("спрашивает ключ Polza", demoText.includes("Ключ Polza для этой копии"), "");
+    check("объясняет, что человек ключа не видит", demoText.includes("человек его не видит и не вводит"), "");
+    check("спрашивает репозиторий", demoText.includes("Репозиторий этой копии"), "");
+    check("предлагает Excel и Word", demoText.includes("Excel") && demoText.includes("Word"), "");
+    const pluginNames = require("./copies.cjs").PLUGINS.map((p) => p.name);
+    check(
+      "все восемь плагинов на месте",
+      pluginNames.every((name) => demoText.includes(name)),
+      pluginNames.filter((n) => !demoText.includes(n)).join(", ")
+    );
     check(
       "кнопка «Собрать» на месте",
       await win.webContents.executeJavaScript(
         `[...document.querySelectorAll(".btn")].some(b=>b.textContent==="Собрать")`
       )
     );
+    // Имя копии и название репозитория предлагаются сами — их не набирают дважды.
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const input = [...document.querySelectorAll(".input")].find(i => i.placeholder.includes("Мария Петрова"));
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        setter.call(input, "Мария Тестова");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 200));
     check(
-      "ветка по умолчанию — каноническая",
+      "название копии предлагается по имени",
       (await win.webContents.executeJavaScript(
-        `[...document.querySelectorAll(".input")].map(i=>i.value).join("|")`
-      )).includes("claude/personal-claude-chat-docs-untwa4")
-    );
-    check(
-      "ядро нельзя отключить",
-      await win.webContents.executeJavaScript(
-        `[...document.querySelectorAll(".module-card input")].some(i=>i.disabled && i.checked)`
-      )
+        `[...document.querySelectorAll(".input")].map(i=>i.placeholder).join("|")`
+      )).includes("Личный чат Мария Тестова")
     );
     await win.webContents.capturePage().then((img) =>
-      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-blueprints.png"), img.toPNG())
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-demo-build.png"), img.toPNG())
+    );
+
+    console.log("\nвкладка Чистовая сборка");
+    await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Чистовая сборка").click()`
+    );
+    await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "форма оплаченной копии открылась");
+    const paidText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("ключ Polza здесь не спрашивается", !paidText.includes("Ключ Polza для этой копии"), "");
+    check("сказано, что ключ вводит сам человек", paidText.includes("Ключ вводит сам человек"), "");
+    check("есть защита от копирования", paidText.includes("Защита от копирования"), "");
+    await win.webContents.capturePage().then((img) =>
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-release.png"), img.toPNG())
     );
 
     console.log("\nвкладка Плагины");
@@ -219,28 +244,20 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-plugins.png"), img.toPNG())
     );
 
-    console.log("\nвкладка Демо-доступ");
+    console.log("\nвкладка Фикс");
     await win.webContents.executeJavaScript(
-      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо-доступ").click()`
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Фикс").click()`
     );
-    await waitFor(win, `!!document.querySelector(".view-title")`, "раздел открылся");
-    const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
-    check("предлагает создать ключ подписи", demoText.includes("Создать ключ"), demoText.slice(0, 200));
-    check("честно описывает предел защиты", demoText.includes("не от целенаправленного взлома"), "");
-    // Issuing must be impossible before a key exists, or a half-configured
-    // build could be handed out with unsignable licences.
+    await waitFor(win, `!!document.querySelector(".view-title")`, "страница фикса открылась");
+    const fixText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("объясняет, что чинится код самой копии", fixText.includes("как обычная рабочая папка"), "");
     check(
-      "без ключа список отзыва выгрузить нельзя",
-      await win.webContents.executeJavaScript(
-        `[...document.querySelectorAll(".btn")].find(b=>b.textContent.includes("Выгрузить список отзыва"))?.disabled === true`
-      )
+      "без собранных копий не притворяется, что готова чинить",
+      fixText.includes("Собранных копий пока нет"),
+      fixText.slice(0, 200)
     );
-    // Настройки копии задаются один раз во вкладке «Сборки»; здесь только
-    // выбирается, для какой сборки выдаётся доступ.
-    check("настройки сборки здесь не дублируются", !demoText.includes("Записать настройки"), "");
-    check("вкладка ссылается на «Сборки»", demoText.includes("Сборки"), "");
     await win.webContents.capturePage().then((img) =>
-      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-demo.png"), img.toPNG())
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-fix.png"), img.toPNG())
     );
 
     console.log("\nвкладка Настройки");

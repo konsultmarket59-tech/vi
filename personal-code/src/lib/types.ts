@@ -138,64 +138,11 @@ export interface CommandResult {
   output: string;
 }
 
-export interface BlueprintModule {
-  id: string;
-  name: string;
-  core: boolean;
-  description: string;
-}
-
-export interface Blueprint {
-  id: string;
-  name: string;
-  productName: string;
-  description: string;
-  modules: string[];
-  sourcePath: string;
-  branch: string;
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  pricesText: string;
-  currency: string;
-  skills: { id: string; version: number }[];
-  demoGated: boolean;
-  revocationUrl: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface BuildResult {
-  ok: boolean;
-  message?: string;
-  releaseDir?: string;
-  installers?: { name: string; path: string; bytes: number }[];
-  installerBuilt?: boolean;
-  branch?: { branch: string; switched: boolean };
-  modules?: { enabledCount: number; disabled: string[] };
-  demo?: { managed: boolean; file: string; managedFile: string } | null;
-  skills?: { included: { id: string; version: number; skills: number }[]; missing: string[] };
-}
-
 export interface DemoKeyInfo {
   exists: boolean;
   publicKey: string;
   createdAt: string;
   path: string;
-}
-
-export interface Tester {
-  id: string;
-  name: string;
-  /** Как копия подписана у тестировщика: «Личный чат Виктории». */
-  displayName: string;
-  machineCode: string;
-  note: string;
-  revoked: boolean;
-  licenceId: string;
-  issuedAt: string;
-  expiresAt: string;
-  createdAt: number;
 }
 
 export interface PluginSkill {
@@ -229,6 +176,49 @@ export interface SearchMatch {
   path: string;
   line: number;
   text: string;
+}
+
+export interface ChatCopy {
+  id: string;
+  kind: "demo" | "paid";
+  name: string;
+  displayName: string;
+  note: string;
+  office: string[];
+  plugins: string[];
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  pricesText: string;
+  currency: string;
+  days: number;
+  copyProtection: boolean;
+  machineCode: string;
+  revocationUrl: string;
+  repoName: string;
+  repoFullName: string;
+  fromCopyId: string;
+  sourceBranch: string;
+  licenceId: string;
+  revokedLicenceIds: string[];
+  issuedAt: string;
+  expiresAt: string;
+  revoked: boolean;
+  builtAt: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PublishResult {
+  ok: boolean;
+  message?: string;
+  all?: ChatCopy[];
+  repo?: string;
+  repoUrl?: string;
+  actionsUrl?: string;
+  releaseUrl?: string;
+  started?: boolean;
+  files?: string[];
 }
 
 export interface ReportInfo {
@@ -294,6 +284,20 @@ declare global {
       writeReport(description: string): Promise<{ file: string }>;
       revealReport(file: string): Promise<boolean>;
 
+      copyPlugins(): Promise<{ id: string; name: string }[]>;
+      listCopies(): Promise<ChatCopy[]>;
+      saveCopy(copy: Partial<ChatCopy>): Promise<{ all: ChatCopy[]; saved: ChatCopy }>;
+      deleteCopy(id: string): Promise<ChatCopy[]>;
+      setCopyRevoked(id: string, revoked: boolean): Promise<ChatCopy[]>;
+      publishCopy(id: string, options: { sourcePath: string; branch?: string }): Promise<PublishResult>;
+      openCopyCode(id: string): Promise<WorkspaceInfo>;
+      issueCopyLicence(
+        id: string,
+        days?: number
+      ): Promise<{ all: ChatCopy[]; file: string; expiresAt: string } | null>;
+      exportCopyRevocations(): Promise<{ file: string; count: number } | null>;
+      onPublishLog(handler: (line: string) => void): () => void;
+
       getGitHubAccount(): Promise<GitHubAccount>;
       saveGitHubAccount(account: GitHubAccount): Promise<GitHubAccount>;
       testGitHubConnection(token: string): Promise<{ ok: boolean; login?: string; error?: string }>;
@@ -349,27 +353,10 @@ declare global {
       agentRun(command: string): Promise<CommandResult>;
       agentReport(text: string): Promise<AgentTurn>;
 
-      blueprintModules(): Promise<BlueprintModule[]>;
-      listBlueprints(): Promise<Blueprint[]>;
-      saveBlueprint(blueprint: Partial<Blueprint>): Promise<{ all: Blueprint[]; saved: Blueprint }>;
-      deleteBlueprint(id: string): Promise<Blueprint[]>;
-      exportBlueprint(blueprint: Blueprint): Promise<{ file: string; productName: string; enabledCount: number; disabled: string[] } | null>;
       pickChatSources(): Promise<string | null>;
-      buildBlueprint(blueprint: Blueprint, options?: { skipInstaller?: boolean }): Promise<BuildResult>;
-      openReleaseFolder(dir: string): Promise<string>;
-      onBuildLog(handler: (line: string) => void): () => void;
 
       demoKeyInfo(): Promise<DemoKeyInfo>;
       demoCreateKeys(): Promise<DemoKeyInfo>;
-      listTesters(): Promise<Tester[]>;
-      saveTester(tester: Partial<Tester>): Promise<{ all: Tester[]; saved: Tester }>;
-      deleteTester(id: string): Promise<Tester[]>;
-      setTesterRevoked(id: string, revoked: boolean): Promise<Tester[]>;
-      issueLicence(
-        id: string,
-        options: { days: number; productName: string; revocationUrl: string }
-      ): Promise<{ all: Tester[]; tester: Tester; file: string } | null>;
-      exportRevocations(): Promise<{ file: string; contents: string } | null>;
 
       listPlugins(): Promise<ArchivedPlugin[]>;
       pluginBranches(): Promise<{ current: string; local: string[]; canonical: string }>;
@@ -392,6 +379,7 @@ declare global {
       ): Promise<{ targetDir: string; included: { id: string; version: number; skills: number }[]; missing: string[] } | null>;
 
       openExternal(url: string): Promise<void>;
+      pickTextFile(): Promise<{ name: string; path: string; content: string } | null>;
     };
   }
 }
