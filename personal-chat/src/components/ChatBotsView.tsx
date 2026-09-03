@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ConnectionStatus, { CHECKING, errorText, failed, ok } from "./ConnectionStatus";
+import type { ConnectionStatusValue } from "./ConnectionStatus";
 import type {
   ChatbotAccounts,
   ChatbotMessage,
@@ -29,7 +31,7 @@ export default function ChatBotsView() {
   const [tab, setTab] = useState<Tab>("settings");
   const [accounts, setAccounts] = useState<ChatbotAccounts>(EMPTY_ACCOUNTS);
   const [status, setStatus] = useState<ChatbotStatusMap>({ telegram: false, vk: false, max: false });
-  const [testResult, setTestResult] = useState<Partial<Record<ChatbotPlatform, string>>>({});
+  const [testResult, setTestResult] = useState<Partial<Record<ChatbotPlatform, ConnectionStatusValue>>>({});
   const [testing, setTesting] = useState<ChatbotPlatform | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
 
@@ -132,6 +134,7 @@ export default function ChatBotsView() {
 
   async function testPlatform(platform: ChatbotPlatform) {
     setTesting(platform);
+    setTestResult((prev) => ({ ...prev, [platform]: CHECKING }));
     try {
       const result = await window.api.testChatbotConnection(platform, accounts[platform]);
       // MAX lives on more than one host; if the test found a working one that isn't the
@@ -142,11 +145,15 @@ export default function ChatBotsView() {
       setTestResult((prev) => ({
         ...prev,
         [platform]: result.ok
-          ? `Подключено${result.login ? `: ${result.login}` : ""} ✓${
-              result.switched ? ` (сработал адрес ${result.switched} — нажмите «Сохранить», чтобы запомнить его)` : ""
-            }`
-          : `Ошибка: ${result.error}`,
+          ? ok(
+              `Подключено${result.login ? `: ${result.login}` : ""}.${
+                result.switched ? ` Сработал адрес ${result.switched} — нажмите «Сохранить», чтобы запомнить его.` : ""
+              }`
+            )
+          : failed(result.error ? errorText(result.error) : "Платформа не приняла токен."),
       }));
+    } catch (e) {
+      setTestResult((prev) => ({ ...prev, [platform]: failed(errorText(e)) }));
     } finally {
       setTesting(null);
     }
@@ -241,7 +248,7 @@ export default function ChatBotsView() {
                 {status.telegram ? "Остановить" : "Запустить"}
               </button>
             </div>
-            {testResult.telegram && <p className="hint chatbot-test-result">{testResult.telegram}</p>}
+            <ConnectionStatus status={testResult.telegram ?? null} />
           </div>
 
           <div className="chatbot-account-card">
@@ -262,7 +269,7 @@ export default function ChatBotsView() {
                 {status.vk ? "Остановить" : "Запустить"}
               </button>
             </div>
-            {testResult.vk && <p className="hint chatbot-test-result">{testResult.vk}</p>}
+            <ConnectionStatus status={testResult.vk ?? null} />
           </div>
 
           <div className="chatbot-account-card">
@@ -298,7 +305,7 @@ export default function ChatBotsView() {
                 {status.max ? "Остановить" : "Запустить"}
               </button>
             </div>
-            {testResult.max && <p className="hint chatbot-test-result">{testResult.max}</p>}
+            <ConnectionStatus status={testResult.max ?? null} />
           </div>
         </div>
       )}

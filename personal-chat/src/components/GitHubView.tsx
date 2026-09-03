@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ConnectionStatus, { CHECKING, STALE, errorText, failed, ok } from "./ConnectionStatus";
+import type { ConnectionStatusValue } from "./ConnectionStatus";
 import type { GitHubAccount, GitHubRepo, Settings } from "../lib/types";
 import GitHubRepoWorkspace from "./GitHubRepoWorkspace";
 
@@ -13,7 +15,7 @@ export default function GitHubView({ settings, onOpenSettings }: Props) {
   const [tab, setTab] = useState<Tab>("repos");
   const [account, setAccount] = useState<GitHubAccount>({ token: "" });
   const [tokenDraft, setTokenDraft] = useState("");
-  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<ConnectionStatusValue | null>(null);
   const [testing, setTesting] = useState(false);
 
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
@@ -44,14 +46,29 @@ export default function GitHubView({ settings, onOpenSettings }: Props) {
   }
 
   async function testConnection() {
+    if (!tokenDraft.trim()) {
+      setTestResult(failed("Токен не введён."));
+      return;
+    }
     setTesting(true);
-    setTestResult(null);
+    setTestResult(CHECKING);
     try {
       const result = await window.api.testGitHubConnection(tokenDraft);
-      setTestResult(result.ok ? `Подключено как ${result.login} ✓` : `Ошибка: ${result.error}`);
+      setTestResult(
+        result.ok ? ok(`Подключено к GitHub как ${result.login}.`) : failed(`GitHub не принял токен: ${errorText(result.error)}`)
+      );
+    } catch (e) {
+      setTestResult(failed(errorText(e)));
     } finally {
       setTesting(false);
     }
+  }
+
+  /** Проверка сразу после ввода токена — иначе непонятно, годится он или нет. */
+  function checkTokenOnBlur() {
+    if (!tokenDraft.trim() || tokenDraft.trim() === account.token.trim()) return;
+    if (testResult && (testResult.state === "ok" || testResult.state === "checking")) return;
+    void testConnection();
   }
 
   async function refreshRepos() {
@@ -138,7 +155,16 @@ export default function GitHubView({ settings, onOpenSettings }: Props) {
             <code>Contents: Read and write</code>.
           </p>
           <label>Токен</label>
-          <input type="password" value={tokenDraft} onChange={(e) => setTokenDraft(e.target.value)} placeholder="ghp_…" />
+          <input
+            type="password"
+            value={tokenDraft}
+            onChange={(e) => {
+              setTokenDraft(e.target.value);
+              setTestResult(e.target.value.trim() === account.token.trim() ? null : STALE);
+            }}
+            onBlur={checkTokenOnBlur}
+            placeholder="ghp_…"
+          />
           <div className="settings-actions">
             <button className="btn btn-secondary" onClick={testConnection} disabled={testing}>
               {testing ? "Проверка…" : "Проверить"}
@@ -147,7 +173,7 @@ export default function GitHubView({ settings, onOpenSettings }: Props) {
               Сохранить
             </button>
           </div>
-          {testResult && <p className="hint">{testResult}</p>}
+          <ConnectionStatus status={testResult} />
           {account.token && <p className="hint">Токен сохранён локально в github/account.json.</p>}
         </div>
       )}

@@ -252,8 +252,10 @@ npm run build                                       # типы + сборка
 npx oxlint                                          # линтер
 node electron/smoke-backend.cjs                     # файлы, git, разбор правок, диффы
 node electron/smoke-plugin-archive.cjs              # версии плагинов и выгрузка в сборку
+node electron/test-connection-error.cjs             # объяснения сбоев подключения
 xvfb-run -a npx electron electron/smoke-app.cjs     # интерфейс целиком
 xvfb-run -a npx electron electron/smoke-agent.cjs   # агент против поддельного сервера моделей
+xvfb-run -a npx electron electron/smoke-connection.cjs  # галочка и ошибка в настройках
 ```
 
 `smoke-backend` проверяет в том числе то, что не должно работать: выход за пределы папки

@@ -835,6 +835,7 @@ const exportDocs = require("./exportDocs.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
 const cloud = require("./cloud.cjs");
+const connectionError = require("./connectionError.cjs");
 
 function broadcast(channel, payload) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -2323,26 +2324,16 @@ ipcMain.handle("proxy:test", async (_e, draftSettings) => {
   try {
     const res = await fetch(url, { headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {} });
     const ms = Date.now() - started;
-    if (res.status === 407) {
-      return {
-        ok: false,
-        error:
-          "Прокси требует авторизацию, но логин/пароль не подошли (407). Проверьте их — " +
-          "это логин от прокси, а не от Polza.",
-      };
-    }
+    // Причину отказа объясняет общий словарь: те же слова, что в «Личном коде» и
+    // в остальных проверках подключения, вместо короткого списка на месте.
+    const byStatus = connectionError.fromStatus(res.status, { what: "Адрес API" });
+    if (byStatus) return { ok: false, error: byStatus, ms };
     if (!res.ok) {
       return { ok: false, error: `Соединение прошло, но сервер ответил ${res.status} ${res.statusText}.`, ms };
     }
     return { ok: true, ms };
   } catch (e) {
-    const msg = String(e.message || e);
-    let hint = "";
-    if (msg.includes("ERR_PROXY_CONNECTION_FAILED")) hint = " Адрес или порт прокси недоступны.";
-    else if (msg.includes("ERR_TOO_MANY_RETRIES")) hint = " Прокси отклоняет логин/пароль.";
-    else if (msg.includes("ERR_NO_SUPPORTED_PROXIES")) hint = " Такой адрес прокси не поддерживается — уберите логин/пароль из адреса и впишите их в поля ниже.";
-    else if (msg.includes("ERR_NAME_NOT_RESOLVED")) hint = " Не удалось определить адрес — проверьте написание.";
-    return { ok: false, error: msg + hint };
+    return { ok: false, error: connectionError.explain(e, { what: "Адрес API" }) };
   } finally {
     // Leave the session on the *saved* settings, so merely testing a draft doesn't
     // silently change what the rest of the app is using.

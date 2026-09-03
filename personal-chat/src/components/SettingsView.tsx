@@ -1,4 +1,12 @@
 import { useEffect, useState } from "react";
+import ConnectionStatus, {
+  CHECKING,
+  STALE,
+  errorText,
+  failed,
+  ok,
+  type ConnectionStatusValue,
+} from "./ConnectionStatus";
 import type { Settings, StorageReport } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
@@ -27,23 +35,45 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [testingProxy, setTestingProxy] = useState(false);
   const [report, setReport] = useState<StorageReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
-  const [proxyResult, setProxyResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // По одному состоянию на подключение: и успех, и отказ должны быть видны с
+  // одного взгляда, а не одинаковым серым текстом.
+  const [proxyStatus, setProxyStatus] = useState<ConnectionStatusValue | null>(null);
+  const [modelStatus, setModelStatus] = useState<ConnectionStatusValue | null>(null);
 
   useEffect(() => {
     window.api.getConfig().then((cfg) => setRootPath(cfg.rootPath));
-    refreshModels();
+    refreshModels({ silent: true });
   }, []);
 
-  async function refreshModels() {
+  /**
+   * Список моделей — заодно и проверка подключения: если он получен, значит
+   * адрес, ключ и прокси работают вместе. Поэтому ответ показывается статусом,
+   * а не строчкой «не удалось загрузить список».
+   */
+  async function refreshModels({ silent = false } = {}) {
     setLoadingModels(true);
+    if (!silent) setModelStatus(CHECKING);
     setModelsError(null);
     try {
-      setChatModels(mergeModelLists(CURATED_CHAT_MODELS, await listModels(draft.baseUrl, draft.apiKey, "chat")));
+      const live = await listModels(draft.baseUrl, draft.apiKey, "chat");
+      setChatModels(mergeModelLists(CURATED_CHAT_MODELS, live));
+      setModelStatus(ok(`Подключение работает: ключ принят, моделей доступно ${live.length}.`));
     } catch (e) {
-      setModelsError(e instanceof Error ? e.message : String(e));
+      const text = errorText(e);
+      setModelsError(text);
+      // При автопроверке на старте молчим, если ключа ещё нет: пустое поле —
+      // это не сбой подключения, а ещё не заполненная настройка.
+      if (!silent || draft.apiKey.trim()) setModelStatus(failed(text));
     } finally {
       setLoadingModels(false);
     }
+  }
+
+  /** Проверка после ввода: ключ введён и ещё не проверен — проверяем сами. */
+  function checkModelsOnBlur() {
+    if (!draft.apiKey.trim() || !draft.baseUrl.trim()) return;
+    if (modelStatus && (modelStatus.state === "ok" || modelStatus.state === "checking")) return;
+    void refreshModels();
   }
 
   async function loadReport() {
@@ -57,25 +87,43 @@ export default function SettingsView({ settings, onChange }: Props) {
 
   async function testProxy() {
     setTestingProxy(true);
-    setProxyResult(null);
+    setProxyStatus(CHECKING);
     try {
       // Tests the values currently in the form, so there's no need to save first.
       const result = await window.api.testProxy(draft);
-      setProxyResult(
+      setProxyStatus(
         result.ok
-          ? { ok: true, text: `Соединение работает ✓ (ответ за ${result.ms} мс)` }
-          : { ok: false, text: result.error ?? "Не удалось подключиться." }
+          ? ok(`Соединение работает — ответ за ${result.ms} мс.`)
+          : failed(result.error ? errorText(result.error) : "Не удалось подключиться.")
       );
     } catch (e) {
-      setProxyResult({ ok: false, text: e instanceof Error ? e.message : String(e) });
+      setProxyStatus(failed(errorText(e)));
     } finally {
       setTestingProxy(false);
     }
   }
 
+  /**
+   * Проверка после ввода данных прокси — только когда проверять уже есть что:
+   * в ручном режиме без адреса проверка гарантированно провалится и напугает
+   * человека посреди набора.
+   */
+  function checkProxyOnBlur() {
+    if (draft.proxyMode === "manual" && !(draft.proxyUrl ?? "").trim()) return;
+    if (proxyStatus && (proxyStatus.state === "ok" || proxyStatus.state === "checking")) return;
+    void testProxy();
+  }
+
+  // Что перестаёт быть проверенным при правке поля: зелёная галочка от старого
+  // ключа над новым, непроверенным, просто врёт.
+  const MODEL_FIELDS: (keyof Settings)[] = ["baseUrl", "apiKey", "model"];
+  const PROXY_FIELDS: (keyof Settings)[] = ["proxyMode", "proxyUrl", "proxyUsername", "proxyPassword"];
+
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
     setSaved(false);
+    if (MODEL_FIELDS.includes(key)) setModelStatus(STALE);
+    if (PROXY_FIELDS.includes(key)) setProxyStatus(STALE);
   }
 
   async function save() {
@@ -121,20 +169,30 @@ export default function SettingsView({ settings, onChange }: Props) {
           </p>
 
           <label>Base URL</label>
-          <input value={draft.baseUrl} onChange={(e) => update("baseUrl", e.target.value)} />
+          <input
+            value={draft.baseUrl}
+            onChange={(e) => update("baseUrl", e.target.value)}
+            onBlur={checkModelsOnBlur}
+          />
 
           <label>API-ключ</label>
           <div className="key-row">
             <input
+              className="api-key-input"
               type={showKey ? "text" : "password"}
               value={draft.apiKey}
               onChange={(e) => update("apiKey", e.target.value)}
+              onBlur={checkModelsOnBlur}
               placeholder="sk-..."
             />
             <button className="btn btn-secondary" onClick={() => setShowKey((v) => !v)}>
               {showKey ? "Скрыть" : "Показать"}
             </button>
+            <button className="btn btn-secondary" onClick={() => refreshModels()} disabled={loadingModels}>
+              {loadingModels ? "Проверяю…" : "Проверить подключение"}
+            </button>
           </div>
+          <ConnectionStatus status={modelStatus} />
         </>
       )}
 
@@ -146,7 +204,7 @@ export default function SettingsView({ settings, onChange }: Props) {
           placeholder="anthropic/claude-sonnet-5"
           list="chat-models-list"
         />
-        <button className="btn btn-secondary" onClick={refreshModels} disabled={loadingModels}>
+        <button className="btn btn-secondary" onClick={() => refreshModels()} disabled={loadingModels}>
           {loadingModels ? "Загрузка…" : "Обновить список"}
         </button>
       </div>
@@ -159,8 +217,8 @@ export default function SettingsView({ settings, onChange }: Props) {
       </datalist>
       {modelsError && (
         <p className="hint">
-          Не удалось загрузить полный список моделей: {modelsError}. Можно ввести ID вручную — ниже уже есть
-          заготовленный список часто используемых моделей.
+          Полный список моделей загрузить не удалось, поэтому ниже — заготовленный список часто
+          используемых. ID любой другой модели можно ввести вручную.
         </p>
       )}
       <p className="hint">
@@ -271,6 +329,7 @@ export default function SettingsView({ settings, onChange }: Props) {
       <select
         value={draft.proxyMode ?? "system"}
         onChange={(e) => update("proxyMode", e.target.value as "system" | "manual" | "direct")}
+        onBlur={checkProxyOnBlur}
       >
         <option value="system">Из настроек Windows (по умолчанию)</option>
         <option value="manual">Указать адрес вручную</option>
@@ -283,6 +342,7 @@ export default function SettingsView({ settings, onChange }: Props) {
           <input
             value={draft.proxyUrl ?? ""}
             onChange={(e) => update("proxyUrl", e.target.value)}
+            onBlur={checkProxyOnBlur}
             placeholder="http://123.45.67.89:8080"
           />
           <p className="hint">
@@ -301,13 +361,18 @@ export default function SettingsView({ settings, onChange }: Props) {
             Required»). Это данные от прокси, а не от Polza.
           </p>
           <label>Логин прокси</label>
-          <input value={draft.proxyUsername ?? ""} onChange={(e) => update("proxyUsername", e.target.value)} />
+          <input
+            value={draft.proxyUsername ?? ""}
+            onChange={(e) => update("proxyUsername", e.target.value)}
+            onBlur={checkProxyOnBlur}
+          />
           <label>Пароль прокси</label>
           <div className="key-row">
             <input
               type={showKey ? "text" : "password"}
               value={draft.proxyPassword ?? ""}
               onChange={(e) => update("proxyPassword", e.target.value)}
+              onBlur={checkProxyOnBlur}
             />
           </div>
         </>
@@ -318,7 +383,7 @@ export default function SettingsView({ settings, onChange }: Props) {
           {testingProxy ? "Проверяю…" : "Проверить соединение"}
         </button>
       </div>
-      {proxyResult && <p className={proxyResult.ok ? "hint" : "chat-error"}>{proxyResult.text}</p>}
+      <ConnectionStatus status={proxyStatus} />
 
       <button className="btn btn-primary" onClick={save}>
         Сохранить настройки

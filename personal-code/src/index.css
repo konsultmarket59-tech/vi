@@ -413,3 +413,23 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   background: var(--bg-hover); font-family: var(--mono); font-size: 12px;
   line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
+
+/* Статус подключения: успех и ошибка не должны выглядеть одинаково. Зелёный и
+   красный берутся из палитры, а не назначаются здесь заново. */
+.conn-status {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 8px 0 0; padding: 8px 10px;
+  border-radius: 8px; font-size: 13px; line-height: 1.5;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+}
+.conn-mark { flex: none; font-weight: 700; line-height: 1.4; }
+.conn-text { min-width: 0; word-break: break-word; }
+
+.conn-ok { border-color: #b7dfc2; background: #eef8f1; color: #14602f; }
+.conn-ok .conn-mark { color: #1a7f37; }
+
+.conn-error { border-color: #f0c2be; background: #fdefee; color: #8a2018; }
+.conn-error .conn-mark { color: var(--danger); }
+
+.conn-checking, .conn-stale { color: var(--text-dim); }

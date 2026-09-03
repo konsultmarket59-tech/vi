@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import type { GitHubAccount, Settings, StorageReport } from "../lib/types";
 import ProblemReport from "./ProblemReport";
+import ConnectionStatus, {
+  CHECKING,
+  STALE,
+  errorText,
+  failed,
+  ok,
+  type ConnectionStatusValue,
+} from "./ConnectionStatus";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
@@ -26,7 +34,11 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [showKey, setShowKey] = useState(false);
   const [github, setGithub] = useState<GitHubAccount>({ token: "" });
   const [githubDraft, setGithubDraft] = useState("");
-  const [githubState, setGithubState] = useState("");
+
+  // По одному состоянию на подключение: у каждого свой ответ «работает или нет».
+  const [modelStatus, setModelStatus] = useState<ConnectionStatusValue | null>(null);
+  const [proxyStatus, setProxyStatus] = useState<ConnectionStatusValue | null>(null);
+  const [githubStatus, setGithubStatus] = useState<ConnectionStatusValue | null>(null);
 
   useEffect(() => {
     window.api.dataFolder().then(setDataFolder).catch(() => setDataFolder(""));
@@ -39,20 +51,28 @@ export default function SettingsView({ settings, onChange }: Props) {
       .catch(() => {});
   }, []);
 
+  /**
+   * Проверяет токен у самого GitHub и сохраняет его только если тот принят:
+   * сохранённый, но нерабочий токен — это отложенная ошибка во время сборки.
+   */
   async function saveGitHub() {
-    setError("");
-    setGithubState("");
+    const token = githubDraft.trim();
+    if (!token) {
+      setGithubStatus(failed("Токен не введён — приложение не сможет создать репозиторий сборки."));
+      return;
+    }
+    setGithubStatus(CHECKING);
     try {
-      const check = await window.api.testGitHubConnection(githubDraft.trim());
+      const check = await window.api.testGitHubConnection(token);
       if (!check.ok) {
-        setError(`GitHub не принял токен: ${check.error}`);
+        setGithubStatus(failed(`GitHub не принял токен: ${errorText(check.error)}`));
         return;
       }
-      const saved = await window.api.saveGitHubAccount({ token: githubDraft.trim() });
+      const saved = await window.api.saveGitHubAccount({ token });
       setGithub(saved);
-      setGithubState(`Подключено: ${check.login}`);
+      setGithubStatus(ok(`Подключено к GitHub как ${check.login}. Токен сохранён.`));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setGithubStatus(failed(errorText(e)));
     }
   }
 
@@ -83,8 +103,15 @@ export default function SettingsView({ settings, onChange }: Props) {
     }
   }
 
+  // Что именно перестаёт быть проверенным при правке поля. Меняли ключ — старая
+  // галочка про модели больше ничего не значит; меняли прокси — про прокси.
+  const MODEL_FIELDS: (keyof Settings)[] = ["baseUrl", "apiKey", "model"];
+  const PROXY_FIELDS: (keyof Settings)[] = ["proxyMode", "proxyUrl", "proxyUsername", "proxyPassword"];
+
   function set<K extends keyof Settings>(key: K, value: Settings[K]) {
     setDraft((prev) => ({ ...prev, [key]: value }));
+    if (MODEL_FIELDS.includes(key)) setModelStatus(STALE);
+    if (PROXY_FIELDS.includes(key)) setProxyStatus(STALE);
   }
 
   async function save() {
@@ -103,32 +130,56 @@ export default function SettingsView({ settings, onChange }: Props) {
     }
   }
 
+  /**
+   * Список моделей — заодно и проверка ключа: если он получен, значит адрес,
+   * ключ и прокси вместе работают. Поэтому результат показывается статусом
+   * подключения, а не строчкой «список получен».
+   */
   async function loadModels() {
     setBusy(true);
-    setError("");
+    setModelStatus(CHECKING);
     try {
-      setModels(await window.api.listModels(draft));
-      setNotice("Список моделей получен.");
+      const list = await window.api.listModels(draft);
+      setModels(list);
+      setModelStatus(
+        ok(`Подключение работает: ключ принят, моделей доступно ${list.length}.`)
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setModelStatus(failed(errorText(e)));
     } finally {
       setBusy(false);
     }
   }
 
+  /** Проверка после ввода: ключ введён и ещё не проверен — проверяем сами. */
+  function checkModelsOnBlur() {
+    if (!draft.apiKey.trim() || !draft.baseUrl.trim()) return;
+    if (modelStatus && (modelStatus.state === "ok" || modelStatus.state === "checking")) return;
+    void loadModels();
+  }
+
   async function test() {
     setBusy(true);
-    setError("");
-    setNotice("");
+    setProxyStatus(CHECKING);
     try {
       const result = await window.api.testProxy(draft);
-      if (result.ok) setNotice(result.message);
-      else setError(result.message);
+      setProxyStatus(result.ok ? ok(result.message) : failed(result.message));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setProxyStatus(failed(errorText(e)));
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Проверка после ввода данных прокси. Только когда проверять уже есть что:
+   * в ручном режиме без адреса проверка гарантированно провалится и напугает
+   * человека посреди набора.
+   */
+  function checkProxyOnBlur() {
+    if (draft.proxyMode === "manual" && !draft.proxyUrl.trim()) return;
+    if (proxyStatus && (proxyStatus.state === "ok" || proxyStatus.state === "checking")) return;
+    void test();
   }
 
   return (
@@ -161,21 +212,31 @@ export default function SettingsView({ settings, onChange }: Props) {
         </p>
 
         <label className="field-label">Base URL</label>
-        <input className="input" value={draft.baseUrl} onChange={(e) => set("baseUrl", e.target.value)} />
+        <input
+          className="input"
+          value={draft.baseUrl}
+          onChange={(e) => set("baseUrl", e.target.value)}
+          onBlur={checkModelsOnBlur}
+        />
 
         <label className="field-label">API-ключ</label>
         <div className="row">
           <input
-            className="input"
+            className="input api-key-input"
             type={showKey ? "text" : "password"}
             placeholder="sk-..."
             value={draft.apiKey}
             onChange={(e) => set("apiKey", e.target.value)}
+            onBlur={checkModelsOnBlur}
           />
           <button type="button" className="btn" onClick={() => setShowKey((v) => !v)}>
             {showKey ? "Скрыть" : "Показать"}
           </button>
+          <button type="button" className="btn" onClick={loadModels} disabled={busy}>
+            Проверить подключение
+          </button>
         </div>
+        <ConnectionStatus status={modelStatus} />
       </section>
 
       <section className="card">
@@ -259,6 +320,7 @@ export default function SettingsView({ settings, onChange }: Props) {
           className="input"
           value={draft.proxyMode}
           onChange={(e) => set("proxyMode", e.target.value as Settings["proxyMode"])}
+          onBlur={checkProxyOnBlur}
         >
           <option value="system">Из настроек Windows (по умолчанию)</option>
           <option value="manual">Указать адрес вручную</option>
@@ -273,6 +335,7 @@ export default function SettingsView({ settings, onChange }: Props) {
               placeholder="http://123.45.67.89:8080"
               value={draft.proxyUrl}
               onChange={(e) => set("proxyUrl", e.target.value)}
+              onBlur={checkProxyOnBlur}
             />
             <p className="hint">
               Формат — <code>http://адрес:порт</code> (или <code>socks5://адрес:порт</code>). Логин и пароль
@@ -290,13 +353,19 @@ export default function SettingsView({ settings, onChange }: Props) {
               Required»). Это данные от прокси, а не от Polza.
             </p>
             <label className="field-label">Логин прокси</label>
-            <input className="input" value={draft.proxyUsername} onChange={(e) => set("proxyUsername", e.target.value)} />
+            <input
+              className="input"
+              value={draft.proxyUsername}
+              onChange={(e) => set("proxyUsername", e.target.value)}
+              onBlur={checkProxyOnBlur}
+            />
             <label className="field-label">Пароль прокси</label>
             <input
               className="input"
               type="password"
               value={draft.proxyPassword}
               onChange={(e) => set("proxyPassword", e.target.value)}
+              onBlur={checkProxyOnBlur}
             />
           </>
         )}
@@ -304,6 +373,7 @@ export default function SettingsView({ settings, onChange }: Props) {
         <button type="button" className="btn" onClick={test} disabled={busy}>
           Проверить соединение
         </button>
+        <ConnectionStatus status={proxyStatus} />
       </section>
 
       <section className="card">
@@ -374,7 +444,13 @@ export default function SettingsView({ settings, onChange }: Props) {
             type="password"
             placeholder="ghp_… или github_pat_…"
             value={githubDraft}
-            onChange={(e) => setGithubDraft(e.target.value)}
+            onChange={(e) => {
+              setGithubDraft(e.target.value);
+              setGithubStatus(e.target.value.trim() === github.token.trim() ? null : STALE);
+            }}
+            onBlur={() => {
+              if (githubDraft.trim() && githubDraft.trim() !== github.token.trim()) void saveGitHub();
+            }}
           />
           <button type="button" className="btn" onClick={saveGitHub}>
             Проверить и сохранить
@@ -396,8 +472,10 @@ export default function SettingsView({ settings, onChange }: Props) {
             Создать токен на GitHub
           </button>
         </p>
-        {githubState && <p className="notice-text">{githubState}</p>}
-        {!githubState && github.token && <p className="hint">Токен сохранён.</p>}
+        <ConnectionStatus status={githubStatus} />
+        {!githubStatus && github.token && (
+          <p className="hint">Токен сохранён. Нажмите «Проверить и сохранить», чтобы убедиться, что он ещё действует.</p>
+        )}
         <div className="row">
           <div className="col">
             <label className="field-label">Имя для коммитов</label>
