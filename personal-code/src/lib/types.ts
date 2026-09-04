@@ -19,6 +19,8 @@ export interface Settings {
   dataRoot: string;
   /** Репозиторий с каноническим «Личным чатом» — откуда берётся код копий. */
   sourceRepo: string;
+  /** И ветка в нём: копии собираются из того, что в ней лежит сейчас. */
+  sourceBranch: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchApiKey: "",
   dataRoot: "",
   sourceRepo: "konsultmarket59-tech/vi",
+  sourceBranch: "main",
 };
 
 export interface TreeNode {

@@ -98,17 +98,6 @@ export default function Sidebar({ projects, view, modules, productName, onSelect
     onSelectView({ kind: "project", id: project.id });
   }
 
-  async function importFromClaude() {
-    const paths = await window.api.pickClaudeExportFiles();
-    if (paths.length === 0) return;
-    try {
-      const created = await window.api.importClaudeExports(paths);
-      onProjectsChange([...created, ...projects]);
-      if (created[0]) onSelectView({ kind: "project", id: created[0].id });
-    } catch {
-      alert("Не удалось импортировать один или несколько файлов — проверьте, что это экспорт проекта Claude.ai (JSON).");
-    }
-  }
 
   return (
     <div className="sidebar">
@@ -117,9 +106,6 @@ export default function Sidebar({ projects, view, modules, productName, onSelect
       <div className="sidebar-section">
         <button className="btn btn-primary btn-block" onClick={createEmptyProject}>
           + Новый проект
-        </button>
-        <button className="btn btn-secondary btn-block" onClick={importFromClaude}>
-          Импорт из Claude.ai (.json)
         </button>
       </div>
 

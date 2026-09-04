@@ -1566,3 +1566,19 @@ button.fin-row-x:hover { color: var(--accent); }
   font-family: var(--mono); font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* Срок демо: видно всё время, а в последний день — заметнее. */
+.licence-banner-ending { background: #fdefee; border-color: #f0c2be; color: #8a2018; }
+
+/* Отчёт о работе на экране «срок истёк»: путь к файлу и кнопка «Показать». */
+.licence-report {
+  margin-top: 16px; padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg-hover);
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+}
+.licence-report p { margin: 0; line-height: 1.5; }
+.licence-report-path {
+  align-self: stretch; padding: 8px 10px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px; word-break: break-all;
+}

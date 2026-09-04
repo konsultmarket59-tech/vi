@@ -516,6 +516,28 @@ function writeSample(rel, content) {
     /уже занят/
   );
 
+  console.log("\nрабочий процесс сборки копии");
+  // Первая настоящая сборка копии дошла до готового установщика и упала на
+  // последнем шаге: electron-builder на CI сам полез публиковать релиз и
+  // потребовал GH_TOKEN. Установщик при этом был собран, но забрать его было
+  // неоткуда — шага с артефактом тоже не было.
+  const publish = require("./publish.cjs");
+  const yaml = publish.workflowYaml("Личный чат Мария");
+  check("сборка не пытается публиковать сама", yaml.includes("--publish never"), yaml);
+  check(
+    "и не запускается скриптом, который это делает",
+    !/npm run electron:build:win/.test(yaml),
+    yaml
+  );
+  check("установщик остаётся артефактом запуска", yaml.includes("upload-artifact"), yaml);
+  check(
+    "артефакт сохраняется даже при сбое публикации",
+    /upload-artifact[\s\S]*?if: always\(\)|if: always\(\)[\s\S]*?upload-artifact/.test(yaml),
+    yaml
+  );
+  check("релиз называется именем копии", yaml.includes("Личный чат Мария — установщик"), yaml);
+  check("права на запись в релизы есть", /permissions:\s*\n\s*contents: write/.test(yaml), yaml);
+
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   fs.rmSync(root, { recursive: true, force: true });
   process.exit(failures === 0 ? 0 : 1);

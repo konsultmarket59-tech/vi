@@ -221,15 +221,27 @@ export default function SettingsView({ settings, onChange }: Props) {
           используемых. ID любой другой модели можно ввести вручную.
         </p>
       )}
-      <p className="hint">
-        Начните вводить название или ID — появятся варианты (среди них — заготовленный список: Claude Sonnet 5,
-        Claude Opus 5, Claude Fable 5, Gemini 3.5 Flash-Lite, Kimi K3, и всё, что удалось загрузить с Polza.ai).
-        Точный идентификатор любой другой модели можно скопировать со страницы{" "}
-        <a href="https://polza.ai/models" target="_blank" rel="noreferrer">
-          polza.ai/models
-        </a>{" "}
-        — список не ограничен приложением, доступна любая модель, включённая на вашем аккаунте Polza.ai.
-      </p>
+      {/* В демо-сборке ключ вшит и человеку не показывается — значит, и сервис,
+          на котором он заведён, ему ни о чём не говорит и решать ничего не
+          помогает. Вместо названия сервиса — адрес, по которому можно спросить,
+          какие модели подключены именно к этой копии. */}
+      {draft.managed ? (
+        <p className="hint">
+          Начните вводить название или ID — появятся варианты. Список моделей, подключённых к вашей
+          демо-версии, можно запросить у разработчика:{" "}
+          <a href="mailto:hello@dynamicbrands.ru">hello@dynamicbrands.ru</a>.
+        </p>
+      ) : (
+        <p className="hint">
+          Начните вводить название или ID — появятся варианты (среди них — заготовленный список: Claude Sonnet 5,
+          Claude Opus 5, Claude Fable 5, Gemini 3.5 Flash-Lite, Kimi K3, и всё, что удалось загрузить с Polza.ai).
+          Точный идентификатор любой другой модели можно скопировать со страницы{" "}
+          <a href="https://polza.ai/models" target="_blank" rel="noreferrer">
+            polza.ai/models
+          </a>{" "}
+          — список не ограничен приложением, доступна любая модель, включённая на вашем аккаунте Polza.ai.
+        </p>
+      )}
 
       <label>Temperature: {draft.temperature}</label>
       <input
@@ -358,7 +370,7 @@ export default function SettingsView({ settings, onChange }: Props) {
         <>
           <p className="hint">
             Логин и пароль — только если прокси их требует (признак — ошибка «407 Proxy Authentication
-            Required»). Это данные от прокси, а не от Polza.
+            Required»). Это данные от прокси, а не от сервиса моделей.
           </p>
           <label>Логин прокси</label>
           <input
