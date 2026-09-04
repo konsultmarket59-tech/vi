@@ -123,7 +123,16 @@ async function copyConfigFiles(copy, { publicKey = "" } = {}) {
     files.push({
       path: "managed-config.json",
       content: JSON.stringify(
-        { apiKey: copy.apiKey, baseUrl: copy.baseUrl, model: copy.model, currency: copy.currency, prices },
+        {
+          apiKey: copy.apiKey,
+          baseUrl: copy.baseUrl,
+          model: copy.model,
+          // Потолок длины ответа для этой копии: и значение по умолчанию, и
+          // предел, выше которого тестировщик поднять не сможет.
+          maxTokens: copy.maxTokens,
+          currency: copy.currency,
+          prices,
+        },
         null,
         2
       ),

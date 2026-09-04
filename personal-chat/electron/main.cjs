@@ -205,7 +205,9 @@ async function loadSettings() {
   // never touched the slider, not that they deliberately chose the smallest setting — so
   // carry them forward to the new, more generous default.
   if (s.maxTokens === OLD_DEFAULT_MAX_TOKENS) s.maxTokens = DEFAULT_SETTINGS.maxTokens;
-  return managed.apply({ ...DEFAULT_SETTINGS, ...s });
+  // В сборке для тестировщика длину ответа задаёт автор — но только пока человек
+  // не выбрал своё. Отличаем «не трогал» от «выбрал» по наличию поля в файле.
+  return managed.apply({ ...DEFAULT_SETTINGS, ...s }, { chosenMaxTokens: "maxTokens" in s });
 }
 
 async function saveSettingsFile(settings) {

@@ -253,14 +253,26 @@ export default function SettingsView({ settings, onChange }: Props) {
         onChange={(e) => update("temperature", Number(e.target.value))}
       />
 
-      <label>Max tokens</label>
+      {/* Длина ответа: сколько модель может написать за один раз. К длине того,
+          что ей дают (документы, инструкции), отношения не имеет — там предел
+          другой и намного больше. В сборке для тестировщика потолок задаёт
+          автор: уменьшить можно, увеличить — нет. */}
+      <label>Длина ответа: до {(draft.maxTokens || 0).toLocaleString("ru-RU")} токенов</label>
       <input
-        type="number"
-        min={256}
-        max={64000}
-        value={draft.maxTokens}
+        type="range"
+        min={4000}
+        max={draft.maxTokensLimit || 128000}
+        step={4000}
+        value={Math.min(draft.maxTokens, draft.maxTokensLimit || 128000)}
         onChange={(e) => update("maxTokens", Number(e.target.value))}
       />
+      <p className="hint">
+        Примерно {Math.round((draft.maxTokens || 0) / 400)} страниц текста в одном ответе. Больше — длиннее
+        договоры и статьи целиком, но и дороже: выход считается отдельно от входа.
+        {draft.maxTokensLimit
+          ? ` Предел этой сборки — ${draft.maxTokensLimit.toLocaleString("ru-RU")} токенов, его задал разработчик.`
+          : " Потолок 128 000 — предел моделей Claude 5-го поколения."}
+      </p>
 
       <label>
         <input

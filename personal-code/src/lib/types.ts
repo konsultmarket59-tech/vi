@@ -200,6 +200,8 @@ export interface ChatCopy {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /** Потолок длины ответа копии в токенах: и по умолчанию, и максимум. */
+  maxTokens: number;
   pricesText: string;
   currency: string;
   days: number;

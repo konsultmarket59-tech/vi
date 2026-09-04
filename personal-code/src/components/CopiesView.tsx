@@ -17,6 +17,7 @@ function emptyCopy(kind: "demo" | "paid"): Partial<ChatCopy> {
     apiKey: "",
     baseUrl: "https://polza.ai/api/v1",
     model: "anthropic/claude-sonnet-5",
+    maxTokens: 16000,
     pricesText: "",
     days: kind === "demo" ? 5 : 365,
     copyProtection: true,
@@ -511,6 +512,25 @@ export default function CopiesView({ kind }: Props) {
               value={draft.apiKey ?? ""}
               onChange={(e) => patch({ apiKey: e.target.value })}
             />
+            <label className="field-label">
+              Длина ответа: до {(draft.maxTokens ?? 16000).toLocaleString("ru-RU")} токенов
+            </label>
+            <input
+              className="input"
+              type="range"
+              min={4000}
+              max={128000}
+              step={4000}
+              value={draft.maxTokens ?? 16000}
+              onChange={(e) => patch({ maxTokens: Number(e.target.value) })}
+            />
+            <p className="hint">
+              Сколько модель может написать в одном ответе. Примерно {Math.round((draft.maxTokens ?? 16000) / 400)}{" "}
+              страниц текста. На длину того, что человек может <b>дать</b> модели (документы, инструкции), это не
+              влияет — там предел другой и намного больше. Потолок 128 000 — предел моделей Claude 5-го поколения;
+              тестировщик сможет поставить меньше, но не больше.
+            </p>
+
             <label className="field-label">Цены моделей (модель, вход, выход за 1 млн токенов)</label>
             <textarea
               className="textarea"

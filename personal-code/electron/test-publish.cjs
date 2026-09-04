@@ -111,6 +111,7 @@ server.listen(0, "127.0.0.1", async () => {
       days: 5,
       office: ["excel", "word"],
       plugins: ["docflow"],
+      maxTokens: 64000,
     }).all[0];
 
     const log = [];
@@ -146,6 +147,11 @@ server.listen(0, "127.0.0.1", async () => {
     const workflow = Buffer.from(state.blobs.get(workflowEntry.sha), "base64").toString("utf-8");
     check("рабочий процесс подписан на push в main", /push:\s*\n\s*branches: \[main\]/.test(workflow), workflow.slice(0, 200));
     check("и не публикует релиз сам", workflow.includes("--publish never"), workflow.slice(0, 200));
+
+    const managedEntry = state.trees[0].find((e) => e.path === "managed-config.json");
+    const managedConfig = JSON.parse(Buffer.from(state.blobs.get(managedEntry.sha), "base64").toString("utf-8"));
+    check("длина ответа уехала в копию", managedConfig.maxTokens === 64000, JSON.stringify(managedConfig.maxTokens));
+    check("и ключ с адресом тоже", managedConfig.apiKey === "ключ-демо" && !!managedConfig.baseUrl, "");
 
     console.log("\nчто вернулось в окно");
     check("репозиторий копии назван", result.repo === `vlad/${copy.repoName}`, result.repo);

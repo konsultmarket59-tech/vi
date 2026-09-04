@@ -21,6 +21,16 @@ const crypto = require("node:crypto");
 
 // Что можно включить в копию. База (projects, skills) есть всегда; Excel и Word
 // — обычная часть конфигурации; остальное — плагины, которые отмечают отдельно.
+/**
+ * Предел длины ответа, который можно выставить копии.
+ *
+ * 128 000 токенов — потолок моделей Claude пятого поколения (Sonnet 5, Opus 5)
+ * на выход. Больше выставить нельзя: сервис такой запрос отклонит. Длинный
+ * ответ приходит по мере написания (потоком), поэтому большое значение не
+ * упирается в таймаут.
+ */
+const MAX_TOKENS_LIMIT = 128000;
+
 const BASE_MODULES = ["projects", "skills"];
 const OFFICE_MODULES = ["excel", "word"];
 
@@ -85,6 +95,10 @@ function normalize(copy) {
     apiKey: kind === "demo" ? String(copy.apiKey || "").trim() : "",
     baseUrl: String(copy.baseUrl || "https://polza.ai/api/v1").trim(),
     model: String(copy.model || "anthropic/claude-sonnet-5").trim(),
+    // Потолок длины ответа для этой копии. Ограничивает то, сколько модель может
+    // написать за один раз, а не сколько текста ей можно дать: у моделей Claude
+    // это до 128 000 токенов (примерно 300 страниц).
+    maxTokens: Math.max(256, Math.min(MAX_TOKENS_LIMIT, Math.round(Number(copy.maxTokens) || 16000))),
     pricesText: String(copy.pricesText || ""),
     currency: String(copy.currency || "₽").trim(),
 
@@ -184,6 +198,7 @@ function toBlueprint(copy, { sourcePath = "", branch = "" } = {}) {
     apiKey: copy.apiKey,
     baseUrl: copy.baseUrl,
     model: copy.model,
+    maxTokens: copy.maxTokens,
     pricesText: copy.pricesText,
     currency: copy.currency,
     skills: [],
@@ -263,6 +278,7 @@ function setRevoked(stored, id, revoked) {
 }
 
 module.exports = {
+  MAX_TOKENS_LIMIT,
   BASE_MODULES,
   OFFICE_MODULES,
   PLUGINS,
