@@ -211,7 +211,9 @@ git нужен.
 4. Тем же коммитом ложатся `plugins.json`, `managed-config.json` (для демо) или
    `licence-config.json` (если копия защищена) и рабочий процесс сборки для GitHub Actions —
    одним коммитом, чтобы GitHub запустил одну сборку, а не по одной на каждый файл.
-5. Сборка установщика запускается на GitHub — окно показывает каждый шаг по мере выполнения.
+5. Сборка установщика запускается на GitHub от этого коммита — окно показывает каждый шаг по
+   мере выполнения. Прогон один: рабочий процесс подписан на push в main, отдельно запускать его
+   не нужно (раньше запускался и получалось два одинаковых прогона на один установщик).
 
 Готовый установщик появляется в релизах репозитория этой копии; кнопки «Сборка на GitHub» и
 «Готовый установщик» ведут прямо туда.
@@ -285,6 +287,7 @@ node electron/smoke-plugin-archive.cjs              # версии плагин�
 node electron/test-connection-error.cjs             # объяснения сбоев подключения
 node electron/test-sources.cjs                      # код копий берётся с GitHub, а не из папки
 node electron/test-copies-delete.cjs                # удаление копии закрывает доступ
+node electron/test-publish.cjs                      # «Собрать» запускает ровно одну сборку
 xvfb-run -a npx electron electron/smoke-app.cjs     # интерфейс целиком
 xvfb-run -a npx electron electron/smoke-copy-build.cjs  # «Собрать» не роняет окно
 xvfb-run -a npx electron electron/smoke-settings-backup.cjs  # настройки переживают переустановку
