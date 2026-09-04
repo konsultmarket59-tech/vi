@@ -508,10 +508,39 @@ function registerHandlers() {
     await settingsStore.writeSection("copies", all);
     return { all, saved };
   });
-  ipcMain.handle("copies:delete", async (_e, id) => {
-    const all = copies.remove(await storedCopies(), id);
-    await settingsStore.writeSection("copies", all);
-    return all;
+  /**
+   * Удаляет копию. Удаление — это закрытие доступа, а не просто исчезновение
+   * строки из списка: ключи, выданные этой копии, переезжают в постоянный
+   * список отзыва. Иначе файл активации на руках у тестировщика оставался бы
+   * действительным — а если потом собрать копию с тем же именем, он подошёл бы
+   * и к ней.
+   *
+   * Репозиторий на GitHub удаляется только по явной просьбе: он хранит
+   * установщик и историю сборок, и это необратимо.
+   */
+  ipcMain.handle("copies:delete", async (_e, id, options) => {
+    const all = copies.list(await storedCopies());
+    const copy = all.find((c) => c.id === id);
+    if (!copy) return { all, repo: { ok: true, message: "" } };
+
+    const retired = new Set(await settingsStore.readSection("revokedLicences", []));
+    for (const licenceId of copies.licenceIdsOf(copy)) retired.add(licenceId);
+    await settingsStore.writeSection("revokedLicences", [...retired]);
+
+    let repo = { ok: true, message: "" };
+    if (options?.deleteRepo && copy.repoFullName) {
+      const account = await github.getAccount(await appDataDir());
+      if (!account.token) {
+        repo = { ok: false, message: "Репозиторий не удалён: не задан токен GitHub — вкладка «Настройки»." };
+      } else {
+        const [owner, name] = copy.repoFullName.split("/");
+        repo = await github.deleteRepo(account.token, owner, name);
+      }
+    }
+
+    const next = copies.remove(all, id);
+    await settingsStore.writeSection("copies", next);
+    return { all: next, repo, retired: retired.size };
   });
   /** Откуда берётся код копий — показывается на вкладках сборки. */
   ipcMain.handle("copies:source", async () => {
@@ -613,7 +642,13 @@ function registerHandlers() {
   });
   /** Подписанный список отзыва по всем копиям — один файл на всех. */
   ipcMain.handle("copies:exportRevocations", async () => {
-    const payload = { revoked: copies.revokedIds(await storedCopies()), updatedAt: new Date().toISOString() };
+    // Вместе с ключами удалённых копий: список отзыва — это память обо всём,
+    // что закрыто, а не снимок текущего списка копий.
+    const retired = await settingsStore.readSection("revokedLicences", []);
+    const payload = {
+      revoked: copies.revokedIds(await storedCopies(), retired),
+      updatedAt: new Date().toISOString(),
+    };
     const contents = JSON.stringify({ list: payload, signature: await demoAccess.sign(payload) }, null, 2);
     const target = await dialog.showSaveDialog(mainWindow, {
       title: "Куда сохранить список отзыва",

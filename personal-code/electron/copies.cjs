@@ -235,9 +235,22 @@ function withIssuedLicence(copy, licence) {
   });
 }
 
-/** Что попадает в подписанный revoked.json. */
-function revokedIds(stored) {
-  const ids = new Set();
+/** Все ключи, когда-либо выданные этой копии, — и текущий, и отозванные. */
+function licenceIdsOf(copy) {
+  const normalized = normalize(copy);
+  return [...new Set([...normalized.revokedLicenceIds, normalized.licenceId].filter(Boolean))];
+}
+
+/**
+ * Что попадает в подписанный revoked.json.
+ *
+ * `retired` — ключи удалённых копий. Пока список собирался только из записей,
+ * удаление копии стирало и память о её ключах: файл активации, выданный
+ * тестировщику, снова становился действительным, хотя копию закрыли. Поэтому
+ * при удалении ключи переезжают в отдельный список и остаются там навсегда.
+ */
+function revokedIds(stored, retired = []) {
+  const ids = new Set(retired.map(String).filter(Boolean));
   for (const copy of list(stored)) {
     for (const id of copy.revokedLicenceIds) ids.add(id);
     if (copy.revoked && copy.licenceId) ids.add(copy.licenceId);
@@ -265,6 +278,7 @@ module.exports = {
   toBlueprint,
   licenceFor,
   withIssuedLicence,
+  licenceIdsOf,
   revokedIds,
   setRevoked,
 };

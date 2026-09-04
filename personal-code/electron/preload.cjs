@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld("api", {
   copySource: () => ipcRenderer.invoke("copies:source"),
   listCopies: () => ipcRenderer.invoke("copies:list"),
   saveCopy: (copy) => ipcRenderer.invoke("copies:save", copy),
-  deleteCopy: (id) => ipcRenderer.invoke("copies:delete", id),
+  deleteCopy: (id, options) => ipcRenderer.invoke("copies:delete", id, options),
   setCopyRevoked: (id, revoked) => ipcRenderer.invoke("copies:setRevoked", id, revoked),
   publishCopy: (id, options) => ipcRenderer.invoke("copies:publish", id, options),
   openCopyCode: (id) => ipcRenderer.invoke("copies:openCode", id),

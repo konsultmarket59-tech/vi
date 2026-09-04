@@ -174,6 +174,32 @@ async function commitFile(token, owner, repo, filePath, content, message, sha, b
 }
 
 
+/**
+ * Удаляет репозиторий копии. Нужен токен с правом `delete_repo` — обычный
+ * «repo, workflow» его не даёт, и GitHub отвечает 403. Это не повод молчать:
+ * человек должен понять, что репозиторий остался, и почему.
+ */
+async function deleteRepo(token, owner, repo) {
+  try {
+    await apiRequest(token, "DELETE", `/repos/${owner}/${repo}`);
+    return { ok: true, message: `Репозиторий ${owner}/${repo} удалён.` };
+  } catch (e) {
+    const raw = String(e.message || e);
+    if (/403|Must have admin rights|delete_repo/i.test(raw)) {
+      return {
+        ok: false,
+        message:
+          `Репозиторий ${owner}/${repo} не удалён: у токена нет права delete_repo. ` +
+          "Добавьте это право токену в настройках GitHub или удалите репозиторий там вручную.",
+      };
+    }
+    if (/404|Not Found/i.test(raw)) {
+      return { ok: true, message: `Репозитория ${owner}/${repo} на GitHub уже нет.` };
+    }
+    return { ok: false, message: `Не удалось удалить ${owner}/${repo}: ${raw}` };
+  }
+}
+
 // ---------- Git Data API: деревья, файлы, коммиты ----------
 //
 // Через этот раздел копия «Личного чата» уезжает в свой репозиторий целиком и
@@ -325,6 +351,7 @@ module.exports = {
   testConnection,
   listRepos,
   createRepo,
+  deleteRepo,
   getTree,
   getFileContent,
   listTree,
