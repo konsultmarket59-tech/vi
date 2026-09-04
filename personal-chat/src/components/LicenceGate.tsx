@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LicenceStatus } from "../lib/types";
 
 interface Props {
@@ -50,6 +50,24 @@ export default function LicenceGate({ status, onActivated }: Props) {
 
   const canRetry = status.reason === "expired" || status.reason === "revoked";
 
+  // Отчёт о работе программы собирается сам за двадцать минут до конца срока;
+  // здесь он просто показывается — с готовым путём к файлу, чтобы человеку
+  // осталось только переслать его.
+  const [reportFile, setReportFile] = useState("");
+  useEffect(() => {
+    if (status.reason !== "expired") return;
+    let stale = false;
+    window.api
+      .demoReport()
+      .then((r) => {
+        if (!stale) setReportFile(r.file);
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [status.reason]);
+
   return (
     <div className="licence-gate">
       <div className="licence-card">
@@ -67,12 +85,35 @@ export default function LicenceGate({ status, onActivated }: Props) {
         {status.message && <p className="licence-message">{status.message}</p>}
 
         {status.reason === "expired" && (
-          <p className="hint">
-            Проекты, документы, чаты и навыки остались на месте — они лежат обычными файлами в вашей
-            папке с данными и при истечении срока не удаляются. Как только придёт новый файл
-            активации, работа продолжится с того же места, даже если продление произошло намного
-            позже окончания срока.
-          </p>
+          <>
+            <p className="hint">
+              Проекты, документы, чаты и навыки остались на месте — они лежат обычными файлами в вашей
+              папке с данными и при истечении срока не удаляются. Как только придёт новый файл
+              активации, работа продолжится с того же места, даже если продление произошло намного
+              позже окончания срока.
+            </p>
+            <div className="licence-report">
+              <p>
+                <strong>Спасибо за тестирование.</strong> Программа собрала данные о своей работе —
+                ошибки, версию и систему. Ни документов, ни переписки, ни ключей в этом файле нет.
+              </p>
+              <p>
+                Пожалуйста, перешлите файл разработчику на{" "}
+                <a href="mailto:hello@dynamicbrands.ru">hello@dynamicbrands.ru</a> — по нему
+                чинят то, что вам мешало, к вашей финальной сборке.
+              </p>
+              {reportFile ? (
+                <>
+                  <code className="licence-report-path">{reportFile}</code>
+                  <button type="button" className="btn" onClick={() => window.api.revealReport(reportFile)}>
+                    Показать файл
+                  </button>
+                </>
+              ) : (
+                <p className="hint">Собираю файл…</p>
+              )}
+            </div>
+          </>
         )}
 
         {status.reason === "revoked" && (

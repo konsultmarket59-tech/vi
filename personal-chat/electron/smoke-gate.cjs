@@ -193,6 +193,15 @@ async function waitFor(win, expression, label, timeout = 20000) {
         !(await win.webContents.executeJavaScript(`!!document.querySelector(".licence-gate")`))
       );
 
+      console.log("\nсрок демо-версии виден в окне");
+      // Тестировщику про срок должна говорить сама программа, а не письмо: и
+      // на сколько выдана копия, и сколько осталось.
+      const banner = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-banner")||{}).textContent || ""`
+      );
+      check("написано, на сколько дней выдана копия", /демо-версия на 30 дней/i.test(banner), banner);
+      check("и сколько осталось", /осталось/i.test(banner), banner);
+
       console.log("\nимя копии");
       const sidebarTitle = await win.webContents.executeJavaScript(
         `(document.querySelector(".sidebar-title")||{}).textContent || ""`
@@ -291,6 +300,37 @@ async function waitFor(win, expression, label, timeout = 20000) {
         fs.existsSync(path.join(dataRoot, "projects", project.id, "project.json")) &&
           fs.readFileSync(path.join(docsDir, "договор.md"), "utf-8").includes("нельзя потерять")
       );
+
+      // Отчёт о работе: собирается сам и предлагается человеку прямо здесь —
+      // иначе обратную связь автор получает пересказом по памяти или никак.
+      await waitFor(win, `!!document.querySelector(".licence-report-path")`, "показан файл отчёта", 20000);
+      const reportCard = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-report")||{}).textContent || ""`
+      );
+      check("сказано, куда переслать файл", reportCard.includes("hello@dynamicbrands.ru"), reportCard);
+      check(
+        "обещано, что в файле нет ни документов, ни переписки",
+        /ни документов, ни переписки/i.test(reportCard),
+        reportCard
+      );
+      const reportPath = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-report-path")||{}).textContent || ""`
+      );
+      check("файл отчёта существует", fs.existsSync(reportPath.trim()), reportPath);
+      const autoReport = JSON.parse(fs.readFileSync(reportPath.trim(), "utf-8"));
+      check("в отчёте есть журнал ошибок", Array.isArray(autoReport.журналОшибок), Object.keys(autoReport).join(", "));
+      check(
+        "в отчёте нет ключа автора",
+        !JSON.stringify(autoReport).includes("ключ-автора-для-теста"),
+        "ключ попал в отчёт"
+      );
+      check(
+        "и нет текста документов тестировщика",
+        !JSON.stringify(autoReport).includes("нельзя потерять"),
+        "документ попал в отчёт"
+      );
+      fs.rmSync(reportPath.trim(), { force: true });
+      fs.rmSync(path.join(userData, "demo-report.json"), { force: true });
 
       // Продление приходит позже окончания срока — как это и бывает.
       const renewalSource = demoAccess.save([], {

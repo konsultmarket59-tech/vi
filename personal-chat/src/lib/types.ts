@@ -852,6 +852,9 @@ export interface LicenceStatus {
   tester?: string;
   expiresAt?: string;
   daysLeft?: number;
+  /** Весь выданный срок в днях — «демо-версия на 5 дней». */
+  days?: number;
+  issuedAt?: string;
   productName?: string;
   /** Название именно этой копии: «Личный чат Виктории». */
   displayName?: string;
@@ -918,6 +921,7 @@ export interface ElectronAPI {
   licenceStatus(options?: { allowNetwork?: boolean }): Promise<LicenceStatus>;
   activateLicence(contents: string): Promise<LicenceStatus>;
   pickLicenceFile(): Promise<LicenceStatus | null>;
+  demoReport(): Promise<{ file: string; entries: number; at: string; reason: string }>;
   getSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<void>;
 
@@ -966,8 +970,6 @@ export interface ElectronAPI {
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
   deleteConversation(projectId: string, convId: string): Promise<void>;
 
-  pickClaudeExportFiles(): Promise<string[]>;
-  importClaudeExports(filePaths: string[]): Promise<Project[]>;
 
   exportToPdf(payload: { html: string; defaultName: string; projectId?: string }): Promise<string | null>;
   exportChatToDocx(payload: ChatExportPayload): Promise<string | null>;

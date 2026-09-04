@@ -89,7 +89,7 @@ export async function streamChat(
   system?: SplitSystemPrompt
 ): Promise<string> {
   if (!settings.apiKey) {
-    throw new ApiError("Не задан API-ключ. Откройте настройки и вставьте ключ Polza.ai.");
+    throw new ApiError("Нет доступа к моделям: ключ не задан. Откройте «Настройки».");
   }
   if (!settings.model) {
     throw new ApiError("Не задана модель в настройках.");
