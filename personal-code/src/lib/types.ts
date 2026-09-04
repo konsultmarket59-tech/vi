@@ -200,6 +200,8 @@ export interface ChatCopy {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /** Потолок длины ответа копии в токенах: и по умолчанию, и максимум. */
+  maxTokens: number;
   pricesText: string;
   currency: string;
   days: number;
@@ -309,7 +311,10 @@ declare global {
       copySource(): Promise<CopySource>;
       listCopies(): Promise<ChatCopy[]>;
       saveCopy(copy: Partial<ChatCopy>): Promise<{ all: ChatCopy[]; saved: ChatCopy }>;
-      deleteCopy(id: string): Promise<ChatCopy[]>;
+      deleteCopy(
+        id: string,
+        options?: { deleteRepo?: boolean }
+      ): Promise<{ all: ChatCopy[]; repo: { ok: boolean; message: string }; retired?: number }>;
       setCopyRevoked(id: string, revoked: boolean): Promise<ChatCopy[]>;
       publishCopy(id: string, options?: { sourcePath?: string; branch?: string }): Promise<PublishResult>;
       openCopyCode(id: string): Promise<WorkspaceInfo>;

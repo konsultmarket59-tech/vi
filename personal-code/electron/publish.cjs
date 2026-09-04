@@ -123,7 +123,16 @@ async function copyConfigFiles(copy, { publicKey = "" } = {}) {
     files.push({
       path: "managed-config.json",
       content: JSON.stringify(
-        { apiKey: copy.apiKey, baseUrl: copy.baseUrl, model: copy.model, currency: copy.currency, prices },
+        {
+          apiKey: copy.apiKey,
+          baseUrl: copy.baseUrl,
+          model: copy.model,
+          // Потолок длины ответа для этой копии: и значение по умолчанию, и
+          // предел, выше которого тестировщик поднять не сможет.
+          maxTokens: copy.maxTokens,
+          currency: copy.currency,
+          prices,
+        },
         null,
         2
       ),
@@ -243,16 +252,13 @@ async function publish(
   }
   log("Код в репозитории.");
 
-  log("Запускаю сборку установщика на GitHub…");
-  let started = false;
-  try {
-    await github.runWorkflow(token, owner, repo.name, WORKFLOW_FILE, "main");
-    started = true;
-  } catch (e) {
-    // Только что созданный рабочий процесс иногда ещё не виден API. Он всё
-    // равно запустится сам — файл кладётся push'ем в main.
-    log(`Запустить вручную не удалось (${e.message}). Сборка стартует сама от записи файлов.`);
-  }
+  // Отдельно запускать сборку не нужно и вредно: рабочий процесс подписан на
+  // push в main, а код копии как раз туда и уехал. Пока здесь стоял ещё и
+  // ручной запуск, на каждую сборку заводилось два одинаковых прогона — они
+  // занимали вдвое больше времени и оба выкладывали установщик в один и тот же
+  // релиз, наперегонки.
+  log("Сборка установщика запускается на GitHub от этого коммита.");
+  const started = true;
 
   return {
     source: canonical ? `${canonical.source.full}@${canonical.branch}` : sourcePath,

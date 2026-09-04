@@ -17,6 +17,7 @@ function emptyCopy(kind: "demo" | "paid"): Partial<ChatCopy> {
     apiKey: "",
     baseUrl: "https://polza.ai/api/v1",
     model: "anthropic/claude-sonnet-5",
+    maxTokens: 16000,
     pricesText: "",
     days: kind === "demo" ? 5 : 365,
     copyProtection: true,
@@ -137,6 +138,44 @@ export default function CopiesView({ kind }: Props) {
       return saved;
     }, "Сохранено.");
     return saved;
+  }
+
+  /**
+   * Удаление — это закрытие копии. Ключ, выданный тестировщику, уходит в список
+   * отзыва навсегда, иначе он подошёл бы и к новой копии с тем же именем.
+   * Репозиторий трогаем только по отдельной просьбе: он необратим.
+   */
+  async function remove(copy: ChatCopy) {
+    if (
+      !confirm(
+        `Удалить копию «${copy.displayName}»?\n\n` +
+          "Выданный файл активации перестанет действовать: его ключ уходит в список отзыва навсегда — " +
+          "и не подойдёт к новой копии с тем же именем."
+      )
+    ) {
+      return;
+    }
+    let deleteRepo = false;
+    if (copy.repoFullName) {
+      deleteRepo = confirm(
+        `Удалить и репозиторий ${copy.repoFullName} на GitHub?\n\n` +
+          "Это необратимо: вместе с ним исчезнут собранный установщик и история сборок.\n\n" +
+          "Отмена — репозиторий останется, и новая копия с тем же именем соберётся в нём заново, " +
+          "поверх прежнего кода."
+      );
+    }
+    const result = await act(() => window.api.deleteCopy(copy.id, { deleteRepo }), "Копия удалена.");
+    if (!result) return;
+    setList(result.all);
+    if (result.repo.message) {
+      if (result.repo.ok) setNotice(`Копия удалена. ${result.repo.message}`);
+      else setError(result.repo.message);
+    }
+    // Список отзыва изменился — его надо выгрузить заново, иначе закрытый ключ
+    // продолжит работать у того, кто уже держит копию в руках.
+    if (!result.repo.message || result.repo.ok) {
+      setNotice((prev) => `${prev || "Копия удалена."} Выгрузите список отзыва заново.`);
+    }
   }
 
   async function pickSources() {
@@ -299,10 +338,7 @@ export default function CopiesView({ kind }: Props) {
                   type="button"
                   className="btn btn-sm btn-danger"
                   disabled={busy}
-                  onClick={() => {
-                    if (!confirm(`Удалить запись «${copy.displayName}»? Репозиторий на GitHub останется.`)) return;
-                    act(async () => setList(await window.api.deleteCopy(copy.id)), "Запись удалена.");
-                  }}
+                  onClick={() => remove(copy)}
                 >
                   Удалить
                 </button>
@@ -476,6 +512,25 @@ export default function CopiesView({ kind }: Props) {
               value={draft.apiKey ?? ""}
               onChange={(e) => patch({ apiKey: e.target.value })}
             />
+            <label className="field-label">
+              Длина ответа: до {(draft.maxTokens ?? 16000).toLocaleString("ru-RU")} токенов
+            </label>
+            <input
+              className="input"
+              type="range"
+              min={4000}
+              max={128000}
+              step={4000}
+              value={draft.maxTokens ?? 16000}
+              onChange={(e) => patch({ maxTokens: Number(e.target.value) })}
+            />
+            <p className="hint">
+              Сколько модель может написать в одном ответе. Примерно {Math.round((draft.maxTokens ?? 16000) / 400)}{" "}
+              страниц текста. На длину того, что человек может <b>дать</b> модели (документы, инструкции), это не
+              влияет — там предел другой и намного больше. Потолок 128 000 — предел моделей Claude 5-го поколения;
+              тестировщик сможет поставить меньше, но не больше.
+            </p>
+
             <label className="field-label">Цены моделей (модель, вход, выход за 1 млн токенов)</label>
             <textarea
               className="textarea"
