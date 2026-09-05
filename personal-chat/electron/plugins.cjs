@@ -20,6 +20,7 @@ const MODULE_IDS = [
   "docflow",
   "dataviz",
   "finmodel",
+  "stories",
   "cleanup",
   "media",
   "cloud",

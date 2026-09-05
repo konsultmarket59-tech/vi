@@ -9,6 +9,7 @@ export type View =
   | { kind: "docflow" }
   | { kind: "dataviz" }
   | { kind: "finmodel" }
+  | { kind: "stories" }
   | { kind: "cleanup" }
   | { kind: "cloud" }
   | { kind: "direct" }
@@ -27,6 +28,7 @@ const MODULE_ITEMS = [
   { id: "docflow", label: "📁 Документооборот" },
   { id: "dataviz", label: "📊 Визуализация" },
   { id: "finmodel", label: "💹 Финмодель" },
+  { id: "stories", label: "🎬 Видео-сторис" },
   { id: "cleanup", label: "🧹 Клининг" },
   { id: "media", label: "🎨 Медиа" },
   { id: "cloud", label: "☁️ Облако" },

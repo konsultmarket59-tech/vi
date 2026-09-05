@@ -1,0 +1,282 @@
+// Видео-сторис: описание ролика, сцена, сборка настоящего mp4 и раздел в приложении.
+//   xvfb-run -a npx electron electron/smoke-stories.cjs
+//
+// Самое важное здесь — что предпросмотр и готовый файл рисует один и тот же код.
+// Сцена умеет только seek(t) и ничего не помнит между кадрами, поэтому один и
+// тот же момент обязан выглядеть одинаково, сколько раз к нему ни перейди. Если
+// это перестанет быть правдой, человек будет собирать по три минуты не то, что
+// видел на экране.
+
+const { app, BrowserWindow } = require("electron");
+const os = require("node:os");
+const path = require("node:path");
+const fs = require("node:fs");
+const { execFileSync } = require("node:child_process");
+
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), "vs-ud-"));
+const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vs-data-"));
+const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "vs-out-"));
+
+app.setPath("userData", userData);
+fs.writeFileSync(path.join(userData, "config.json"), JSON.stringify({ rootPath: dataRoot }));
+fs.writeFileSync(
+  path.join(userData, "settings.json"),
+  JSON.stringify({
+    baseUrl: "http://127.0.0.1:9/v1",
+    apiKey: "test",
+    model: "anthropic/claude-sonnet-5",
+    temperature: 0.7,
+    maxTokens: 4000,
+    proxyMode: "direct",
+    searchEnabled: false,
+  })
+);
+app.disableHardwareAcceleration();
+
+let failures = 0;
+function check(label, condition, detail = "") {
+  if (condition) console.log(`  ok   ${label}`);
+  else {
+    failures++;
+    console.log(`  FAIL ${label}${detail ? " — " + String(detail).slice(0, 300) : ""}`);
+  }
+}
+
+const vs = require("./videostories.cjs");
+const ffmpeg = require("ffmpeg-static");
+
+/** Короткий цветной ролик со звуком — исходник для сборки. */
+function makeSource(dest, seconds = 3) {
+  execFileSync(ffmpeg, [
+    "-y", "-hide_banner", "-loglevel", "error",
+    "-f", "lavfi", "-i", `testsrc=size=720x1280:rate=30:duration=${seconds}`,
+    "-f", "lavfi", "-i", `sine=frequency=440:duration=${seconds}`,
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", dest,
+  ]);
+  return dest;
+}
+
+const SPEC = {
+  title: "Проба",
+  fps: 20,
+  duration: 2.5,
+  layers: [
+    { kind: "pill", text: "Первая фраза", start: 0.1, duration: 2.2, x: 6, y: 10, appear: "slide-left", bg: "#0A0A0A", fontSize: 60 },
+    { kind: "pill", text: "Вторая", start: 0.5, duration: 1.8, x: 14, y: 20, appear: "slide-right", bg: "#FF2F6D", fontSize: 60, skew: 8, shadow: true },
+    { kind: "timeline", start: 0.8, duration: 1.6, x: 8, y: 36, width: 84, steps: ["Раз", "Два", "Три"] },
+    { kind: "graphics", graphics: "network", start: 1.0, duration: 1.4, x: 7, y: 50, width: 86, hub: "ЦЕНТР", nodes: ["А", "Б", "В"], accentNode: "Б" },
+    { kind: "head", start: 0.2, duration: 2.0, x: 60, y: 5, size: 220, cropX: 100, cropY: 300, cropSize: 500 },
+  ],
+};
+
+function cleanup() {
+  for (const dir of [userData, dataRoot, outDir]) fs.rmSync(dir, { recursive: true, force: true });
+}
+
+require("./main.cjs");
+
+app.whenReady().then(async () => {
+  try {
+    console.log("описание ролика");
+    const spec = vs.normalizeSpec(SPEC);
+    check("холст вертикальный по умолчанию", spec.width === 1080 && spec.height === 1920);
+    check("длительность не меньше последнего слоя", spec.duration >= 2.3, String(spec.duration));
+    check("кадров считается по длительности и частоте", vs.frameCount(spec) === Math.round(2.5 * 20), String(vs.frameCount(spec)));
+    check("неизвестный вид слоя не роняет разбор", vs.normalizeLayer({ kind: "ерунда" }).kind === "pill");
+
+    console.log("\nпроверка композиции до сборки");
+    const bad = vs.validateSpec({
+      duration: 3,
+      layers: [
+        { kind: "pill", text: "ОЧЕНЬ ДЛИННАЯ СТРОКА КОТОРАЯ ТОЧНО НЕ ВЛЕЗЕТ В ХОЛСТ", x: 6, y: 10, start: 0, duration: 2 },
+        { kind: "pill", text: "ВТОРАЯ", x: 6, y: 11, start: 0, duration: 2 },
+        { kind: "pill", text: "ПОЗЖЕ", x: 6, y: 60, start: 2.5, duration: 3 },
+      ],
+    });
+    check("замечен выход за край холста", bad.some((p) => p.includes("выходит за край")), bad.join(" | "));
+    check("замечено наложение слоёв", bad.some((p) => p.includes("налезают")), bad.join(" | "));
+    check("замечен слой длиннее ролика", bad.some((p) => p.includes("позже ролика")), bad.join(" | "));
+    check("у чистой композиции замечаний нет", vs.validateSpec({ duration: 5, layers: [{ kind: "pill", text: "КОРОТКО", x: 6, y: 10, start: 0, duration: 2 }] }).length === 0);
+
+    console.log("\nсцена");
+    const html = vs.buildSceneHtml(spec);
+    check("в сцене есть seek", html.includes("window.seek"));
+    check("в сцене нет CSS-анимаций", !/@keyframes|animation-name/.test(html));
+    check("шрифт вшивается строкой data:", vs.buildSceneHtml(spec, [{ family: "Проба", dataUri: "data:font/ttf;base64,AA" }]).includes("@font-face"));
+
+    // Сцена в живом окне: один и тот же момент обязан выглядеть одинаково.
+    const win = new BrowserWindow({
+      show: false, width: 640, height: 480, transparent: true, frame: false,
+      backgroundColor: "#00000000", webPreferences: { offscreen: true },
+    });
+    const sceneFile = path.join(outDir, "scene.html");
+    fs.writeFileSync(sceneFile, html);
+    await win.loadFile(sceneFile);
+    win.setContentSize(spec.width, spec.height);
+    const deadline = Date.now() + 12000;
+    while (Date.now() < deadline) {
+      if (await win.webContents.executeJavaScript("window.__ready === true").catch(() => false)) break;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    // Кадр берём из события отрисовки — тем же способом, что и рендер.
+    let painted = 0;
+    let lastImage = null;
+    win.webContents.on("paint", (_e, _d, image) => {
+      painted += 1;
+      lastImage = image;
+    });
+    const grab = async (t) => {
+      const before = painted;
+      await win.webContents.executeJavaScript(`window.seekAndSettle(${t})`);
+      const deadline = Date.now() + 2000;
+      while (painted === before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 8));
+      return lastImage || (await win.webContents.capturePage());
+    };
+    const shot = async (t) => (await grab(t)).toPNG();
+    const bitmap = async (t) => (await grab(t)).toBitmap();
+    const size = (await grab(0)).getSize();
+    check("кадр снимается в полный размер холста", size.width === 1080 && size.height === 1920, `${size.width}x${size.height}`);
+
+    const a = await shot(1.2);
+    const b = await shot(0.0);
+    const again = await shot(1.2);
+    check("один и тот же момент даёт тот же кадр", Buffer.compare(a, again) === 0, `${a.length} vs ${again.length}`);
+    check("разные моменты дают разные кадры", Buffer.compare(a, b) !== 0, `${a.length} vs ${b.length}`);
+
+    const ink = (buf) => {
+      // Доля непрозрачных точек: пустой оверлей от нарисованного отличается ею.
+      let n = 0;
+      for (let i = 3; i < buf.length; i += 4 * 53) if (buf[i] > 16) n++;
+      return n;
+    };
+    const early = ink(await bitmap(0));
+    const mid = ink(await bitmap(1.2));
+    check("к середине ролика на сцене больше нарисовано, чем в нуле", mid > early, `${early} → ${mid}`);
+    check("за концом ролика сцена пуста", ink(await bitmap(9)) === 0);
+    win.destroy();
+
+    console.log("\nсборка настоящего файла");
+    const source = makeSource(path.join(outDir, "source.mp4"));
+    const info = await vs.probe(ffmpeg, source);
+    check("исходник прочитан", info.width === 720 && info.height === 1280 && info.hasAudio, JSON.stringify(info));
+
+    const framesDir = path.join(outDir, "frames");
+    fs.mkdirSync(framesDir, { recursive: true });
+    const win2 = new BrowserWindow({
+      show: false, width: 640, height: 480, transparent: true, frame: false,
+      backgroundColor: "#00000000", webPreferences: { offscreen: true },
+    });
+    await win2.loadFile(sceneFile);
+    win2.setContentSize(spec.width, spec.height);
+    await new Promise((r) => setTimeout(r, 300));
+    const total = vs.frameCount(spec);
+    let painted2 = 0;
+    let last2 = null;
+    win2.webContents.on("paint", (_e, _d, image) => {
+      painted2 += 1;
+      last2 = image;
+    });
+    for (let i = 0; i < total; i++) {
+      const before = painted2;
+      await win2.webContents.executeJavaScript(`window.seekAndSettle(${(i / spec.fps).toFixed(4)})`);
+      const dl = Date.now() + 2000;
+      while (painted2 === before && Date.now() < dl) await new Promise((r) => setTimeout(r, 8));
+      const img = last2 || (await win2.webContents.capturePage());
+      fs.writeFileSync(path.join(framesDir, String(i + 1).padStart(5, "0") + ".png"), img.toPNG());
+    }
+    const head = spec.layers.find((l) => l.kind === "head");
+    const maskSize = head.size - head.ringWidth * 2;
+    const maskFile = path.join(outDir, "mask.html");
+    fs.writeFileSync(maskFile, vs.maskHtml(maskSize));
+    await win2.loadFile(maskFile);
+    win2.setContentSize(maskSize, maskSize);
+    await new Promise((r) => setTimeout(r, 250));
+    const maskPath = path.join(outDir, "mask.png");
+    fs.writeFileSync(maskPath, (last2 || (await win2.webContents.capturePage())).toPNG());
+    win2.destroy();
+    check("кадры оверлея сняты", fs.readdirSync(framesDir).length === total, String(fs.readdirSync(framesDir).length));
+
+    const out = path.join(outDir, "result.mp4");
+    await vs.runFfmpeg(
+      ffmpeg,
+      vs.buildFfmpegArgs(spec, { basePath: source, framesPattern: path.join(framesDir, "%05d.png"), maskPath, outPath: out }, info)
+    );
+    const res = await vs.probe(ffmpeg, out);
+    check("файл собран", fs.existsSync(out) && fs.statSync(out).size > 10000, String(fs.existsSync(out) && fs.statSync(out).size));
+    check("размер кадра — заданный холст", res.width === 1080 && res.height === 1920, `${res.width}x${res.height}`);
+    check("длительность как заказана", Math.abs(res.duration - spec.duration) < 0.35, String(res.duration));
+    check("звук исходника сохранён", res.hasAudio);
+
+    // Оверлей обязан реально попасть в кадр: сравниваем кадр готового файла с
+    // тем же кадром исходника — они не должны совпасть.
+    const grabFrame = (file, t, dest) => {
+      execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-ss", String(t), "-i", file,
+        "-frames:v", "1", "-vf", "scale=216:384", dest]);
+      return fs.readFileSync(dest);
+    };
+    const plain = grabFrame(source, 1.2, path.join(outDir, "p.png"));
+    const dressed = grabFrame(out, 1.2, path.join(outDir, "d.png"));
+    check("оверлей виден в готовом файле", Buffer.compare(plain, dressed) !== 0);
+
+    console.log("\nагент");
+    const prompt = vs.buildScriptPrompt({ spec, sourceInfo: info, text: "Первый тезис. Второй тезис." });
+    check("агенту сказано про чередование живого и вставок", prompt.includes("полноэкранные вставки"));
+    check("агенту запрещено склеивать фразы", prompt.includes("Одна фраза — одна плашка"));
+    const parsed = vs.parseScenes(
+      'Разложил.\n\n===СЦЕНЫ===\n```json\n{"duration":12,"layers":[{"kind":"pill","text":"РАЗ","start":0,"duration":3},{"kind":"backdrop","start":3,"duration":4}]}\n```\n===КОНЕЦ==='
+    );
+    check("раскладка разобрана", parsed !== null && parsed.layers.length === 2, JSON.stringify(parsed && parsed.layers.length));
+    check("длительность взята из ответа", parsed && parsed.duration === 12);
+    check("мусор вместо блока не разбирается", vs.parseScenes("просто текст") === null);
+    check("битый JSON внутри блока не роняет приложение", vs.parseScenes("===СЦЕНЫ===\n{нет\n===КОНЕЦ===") === null);
+
+    console.log("\nшрифты");
+    const fontDir = path.join(outDir, "fonts");
+    fs.mkdirSync(fontDir, { recursive: true });
+    fs.copyFileSync(path.join(__dirname, "..", "..", "DINAMIKA-extended.ttf"), path.join(fontDir, "d.ttf"));
+    const list = await vs.listFonts("linux", [fontDir]);
+    check("шрифт с диска найден", list.length >= 1, JSON.stringify(list.map((f) => f.family)));
+    // Файл называется d.ttf, а гарнитура внутри — «ДИНАМИКА»: имя должно прийти из файла.
+    check("имя взято из самого файла, а не из имени файла", list.some((f) => /динамика/i.test(f.family)) && !list.some((f) => f.family === "d"), JSON.stringify(list.slice(0, 3).map((f) => f.family)));
+
+    console.log("\nраздел в приложении");
+    let ui;
+    const dl2 = Date.now() + 20000;
+    while (!ui && Date.now() < dl2) {
+      ui = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.webContents.getURL().includes("index.html"));
+      if (!ui) await new Promise((r) => setTimeout(r, 150));
+    }
+    check("окно приложения нашлось", !!ui);
+    if (ui) {
+      await new Promise((resolve) => {
+        if (!ui.webContents.isLoading()) return resolve();
+        ui.webContents.once("did-finish-load", resolve);
+      });
+      const call = (e) => ui.webContents.executeJavaScript(e);
+      await new Promise((r) => setTimeout(r, 1000));
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Видео-сторис")).click()`);
+      await new Promise((r) => setTimeout(r, 700));
+      check("раздел открывается", (await call(`!!document.querySelector(".vs-form")`)) === true);
+      check(
+        "в форме есть все блоки",
+        (await call(`["Исходное видео","Ролик","Текст и раскладка","Слои"].every(t =>
+          [...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes(t)))`)) === true
+      );
+      check("предпросмотр уменьшен, а не в полный холст",
+        (await call(`(() => { const r = document.querySelector(".vs-preview").getBoundingClientRect();
+          return r.width < 400 && r.height < 700; })()`)) === true);
+      await call(`[...document.querySelectorAll(".vs-add button")].find(b => b.textContent.includes("Плашка")).click()`);
+      await new Promise((r) => setTimeout(r, 500));
+      check("слой добавляется", (await call(`document.querySelectorAll(".vs-layer").length`)) === 1);
+      check("появились настройки слоя",
+        (await call(`[...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes("Настройки слоя"))`)) === true);
+    }
+  } catch (e) {
+    failures++;
+    console.log("  FAIL непойманная ошибка —", e.message);
+  } finally {
+    console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
+    cleanup();
+    app.exit(failures === 0 ? 0 : 1);
+  }
+});

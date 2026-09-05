@@ -169,6 +169,8 @@ export interface Settings {
    * который у проектов с документами составляет основную часть счёта.
    */
   promptCache?: boolean;
+  /** Ключ Pexels — нужен только разделу «Видео-сторис» для поиска по стоку. */
+  pexelsKey?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -744,6 +746,79 @@ export interface FinParams {
   comment: string;
 }
 
+export interface StoryPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface StoryLayerKind {
+  id: string;
+  name: string;
+}
+
+/** Слой ролика. Поля различаются по kind — общие лежат здесь. */
+export interface StoryLayer {
+  id: string;
+  kind: "pill" | "timeline" | "icon" | "svg" | "head" | "graphics" | "backdrop";
+  start: number;
+  duration: number;
+  appear: string;
+  appearDur: number;
+  exit: string;
+  exitDur: number;
+  /** Положение в процентах холста: ролик бывает любого формата. */
+  x: number;
+  y: number;
+  width: number;
+  [extra: string]: unknown;
+}
+
+export interface StorySpec {
+  title: string;
+  presetId: string;
+  width: number;
+  height: number;
+  fps: number;
+  source: { kind: "file" | "stock"; path: string; query: string; trimStart: number };
+  musicPath: string;
+  musicVolume: number;
+  duration: number;
+  fonts: { family: string; path: string }[];
+  layers: StoryLayer[];
+}
+
+export interface StoryFont {
+  family: string;
+  path: string;
+}
+
+export interface StoryProbe {
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+  hasAudio: boolean;
+}
+
+export interface StoryStockVideo {
+  id: string;
+  preview: string;
+  duration: number;
+  width: number;
+  height: number;
+  url: string;
+  author: string;
+}
+
+export interface StoryProgress {
+  stage: "download" | "frames" | "encode" | "done";
+  done?: number;
+  total?: number;
+  path?: string;
+}
+
 /** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
 export type CleanupOp =
   | { op: "mkdir"; target: string }
@@ -1180,6 +1255,32 @@ export interface ElectronAPI {
     advice?: string;
     sources?: { inflation?: string; minWage?: string };
   }): Promise<string>;
+
+  // видео-сторис
+  storiesOptions(): Promise<{
+    presets: StoryPreset[];
+    appear: StoryLayerKind[];
+    kinds: StoryLayerKind[];
+    graphics: StoryLayerKind[];
+    brand: Record<string, string>;
+  }>;
+  storiesFonts(): Promise<StoryFont[]>;
+  storiesProbe(file: string): Promise<StoryProbe>;
+  storiesValidate(spec: Partial<StorySpec>): Promise<string[]>;
+  storiesNormalize(spec: Partial<StorySpec>): Promise<StorySpec>;
+  storiesSearchIcons(query: string): Promise<{ id: string; url: string }[]>;
+  storiesIcon(id: string, color?: string): Promise<string>;
+  storiesReadSvg(file: string): Promise<string>;
+  storiesSearchStock(query: string, orientation?: string): Promise<StoryStockVideo[]>;
+  storiesScene(spec: Partial<StorySpec>): Promise<string>;
+  storiesPoster(file: string, at: number, width: number): Promise<string>;
+  prepareStoriesScript(request: {
+    spec: Partial<StorySpec>;
+    text: string;
+  }): Promise<{ prompt: string; info: StoryProbe | null }>;
+  parseStoriesScript(text: string): Promise<{ duration: number; layers: StoryLayer[] } | null>;
+  renderStory(payload: { spec: Partial<StorySpec>; outputDir: string }): Promise<string>;
+  onStoriesProgress(cb: (data: StoryProgress) => void): () => void;
 
   // клининг
   pickCleanupFolder(): Promise<string | null>;

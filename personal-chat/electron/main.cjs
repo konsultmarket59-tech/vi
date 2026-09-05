@@ -2663,6 +2663,7 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
 
 const dataviz = require("./dataviz.cjs");
 const finmodel = require("./finmodel.cjs");
+const videostories = require("./videostories.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -2796,6 +2797,259 @@ ipcMain.handle("dataviz:save", async (_e, payload) => {
       renderPdf: (page, w, h, dest) => captureHtmlToPdf(page, w, h, dest),
     }
   );
+});
+
+// ---------- видео-сторис ----------
+
+/**
+ * Путь к ffmpeg. В собранном приложении бинарник лежит рядом с asar-архивом:
+ * запускать исполняемый файл изнутри asar нельзя, поэтому он распакован.
+ */
+function ffmpegPath() {
+  let bin;
+  try {
+    bin = require("ffmpeg-static");
+  } catch {
+    return "ffmpeg";
+  }
+  return app.isPackaged ? String(bin).replace("app.asar", "app.asar.unpacked") : bin;
+}
+
+// Одно скрытое окно на все снимки. Второе окно с прозрачностью и offscreen
+// поверх первого не создаётся — проверено опытом, страница просто не грузится.
+let sceneWin = null;
+async function sceneWindow() {
+  if (sceneWin && !sceneWin.isDestroyed()) return sceneWin;
+  sceneWin = new BrowserWindow({
+    show: false,
+    width: 640,
+    height: 480,
+    transparent: true,
+    frame: false,
+    backgroundColor: "#00000000",
+    webPreferences: { offscreen: true },
+  });
+  return sceneWin;
+}
+
+/** Загружает страницу сцены и ждёт, пока она объявит себя готовой. */
+async function loadScene(html, width, height) {
+  const win = await sceneWindow();
+  const file = path.join(
+    app.getPath("temp"),
+    `story-scene-${Date.now()}-${Math.random().toString(36).slice(2)}.html`
+  );
+  await fs.writeFile(file, html, "utf-8");
+  await win.loadFile(file);
+  // Размер задаётся ПОСЛЕ загрузки: при создании окна он обрезается по экрану,
+  // и кадр 1080×1920 на обычном мониторе выходил бы обрезанным по высоте.
+  win.setContentSize(width, height);
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const ready = await win.webContents
+      .executeJavaScript("window.__ready === true")
+      .catch(() => false);
+    if (ready) break;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  return { win, file };
+}
+
+/**
+ * Снимок кадра сцены.
+ *
+ * capturePage() под нагрузкой возвращает то, что было НА ЭКРАНЕ, а не то, что
+ * уже посчитано: проверено — первый снимок после перехода отдавал предыдущий
+ * кадр. Ожидания кадра анимации тоже мало. Поэтому берём картинку из события
+ * paint, которое приходит ровно тогда, когда содержимое перерисовалось.
+ *
+ * Если за отведённое время события нет — значит, рисовать было нечего и на
+ * экране остался прежний кадр; он и есть правильный.
+ */
+function makeGrabber(win) {
+  let painted = 0;
+  let last = null;
+  let lastSignature = null;
+  win.webContents.on("paint", (_event, _dirty, image) => {
+    painted += 1;
+    last = image;
+  });
+  return async function grab(js, timeout = 700) {
+    const before = painted;
+    const signature = await win.webContents.executeJavaScript(js);
+    // Ничего не изменилось — новый кадр не придёт, и ждать его нечего. Без этой
+    // проверки каждый статичный кадр стоил полного таймаута.
+    if (last && typeof signature === "string" && signature === lastSignature) return last;
+    lastSignature = typeof signature === "string" ? signature : null;
+    const deadline = Date.now() + timeout;
+    while (painted === before && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 4));
+    }
+    if (last) return last;
+    // Ни одного paint с начала работы — окно ещё ничего не рисовало.
+    return win.webContents.capturePage();
+  };
+}
+
+/** Кадры оверлея: по одному PNG с прозрачностью на кадр ролика. */
+async function renderStoryFrames(spec, dir, onProgress) {
+  const fonts = [];
+  for (const f of spec.fonts || []) {
+    try {
+      fonts.push({ family: f.family, dataUri: await videostories.fontDataUri(f.path) });
+    } catch {
+      /* шрифт не прочитался — сцена возьмёт запасной */
+    }
+  }
+  const { win, file } = await loadScene(videostories.buildSceneHtml(spec, fonts), spec.width, spec.height);
+  await fs.mkdir(dir, { recursive: true });
+  const total = videostories.frameCount(spec);
+  const grab = makeGrabber(win);
+  try {
+    for (let i = 0; i < total; i++) {
+      const image = await grab(`window.seekAndSettle(${(i / spec.fps).toFixed(4)})`);
+      await fs.writeFile(path.join(dir, String(i + 1).padStart(5, "0") + ".png"), image.toPNG());
+      if (onProgress && i % 5 === 0) onProgress({ done: i + 1, total });
+    }
+  } finally {
+    await fs.rm(file, { force: true }).catch(() => {});
+  }
+  return total;
+}
+
+/** Круглая маска для головы — её тоже рисует браузер, ради сглаженного края. */
+async function renderStoryMask(size, dest) {
+  const { win, file } = await loadScene(videostories.maskHtml(size), size, size);
+  const grab = makeGrabber(win);
+  try {
+    const image = await grab("document.body.dataset.mask = '1'");
+    await fs.writeFile(dest, image.toPNG());
+  } finally {
+    await fs.rm(file, { force: true }).catch(() => {});
+  }
+  return dest;
+}
+
+ipcMain.handle("stories:options", () => ({
+  presets: videostories.CANVAS_PRESETS,
+  appear: videostories.APPEAR,
+  kinds: videostories.LAYER_KINDS,
+  graphics: videostories.GRAPHICS_KINDS,
+  brand: videostories.BRAND,
+}));
+
+ipcMain.handle("stories:fonts", () => videostories.listFonts());
+ipcMain.handle("stories:probe", (_e, file) => videostories.probe(ffmpegPath(), file));
+ipcMain.handle("stories:validate", (_e, spec) => videostories.validateSpec(spec));
+ipcMain.handle("stories:normalize", (_e, spec) => videostories.normalizeSpec(spec));
+ipcMain.handle("stories:searchIcons", (_e, query) => videostories.searchIcons(query));
+ipcMain.handle("stories:icon", (_e, id, color) => videostories.fetchIconSvg(id, color));
+ipcMain.handle("stories:readSvg", (_e, file) => fs.readFile(file, "utf-8"));
+ipcMain.handle("stories:searchStock", async (_e, query, orientation) => {
+  const settings = await readSettings();
+  return videostories.searchStock(query, settings.pexelsKey, orientation);
+});
+
+// Предпросмотр отдаётся строкой и живёт в <iframe sandbox>: разметка сцены не
+// должна выполняться в окне самого приложения.
+ipcMain.handle("stories:scene", async (_e, spec) => {
+  const normalized = videostories.normalizeSpec(spec);
+  const fonts = [];
+  for (const f of normalized.fonts || []) {
+    try {
+      fonts.push({ family: f.family, dataUri: await videostories.fontDataUri(f.path) });
+    } catch {
+      /* пропускаем нечитаемый шрифт */
+    }
+  }
+  return videostories.buildSceneHtml(normalized, fonts);
+});
+
+ipcMain.handle("stories:prepareScript", async (_e, request) => {
+  const { spec, text } = request || {};
+  const normalized = videostories.normalizeSpec(spec);
+  let info = null;
+  if (normalized.source.kind === "file" && normalized.source.path) {
+    info = await videostories.probe(ffmpegPath(), normalized.source.path).catch(() => null);
+  }
+  return {
+    prompt:
+      videostories.buildScriptPrompt({ spec: normalized, sourceInfo: info, text }) +
+      (await userContextDigest()),
+    info,
+  };
+});
+
+ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));
+
+// Кадр исходника под предпросмотр. Показать сцену на пустом месте мало: важно
+// видеть, читается ли текст поверх именно этой картинки.
+ipcMain.handle("stories:poster", async (_e, file, at, width) => {
+  if (!file) return "";
+  const dest = path.join(app.getPath("temp"), `story-poster-${Date.now()}.jpg`);
+  try {
+    await videostories.runFfmpeg(ffmpegPath(), [
+      "-y", "-hide_banner", "-loglevel", "error",
+      "-ss", String(Math.max(0, Number(at) || 0)), "-i", file,
+      "-frames:v", "1", "-vf", `scale=${Math.round(width) || 360}:-1`, dest,
+    ]);
+    const buf = await fs.readFile(dest);
+    return `data:image/jpeg;base64,${buf.toString("base64")}`;
+  } catch {
+    return "";
+  } finally {
+    await fs.rm(dest, { force: true }).catch(() => {});
+  }
+});
+
+ipcMain.handle("stories:render", async (event, payload) => {
+  const { spec: rawSpec, outputDir } = payload || {};
+  if (!outputDir) throw new Error("Не выбрана папка, куда сохранять.");
+  const spec = videostories.normalizeSpec(rawSpec);
+  const bin = ffmpegPath();
+  const send = (stage, data) => event.sender.send("stories-progress", { stage, ...data });
+
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "story-"));
+  try {
+    let basePath = spec.source.path;
+    if (spec.source.kind === "stock") {
+      if (!spec.source.path) throw new Error("Не выбран ролик со стока.");
+      send("download", {});
+      basePath = await videostories.downloadTo(spec.source.path, path.join(work, "base.mp4"));
+    }
+    if (!basePath) throw new Error("Не выбрано исходное видео.");
+
+    send("frames", { done: 0, total: videostories.frameCount(spec) });
+    const framesDir = path.join(work, "frames");
+    await renderStoryFrames(spec, framesDir, (p) => send("frames", p));
+
+    let maskPath = null;
+    const head = spec.layers.find((l) => l.kind === "head");
+    if (head) {
+      maskPath = await renderStoryMask(
+        Math.max(2, Math.round(head.size - head.ringWidth * 2)),
+        path.join(work, "mask.png")
+      );
+    }
+
+    send("encode", {});
+    const info = await videostories.probe(bin, basePath);
+    const safe = spec.title.replace(/[\\/:*?"<>|]/g, " ").trim() || "Ролик";
+    const outPath = path.join(outputDir, `${safe}.mp4`);
+    await fs.mkdir(outputDir, { recursive: true });
+    await videostories.runFfmpeg(
+      bin,
+      videostories.buildFfmpegArgs(
+        spec,
+        { basePath, framesPattern: path.join(framesDir, "%05d.png"), maskPath, outPath },
+        info
+      )
+    );
+    send("done", { path: outPath });
+    return outPath;
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
 });
 
 // ---------- финмодель ----------
