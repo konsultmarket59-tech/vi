@@ -109,6 +109,29 @@ contextBridge.exposeInMainWorld("api", {
   prepareFinmodelAdvice: (input) => ipcRenderer.invoke("finmodel:prepareAdvice", input),
   saveFinmodel: (payload) => ipcRenderer.invoke("finmodel:save", payload),
 
+  storiesOptions: () => ipcRenderer.invoke("stories:options"),
+  storiesFonts: () => ipcRenderer.invoke("stories:fonts"),
+  storiesProbe: (file) => ipcRenderer.invoke("stories:probe", file),
+  storiesValidate: (spec) => ipcRenderer.invoke("stories:validate", spec),
+  storiesNormalize: (spec) => ipcRenderer.invoke("stories:normalize", spec),
+  storiesSearchIcons: (query) => ipcRenderer.invoke("stories:searchIcons", query),
+  storiesIcon: (id, color) => ipcRenderer.invoke("stories:icon", id, color),
+  storiesReadSvg: (file) => ipcRenderer.invoke("stories:readSvg", file),
+  storiesSearchStock: (query, orientation) => ipcRenderer.invoke("stories:searchStock", query, orientation),
+  storiesScene: (spec) => ipcRenderer.invoke("stories:scene", spec),
+  storiesPoster: (file, at, width) => ipcRenderer.invoke("stories:poster", file, at, width),
+  prepareStoriesScript: (request) => ipcRenderer.invoke("stories:prepareScript", request),
+  parseStoriesScript: (text) => ipcRenderer.invoke("stories:parseScript", text),
+  prepareStoriesMotion: (request) => ipcRenderer.invoke("stories:prepareMotion", request),
+  storiesCloudFolders: (folder) => ipcRenderer.invoke("stories:cloudFolders", folder),
+  uploadStory: (localPath, remoteFolder) => ipcRenderer.invoke("stories:upload", localPath, remoteFolder),
+  renderStory: (payload) => ipcRenderer.invoke("stories:render", payload),
+  onStoriesProgress: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("stories-progress", handler);
+    return () => ipcRenderer.removeListener("stories-progress", handler);
+  },
+
   // клининг
   pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
   prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),

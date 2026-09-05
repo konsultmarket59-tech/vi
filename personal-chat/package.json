@@ -20,6 +20,7 @@
     "dompurify": "^3.4.14",
     "exceljs": "^4.4.0",
     "fast-formula-parser": "^1.0.19",
+    "ffmpeg-static": "^5.3.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.1",
     "marked": "^18.0.10",
@@ -57,7 +58,8 @@
       "bundled-skills/**/*",
       "plugins.json",
       "licence-config.json",
-      "managed-config.json"
+      "managed-config.json",
+      "node_modules/ffmpeg-static/**/*"
     ],
     "directories": {
       "output": "release"
@@ -85,6 +87,9 @@
         "zip"
       ],
       "category": "public.app-category.productivity"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ]
   }
 }

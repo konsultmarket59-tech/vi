@@ -171,6 +171,8 @@ export interface Settings {
    * который у проектов с документами составляет основную часть счёта.
    */
   promptCache?: boolean;
+  /** Ключ Pexels — нужен только разделу «Видео-сторис» для поиска по стоку. */
+  pexelsKey?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -746,6 +748,91 @@ export interface FinParams {
   comment: string;
 }
 
+export interface StoryPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface StoryLayerKind {
+  id: string;
+  name: string;
+}
+
+/** Слой ролика. Поля различаются по kind — общие лежат здесь. */
+export interface StoryLayer {
+  id: string;
+  kind: "pill" | "timeline" | "icon" | "svg" | "image" | "head" | "graphics" | "backdrop";
+  start: number;
+  duration: number;
+  appear: string;
+  appearDur: number;
+  exit: string;
+  exitDur: number;
+  /** Положение в процентах холста: ролик бывает любого формата. */
+  x: number;
+  y: number;
+  width: number;
+  /** Общий масштаб слоя: 1 — как есть, 1.5 — в полтора раза крупнее. */
+  scale: number;
+  [extra: string]: unknown;
+}
+
+export interface StorySpec {
+  title: string;
+  presetId: string;
+  width: number;
+  height: number;
+  fps: number;
+  /** «none» — моушн-дизайн без съёмки: подложка рисуется цветом. */
+  source: { kind: "file" | "stock" | "none"; path: string; query: string; trimStart: number };
+  bgColor: string;
+  musicPath: string;
+  musicVolume: number;
+  duration: number;
+  fonts: { family: string; path: string }[];
+  /** Пути к картинкам-референсам: по ним агент повторяет вашу графику. */
+  references: string[];
+  layers: StoryLayer[];
+}
+
+export interface StoryFont {
+  family: string;
+  path: string;
+}
+
+export interface StoryProbe {
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+  hasAudio: boolean;
+}
+
+export interface StoryStockVideo {
+  id: string;
+  preview: string;
+  duration: number;
+  width: number;
+  height: number;
+  url: string;
+  author: string;
+}
+
+export interface StoryProgress {
+  stage: "download" | "frames" | "encode" | "upload" | "done";
+  done?: number;
+  total?: number;
+  path?: string;
+  remote?: string;
+}
+
+export interface StoryCloudFolder {
+  name: string;
+  path: string;
+}
+
 /** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
 export type CleanupOp =
   | { op: "mkdir"; target: string }
@@ -1184,6 +1271,50 @@ export interface ElectronAPI {
     advice?: string;
     sources?: { inflation?: string; minWage?: string };
   }): Promise<string>;
+
+  // видео-сторис
+  storiesOptions(): Promise<{
+    presets: StoryPreset[];
+    appear: StoryLayerKind[];
+    kinds: StoryLayerKind[];
+    graphics: StoryLayerKind[];
+    brand: Record<string, string>;
+  }>;
+  storiesFonts(): Promise<StoryFont[]>;
+  storiesProbe(file: string): Promise<StoryProbe>;
+  storiesValidate(spec: Partial<StorySpec>): Promise<string[]>;
+  storiesNormalize(spec: Partial<StorySpec>): Promise<StorySpec>;
+  storiesSearchIcons(query: string): Promise<{ id: string; url: string }[]>;
+  storiesIcon(id: string, color?: string): Promise<string>;
+  storiesReadSvg(file: string): Promise<string>;
+  storiesSearchStock(query: string, orientation?: string): Promise<StoryStockVideo[]>;
+  storiesScene(spec: Partial<StorySpec>): Promise<string>;
+  storiesPoster(file: string, at: number, width: number): Promise<string>;
+  prepareStoriesScript(request: {
+    spec: Partial<StorySpec>;
+    text: string;
+  }): Promise<{
+    prompt: string;
+    info: StoryProbe | null;
+    /** Референсы уходят агенту картинками — словами набросок не пересказать. */
+    images: ChatAttachment[];
+    problems: string[];
+  }>;
+  parseStoriesScript(text: string): Promise<{ duration: number; layers: StoryLayer[] } | null>;
+  prepareStoriesMotion(request: {
+    spec: Partial<StorySpec>;
+    text: string;
+    assetPaths?: string[];
+  }): Promise<{ prompt: string; images: ChatAttachment[]; problems: string[] }>;
+  storiesCloudFolders(folder?: string): Promise<StoryCloudFolder[]>;
+  uploadStory(localPath: string, remoteFolder: string): Promise<string>;
+  renderStory(payload: {
+    spec: Partial<StorySpec>;
+    outputDir: string;
+    /** Папка на Яндекс-Диске: задана — ролик уедет туда сразу после сборки. */
+    uploadTo?: string;
+  }): Promise<string>;
+  onStoriesProgress(cb: (data: StoryProgress) => void): () => void;
 
   // клининг
   pickCleanupFolder(): Promise<string | null>;

@@ -343,6 +343,23 @@ export default function SettingsView({ settings, onChange }: Props) {
         </>
       )}
 
+      <h2>Сток видео</h2>
+      <p className="hint">
+        Нужен только разделу «Видео-сторис», чтобы искать ролики-подложки. Ключ бесплатный, выдаётся
+        на{" "}
+        <a href="https://www.pexels.com/api/" target="_blank" rel="noreferrer">
+          pexels.com/api
+        </a>
+        . Без ключа раздел работает — просто берите видео с компьютера.
+      </p>
+      <label>Ключ Pexels</label>
+      <input
+        type={showKey ? "text" : "password"}
+        value={draft.pexelsKey ?? ""}
+        onChange={(e) => update("pexelsKey", e.target.value)}
+        placeholder="563492ad…"
+      />
+
       <h2>Прокси / VPN</h2>
       <p className="hint">
         Нужно, только если интернет у вас идёт через прокси. Настройки применяются сразу после сохранения,
