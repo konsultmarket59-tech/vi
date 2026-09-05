@@ -2891,6 +2891,33 @@ function makeGrabber(win) {
   };
 }
 
+/**
+ * Подставляет в слои-картинки их содержимое строкой data:.
+ *
+ * Скрытое окно не читает файлы с диска по ссылке, а логотип и фотографии живут
+ * у человека в папках — копировать их внутрь приложения нельзя, значит вшиваем
+ * в саму страницу сцены и после рендера ничего не остаётся.
+ */
+async function inlineStoryAssets(spec) {
+  const layers = [];
+  for (const layer of spec.layers) {
+    if (layer.kind !== "image" || !layer.sourcePath) {
+      layers.push(layer);
+      continue;
+    }
+    try {
+      const buf = await fs.readFile(layer.sourcePath);
+      const ext = path.extname(layer.sourcePath).slice(1).toLowerCase();
+      const mime = ext === "svg" ? "image/svg+xml" : ext === "jpg" ? "image/jpeg" : `image/${ext || "png"}`;
+      layers.push({ ...layer, dataUri: `data:${mime};base64,${buf.toString("base64")}` });
+    } catch {
+      // Файл не открылся — слой останется пустым, но ролик соберётся.
+      layers.push({ ...layer, dataUri: "" });
+    }
+  }
+  return { ...spec, layers };
+}
+
 /** Кадры оверлея: по одному PNG с прозрачностью на кадр ролика. */
 async function renderStoryFrames(spec, dir, onProgress) {
   const fonts = [];
@@ -2901,7 +2928,12 @@ async function renderStoryFrames(spec, dir, onProgress) {
       /* шрифт не прочитался — сцена возьмёт запасной */
     }
   }
-  const { win, file } = await loadScene(videostories.buildSceneHtml(spec, fonts), spec.width, spec.height);
+  const withAssets = await inlineStoryAssets(spec);
+  const { win, file } = await loadScene(
+    videostories.buildSceneHtml(withAssets, fonts),
+    spec.width,
+    spec.height
+  );
   await fs.mkdir(dir, { recursive: true });
   const total = videostories.frameCount(spec);
   const grab = makeGrabber(win);
@@ -2962,7 +2994,7 @@ ipcMain.handle("stories:scene", async (_e, spec) => {
       /* пропускаем нечитаемый шрифт */
     }
   }
-  return videostories.buildSceneHtml(normalized, fonts);
+  return videostories.buildSceneHtml(await inlineStoryAssets(normalized), fonts);
 });
 
 ipcMain.handle("stories:prepareScript", async (_e, request) => {
@@ -2996,6 +3028,33 @@ ipcMain.handle("stories:prepareScript", async (_e, request) => {
   };
 });
 
+ipcMain.handle("stories:prepareMotion", async (_e, request) => {
+  const { spec, text, assetPaths } = request || {};
+  const normalized = videostories.normalizeSpec(spec);
+  const assets = (assetPaths || []).filter(Boolean).map((p2) => ({
+    name: p2,
+    kind: /\.svg$/i.test(p2) ? "svg" : "image",
+  }));
+  const images = [];
+  const problems = [];
+  for (const filePath of normalized.references) {
+    const ref = await docflow.readReference(filePath, extractDocText);
+    if (ref.error) problems.push(`${ref.name}: ${ref.error}`);
+    else if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+  }
+  return {
+    prompt:
+      videostories.buildMotionPrompt({
+        spec: normalized,
+        text,
+        assets,
+        referenceCount: images.length,
+      }) + (await userContextDigest()),
+    images,
+    problems,
+  };
+});
+
 ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));
 
 // Кадр исходника под предпросмотр. Показать сцену на пустом месте мало: важно
@@ -3016,6 +3075,23 @@ ipcMain.handle("stories:poster", async (_e, file, at, width) => {
   } finally {
     await fs.rm(dest, { force: true }).catch(() => {});
   }
+});
+
+// Папки Яндекс-Диска — чтобы выбрать, куда именно класть, а не только в корень.
+ipcMain.handle("stories:cloudFolders", async (_e, folder) => {
+  const entries = await cloud.list("yandex", await currentProviderToken("yandex"), folder || "disk:/");
+  return entries.filter((e) => e.isFolder).map((e) => ({ name: e.name, path: e.path }));
+});
+
+/**
+ * Кладёт готовый ролик на Яндекс-Диск. Файл при этом остаётся и на диске
+ * человека: выгрузка — это копия, а не переезд.
+ */
+ipcMain.handle("stories:upload", async (_e, localPath, remoteFolder) => {
+  if (!localPath) throw new Error("Нечего выгружать — ролик ещё не собран.");
+  const remote = `${(remoteFolder || "disk:/").replace(/\/$/, "")}/${path.basename(localPath)}`;
+  await cloud.upload("yandex", await currentProviderToken("yandex"), localPath, remote);
+  return remote;
 });
 
 ipcMain.handle("stories:render", async (event, payload) => {
@@ -3061,9 +3137,18 @@ ipcMain.handle("stories:render", async (event, payload) => {
         info
       )
     );
+    if (payload.uploadTo) {
+      send("upload", {});
+      const remote = `${String(payload.uploadTo).replace(/\/$/, "")}/${path.basename(outPath)}`;
+      await cloud.upload("yandex", await currentProviderToken("yandex"), outPath, remote);
+      send("done", { path: outPath, remote });
+      return outPath;
+    }
     send("done", { path: outPath });
     return outPath;
   } finally {
+    // Кадры и скачанный сток живут только на время сборки: в приложении после
+    // сохранения не остаётся ничего, иначе папка распухала бы от каждой пробы.
     await fs.rm(work, { recursive: true, force: true }).catch(() => {});
   }
 });

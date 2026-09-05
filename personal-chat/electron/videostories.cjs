@@ -58,6 +58,7 @@ const LAYER_KINDS = [
   { id: "timeline", name: "Таймлайн" },
   { id: "icon", name: "Иконка" },
   { id: "svg", name: "SVG с компьютера" },
+  { id: "image", name: "Картинка с компьютера" },
   { id: "head", name: "Голова в кружке" },
   { id: "graphics", name: "Графика по тексту" },
   { id: "backdrop", name: "Полноэкранная вставка" },
@@ -140,6 +141,17 @@ function normalizeLayer(raw = {}, index = 0) {
   if (kind === "icon") {
     return { ...base, svg: str(raw.svg), color: str(raw.color, BRAND.cyan), size: num(raw.size, 160) };
   }
+  if (kind === "image") {
+    return {
+      ...base,
+      sourcePath: str(raw.sourcePath),
+      // Ширина в процентах холста: логотип должен занимать долю кадра, а не
+      // фиксированные пиксели, иначе он поедет при смене формата.
+      widthPct: num(raw.widthPct, 30),
+      radius: num(raw.radius, 0),
+      shadow: !!raw.shadow,
+    };
+  }
   if (kind === "svg") {
     return {
       ...base,
@@ -200,11 +212,14 @@ function normalizeSpec(raw = {}) {
     height: preset.height,
     fps: Math.min(60, Math.max(12, Math.round(num(raw.fps, 30)))),
     source: {
-      kind: raw.source?.kind === "stock" ? "stock" : "file",
+      // «none» — моушн-дизайн без съёмки: фон рисуется цветом, а всё остальное
+      // теми же слоями. Без этого режима пришлось бы подкладывать пустой файл.
+      kind: ["stock", "none"].includes(raw.source?.kind) ? raw.source.kind : "file",
       path: str(raw.source?.path),
       query: str(raw.source?.query),
       trimStart: Math.max(0, num(raw.source?.trimStart, 0)),
     },
+    bgColor: str(raw.bgColor, BRAND.black),
     musicPath: str(raw.musicPath),
     musicVolume: Math.min(2, Math.max(0, num(raw.musicVolume, 0.25))),
     // Длительность по умолчанию — пока идёт последний слой, но не меньше секунды.
@@ -360,6 +375,15 @@ function buildLayer(layer, index) {
       }
     }
     el.appendChild(box);
+  } else if (layer.kind === "image") {
+    const img = document.createElement("img");
+    img.src = layer.dataUri || "";
+    img.style.width = px(pctW(layer.widthPct));
+    img.style.height = "auto";
+    img.style.display = "block";
+    if (layer.radius) img.style.borderRadius = px(layer.radius);
+    if (layer.shadow) img.style.filter = "drop-shadow(0 18px 40px rgba(0,0,0,0.45))";
+    el.appendChild(img);
   } else if (layer.kind === "head") {
     // Кольцо с дыркой: середина прозрачная, туда ffmpeg вклеит круглое видео.
     const ring = document.createElement("div");
@@ -835,15 +859,22 @@ function buildFfmpegArgs(spec, paths, info = {}) {
   const { basePath, framesPattern, maskPath, outPath } = paths;
   const head = spec.layers.find((l) => l.kind === "head");
   const args = ["-y", "-hide_banner"];
+  const noVideo = spec.source.kind === "none";
 
-  // Исходник короче ролика — зацикливаем, иначе кадры кончатся раньше слов.
-  if (info.duration && info.duration < spec.duration) args.push("-stream_loop", "-1");
-  if (spec.source.trimStart > 0) args.push("-ss", String(spec.source.trimStart));
-  args.push("-i", basePath);
+  if (noVideo) {
+    // Моушн-дизайн: подложка — ровный цвет, снимать было нечего.
+    const colour = spec.bgColor.replace("#", "0x");
+    args.push("-f", "lavfi", "-i", `color=c=${colour}:s=${spec.width}x${spec.height}:r=${spec.fps}`);
+  } else {
+    // Исходник короче ролика — зацикливаем, иначе кадры кончатся раньше слов.
+    if (info.duration && info.duration < spec.duration) args.push("-stream_loop", "-1");
+    if (spec.source.trimStart > 0) args.push("-ss", String(spec.source.trimStart));
+    args.push("-i", basePath);
+  }
   args.push("-framerate", String(spec.fps), "-i", framesPattern);
   let next = 2;
   let maskIdx = -1;
-  if (head && maskPath) {
+  if (head && maskPath && !noVideo) {
     // Маска — одна картинка; без зацикливания её поток кончается на первом
     // кадре и тянет за собой длину всего ролика.
     args.push("-loop", "1", "-i", maskPath);
@@ -861,7 +892,7 @@ function buildFfmpegArgs(spec, paths, info = {}) {
   // Заполняем холст без искажения пропорций: увеличить до перекрытия и обрезать.
   const fit = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${spec.fps}`;
 
-  if (head) {
+  if (head && !noVideo) {
     const inner = Math.max(2, Math.round(head.size - head.ringWidth * 2));
     chain.push(`[0:v]split=2[base][face]`);
     chain.push(`[base]${fit}[bg]`);
@@ -883,14 +914,14 @@ function buildFfmpegArgs(spec, paths, info = {}) {
   }
 
   const map = ["-map", "[v]"];
-  if (musicIdx >= 0 && info.hasAudio) {
+  if (musicIdx >= 0 && info.hasAudio && !noVideo) {
     chain.push(`[${musicIdx}:a]volume=${spec.musicVolume}[bgm]`);
     chain.push(`[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0[a]`);
     map.push("-map", "[a]");
   } else if (musicIdx >= 0) {
     chain.push(`[${musicIdx}:a]volume=${spec.musicVolume}[a]`);
     map.push("-map", "[a]");
-  } else if (info.hasAudio) {
+  } else if (info.hasAudio && !noVideo) {
     map.push("-map", "0:a");
   }
 
@@ -1204,6 +1235,67 @@ function buildScriptPrompt({ spec, sourceInfo, text, referenceCount = 0 }) {
   ].join("\n");
 }
 
+/**
+ * Режим моушн-дизайна: съёмки нет, всё рисуется с нуля.
+ *
+ * Отличие от раскладки поверх видео не косметическое. Там агент делит чужой
+ * материал на куски, здесь — сочиняет кадр целиком: чем занята каждая секунда,
+ * что появляется, что уходит, где пустота. Поэтому и задание другое.
+ */
+function buildMotionPrompt({ spec, text, assets = [], referenceCount = 0 }) {
+  const list = assets.length
+    ? assets.map((a) => `  ${a.kind === "image" ? "картинка" : "SVG"}: ${a.name}`)
+    : ["  (файлов нет — обходись текстом, графикой и фигурами)"];
+  return [
+    "Ты моушн-дизайнер. Собери ролик целиком: съёмки нет, фон — ровный цвет,",
+    "всё остальное появляется слоями.",
+    "",
+    `Холст ${spec.width}×${spec.height}, ${spec.fps} кадров в секунду, длительность ${spec.duration} с.`,
+    `Цвет фона: ${spec.bgColor}.`,
+    "",
+    "ТЕКСТ РОЛИКА:",
+    text || "(текста нет — предложи структуру под тему)",
+    "",
+    "ФАЙЛЫ, которые можно ставить в кадр (используй поле sourcePath ровно как здесь):",
+    ...list,
+    ...(referenceCount
+      ? [
+          "",
+          `РЕФЕРЕНС: приложено картинок ${referenceCount} — повторяй с них вид и расположение.`,
+        ]
+      : []),
+    "",
+    "ПРАВИЛА:",
+    "  — Кадр не должен быть пустым и не должен быть свалкой. В каждый момент",
+    "    один смысловой центр, вокруг него воздух.",
+    "  — Слои появляются по очереди, а не все разом. Разводи их по времени.",
+    "  — Логотип обычно один раз: либо в начале, либо в конце. Не держи его весь ролик.",
+    "  — Не ставь слои друг на друга и не давай им выходить за края холста.",
+    "  — Длительность каждого слоя укладывай в длительность ролика.",
+    "",
+    "Виды слоёв: pill (текст на подложке), image (файл с компьютера — sourcePath и",
+    "widthPct в процентах ширины), svg (файл, sourcePath), icon, timeline, graphics",
+    "(network, dashboard, flow, bars), backdrop (заливка градиентом поверх фона).",
+    "",
+    "ОТВЕТ. Сначала опиши замысел в двух-трёх предложениях: что происходит по секундам.",
+    "Затем блок:",
+    "",
+    "===СЦЕНЫ===",
+    "```json",
+    "{",
+    '  "duration": 12,',
+    '  "layers": [',
+    '    {"kind":"image","sourcePath":"<путь из списка выше>","start":0,"duration":2.5,"x":30,"y":40,"widthPct":40,"appear":"scale"},',
+    '    {"kind":"pill","text":"ГЛАВНАЯ МЫСЛЬ","start":2.6,"duration":3,"x":8,"y":30,"scale":1,"appear":"slide-left"}',
+    "  ]",
+    "}",
+    "```",
+    "===КОНЕЦ===",
+    "",
+    "x и y — проценты холста, scale — размер (1 обычный). Внутри блока чистый JSON.",
+  ].join("\n");
+}
+
 /** Разбор ответа. Возвращает null, если блока со сценами нет. */
 function parseScenes(text) {
   const body = String(text || "");
@@ -1247,6 +1339,7 @@ module.exports = {
   searchStock,
   downloadTo,
   buildScriptPrompt,
+  buildMotionPrompt,
   parseScenes,
   validateSpec,
   layerTitle,

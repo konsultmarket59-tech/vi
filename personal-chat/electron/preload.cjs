@@ -121,6 +121,9 @@ contextBridge.exposeInMainWorld("api", {
   storiesPoster: (file, at, width) => ipcRenderer.invoke("stories:poster", file, at, width),
   prepareStoriesScript: (request) => ipcRenderer.invoke("stories:prepareScript", request),
   parseStoriesScript: (text) => ipcRenderer.invoke("stories:parseScript", text),
+  prepareStoriesMotion: (request) => ipcRenderer.invoke("stories:prepareMotion", request),
+  storiesCloudFolders: (folder) => ipcRenderer.invoke("stories:cloudFolders", folder),
+  uploadStory: (localPath, remoteFolder) => ipcRenderer.invoke("stories:upload", localPath, remoteFolder),
   renderStory: (payload) => ipcRenderer.invoke("stories:render", payload),
   onStoriesProgress: (cb) => {
     const handler = (_e, data) => cb(data);

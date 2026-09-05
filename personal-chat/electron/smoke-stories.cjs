@@ -271,6 +271,99 @@ app.whenReady().then(async () => {
     const dressed = grabFrame(out, 1.2, path.join(outDir, "d.png"));
     check("оверлей виден в готовом файле", Buffer.compare(plain, dressed) !== 0);
 
+    console.log("\nмоушн-дизайн без видео");
+    // Логотипом послужит однотонный PNG: важно, что путь читается и картинка
+    // попадает в кадр, а не то, что на ней нарисовано.
+    const logo = path.join(outDir, "logo.png");
+    execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "color=c=0x00D9FF:s=300x120", "-frames:v", "1", logo]);
+
+    const motion = vs.normalizeSpec({
+      title: "Моушн", fps: 20, duration: 2,
+      source: { kind: "none" }, bgColor: "#101820",
+      layers: [
+        { kind: "image", sourcePath: logo, start: 0, duration: 2, x: 20, y: 30, widthPct: 40, appear: "scale" },
+        { kind: "pill", text: "БЕЗ СЪЁМКИ", start: 0.4, duration: 1.6, x: 8, y: 60, fontSize: 60 },
+      ],
+    });
+    check("источник может отсутствовать", motion.source.kind === "none");
+    check("цвет фона сохранён", motion.bgColor === "#101820");
+    const motionArgs = vs.buildFfmpegArgs(motion, { basePath: "", framesPattern: "x/%05d.png", outPath: "y.mp4" }, {});
+    check("подложка берётся цветом, а не файлом",
+      motionArgs.includes("lavfi") && motionArgs.some((a) => String(a).includes("color=c=0x101820")),
+      motionArgs.slice(0, 6).join(" "));
+    check("звука исходника нет — и его не пытаются взять", !motionArgs.join(" ").includes("0:a"));
+
+    // Картинка должна вшиться в сцену строкой data: и реально нарисоваться.
+    const dataUri = "data:image/png;base64," + fs.readFileSync(logo).toString("base64");
+    const withAsset = { ...motion, layers: motion.layers.map((l) => (l.kind === "image" ? { ...l, dataUri } : l)) };
+    const motionFile = path.join(outDir, "motion.html");
+    fs.writeFileSync(motionFile, vs.buildSceneHtml(withAsset));
+    const win4 = new BrowserWindow({
+      show: false, width: 640, height: 480, transparent: true, frame: false,
+      backgroundColor: "#00000000", webPreferences: { offscreen: true },
+    });
+    let painted4 = 0;
+    let last4 = null;
+    win4.webContents.on("paint", (_e, _d, image) => {
+      painted4 += 1;
+      last4 = image;
+    });
+    await win4.loadFile(motionFile);
+    win4.setContentSize(motion.width, motion.height);
+    const grab4 = async (t) => {
+      const before = painted4;
+      await win4.webContents.executeJavaScript(`window.seekAndSettle(${t})`);
+      const dl = Date.now() + 2000;
+      while (painted4 === before && Date.now() < dl) await new Promise((r) => setTimeout(r, 8));
+      return last4 || (await win4.webContents.capturePage());
+    };
+    const motionInk = ink((await grab4(1.0)).toBitmap());
+    check("картинка и текст нарисовались в сцене", motionInk > 50, `непрозрачных точек: ${motionInk}`);
+    win4.destroy();
+
+    console.log("\nсборка моушна целиком");
+    const motionFrames = path.join(outDir, "mframes");
+    fs.mkdirSync(motionFrames, { recursive: true });
+    const win5 = new BrowserWindow({
+      show: false, width: 640, height: 480, transparent: true, frame: false,
+      backgroundColor: "#00000000", webPreferences: { offscreen: true },
+    });
+    let painted5 = 0;
+    let last5 = null;
+    win5.webContents.on("paint", (_e, _d, image) => {
+      painted5 += 1;
+      last5 = image;
+    });
+    await win5.loadFile(motionFile);
+    win5.setContentSize(motion.width, motion.height);
+    await new Promise((r) => setTimeout(r, 300));
+    for (let i = 0; i < vs.frameCount(motion); i++) {
+      const before = painted5;
+      await win5.webContents.executeJavaScript(`window.seekAndSettle(${(i / motion.fps).toFixed(4)})`);
+      const dl = Date.now() + 1500;
+      while (painted5 === before && Date.now() < dl) await new Promise((r) => setTimeout(r, 6));
+      fs.writeFileSync(
+        path.join(motionFrames, String(i + 1).padStart(5, "0") + ".png"),
+        (last5 || (await win5.webContents.capturePage())).toPNG()
+      );
+    }
+    win5.destroy();
+    const motionOut = path.join(outDir, "motion.mp4");
+    await vs.runFfmpeg(ffmpeg, vs.buildFfmpegArgs(motion,
+      { basePath: "", framesPattern: path.join(motionFrames, "%05d.png"), outPath: motionOut }, {}));
+    const motionRes = await vs.probe(ffmpeg, motionOut);
+    check("моушн собрался без исходного видео",
+      fs.existsSync(motionOut) && motionRes.width === 1080 && motionRes.height === 1920,
+      JSON.stringify(motionRes));
+    check("длительность моушна как заказана", Math.abs(motionRes.duration - motion.duration) < 0.3, String(motionRes.duration));
+
+    const motionPrompt = vs.buildMotionPrompt({ spec: motion, text: "Три тезиса", assets: [{ kind: "image", name: logo }] });
+    check("агенту дан путь к файлу ровно как есть", motionPrompt.includes(logo));
+    check("агенту сказано не держать логотип весь ролик", motionPrompt.includes("Логотип обычно один раз"));
+    check("без файлов агент об этом предупреждён",
+      vs.buildMotionPrompt({ spec: motion, text: "т", assets: [] }).includes("файлов нет"));
+
     console.log("\nагент");
     const prompt = vs.buildScriptPrompt({ spec, sourceInfo: info, text: "Первый тезис. Второй тезис." });
     check("агенту сказано про чередование живого и вставок", prompt.includes("полноэкранные вставки"));
@@ -291,6 +384,15 @@ app.whenReady().then(async () => {
     check("шрифт с диска найден", list.length >= 1, JSON.stringify(list.map((f) => f.family)));
     // Файл называется d.ttf, а гарнитура внутри — «ДИНАМИКА»: имя должно прийти из файла.
     check("имя взято из самого файла, а не из имени файла", list.some((f) => /динамика/i.test(f.family)) && !list.some((f) => f.family === "d"), JSON.stringify(list.slice(0, 3).map((f) => f.family)));
+
+    console.log("\nпосле сохранения ничего не остаётся");
+    const before = fs.readdirSync(dataRoot);
+    const tmpBefore = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("story-")).length;
+    await new Promise((r) => setTimeout(r, 200));
+    const tmpAfter = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith("story-")).length;
+    check("рабочие папки сборки не копятся", tmpAfter <= tmpBefore + 1, `${tmpBefore} → ${tmpAfter}`);
+    check("данные приложения не растут от сборки роликов",
+      fs.readdirSync(dataRoot).length === before.length, JSON.stringify(fs.readdirSync(dataRoot)));
 
     console.log("\nраздел в приложении");
     let ui;

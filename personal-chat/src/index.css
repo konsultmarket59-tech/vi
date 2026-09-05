@@ -1599,3 +1599,14 @@ button.fin-row-x:hover { color: var(--accent); }
 }
 .vs-zoom b { min-width: 46px; text-align: center; font-size: 12px; }
 .vs-zoom button.vs-reset { width: auto; padding: 0 8px; font-size: 11px; }
+
+/* Куда сохранять: папка на компьютере и папка на Яндекс-Диске рядом. */
+.vs-save { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.vs-save strong { display: block; font-size: 13px; margin-bottom: 8px; }
+.vs-save .vs-row { margin-bottom: 6px; }
+.vs-folders { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.vs-folder {
+  border: 1px solid var(--border); background: none; border-radius: 6px;
+  padding: 3px 8px; cursor: pointer; font-size: 11px;
+}
+.vs-folder:hover { border-color: var(--accent); color: var(--accent); }

@@ -9,6 +9,7 @@ import type {
   StoryLayerKind,
   StoryPreset,
   StoryProbe,
+  StoryCloudFolder,
   StoryProgress,
   StorySpec,
   StoryStockVideo,
@@ -39,7 +40,12 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
   const [presetId, setPresetId] = useState("story");
   const [fps, setFps] = useState("30");
   const [duration, setDuration] = useState("15");
-  const [sourceKind, setSourceKind] = useState<"file" | "stock">("file");
+  const [sourceKind, setSourceKind] = useState<"file" | "stock" | "none">("file");
+  const [bgColor, setBgColor] = useState("#0A0A0A");
+  const [assetPaths, setAssetPaths] = useState<string[]>([]);
+  const [cloudFolder, setCloudFolder] = useState("");
+  const [cloudFolders, setCloudFolders] = useState<StoryCloudFolder[]>([]);
+  const [uploaded, setUploaded] = useState("");
   const [sourcePath, setSourcePath] = useState("");
   const [stockQuery, setStockQuery] = useState("");
   const [stock, setStock] = useState<StoryStockVideo[]>([]);
@@ -78,7 +84,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
     window.api.storiesFonts().then(setFonts).catch(() => setFonts([]));
     return window.api.onStoriesProgress((p) => {
       setProgress(p);
-      if (p.stage === "done") setSaved(p.path || "");
+      if (p.stage === "done") {
+        setSaved(p.path || "");
+        setUploaded(p.remote || "");
+      }
     });
   }, []);
 
@@ -91,13 +100,14 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       fps: Number(fps) || 30,
       duration: Number(duration) || 15,
       source: { kind: sourceKind, path: sourcePath, query: stockQuery, trimStart: 0 },
+      bgColor,
       musicPath,
       musicVolume: 0.25,
       fonts: fontFamily ? fonts.filter((f) => f.family === fontFamily) : [],
       references,
       layers,
     }),
-    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, musicPath, fontFamily, fonts, references, layers]
+    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, musicPath, fontFamily, fonts, references, layers]
   );
 
   // Сцена и замечания пересобираются на каждую правку: композицию видно сразу,
@@ -185,6 +195,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
     if (kind === "head") {
       base.size = 340;
       base.cropSize = 700;
+    }
+    if (kind === "image") {
+      base.widthPct = 30;
+      base.appear = "scale";
     }
     setLayers([...layers, base]);
     setSelected(base.id);
@@ -300,6 +314,38 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
     setApplied(`Подставлено слоёв: ${parsed.layers.length}. Проверьте в предпросмотре и правьте руками.`);
   }
 
+  /** Моушн-дизайн: агент собирает ролик с нуля, съёмки нет. */
+  async function askMotion() {
+    setError(null);
+    setBusy(true);
+    try {
+      const prepared = await window.api.prepareStoriesMotion({ spec, text: scriptText, assetPaths });
+      setSystemPrompt(prepared.prompt);
+      setConv({ id: uid(), projectId: "", title: "Моушн-дизайн", messages: [], createdAt: Date.now(), updatedAt: Date.now() });
+      setPrefill(
+        prepared.images.length
+          ? { text: "Собери ролик, повторяя стиль с референса.", attachments: prepared.images, nonce: Date.now() }
+          : undefined
+      );
+      setApplied("");
+      if (prepared.problems.length) setError(prepared.problems.join("; "));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadCloudFolders(folder?: string) {
+    setError(null);
+    try {
+      setCloudFolders(await window.api.storiesCloudFolders(folder));
+      if (folder !== undefined) setCloudFolder(folder);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function render() {
     setError(null);
     if (!outputDir) {
@@ -312,7 +358,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
     setSaved("");
     setProgress(null);
     try {
-      await window.api.renderStory({ spec, outputDir });
+      await window.api.renderStory({ spec, outputDir, uploadTo: cloudFolder || undefined });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -373,8 +419,42 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                 >
                   Со стока
                 </button>
+                <button
+                  className={sourceKind === "none" ? "vs-tab on" : "vs-tab"}
+                  onClick={() => setSourceKind("none")}
+                >
+                  Моушн без видео
+                </button>
               </div>
-              {sourceKind === "file" ? (
+              {sourceKind === "none" ? (
+                <>
+                  {field(
+                    "Цвет фона",
+                    <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} />
+                  )}
+                  <div className="vs-row">
+                    <button
+                      className="btn btn-secondary btn-small"
+                      onClick={async () => {
+                        const files = await window.api.pickFiles();
+                        if (files?.length) setAssetPaths([...assetPaths, ...files]);
+                      }}
+                    >
+                      + логотип, фото, SVG
+                    </button>
+                    {assetPaths.map((a) => (
+                      <span className="vs-chip" key={a}>
+                        {fileName(a)}
+                        <button onClick={() => setAssetPaths(assetPaths.filter((x) => x !== a))}>✕</button>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="vs-hint">
+                    Съёмки нет: фон заливается цветом, всё остальное собирает агент из вашего текста
+                    и этих файлов. Файлы читаются по пути и внутрь приложения не копируются.
+                  </p>
+                </>
+              ) : sourceKind === "file" ? (
                 <>
                   <button className="btn btn-secondary btn-small" onClick={pickSource}>
                     Выбрать файл…
@@ -505,9 +585,17 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                 Нарисуйте или приложите скриншот того, как должно выглядеть: агент повторит вид
                 графики и расположение. Без референса он соберёт из встроенных средств.
               </p>
-              <button className="btn btn-secondary btn-small" onClick={askAgent} disabled={busy}>
-                Разложить по сценам
-              </button>
+              <div className="vs-row">
+                {sourceKind === "none" ? (
+                  <button className="btn btn-secondary btn-small" onClick={askMotion} disabled={busy}>
+                    Собрать моушн-дизайн
+                  </button>
+                ) : (
+                  <button className="btn btn-secondary btn-small" onClick={askAgent} disabled={busy}>
+                    Разложить по сценам
+                  </button>
+                )}
+              </div>
               {applied && <div className="vs-applied">{applied}</div>}
             </section>
 
@@ -815,6 +903,43 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                   </>
                 )}
 
+                {active.kind === "image" && (
+                  <>
+                    <button
+                      className="btn btn-secondary btn-small"
+                      onClick={async () => {
+                        const files = await window.api.pickFiles();
+                        if (files?.length) patch(active.id, { sourcePath: files[0] });
+                      }}
+                    >
+                      Выбрать картинку…
+                    </button>
+                    {!!active.sourcePath && <p className="vs-path">{String(active.sourcePath)}</p>}
+                    {field(
+                      "Ширина, % холста",
+                      <input
+                        value={String(active.widthPct ?? 30)}
+                        onChange={(e) => patch(active.id, { widthPct: Number(e.target.value) || 5 })}
+                      />
+                    )}
+                    {field(
+                      "Скругление",
+                      <input
+                        value={String(active.radius ?? 0)}
+                        onChange={(e) => patch(active.id, { radius: Number(e.target.value) || 0 })}
+                      />
+                    )}
+                    <label className="vs-check">
+                      <input
+                        type="checkbox"
+                        checked={!!active.shadow}
+                        onChange={(e) => patch(active.id, { shadow: e.target.checked })}
+                      />
+                      Тень под картинкой
+                    </label>
+                  </>
+                )}
+
                 {(active.kind === "icon" || active.kind === "svg") && (
                   <>
                     <button
@@ -899,12 +1024,58 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
               </div>
             )}
 
+            <div className="vs-save">
+              <strong>Куда сохранить</strong>
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const dir = await window.api.pickCleanupFolder();
+                    if (dir) setOutputDir(dir);
+                  }}
+                >
+                  Папка на компьютере…
+                </button>
+                {outputDir && <span className="vs-chip">{outputDir}</span>}
+              </div>
+              <div className="vs-row">
+                <button className="btn btn-secondary btn-small" onClick={() => loadCloudFolders("disk:/")}>
+                  Яндекс-Диск…
+                </button>
+                {cloudFolder && (
+                  <span className="vs-chip">
+                    {cloudFolder}
+                    <button onClick={() => setCloudFolder("")}>✕</button>
+                  </span>
+                )}
+              </div>
+              {cloudFolders.length > 0 && (
+                <div className="vs-folders">
+                  <button className="vs-folder" onClick={() => setCloudFolder(cloudFolder || "disk:/")}>
+                    ✓ сохранять сюда
+                  </button>
+                  {cloudFolders.map((f) => (
+                    <button key={f.path} className="vs-folder" onClick={() => loadCloudFolders(f.path)}>
+                      📁 {f.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="vs-hint">
+                Файл всегда кладётся в папку на компьютере. Если выбрана папка на Диске, туда уйдёт
+                копия. В самом приложении после сборки не остаётся ничего.
+              </p>
+            </div>
+
             <div className="vs-actions">
-              <button className="btn" onClick={render} disabled={busy || !sourcePath}>
+              <button
+                className="btn"
+                onClick={render}
+                disabled={busy || (sourceKind !== "none" && !sourcePath)}
+              >
                 {outputDir ? "Собрать ролик" : "Выбрать папку…"}
               </button>
             </div>
-            {outputDir && <p className="vs-hint">Папка: {outputDir}</p>}
             {progress && progress.stage !== "done" && (
               <p className="vs-hint">
                 {progress.stage === "download" && "Качаю ролик со стока…"}
@@ -913,7 +1084,13 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                 {progress.stage === "encode" && "Склеиваю видео…"}
               </p>
             )}
-            {saved && <div className="vs-saved">Готово: {saved}</div>}
+            {progress?.stage === "upload" && <p className="vs-hint">Выгружаю на Яндекс-Диск…</p>}
+            {saved && (
+              <div className="vs-saved">
+                Готово: {saved}
+                {uploaded && <> · на Диске: {uploaded}</>}
+              </div>
+            )}
 
             {conv && (
               <div className="vs-agent">

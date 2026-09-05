@@ -761,7 +761,7 @@ export interface StoryLayerKind {
 /** Слой ролика. Поля различаются по kind — общие лежат здесь. */
 export interface StoryLayer {
   id: string;
-  kind: "pill" | "timeline" | "icon" | "svg" | "head" | "graphics" | "backdrop";
+  kind: "pill" | "timeline" | "icon" | "svg" | "image" | "head" | "graphics" | "backdrop";
   start: number;
   duration: number;
   appear: string;
@@ -783,7 +783,9 @@ export interface StorySpec {
   width: number;
   height: number;
   fps: number;
-  source: { kind: "file" | "stock"; path: string; query: string; trimStart: number };
+  /** «none» — моушн-дизайн без съёмки: подложка рисуется цветом. */
+  source: { kind: "file" | "stock" | "none"; path: string; query: string; trimStart: number };
+  bgColor: string;
   musicPath: string;
   musicVolume: number;
   duration: number;
@@ -817,10 +819,16 @@ export interface StoryStockVideo {
 }
 
 export interface StoryProgress {
-  stage: "download" | "frames" | "encode" | "done";
+  stage: "download" | "frames" | "encode" | "upload" | "done";
   done?: number;
   total?: number;
   path?: string;
+  remote?: string;
+}
+
+export interface StoryCloudFolder {
+  name: string;
+  path: string;
 }
 
 /** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
@@ -1289,7 +1297,19 @@ export interface ElectronAPI {
     problems: string[];
   }>;
   parseStoriesScript(text: string): Promise<{ duration: number; layers: StoryLayer[] } | null>;
-  renderStory(payload: { spec: Partial<StorySpec>; outputDir: string }): Promise<string>;
+  prepareStoriesMotion(request: {
+    spec: Partial<StorySpec>;
+    text: string;
+    assetPaths?: string[];
+  }): Promise<{ prompt: string; images: ChatAttachment[]; problems: string[] }>;
+  storiesCloudFolders(folder?: string): Promise<StoryCloudFolder[]>;
+  uploadStory(localPath: string, remoteFolder: string): Promise<string>;
+  renderStory(payload: {
+    spec: Partial<StorySpec>;
+    outputDir: string;
+    /** Папка на Яндекс-Диске: задана — ролик уедет туда сразу после сборки. */
+    uploadTo?: string;
+  }): Promise<string>;
   onStoriesProgress(cb: (data: StoryProgress) => void): () => void;
 
   // клининг
