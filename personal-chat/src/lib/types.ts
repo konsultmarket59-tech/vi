@@ -772,6 +772,8 @@ export interface StoryLayer {
   x: number;
   y: number;
   width: number;
+  /** Общий масштаб слоя: 1 — как есть, 1.5 — в полтора раза крупнее. */
+  scale: number;
   [extra: string]: unknown;
 }
 
@@ -786,6 +788,8 @@ export interface StorySpec {
   musicVolume: number;
   duration: number;
   fonts: { family: string; path: string }[];
+  /** Пути к картинкам-референсам: по ним агент повторяет вашу графику. */
+  references: string[];
   layers: StoryLayer[];
 }
 
@@ -1277,7 +1281,13 @@ export interface ElectronAPI {
   prepareStoriesScript(request: {
     spec: Partial<StorySpec>;
     text: string;
-  }): Promise<{ prompt: string; info: StoryProbe | null }>;
+  }): Promise<{
+    prompt: string;
+    info: StoryProbe | null;
+    /** Референсы уходят агенту картинками — словами набросок не пересказать. */
+    images: ChatAttachment[];
+    problems: string[];
+  }>;
   parseStoriesScript(text: string): Promise<{ duration: number; layers: StoryLayer[] } | null>;
   renderStory(payload: { spec: Partial<StorySpec>; outputDir: string }): Promise<string>;
   onStoriesProgress(cb: (data: StoryProgress) => void): () => void;

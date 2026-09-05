@@ -1581,3 +1581,21 @@ button.fin-row-x:hover { color: var(--accent); }
 .vs-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .vs-agent-head strong { flex: 1; }
 .vs-agent > .chat-view { flex: 1; min-height: 0; }
+
+/* Смещение и масштаб выбранного слоя. Крестовина и «−  100%  +» — чтобы
+   двигать и увеличивать элемент, не считая проценты в уме. */
+.vs-move { display: flex; align-items: center; gap: 18px; margin-bottom: 8px; }
+.vs-pad { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.vs-pad > div { display: flex; gap: 2px; }
+.vs-pad button {
+  width: 28px; height: 24px; border: 1px solid var(--border); background: none;
+  border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
+}
+.vs-pad button:hover, .vs-zoom button:hover { border-color: var(--accent); color: var(--accent); }
+.vs-zoom { display: flex; align-items: center; gap: 6px; }
+.vs-zoom button {
+  width: 28px; height: 24px; border: 1px solid var(--border); background: none;
+  border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
+}
+.vs-zoom b { min-width: 46px; text-align: center; font-size: 12px; }
+.vs-zoom button.vs-reset { width: auto; padding: 0 8px; font-size: 11px; }

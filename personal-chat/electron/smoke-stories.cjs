@@ -155,6 +155,59 @@ app.whenReady().then(async () => {
     check("за концом ролика сцена пуста", ink(await bitmap(9)) === 0);
     win.destroy();
 
+    console.log("\nразмер и положение элементов");
+    check("масштаб есть у любого слоя", vs.normalizeLayer({ kind: "pill" }).scale === 1);
+    check("масштаб не уходит в абсурд", vs.normalizeLayer({ kind: "pill", scale: 99 }).scale === 6 && vs.normalizeLayer({ kind: "pill", scale: 0 }).scale === 0.1);
+    check("у таймлайна свой размер отметок", vs.normalizeLayer({ kind: "timeline", dotSize: 44 }).dotSize === 44);
+    check("у графики свой множитель узлов", vs.normalizeLayer({ kind: "graphics", nodeScale: 1.6 }).nodeScale === 1.6);
+
+    // Масштаб обязан складываться с выездом, а не затирать его: иначе увеличенная
+    // плашка перестала бы выезжать и просто возникала на месте.
+    const moved = vs.normalizeSpec({
+      fps: 10, duration: 2,
+      layers: [{ kind: "pill", text: "ЗУМ", start: 0, duration: 2, x: 10, y: 20, scale: 2, appear: "slide-left" }],
+    });
+    const movedFile = path.join(outDir, "moved.html");
+    fs.writeFileSync(movedFile, vs.buildSceneHtml(moved));
+    const win3 = new BrowserWindow({
+      show: false, width: 640, height: 480, transparent: true, frame: false,
+      backgroundColor: "#00000000", webPreferences: { offscreen: true },
+    });
+    await win3.loadFile(movedFile);
+    win3.setContentSize(moved.width, moved.height);
+    await new Promise((r) => setTimeout(r, 400));
+    const style = async (t) => {
+      await win3.webContents.executeJavaScript(`window.seekAndSettle(${t})`);
+      return win3.webContents.executeJavaScript(
+        `(() => { const el = document.querySelector(".layer"); const r = el.getBoundingClientRect();
+          return JSON.stringify({ transform: el.style.transform, origin: el.style.transformOrigin,
+            left: el.style.left, top: el.style.top, w: Math.round(r.width) }); })()`
+      );
+    };
+    const during = JSON.parse(await style(0.15));
+    const after = JSON.parse(await style(1.2));
+    check("во время выезда есть и сдвиг, и масштаб",
+      during.transform.includes("translate") && during.transform.includes("scale(2"), during.transform);
+    check("после выезда остаётся только масштаб",
+      after.transform.includes("scale(2") && !/translate\((?!0px, ?0px)/.test(after.transform), after.transform);
+    check("увеличение считается от левого верхнего угла",
+      after.origin.split(" ").sort().join(" ") === "left top", after.origin);
+    check("положение задано процентами холста",
+      after.left === Math.round(0.1 * moved.width) + "px" && after.top === Math.round(0.2 * moved.height) + "px",
+      `${after.left} ${after.top}`);
+    win3.destroy();
+
+    console.log("\nреференс для агента");
+    const fakeInfo = { duration: 12, width: 720, height: 1280, fps: 30, hasAudio: true };
+    const withRef = vs.buildScriptPrompt({ spec, sourceInfo: fakeInfo, text: "Тезис", referenceCount: 2 });
+    const noRef = vs.buildScriptPrompt({ spec, sourceInfo: fakeInfo, text: "Тезис", referenceCount: 0 });
+    check("с референсом агенту велено его повторять", withRef.includes("РЕФЕРЕНС") && withRef.includes("повторяй"));
+    check("сказано, сколько картинок приложено", withRef.includes("картинок: 2"));
+    check("без референса — встроенные средства", noRef.includes("встроенных средств") && !noRef.includes("РЕФЕРЕНС"));
+    check("агенту объяснено, чем задавать размер", withRef.includes("scale"));
+    check("пути референсов хранятся в описании",
+      vs.normalizeSpec({ references: ["/дом/набросок.png", ""] }).references.length === 1);
+
     console.log("\nсборка настоящего файла");
     const source = makeSource(path.join(outDir, "source.mp4"));
     const info = await vs.probe(ffmpeg, source);

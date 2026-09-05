@@ -2972,11 +2972,27 @@ ipcMain.handle("stories:prepareScript", async (_e, request) => {
   if (normalized.source.kind === "file" && normalized.source.path) {
     info = await videostories.probe(ffmpegPath(), normalized.source.path).catch(() => null);
   }
+  // Референсы уходят агенту картинками: описать словами чужой набросок нельзя,
+  // а по картинке он повторяет и расположение, и вид графики.
+  const images = [];
+  const problems = [];
+  for (const filePath of normalized.references) {
+    const ref = await docflow.readReference(filePath, extractDocText);
+    if (ref.error) problems.push(`${ref.name}: ${ref.error}`);
+    else if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+    else problems.push(`${ref.name}: это не картинка — референсом может быть только изображение.`);
+  }
   return {
     prompt:
-      videostories.buildScriptPrompt({ spec: normalized, sourceInfo: info, text }) +
-      (await userContextDigest()),
+      videostories.buildScriptPrompt({
+        spec: normalized,
+        sourceInfo: info,
+        text,
+        referenceCount: images.length,
+      }) + (await userContextDigest()),
     info,
+    images,
+    problems,
   };
 });
 

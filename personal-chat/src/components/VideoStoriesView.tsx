@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ChatAttachment,
   Conversation,
   Settings,
   Skill,
@@ -62,6 +63,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
   const [systemPrompt, setSystemPrompt] = useState("");
   const [applied, setApplied] = useState("");
   const [scriptText, setScriptText] = useState("");
+  const [references, setReferences] = useState<string[]>([]);
+  const [prefill, setPrefill] = useState<
+    { text: string; attachments?: ChatAttachment[]; autoSend?: boolean; nonce: number } | undefined
+  >();
 
   useEffect(() => {
     window.api.storiesOptions().then((o) => {
@@ -89,9 +94,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       musicPath,
       musicVolume: 0.25,
       fonts: fontFamily ? fonts.filter((f) => f.family === fontFamily) : [],
+      references,
       layers,
     }),
-    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, musicPath, fontFamily, fonts, layers]
+    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, musicPath, fontFamily, fonts, references, layers]
   );
 
   // Сцена и замечания пересобираются на каждую правку: композицию видно сразу,
@@ -163,6 +169,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       x: 6 + (index % 2) * 8,
       y: 12 + index * 9,
       width: 0,
+      scale: 1,
     };
     if (kind === "pill") base.text = "НОВАЯ ФРАЗА";
     if (kind === "timeline") {
@@ -188,6 +195,52 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, ...changes } : l))),
     []
   );
+
+  /** Сдвиг и масштаб выбранного слоя. Проценты холста — шаг мелкий и предсказуемый. */
+  const nudge = useCallback(
+    (dx: number, dy: number) =>
+      setLayers((prev) =>
+        prev.map((l) =>
+          l.id === selected
+            ? { ...l, x: Math.round((l.x + dx) * 10) / 10, y: Math.round((l.y + dy) * 10) / 10 }
+            : l
+        )
+      ),
+    [selected]
+  );
+  const zoom = useCallback(
+    (factor: number) =>
+      setLayers((prev) =>
+        prev.map((l) =>
+          l.id === selected
+            ? { ...l, scale: Math.min(6, Math.max(0.1, Math.round(((l.scale as number) || 1) * factor * 100) / 100)) }
+            : l
+        )
+      ),
+    [selected]
+  );
+
+  // Стрелками двигать привычнее, чем кнопками. С Shift — крупный шаг.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const step = e.shiftKey ? 5 : 1;
+      const moves: Record<string, [number, number]> = {
+        ArrowLeft: [-step, 0],
+        ArrowRight: [step, 0],
+        ArrowUp: [0, -step],
+        ArrowDown: [0, step],
+      };
+      if (moves[e.key]) {
+        e.preventDefault();
+        nudge(...moves[e.key]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, nudge]);
 
   async function attachIcon(id: string) {
     const query = window.prompt("Что за иконка? Например: rocket, chart, phone");
@@ -221,7 +274,14 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       const prepared = await window.api.prepareStoriesScript({ spec, text: scriptText });
       setSystemPrompt(prepared.prompt);
       setConv({ id: uid(), projectId: "", title: "Раскладка по сценам", messages: [], createdAt: Date.now(), updatedAt: Date.now() });
+      // Референс — картинка, её нельзя пересказать словами: отдаём вложением.
+      setPrefill(
+        prepared.images.length
+          ? { text: "Разложи по сценам, повторяя расположение с референса.", attachments: prepared.images, nonce: Date.now() }
+          : undefined
+      );
       setApplied("");
+      if (prepared.problems.length) setError(prepared.problems.join("; "));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -424,6 +484,27 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                 onChange={(e) => setScriptText(e.target.value)}
                 placeholder="Вставьте текст ролика. Агент разложит его по плашкам, вставкам и графике."
               />
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const files = await window.api.pickFiles();
+                    if (files?.length) setReferences([...references, ...files]);
+                  }}
+                >
+                  + референс картинкой
+                </button>
+                {references.map((r) => (
+                  <span className="vs-chip" key={r}>
+                    {fileName(r)}
+                    <button onClick={() => setReferences(references.filter((x) => x !== r))}>✕</button>
+                  </span>
+                ))}
+              </div>
+              <p className="vs-hint">
+                Нарисуйте или приложите скриншот того, как должно выглядеть: агент повторит вид
+                графики и расположение. Без референса он соберёт из встроенных средств.
+              </p>
               <button className="btn btn-secondary btn-small" onClick={askAgent} disabled={busy}>
                 Разложить по сценам
               </button>
@@ -468,6 +549,27 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
             {active && (
               <section className="vs-block">
                 <h3>Настройки слоя</h3>
+                <div className="vs-move">
+                  <div className="vs-pad">
+                    <button onClick={() => nudge(0, -1)} title="Выше">↑</button>
+                    <div>
+                      <button onClick={() => nudge(-1, 0)} title="Левее">←</button>
+                      <button onClick={() => nudge(1, 0)} title="Правее">→</button>
+                    </div>
+                    <button onClick={() => nudge(0, 1)} title="Ниже">↓</button>
+                  </div>
+                  <div className="vs-zoom">
+                    <button onClick={() => zoom(1 / 1.1)} title="Мельче">−</button>
+                    <b>{Math.round((((active.scale as number) || 1) * 100))}%</b>
+                    <button onClick={() => zoom(1.1)} title="Крупнее">+</button>
+                    <button className="vs-reset" onClick={() => patch(active.id, { scale: 1 })}>
+                      сбросить
+                    </button>
+                  </div>
+                </div>
+                <p className="vs-hint">
+                  Двигать можно и стрелками на клавиатуре, с Shift — шагом покрупнее.
+                </p>
                 <div className="vs-pair">
                   {field(
                     "Начало, с",
@@ -614,6 +716,13 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                         onChange={(e) => patch(active.id, { bg: e.target.value })}
                       />
                     )}
+                    {field(
+                      "Размер кружков-отметок",
+                      <input
+                        value={String(active.dotSize ?? 20)}
+                        onChange={(e) => patch(active.id, { dotSize: Number(e.target.value) || 4 })}
+                      />
+                    )}
                   </>
                 )}
 
@@ -651,8 +760,16 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                         }
                       />
                     )}
+                    {field(
+                      "Размер узлов и плиток",
+                      <input
+                        value={String(active.nodeScale ?? 1)}
+                        onChange={(e) => patch(active.id, { nodeScale: Number(e.target.value) || 1 })}
+                      />
+                    )}
                     <p className="vs-hint">
                       Для дашборда и столбцов пишите «подпись | значение» — например «Было | 30».
+                      Размер узлов — множитель: 1 обычный, 1.5 крупнее.
                     </p>
                   </>
                 )}
@@ -813,7 +930,8 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                   skills={skills}
                   onUpdate={setConv}
                   onSave={async () => {}}
-                  emptyHint="Напишите «разложи» — агент уже видит текст и длительность видео."
+                  prefill={prefill}
+                  emptyHint="Напишите «разложи» — агент уже видит текст, длительность видео и референс."
                   onAssistantMessage={onAssistantMessage}
                 />
               </div>

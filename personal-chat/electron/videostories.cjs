@@ -97,6 +97,10 @@ function normalizeLayer(raw = {}, index = 0) {
     x: num(raw.x, 6),
     y: num(raw.y, 12 + index * 10),
     width: num(raw.width, 0),
+    // Общий масштаб слоя: увеличить логотип или блок целиком, не пересобирая
+    // его из отдельных размеров. Точка отсчёта — левый верхний угол, чтобы
+    // увеличение не уводило элемент с места.
+    scale: Math.min(6, Math.max(0.1, num(raw.scale, 1))),
   };
 
   if (kind === "pill") {
@@ -129,6 +133,8 @@ function normalizeLayer(raw = {}, index = 0) {
       font: str(raw.font, ""),
       fontSize: num(raw.fontSize, 34),
       fg: str(raw.fg, BRAND.white),
+      // Кружки-отметки на шкале: их часто хочется крупнее самого текста.
+      dotSize: Math.max(4, num(raw.dotSize, 20)),
     };
   }
   if (kind === "icon") {
@@ -168,6 +174,8 @@ function normalizeLayer(raw = {}, index = 0) {
       nodeBg: str(raw.nodeBg, BRAND.black),
       font: str(raw.font, ""),
       fontSize: num(raw.fontSize, 28),
+      // Насколько крупнее считанного по ширине делать узлы и плитки.
+      nodeScale: Math.min(3, Math.max(0.3, num(raw.nodeScale, 1))),
     };
   }
   return {
@@ -202,6 +210,8 @@ function normalizeSpec(raw = {}) {
     // Длительность по умолчанию — пока идёт последний слой, но не меньше секунды.
     duration: Math.max(1, num(raw.duration, Math.max(1, longest))),
     fonts: Array.isArray(raw.fonts) ? raw.fonts : [],
+    // Картинки-референсы: по ним агент повторяет вашу графику и расположение.
+    references: (Array.isArray(raw.references) ? raw.references : []).map((r) => str(r)).filter(Boolean),
     layers,
   };
 }
@@ -321,6 +331,8 @@ function buildLayer(layer, index) {
       step.className = "tl-step";
       const dot = document.createElement("i");
       dot.style.background = layer.track;
+      dot.style.width = px(layer.dotSize);
+      dot.style.height = px(layer.dotSize);
       const label = document.createElement("span");
       label.textContent = s;
       label.style.fontFamily = fontStack(layer.font);
@@ -409,7 +421,7 @@ function buildGraphics(layer) {
     const field = document.createElement("div");
     field.className = "gfx-field";
     const per = Math.ceil(layer.nodes.length / 2) || 1;
-    const nodeSize = Math.min(190, Math.max(120, W / (per + 1)));
+    const nodeSize = Math.min(190, Math.max(120, W / (per + 1))) * layer.nodeScale;
     const rows = [layer.nodes.slice(0, per), layer.nodes.slice(per)];
     const height = rows.filter((r) => r.length).length * (nodeSize + 70) + 60;
     field.style.height = px(height);
@@ -460,9 +472,10 @@ function buildGraphics(layer) {
       tile.style.fontFamily = font;
       // «Цифра | подпись» — всё, что до вертикальной черты, крупное.
       const [big, small] = String(n).split("|");
+      tile.style.padding = px(Math.round(28 * layer.nodeScale)) + " " + px(Math.round(30 * layer.nodeScale));
       const b = document.createElement("strong");
       b.textContent = (big || "").trim();
-      b.style.fontSize = px(Math.round(layer.fontSize * 2.2));
+      b.style.fontSize = px(Math.round(layer.fontSize * 2.2 * layer.nodeScale));
       tile.appendChild(b);
       if (small) {
         const s = document.createElement("span");
@@ -540,19 +553,36 @@ const NODES = SPEC.layers.map((layer, i) => {
   return { layer, el };
 });
 
-function applyAppear(el, kind, p, distance) {
+/**
+ * Появление слоя плюс его собственный масштаб.
+ *
+ * Масштаб не отдельное свойство, а часть того же transform: если записать его
+ * вторым присваиванием, он затрёт сдвиг появления, и слой перестанет выезжать.
+ */
+function applyAppear(el, layer, p, distance) {
+  const kind = layer.appear;
+  const zoom = layer.scale || 1;
   const e = EASE_IN(p);
-  if (kind === "fade") { el.style.opacity = String(e); el.style.transform = ""; return; }
-  if (kind === "scale") {
-    el.style.opacity = String(clamp01(p * 1.6));
-    el.style.transform = "scale(" + (0.6 + 0.4 * e) + ")";
-    return;
+  let move = "";
+  let grow = zoom;
+  let opacity = 1;
+
+  if (kind === "fade") {
+    opacity = e;
+  } else if (kind === "scale") {
+    opacity = clamp01(p * 1.6);
+    grow = zoom * (0.6 + 0.4 * e);
+  } else if (kind === "draw") {
+    opacity = 1;
+  } else {
+    const dx = kind === "slide-left" ? -distance : kind === "slide-right" ? distance : 0;
+    const dy = kind === "slide-up" ? distance : 0;
+    opacity = clamp01(p * 1.6);
+    move = "translate(" + dx * (1 - e) + "px," + dy * (1 - e) + "px) ";
   }
-  if (kind === "draw") { el.style.opacity = "1"; el.style.transform = ""; return; }
-  const dx = kind === "slide-left" ? -distance : kind === "slide-right" ? distance : 0;
-  const dy = kind === "slide-up" ? distance : 0;
-  el.style.opacity = String(clamp01(p * 1.6));
-  el.style.transform = "translate(" + dx * (1 - e) + "px," + dy * (1 - e) + "px)";
+  el.style.opacity = String(opacity);
+  el.style.transformOrigin = "top left";
+  el.style.transform = move + (grow === 1 ? "" : "scale(" + grow + ")");
 }
 
 window.seek = function seek(t) {
@@ -564,13 +594,15 @@ window.seek = function seek(t) {
     }
     el.style.display = "";
     const pIn = layer.appearDur > 0 ? clamp01(local / layer.appearDur) : 1;
-    applyAppear(el, layer.appear, pIn, 60);
+    applyAppear(el, layer, pIn, 60);
 
     const outStart = layer.duration - layer.exitDur;
     if (layer.exitDur > 0 && local > outStart) {
       const pOut = EASE_OUT(clamp01((local - outStart) / layer.exitDur));
       el.style.opacity = String(1 - pOut);
-      if (layer.exit === "scale") el.style.transform = "scale(" + (1 - 0.25 * pOut) + ")";
+      if (layer.exit === "scale") {
+        el.style.transform = "scale(" + (layer.scale || 1) * (1 - 0.25 * pOut) + ")";
+      }
     }
 
     // Прогресс внутри слоя — для таймлайна и появления узлов инфографики.
@@ -1111,8 +1143,22 @@ function layerTitle(layer) {
 // тайминги вслепую — длительность ролика и исходника даются ему числом, а
 // результат всё равно правится в форме и виден в предпросмотре до сборки.
 
-function buildScriptPrompt({ spec, sourceInfo, text }) {
+function buildScriptPrompt({ spec, sourceInfo, text, referenceCount = 0 }) {
   const secs = sourceInfo?.duration ? sourceInfo.duration.toFixed(1) : "неизвестна";
+  const reference = referenceCount
+    ? [
+        "",
+        `РЕФЕРЕНС. К заданию приложено картинок: ${referenceCount}. Это рисунок или скриншот того,`,
+        "какую графику и какое расположение элементов человек хочет получить.",
+        "Смотри на него и повторяй: что где стоит, крупное или мелкое, в какой части кадра,",
+        "какого вида графика. Если на референсе есть то, чего нет среди видов слоёв, — собери",
+        "ближайшее из доступного и скажи словами, чем пришлось заменить.",
+        "Размер элемента задавай полем scale (1 — обычный), положение — полями x и y в процентах.",
+      ]
+    : [
+        "",
+        "Референса нет — собирай из встроенных средств на свой вкус, по правилам ниже.",
+      ];
   return [
     "Ты монтажёр вертикальных роликов. Разложи текст по сценам поверх видео.",
     "",
@@ -1121,6 +1167,7 @@ function buildScriptPrompt({ spec, sourceInfo, text }) {
     "",
     "ТЕКСТ:",
     text || "(текста нет — предложи структуру под тему ролика)",
+    ...reference,
     "",
     "ПРАВИЛА МОНТАЖА, они важнее красоты:",
     "  — Одна фраза — одна плашка. Не склеивай несколько строк в одну плашку.",
@@ -1143,7 +1190,7 @@ function buildScriptPrompt({ spec, sourceInfo, text }) {
     "{",
     '  "duration": 30,',
     '  "layers": [',
-    '    {"kind":"pill","text":"ПЕРВАЯ ФРАЗА","start":0.3,"duration":3.2,"x":6,"y":14,"appear":"slide-left"},',
+    '    {"kind":"pill","text":"ПЕРВАЯ ФРАЗА","start":0.3,"duration":3.2,"x":6,"y":14,"appear":"slide-left","scale":1},',
     '    {"kind":"backdrop","start":8,"duration":5},',
     '    {"kind":"graphics","graphics":"network","hub":"НАЗВАНИЕ","nodes":["УЗЕЛ","УЗЕЛ"],"accentNode":"УЗЕЛ","start":8.3,"duration":4.5,"x":7,"y":30}',
     "  ]",
@@ -1151,7 +1198,8 @@ function buildScriptPrompt({ spec, sourceInfo, text }) {
     "```",
     "===КОНЕЦ===",
     "",
-    "Координаты x и y — в процентах холста. Только те поля, которые нужны:",
+    "Координаты x и y — в процентах холста, scale — размер (1 обычный, 1.5 крупнее).",
+    "Только те поля, которые нужны:",
     "остальное приложение подставит само. Внутри блока — чистый JSON без пояснений.",
   ].join("\n");
 }
