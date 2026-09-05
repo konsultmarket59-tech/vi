@@ -169,22 +169,86 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-git.png"), img.toPNG())
     );
 
-    console.log("\nвкладка Сборки");
+    console.log("\nвкладка Демо");
     await win.webContents.executeJavaScript(
-      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Сборки").click()`
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо").click()`
     );
-    await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "список модулей загружен");
-    const moduleCount = await win.webContents.executeJavaScript(`document.querySelectorAll(".module-card").length`);
-    const expectedModules = require("./blueprints.cjs").MODULES.length;
-    check(`модулей показано ${expectedModules}`, moduleCount === expectedModules, String(moduleCount));
+    await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "форма копии открылась");
+    // Плагины приходят из главного процесса: снимок текста до их появления
+    // проверял бы пустую страницу.
+    await waitFor(win, `document.querySelectorAll(".plugin-card, .module-card").length > 2`, "плагины подгрузились");
+    const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
+    // Всё, что нужно для одной копии, вводится на одной странице: имя, срок,
+    // ключ, конфигурация, плагины, репозиторий — и кнопка «Собрать».
+    // Без ключа подписи демо-копию нельзя активировать, поэтому сборка должна
+    // отказывать заранее, а не проваливаться после десяти минут push'а на GitHub.
+    check("предлагает создать ключ подписи", demoText.includes("Создать ключ"), demoText.slice(0, 200));
+    check("честно описывает предел защиты", demoText.includes("не от целенаправленного взлома"), "");
+    check("спрашивает, кому копия", demoText.includes("Кому — имя или название компании"), "");
+    check("спрашивает срок доступа", demoText.includes("Срок доступа, дней"), "");
+    check("спрашивает ключ Polza", demoText.includes("Ключ Polza для этой копии"), "");
+    check("объясняет, что человек ключа не видит", demoText.includes("человек его не видит и не вводит"), "");
+    check("спрашивает репозиторий", demoText.includes("Репозиторий этой копии"), "");
+    check("предлагает Excel и Word", demoText.includes("Excel") && demoText.includes("Word"), "");
+    const pluginNames = require("./copies.cjs").PLUGINS.map((p) => p.name);
     check(
-      "ядро нельзя отключить",
+      "все восемь плагинов на месте",
+      pluginNames.every((name) => demoText.includes(name)),
+      pluginNames.filter((n) => !demoText.includes(n)).join(", ")
+    );
+    // Папки с исходниками на компьютере может не быть вовсе — код берётся из
+    // канонического репозитория, и страница обязана говорить об этом, а не
+    // требовать папку.
+    check("код берётся с GitHub, а не из папки", demoText.includes("Код берётся с GitHub"), demoText.slice(-400));
+    check(
+      "и это сказано зелёной галочкой, а не серым текстом",
       await win.webContents.executeJavaScript(
-        `[...document.querySelectorAll(".module-card input")].some(i=>i.disabled && i.checked)`
+        `[...document.querySelectorAll(".conn-ok")].some(n => /Код берётся с GitHub/.test(n.textContent||""))`
       )
     );
+    check(
+      "папку на компьютере всё ещё можно выбрать осознанно",
+      demoText.includes("Собрать из папки на компьютере"),
+      ""
+    );
+    check(
+      "кнопка «Собрать» на месте",
+      await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".btn")].some(b=>b.textContent==="Собрать")`
+      )
+    );
+    // Имя копии и название репозитория предлагаются сами — их не набирают дважды.
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const input = [...document.querySelectorAll(".input")].find(i => i.placeholder.includes("Мария Петрова"));
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        setter.call(input, "Мария Тестова");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 200));
+    check(
+      "название копии предлагается по имени",
+      (await win.webContents.executeJavaScript(
+        `[...document.querySelectorAll(".input")].map(i=>i.placeholder).join("|")`
+      )).includes("Личный чат Мария Тестова")
+    );
     await win.webContents.capturePage().then((img) =>
-      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-blueprints.png"), img.toPNG())
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-demo-build.png"), img.toPNG())
+    );
+
+    console.log("\nвкладка Чистовая сборка");
+    await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Чистовая сборка").click()`
+    );
+    await waitFor(win, `document.querySelectorAll(".module-card").length > 0`, "форма оплаченной копии открылась");
+    const paidText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("ключ Polza здесь не спрашивается", !paidText.includes("Ключ Polza для этой копии"), "");
+    check("сказано, что ключ вводит сам человек", paidText.includes("Ключ вводит сам человек"), "");
+    check("есть защита от копирования", paidText.includes("Защита от копирования"), "");
+    await win.webContents.capturePage().then((img) =>
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-release.png"), img.toPNG())
     );
 
     console.log("\nвкладка Плагины");
@@ -198,24 +262,20 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-plugins.png"), img.toPNG())
     );
 
-    console.log("\nвкладка Демо-доступ");
+    console.log("\nвкладка Фикс");
     await win.webContents.executeJavaScript(
-      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Демо-доступ").click()`
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Фикс").click()`
     );
-    await waitFor(win, `!!document.querySelector(".view-title")`, "раздел открылся");
-    const demoText = await win.webContents.executeJavaScript(text(".settings-view"));
-    check("предлагает создать ключ подписи", demoText.includes("Создать ключ"), demoText.slice(0, 200));
-    check("честно описывает предел защиты", demoText.includes("не от целенаправленного взлома"), "");
-    // Issuing must be impossible before a key exists, or a half-configured
-    // build could be handed out with unsignable licences.
+    await waitFor(win, `!!document.querySelector(".view-title")`, "страница фикса открылась");
+    const fixText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("объясняет, что чинится код самой копии", fixText.includes("как обычная рабочая папка"), "");
     check(
-      "без ключа выгрузка настроек недоступна",
-      await win.webContents.executeJavaScript(
-        `[...document.querySelectorAll(".btn")].find(b=>b.textContent.includes("Записать настройки"))?.disabled === true`
-      )
+      "без собранных копий не притворяется, что готова чинить",
+      fixText.includes("Собранных копий пока нет"),
+      fixText.slice(0, 200)
     );
     await win.webContents.capturePage().then((img) =>
-      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-demo.png"), img.toPNG())
+      fs.writeFileSync(path.join(os.tmpdir(), "personal-code-fix.png"), img.toPNG())
     );
 
     console.log("\nвкладка Настройки");
@@ -226,6 +286,81 @@ app.whenReady().then(async () => {
     const settingsText = await win.webContents.executeJavaScript(text(".settings-view"));
     check("есть раздел прокси", settingsText.includes("Прокси"), "");
     check("есть поле ключа Polza", settingsText.includes("Polza"), "");
+    // По умолчанию режим «Системный» — логин и пароль прокси видны сразу
+    // (прокси Windows тоже может требовать авторизацию), но поле адреса и
+    // разъяснение формата появляются только в ручном режиме.
+    check("логин прокси виден в системном режиме", settingsText.includes("Логин прокси"), "");
+    check("поля адреса нет в системном режиме", !settingsText.includes("Адрес прокси"), "");
+    const proxySelect = () =>
+      `[...document.querySelectorAll("select.input")].find(s => [...s.options].some(o => o.value === "direct"))`;
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const select = ${proxySelect()};
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(select, "manual");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 200));
+    const manualText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("ручной режим показывает адрес и логин", manualText.includes("Адрес прокси") && manualText.includes("Логин прокси"), "");
+    check("объясняет формат адреса и предел SOCKS5", manualText.includes("socks5://адрес:порт") && manualText.includes("SOCKS5"), "");
+
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const select = ${proxySelect()};
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(select, "direct");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 200));
+    const directText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("прямое соединение прячет логин и пароль", !directText.includes("Логин прокси"), "");
+    // Возвращаем «Системный», чтобы дальнейшие проверки не унаследовали
+    // прямое соединение.
+    await win.webContents.executeJavaScript(`
+      (() => {
+        const select = ${proxySelect()};
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(select, "system");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()
+    `);
+    // Те же разделы, что и в «Личном чате»: человек ходит между двумя
+    // приложениями и не должен искать одну и ту же настройку в разных местах.
+    check("есть раздел «Папка с данными»", settingsText.includes("Папка с данными"), "");
+    check("папка показана путём", await win.webContents.executeJavaScript(
+      `(document.querySelector(".folder-path")||{}).textContent.length > 3`
+    ));
+    check("есть раздел «Доступ в интернет»", settingsText.includes("Доступ в интернет"), "");
+    check("есть раздел «Обслуживание»", settingsText.includes("Обслуживание"), "");
+    // Те же разделы и теми же словами, что в «Личном чате»: человек ходит между
+    // двумя приложениями, и настройка не должна называться по-разному.
+    check("есть «Настройки подключения»", settingsText.includes("Настройки подключения"), "");
+    check("есть кэш промпта", settingsText.includes("Кэшировать неизменную часть промпта"), "");
+    check("есть отчёт о проблеме", settingsText.includes("О программе и отчёт о проблеме"), "");
+    check("есть подключение к GitHub", settingsText.includes("Токен GitHub"), "");
+
+    // Поисковик прячется, пока поиск не разрешён, и появляется, когда разрешён.
+    check("выбор поисковика скрыт, пока поиск выключен", !settingsText.includes("DuckDuckGo"), "");
+    await win.webContents.executeJavaScript(
+      `document.querySelector(".search-toggle input[type=checkbox]").click()`
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    check(
+      "после разрешения появляется выбор поисковика",
+      (await win.webContents.executeJavaScript(text(".settings-view"))).includes("DuckDuckGo")
+    );
+    await win.webContents.executeJavaScript(
+      `document.querySelector(".search-toggle input[type=checkbox]").click()`
+    );
+
+    const report = await win.webContents.executeJavaScript(`window.api.storageReport()`);
+    check("отчёт о месте считается", typeof report.totalBytes === "number", JSON.stringify(report));
     await win.webContents.capturePage().then((img) =>
       fs.writeFileSync(path.join(os.tmpdir(), "personal-code-settings.png"), img.toPNG())
     );

@@ -118,12 +118,23 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
       <div className="media-layout">
         <div className="panel-section media-form">
           <p className="hint">
-            Генерация через модели, доступные по вашему ключу Polza.ai (фото, видео, аудио — единый API). Точный ID
-            модели скопируйте со страницы{" "}
-            <a href="https://polza.ai/models" target="_blank" rel="noreferrer">
-              polza.ai/models
-            </a>
-            .
+            {settings.managed ? (
+              <>
+                Генерация фото, видео и аудио — теми моделями, что подключены к вашей сборке. Какие
+                именно, можно спросить у разработчика:{" "}
+                <a href="mailto:hello@dynamicbrands.ru">hello@dynamicbrands.ru</a>. ID нужной модели
+                вводится в поле ниже.
+              </>
+            ) : (
+              <>
+                Генерация через модели, доступные по вашему ключу Polza.ai (фото, видео, аудио —
+                единый API). Точный ID модели скопируйте со страницы{" "}
+                <a href="https://polza.ai/models" target="_blank" rel="noreferrer">
+                  polza.ai/models
+                </a>
+                .
+              </>
+            )}
           </p>
 
           <label>Тип</label>

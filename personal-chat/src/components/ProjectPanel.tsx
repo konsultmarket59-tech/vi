@@ -782,6 +782,12 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
             )}
           </div>
           {externalDocsError && <div className="chat-error">{externalDocsError}</div>}
+          {project.externalDocsPath && externalDocs.length > 0 && (
+            <p className="hint">
+              Галочки работают так же, как у документов проекта: снятый документ остаётся в папке, но
+              не уходит в каждый запрос. Внешняя папка обычно и есть самая большая часть контекста.
+            </p>
+          )}
           {project.externalDocsPath && (
             <ul className="doc-list">
               {externalDocs.length === 0 && !externalDocsError && (
@@ -789,7 +795,16 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
               )}
               {externalDocs.map((d) => (
                 <li key={d.name}>
-                  <span className="doc-name">{d.name}</span>
+                  <input
+                    type="checkbox"
+                    className="doc-include"
+                    checked={!excludedDocs.includes(`external/${d.name}`)}
+                    onChange={() => toggleDocInContext(`external/${d.name}`)}
+                    title="Отдавать ассистенту"
+                  />
+                  <span className={excludedDocs.includes(`external/${d.name}`) ? "doc-name doc-name-off" : "doc-name"}>
+                    {d.name}
+                  </span>
                   <span className="doc-size">{(d.size / 1024).toFixed(1)} КБ</span>
                 </li>
               ))}

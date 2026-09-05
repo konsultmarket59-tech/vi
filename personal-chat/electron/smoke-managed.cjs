@@ -38,6 +38,17 @@ function cleanup() {
   fs.rmSync(userData, { recursive: true, force: true });
 }
 
+// Файлы конфигурации пишутся прямо в папку приложения, поэтому убрать их надо и
+// тогда, когда тест не дошёл до конца: прерванный запуск оставлял «сборку с
+// лицензией» лежать в репозитории, и следом за ним начинали падать все
+// остальные тесты — на экране активации вместо приложения.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    cleanup();
+    process.exit(1);
+  });
+}
+
 (async () => {
   usage.init(userData);
 
@@ -54,6 +65,7 @@ function cleanup() {
       apiKey: "ключ-автора",
       baseUrl: "https://polza.ai/api/v1",
       model: "anthropic/claude-sonnet-5",
+      maxTokens: 64000,
       currency: "₽",
       prices: { "anthropic/claude-sonnet-5": { input: 300, output: 1500 } },
     })
@@ -63,6 +75,23 @@ function cleanup() {
   check("сборка помечена как управляемая", overlaid.managed === true);
   const kept = managed.apply({ apiKey: "", baseUrl: "", model: "openai/gpt-5" });
   check("выбранная пользователем модель не сбрасывается", kept.model === "openai/gpt-5", kept.model);
+
+  console.log("\nдлина ответа задаётся сборкой");
+  // Автор выдаёт копии длину ответа; тестировщик может уменьшить, но не поднять.
+  // Различать «не трогал» и «выбрал 16 000» обязательно — иначе значение по
+  // умолчанию тихо победило бы то, что задал автор.
+  check("не трогал — работает значение из сборки", overlaid.maxTokens === 64000, String(overlaid.maxTokens));
+  check("окну сообщён потолок", overlaid.maxTokensLimit === 64000, String(overlaid.maxTokensLimit));
+  const lowered = managed.apply({ apiKey: "", baseUrl: "", model: "", maxTokens: 8000 }, { chosenMaxTokens: true });
+  check("уменьшить можно", lowered.maxTokens === 8000, String(lowered.maxTokens));
+  const raised = managed.apply({ apiKey: "", baseUrl: "", model: "", maxTokens: 128000 }, { chosenMaxTokens: true });
+  check("поднять выше потолка нельзя", raised.maxTokens === 64000, String(raised.maxTokens));
+  const untouched = managed.apply({ apiKey: "", baseUrl: "", model: "", maxTokens: 16000 });
+  check(
+    "значение по умолчанию не побеждает заданное автором",
+    untouched.maxTokens === 64000,
+    String(untouched.maxTokens)
+  );
 
   console.log("\nучёт расхода");
   await usage.record({ model: "anthropic/claude-sonnet-5", promptTokens: 1000, completionTokens: 2000, exact: true, source: "чат" });

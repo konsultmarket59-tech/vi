@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import ConnectionStatus, { CHECKING, errorText, failed, ok } from "./ConnectionStatus";
+import type { ConnectionStatusValue } from "./ConnectionStatus";
 import type { CloudAccounts, CloudEntry, CloudProvider, Project, YandexAccount } from "../lib/types";
 import NamePrompt, { type NamePromptRequest } from "./NamePrompt";
 
@@ -38,7 +40,7 @@ export default function CloudView({ projects }: Props) {
   const [tab, setTab] = useState<Tab>("files");
   const [accounts, setAccounts] = useState<CloudAccounts>(EMPTY_ACCOUNTS);
   const [provider, setProvider] = useState<CloudProvider>("yandex");
-  const [testResult, setTestResult] = useState<Partial<Record<CloudProvider, string>>>({});
+  const [testResult, setTestResult] = useState<Partial<Record<CloudProvider, ConnectionStatusValue>>>({});
   const [testing, setTesting] = useState<CloudProvider | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [manualCode, setManualCode] = useState("");
@@ -167,17 +169,19 @@ export default function CloudView({ projects }: Props) {
         setTestResult((prev) => ({
           ...prev,
           yandex: result.duplicate
-            ? `Это тот же аккаунт, что уже в списке (${result.login}) — он обновлён, новый не добавился. ` +
-              "В окне входа Яндекс подставляет последний использованный аккаунт: нажмите «Подключить» ещё раз " +
-              "и в открывшемся окне выберите «Войти в другой аккаунт» (или сначала выйдите из текущего)."
-            : `Подключено${result.login ? `: ${result.login}` : ""} ✓ Токен сохранён на этом компьютере.`,
+            ? ok(
+                `Это тот же аккаунт, что уже в списке (${result.login}) — он обновлён, новый не добавился. ` +
+                  "В окне входа Яндекс подставляет последний использованный аккаунт: нажмите «Подключить» ещё раз " +
+                  "и в открывшемся окне выберите «Войти в другой аккаунт» (или сначала выйдите из текущего)."
+              )
+            : ok(`Подключено${result.login ? `: ${result.login}` : ""}. Токен сохранён на этом компьютере.`),
         }));
       } else {
         if (result.needsCode) setShowManualCode(true);
-        setTestResult((prev) => ({ ...prev, yandex: `Ошибка: ${result.error}` }));
+        setTestResult((prev) => ({ ...prev, yandex: failed(result.error ? errorText(result.error) : "Не удалось подключиться.") }));
       }
     } catch (e) {
-      setTestResult((prev) => ({ ...prev, yandex: `Ошибка: ${e instanceof Error ? e.message : String(e)}` }));
+      setTestResult((prev) => ({ ...prev, yandex: failed(errorText(e)) }));
     } finally {
       setConnecting(false);
     }
@@ -208,12 +212,17 @@ export default function CloudView({ projects }: Props) {
 
   async function testProvider(p: CloudProvider) {
     setTesting(p);
+    setTestResult((prev) => ({ ...prev, [p]: CHECKING }));
     try {
       const result = await window.api.testCloudConnection(p, p === "yandex" ? "" : accounts[p].token);
       setTestResult((prev) => ({
         ...prev,
-        [p]: result.ok ? `Подключено${result.login ? `: ${result.login}` : ""} ✓` : `Ошибка: ${result.error}`,
+        [p]: result.ok
+          ? ok(`Подключено${result.login ? `: ${result.login}` : ""}.`)
+          : failed(result.error ? errorText(result.error) : "Не удалось подключиться."),
       }));
+    } catch (e) {
+      setTestResult((prev) => ({ ...prev, [p]: failed(errorText(e)) }));
     } finally {
       setTesting(null);
     }
@@ -371,7 +380,7 @@ export default function CloudView({ projects }: Props) {
             </>
           )}
 
-          {testResult.yandex && <p className="hint chatbot-test-result">{testResult.yandex}</p>}
+          <ConnectionStatus status={testResult.yandex ?? null} />
 
           <h3>Google Диск</h3>
           <p className="hint">
@@ -398,7 +407,7 @@ export default function CloudView({ projects }: Props) {
               Сохранить
             </button>
           </div>
-          {testResult.google && <p className="hint">{testResult.google}</p>}
+          <ConnectionStatus status={testResult.google ?? null} />
           {note && <p className="hint">{note}</p>}
 
           <h3>NotebookLM</h3>

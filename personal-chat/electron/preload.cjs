@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("api", {
   licenceStatus: (options) => ipcRenderer.invoke("licence:status", options),
   activateLicence: (contents) => ipcRenderer.invoke("licence:activate", contents),
   pickLicenceFile: () => ipcRenderer.invoke("licence:pickFile"),
+  demoReport: () => ipcRenderer.invoke("licence:demoReport"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings) => ipcRenderer.invoke("settings:save", settings),
 
@@ -214,8 +215,6 @@ contextBridge.exposeInMainWorld("api", {
   },
 
   // import
-  pickClaudeExportFiles: () => ipcRenderer.invoke("import:pickClaudeExports"),
-  importClaudeExports: (filePaths) => ipcRenderer.invoke("import:claudeExports", filePaths),
 
   // export
   exportChatToDocx: (payload) => ipcRenderer.invoke("export:toDocx", payload),

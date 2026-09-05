@@ -473,8 +473,54 @@ async function buildProposal(root, text) {
   return { id: `edit-${Date.now()}`, files };
 }
 
-/** Writes an already-reviewed proposal to disk. */
+/** Current content of a workspace file, or null when it is not there. */
+async function currentContent(root, rel) {
+  try {
+    return (await workspace.readFile(root, rel)).content;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuses a proposal whose files no longer look the way they did when the diff
+ * was shown. A proposal is a snapshot: between "показать" and "Применить" the
+ * person may have typed in the editor, saved, pulled, or switched branches, and
+ * writing `after` — a whole file rebuilt from the old content — would silently
+ * throw those changes away. Better to say so and let the agent look again.
+ */
+async function assertStillMatches(root, file) {
+  const stale = (what) =>
+    new Error(
+      `Файл «${file.path}» ${what} после того, как правка была показана. ` +
+        "Она не применена — попросите агента посмотреть файл заново."
+    );
+
+  if (file.action === "rename") {
+    if ((await currentContent(root, file.path)) === null) throw stale("исчез или стал нечитаемым");
+    if ((await currentContent(root, file.to)) !== null) {
+      throw new Error(`«${file.to}» уже существует — переименование не применено.`);
+    }
+    return;
+  }
+
+  const now = await currentContent(root, file.path);
+  if (file.isNew) {
+    if (now !== null) throw new Error(`Файл «${file.path}» уже появился — правка не применена.`);
+    return;
+  }
+  if (now === null) throw stale("исчез или стал нечитаемым");
+  if (now !== file.before) throw stale("изменился на диске");
+}
+
+/**
+ * Writes an already-reviewed proposal to disk. Everything is checked before the
+ * first write, so a proposal that has gone stale in one file does not leave the
+ * project half-edited.
+ */
 async function applyProposal(root, proposal) {
+  for (const file of proposal.files) await assertStillMatches(root, file);
+
   const applied = [];
   for (const file of proposal.files) {
     if (file.action === "delete") await workspace.deletePath(root, file.path);

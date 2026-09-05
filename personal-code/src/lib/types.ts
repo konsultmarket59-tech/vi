@@ -12,6 +12,15 @@ export interface Settings {
   gitUserEmail: string;
   gitToken: string;
   gitTokenUser: string;
+  promptCache: boolean;
+  searchEnabled: boolean;
+  searchProvider: "duckduckgo" | "tavily";
+  searchApiKey: string;
+  dataRoot: string;
+  /** Репозиторий с каноническим «Личным чатом» — откуда берётся код копий. */
+  sourceRepo: string;
+  /** И ветка в нём: копии собираются из того, что в ней лежит сейчас. */
+  sourceBranch: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,6 +37,13 @@ export const DEFAULT_SETTINGS: Settings = {
   gitUserEmail: "",
   gitToken: "",
   gitTokenUser: "",
+  promptCache: true,
+  searchEnabled: false,
+  searchProvider: "duckduckgo",
+  searchApiKey: "",
+  dataRoot: "",
+  sourceRepo: "konsultmarket59-tech/vi",
+  sourceBranch: "main",
 };
 
 export interface TreeNode {
@@ -113,6 +129,11 @@ export interface AgentMessage {
   createdAt: number;
 }
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+}
+
 export interface AgentTurn {
   reply: string;
   proposal: Proposal | null;
@@ -128,42 +149,11 @@ export interface CommandResult {
   output: string;
 }
 
-export interface BlueprintModule {
-  id: string;
-  name: string;
-  core: boolean;
-  description: string;
-}
-
-export interface Blueprint {
-  id: string;
-  name: string;
-  productName: string;
-  description: string;
-  modules: string[];
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface DemoKeyInfo {
   exists: boolean;
   publicKey: string;
   createdAt: string;
   path: string;
-}
-
-export interface Tester {
-  id: string;
-  name: string;
-  /** Как копия подписана у тестировщика: «Личный чат Виктории». */
-  displayName: string;
-  machineCode: string;
-  note: string;
-  revoked: boolean;
-  licenceId: string;
-  issuedAt: string;
-  expiresAt: string;
-  createdAt: number;
 }
 
 export interface PluginSkill {
@@ -176,6 +166,8 @@ export interface PluginVersion {
   version: number;
   dir: string;
   note: string;
+  branch: string;
+  commit: string;
   createdAt: string;
   skills: number;
   sources: number;
@@ -185,6 +177,7 @@ export interface ArchivedPlugin {
   id: string;
   name: string;
   description: string;
+  branch: string;
   dir: string;
   latest: number;
   versions: PluginVersion[];
@@ -196,6 +189,107 @@ export interface SearchMatch {
   text: string;
 }
 
+export interface ChatCopy {
+  id: string;
+  kind: "demo" | "paid";
+  name: string;
+  displayName: string;
+  note: string;
+  office: string[];
+  plugins: string[];
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  /** Потолок длины ответа копии в токенах: и по умолчанию, и максимум. */
+  maxTokens: number;
+  pricesText: string;
+  currency: string;
+  days: number;
+  copyProtection: boolean;
+  machineCode: string;
+  revocationUrl: string;
+  repoName: string;
+  repoFullName: string;
+  fromCopyId: string;
+  sourceBranch: string;
+  licenceId: string;
+  revokedLicenceIds: string[];
+  issuedAt: string;
+  expiresAt: string;
+  revoked: boolean;
+  builtAt: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CopySource {
+  /** Репозиторий с каноническим «Личным чатом», вида «владелец/репозиторий». */
+  repo: string;
+  branch: string;
+}
+
+export interface PublishResult {
+  ok: boolean;
+  message?: string;
+  /** Откуда взят код этой сборки: репозиторий@ветка или папка на компьютере. */
+  source?: string;
+  /** Коммит-снимок, который лёг в репозиторий копии. */
+  commit?: string;
+  all?: ChatCopy[];
+  repo?: string;
+  repoUrl?: string;
+  actionsUrl?: string;
+  releaseUrl?: string;
+  started?: boolean;
+  files?: string[];
+}
+
+export interface ReportInfo {
+  version: string;
+  productName: string;
+  tester: string;
+  expiresAt: string;
+  gated: boolean;
+  log: { total: number; errors: number; since: string };
+}
+
+export interface GitHubAccount {
+  token: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  fullName: string;
+  owner: string;
+  description: string;
+  private: boolean;
+  updatedAt: number;
+  defaultBranch: string;
+}
+
+export interface GitHubWorkflow {
+  id: number;
+  name: string;
+  path: string;
+  state: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  status: string;
+  conclusion: string;
+  createdAt: string;
+  url: string;
+  branch?: string;
+}
+
+export interface StorageReport {
+  rootPath: string;
+  totalBytes: number;
+  folders: { name: string; bytes: number; files: number; versions: number }[];
+}
+
 declare global {
   interface Window {
     api: {
@@ -203,6 +297,48 @@ declare global {
       saveSettings(patch: Partial<Settings>): Promise<Settings>;
       testProxy(draft: Partial<Settings>): Promise<{ ok: boolean; message: string }>;
       listModels(draft?: Partial<Settings>): Promise<{ id: string; name: string }[]>;
+      dataFolder(): Promise<string>;
+      chooseDataFolder(): Promise<{ settings: Settings; folder: string } | null>;
+      openDataFolder(): Promise<string>;
+      storageReport(): Promise<StorageReport>;
+
+      reportInfo(): Promise<ReportInfo>;
+      logProblem(level: string, message: string): Promise<boolean>;
+      writeReport(description: string): Promise<{ file: string }>;
+      revealReport(file: string): Promise<boolean>;
+
+      copyPlugins(): Promise<{ id: string; name: string }[]>;
+      copySource(): Promise<CopySource>;
+      listCopies(): Promise<ChatCopy[]>;
+      saveCopy(copy: Partial<ChatCopy>): Promise<{ all: ChatCopy[]; saved: ChatCopy }>;
+      deleteCopy(
+        id: string,
+        options?: { deleteRepo?: boolean }
+      ): Promise<{ all: ChatCopy[]; repo: { ok: boolean; message: string }; retired?: number }>;
+      setCopyRevoked(id: string, revoked: boolean): Promise<ChatCopy[]>;
+      publishCopy(id: string, options?: { sourcePath?: string; branch?: string }): Promise<PublishResult>;
+      openCopyCode(id: string): Promise<WorkspaceInfo>;
+      issueCopyLicence(
+        id: string,
+        days?: number
+      ): Promise<{ all: ChatCopy[]; file: string; expiresAt: string } | null>;
+      exportCopyRevocations(): Promise<{ file: string; count: number } | null>;
+      onPublishLog(handler: (line: string) => void): () => void;
+
+      getGitHubAccount(): Promise<GitHubAccount>;
+      saveGitHubAccount(account: GitHubAccount): Promise<GitHubAccount>;
+      testGitHubConnection(token: string): Promise<{ ok: boolean; login?: string; error?: string }>;
+      listGitHubRepos(): Promise<GitHubRepo[]>;
+      createGitHubRepo(options: { name: string; description?: string; private?: boolean }): Promise<GitHubRepo>;
+      listGitHubBranches(owner: string, repo: string): Promise<{ name: string; sha: string }[]>;
+      listGitHubWorkflows(owner: string, repo: string): Promise<GitHubWorkflow[]>;
+      runGitHubWorkflow(owner: string, repo: string, workflowId: number | string, ref: string): Promise<boolean>;
+      listGitHubWorkflowRuns(
+        owner: string,
+        repo: string,
+        workflowId: number | string,
+        limit?: number
+      ): Promise<GitHubWorkflowRun[]>;
 
       pickWorkspace(): Promise<WorkspaceInfo | null>;
       openWorkspace(dir: string): Promise<WorkspaceInfo>;
@@ -237,39 +373,22 @@ declare global {
       gitPull(options?: { remote?: string; branch?: string }): Promise<{ ok: boolean; output: string; status: GitStatus }>;
       gitFetch(options?: { remote?: string }): Promise<{ ok: boolean; output: string; status: GitStatus }>;
 
-      agentSend(message: string, options?: { openFile?: string | null }): Promise<AgentTurn>;
-      agentHistory(): Promise<{ root: string; messages: AgentMessage[] }>;
+      agentSend(message: string, options?: { openFile?: string | null; model?: string }): Promise<AgentTurn>;
+      agentHistory(): Promise<{ root: string; messages: AgentMessage[]; model?: string }>;
+      agentSetModel(model: string): Promise<{ model: string }>;
       agentClear(): Promise<{ root: string; messages: AgentMessage[] }>;
       agentApply(proposal: Proposal): Promise<{ applied: { path: string; action: string; to: string | null }[] }>;
       agentRun(command: string): Promise<CommandResult>;
       agentReport(text: string): Promise<AgentTurn>;
 
-      blueprintModules(): Promise<BlueprintModule[]>;
-      listBlueprints(): Promise<Blueprint[]>;
-      saveBlueprint(blueprint: Partial<Blueprint>): Promise<{ all: Blueprint[]; saved: Blueprint }>;
-      deleteBlueprint(id: string): Promise<Blueprint[]>;
-      exportBlueprint(blueprint: Blueprint): Promise<{ file: string; productName: string; enabledCount: number; disabled: string[] } | null>;
+      pickChatSources(): Promise<string | null>;
 
       demoKeyInfo(): Promise<DemoKeyInfo>;
       demoCreateKeys(): Promise<DemoKeyInfo>;
-      listTesters(): Promise<Tester[]>;
-      saveTester(tester: Partial<Tester>): Promise<{ all: Tester[]; saved: Tester }>;
-      deleteTester(id: string): Promise<Tester[]>;
-      setTesterRevoked(id: string, revoked: boolean): Promise<Tester[]>;
-      issueLicence(
-        id: string,
-        options: { days: number; productName: string; revocationUrl: string }
-      ): Promise<{ all: Tester[]; tester: Tester; file: string } | null>;
-      exportRevocations(): Promise<{ file: string; contents: string } | null>;
-      exportLicenceConfig(options: {
-        revocationUrl: string;
-        productName: string;
-        apiKey: string;
-        baseUrl: string;
-        pricesText: string;
-      }): Promise<{ file: string; managed: boolean; priceProblems: string[] } | null>;
 
       listPlugins(): Promise<ArchivedPlugin[]>;
+      pluginBranches(): Promise<{ current: string; local: string[]; canonical: string }>;
+      usePluginBranch(branch: string): Promise<{ branch: string; switched: boolean }>;
       addPluginVersion(payload: {
         pluginId: string;
         name: string;
@@ -277,7 +396,8 @@ declare global {
         note: string;
         skills: PluginSkill[];
         sourcePaths: string[];
-      }): Promise<{ id: string; version: number; dir: string; skills: number; sources: number }>;
+        branch?: string;
+      }): Promise<{ id: string; version: number; dir: string; skills: number; sources: number; branch: string }>;
       removePlugin(id: string): Promise<boolean>;
       openPluginFolder(dir: string): Promise<boolean>;
       pickPluginSources(): Promise<string[]>;
@@ -287,6 +407,7 @@ declare global {
       ): Promise<{ targetDir: string; included: { id: string; version: number; skills: number }[]; missing: string[] } | null>;
 
       openExternal(url: string): Promise<void>;
+      pickTextFile(): Promise<{ name: string; path: string; content: string } | null>;
     };
   }
 }

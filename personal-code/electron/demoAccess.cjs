@@ -103,6 +103,12 @@ function normalizeTester(tester) {
     note: (tester.note || "").trim(),
     revoked: Boolean(tester.revoked),
     licenceId: tester.licenceId || "",
+    // Лицензии, отозванные раньше и уже заменённые новыми. Они остаются в списке
+    // отзыва: иначе перевыдача файла тестировщику молча возвращала бы к жизни и
+    // тот файл, доступ по которому был закрыт.
+    revokedLicenceIds: Array.isArray(tester.revokedLicenceIds)
+      ? [...new Set(tester.revokedLicenceIds.map(String).filter(Boolean))]
+      : [],
     issuedAt: tester.issuedAt || "",
     expiresAt: tester.expiresAt || "",
     createdAt: tester.createdAt || Date.now(),
@@ -132,8 +138,19 @@ function save(stored, tester) {
   // licence file on that machine, which is confusing rather than useful.
   const clash = all.find((t) => t.id !== next.id && t.machineCode === next.machineCode);
   if (clash) throw new Error(`Этот компьютер уже записан на «${clash.name}».`);
-  if (index === -1) all.unshift(next);
-  else all[index] = { ...all[index], ...next };
+  if (index === -1) {
+    all.unshift(next);
+  } else {
+    // Форма редактирования не знает про историю отзывов — сохраняем объединение,
+    // а не то, что пришло из окна.
+    const merged = {
+      ...all[index],
+      ...next,
+      revokedLicenceIds: [...new Set([...all[index].revokedLicenceIds, ...next.revokedLicenceIds])],
+    };
+    all[index] = merged;
+    return { all, saved: merged };
+  }
   return { all, saved: next };
 }
 
@@ -172,6 +189,12 @@ async function issue(stored, id, { days = 30, productName = "Личный чат
     issuedAt: licence.issuedAt,
     expiresAt: licence.expiresAt,
     revoked: false,
+    // Старый файл активации живёт до конца своего срока и остаётся подписанным,
+    // поэтому отозванным он остаётся только если его id никуда не потерялся.
+    revokedLicenceIds:
+      tester.revoked && tester.licenceId
+        ? [...new Set([...tester.revokedLicenceIds, tester.licenceId])]
+        : tester.revokedLicenceIds,
   };
   return {
     all: all.map((t) => (t.id === id ? updated : t)),
@@ -183,10 +206,12 @@ async function issue(stored, id, { days = 30, productName = "Личный чат
 
 /** The signed list the demo copies fetch. Cancelled licences are named by id. */
 async function revocationList(stored) {
-  const revoked = list(stored)
-    .filter((t) => t.revoked && t.licenceId)
-    .map((t) => t.licenceId);
-  const payload = { revoked, updatedAt: new Date().toISOString() };
+  const ids = new Set();
+  for (const tester of list(stored)) {
+    for (const id of tester.revokedLicenceIds) ids.add(id);
+    if (tester.revoked && tester.licenceId) ids.add(tester.licenceId);
+  }
+  const payload = { revoked: [...ids], updatedAt: new Date().toISOString() };
   return JSON.stringify({ list: payload, signature: await sign(payload) }, null, 2);
 }
 
@@ -247,7 +272,16 @@ function parsePrices(text) {
   for (const rawLine of String(text || "").split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    const parts = line.split(/[\s,;\t]+/).filter(Boolean);
+    // Сначала делим по пробелам и точкам с запятой. Запятая — разделитель только
+    // тогда, когда без неё строка не делится на три части: иначе цена «300,5»,
+    // записанная по-русски, молча превращалась в две колонки и в счёт уходило 5
+    // вместо 300,5.
+    let parts = line
+      .split(/[\s;\t]+/)
+      // Запятая на краю слова — всё-таки разделитель: «модель, 300, 1500».
+      .map((part) => part.replace(/^,+|,+$/g, ""))
+      .filter(Boolean);
+    if (parts.length < 3) parts = line.split(/[\s,;\t]+/).filter(Boolean);
     if (parts.length < 3) {
       problems.push(`Строка «${line}»: нужно «модель цена_вход цена_выход».`);
       continue;

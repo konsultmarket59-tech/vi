@@ -224,6 +224,13 @@ async function fetchRevocations(url, publicKey) {
  * Returns { gated, ok, reason, ... }. gated:false means this build has no
  * licensing at all and everything below is irrelevant.
  */
+/** Сколько дней выдали: разница между выдачей и окончанием, а не остаток. */
+function totalDays(issuedAt, expiresAt) {
+  const issued = Date.parse(issuedAt || "");
+  if (!Number.isFinite(issued) || !Number.isFinite(expiresAt)) return 0;
+  return Math.max(1, Math.round((expiresAt - issued) / 86400000));
+}
+
 async function status({ allowNetwork = true } = {}) {
   const config = buildConfig();
   if (!config) {
@@ -295,6 +302,8 @@ async function status({ allowNetwork = true } = {}) {
       machineCode: activationCode(),
       tester: licence.tester,
       expiresAt: licence.expiresAt,
+      issuedAt: licence.issuedAt || "",
+      days: totalDays(licence.issuedAt, expiresAt),
       productName: config.productName,
       displayName: licence.displayName || "",
     };
@@ -338,6 +347,10 @@ async function status({ allowNetwork = true } = {}) {
     machineCode: activationCode(),
     tester: licence.tester,
     expiresAt: licence.expiresAt,
+    issuedAt: licence.issuedAt || "",
+    // Весь срок, а не только остаток: копия говорит «демо-версия на 5 дней»
+    // теми же словами, какими автор его выдавал.
+    days: totalDays(licence.issuedAt, expiresAt),
     daysLeft,
     productName: config.productName,
     // Заголовок именно этой копии: «Личный чат Виктории». Приходит в лицензии,

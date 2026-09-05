@@ -175,6 +175,66 @@ server.listen(0, "127.0.0.1", () => {
       }
       row("клик по галочке сохранился", (savedProject.excludedDocs || []).length === 1 ? "да" : "НЕТ");
       await call(`window.api.updateProject(${JSON.stringify(project.id)}, { excludedDocs: [] })`);
+
+      console.log("\nвнешняя папка документов");
+      // Внешняя папка обычно и есть самая большая часть контекста, поэтому галочки
+      // нужны в первую очередь ей: без них сократить промпт там, где он больше
+      // всего, было нечем.
+      const externalDir = path.join(dataRoot, "внешние документы");
+      fs.mkdirSync(externalDir, { recursive: true });
+      fs.writeFileSync(path.join(externalDir, "внешний.md"), bigText);
+      await call(
+        `window.api.updateProject(${JSON.stringify(project.id)}, { externalDocsPath: ${JSON.stringify(externalDir)} })`
+      );
+      const withExternal = await call(`window.api.buildSystemPrompt(${JSON.stringify(project.id)})`);
+      if (!withExternal.includes("внешний.md")) failures.push("внешний документ не попал в промпт");
+      await call(
+        `window.api.updateProject(${JSON.stringify(project.id)}, { excludedDocs: ["external/внешний.md"] })`
+      );
+      const withoutExternal = await call(`window.api.buildSystemPrompt(${JSON.stringify(project.id)})`);
+      if (withoutExternal.includes("внешний.md")) failures.push("снятый внешний документ остался в промпте");
+      row("внешний документ снимается с контекста", withoutExternal.includes("внешний.md") ? "НЕТ — ошибка" : "да");
+      await call(`window.api.updateProject(${JSON.stringify(project.id)}, { excludedDocs: [] })`);
+
+      await win.webContents.reload();
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await new Promise((r) => setTimeout(r, 1200));
+      await call(`
+        (async () => {
+          [...document.querySelectorAll(".sidebar-item-name")].find(b => b.textContent === "Замер").click();
+          await new Promise(r => setTimeout(r, 400));
+          [...document.querySelectorAll(".tab")].find(t => t.textContent.includes("Документ")).click();
+          await new Promise(r => setTimeout(r, 500));
+          return true;
+        })()
+      `);
+      const withExternalBoxes = await call(`document.querySelectorAll(".doc-include").length`);
+      if (withExternalBoxes !== boxes + 1) {
+        failures.push(`у внешнего документа нет галочки: ${withExternalBoxes} вместо ${boxes + 1}`);
+      }
+      row("галочка появилась и у внешнего документа", withExternalBoxes === boxes + 1 ? "да" : "НЕТ");
+      await call(`document.querySelectorAll(".doc-include")[${boxes}].click(); true`);
+      await new Promise((r) => setTimeout(r, 600));
+      const externalSaved = (await call(`window.api.listProjects()`)).find((p) => p.id === project.id);
+      const externalKeys = (externalSaved.excludedDocs || []).filter((k) => k.startsWith("external/"));
+      if (externalKeys.length !== 1) failures.push("клик по галочке внешнего документа не сохранился");
+      row("клик по внешней галочке сохранился", externalKeys.length === 1 ? "да" : "НЕТ");
+
+      console.log("\nудаление документа");
+      // Галочка помнится по имени файла. Если её не убрать вместе с документом,
+      // документ с тем же именем, добавленный позже, молча не попадёт в контекст.
+      await call(`window.api.updateProject(${JSON.stringify(project.id)}, { excludedDocs: ["docs/методика.md"] })`);
+      await call(`window.api.removeDoc(${JSON.stringify(project.id)}, "методика.md")`);
+      const afterRemove = (await call(`window.api.listProjects()`)).find((p) => p.id === project.id);
+      const stale = (afterRemove.excludedDocs || []).includes("docs/методика.md");
+      if (stale) failures.push("снятая галочка осталась у удалённого документа");
+      row("галочка удалённого документа не остаётся", stale ? "НЕТ — осталась" : "да");
+      fs.writeFileSync(path.join(docsDir, "методика.md"), bigText);
+      const afterReadd = await call(`window.api.buildSystemPrompt(${JSON.stringify(project.id)})`);
+      if (!afterReadd.includes("методика.md")) failures.push("документ с прежним именем не вернулся в контекст");
+      row("документ с тем же именем снова в контексте", afterReadd.includes("методика.md") ? "да" : "НЕТ");
+      await call(`window.api.updateProject(${JSON.stringify(project.id)}, { excludedDocs: [] })`);
+
       await win.webContents.capturePage().then((img) =>
         fs.writeFileSync(path.join(os.tmpdir(), "chat-docs-context.png"), img.toPNG())
       );

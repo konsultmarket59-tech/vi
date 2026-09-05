@@ -6,12 +6,12 @@ import CodeEditor from "./components/CodeEditor";
 import AgentPanel from "./components/AgentPanel";
 import GitPanel from "./components/GitPanel";
 import SettingsView from "./components/SettingsView";
-import BlueprintsView from "./components/BlueprintsView";
-import DemoAccessView from "./components/DemoAccessView";
+import CopiesView from "./components/CopiesView";
+import FixView from "./components/FixView";
 import PluginArchiveView from "./components/PluginArchiveView";
 import Prompt from "./components/Prompt";
 
-type Tab = "code" | "git" | "blueprints" | "plugins" | "demo" | "settings";
+type Tab = "code" | "git" | "demo" | "release" | "plugins" | "fix" | "settings";
 
 /** The tail of a path is what identifies a project; the full path is in the tooltip. */
 function shortenPath(full: string): string {
@@ -165,10 +165,17 @@ export default function App() {
           </button>
           <button
             type="button"
-            className={tab === "blueprints" ? "tab tab-active" : "tab"}
-            onClick={() => setTab("blueprints")}
+            className={tab === "demo" ? "tab tab-active" : "tab"}
+            onClick={() => setTab("demo")}
           >
-            Сборки
+            Демо
+          </button>
+          <button
+            type="button"
+            className={tab === "release" ? "tab tab-active" : "tab"}
+            onClick={() => setTab("release")}
+          >
+            Чистовая сборка
           </button>
           <button
             type="button"
@@ -177,12 +184,8 @@ export default function App() {
           >
             Плагины
           </button>
-          <button
-            type="button"
-            className={tab === "demo" ? "tab tab-active" : "tab"}
-            onClick={() => setTab("demo")}
-          >
-            Демо-доступ
+          <button type="button" className={tab === "fix" ? "tab tab-active" : "tab"} onClick={() => setTab("fix")}>
+            Фикс
           </button>
           <button
             type="button"
@@ -288,9 +291,17 @@ export default function App() {
         {tab === "git" && !hasWorkspace && <div className="empty-state">Сначала откройте папку.</div>}
         {tab === "git" && hasWorkspace && <GitPanel isRepo={workspace.isRepo} onChanged={refreshTree} />}
 
-        {tab === "blueprints" && <BlueprintsView />}
+        {tab === "demo" && <CopiesView kind="demo" />}
+        {tab === "release" && <CopiesView kind="paid" />}
         {tab === "plugins" && <PluginArchiveView />}
-        {tab === "demo" && <DemoAccessView />}
+        {tab === "fix" && (
+          <FixView
+            onOpenCode={(next) => {
+              setWorkspace(next);
+              setTab("code");
+            }}
+          />
+        )}
         {tab === "settings" && <SettingsView settings={settings} onChange={setSettings} />}
       </main>
 

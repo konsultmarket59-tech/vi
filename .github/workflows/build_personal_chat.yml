@@ -24,7 +24,10 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run electron:build:win
+      - run: npm run build
+      # --publish never: иначе на CI electron-builder пробует выложить сборку
+      # сам, требует GH_TOKEN и падает уже после того, как установщик собран.
+      - run: npx electron-builder --win --publish never
 
       - name: Publish build to release
         uses: softprops/action-gh-release@v2

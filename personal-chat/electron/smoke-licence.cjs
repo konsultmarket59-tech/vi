@@ -57,6 +57,17 @@ function cleanup() {
   fs.rmSync(appData, { recursive: true, force: true });
 }
 
+// Файлы конфигурации пишутся прямо в папку приложения, поэтому убрать их надо и
+// тогда, когда тест не дошёл до конца: прерванный запуск оставлял «сборку с
+// лицензией» лежать в репозитории, и следом за ним начинали падать все
+// остальные тесты — на экране активации вместо приложения.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    cleanup();
+    process.exit(1);
+  });
+}
+
 (async () => {
   demoAccess.init(issuerData);
   licence.init(appData);
@@ -218,6 +229,25 @@ function cleanup() {
   stored = demoAccess.setRevoked(stored, stored[0].id, false);
   const backList = JSON.parse(await demoAccess.revocationList(stored));
   check("после возврата список отзыва пуст", backList.list.revoked.length === 0, JSON.stringify(backList.list));
+
+  console.log("\nперевыдача после отзыва");
+  // Отозвали доступ, потом выдали новый файл. Старый .lic остаётся подписанным и
+  // не просроченным, поэтому он должен остаться в списке отзыва — иначе перевыдача
+  // молча возвращает к жизни ту копию, доступ к которой закрыли.
+  const oldLicenceId = JSON.parse(issued.contents).licence.id;
+  let afterRevoke = demoAccess.setRevoked(stored, stored[0].id, true);
+  const reissued = await demoAccess.issue(afterRevoke, afterRevoke[0].id, { days: 30 });
+  const newLicenceId = JSON.parse(reissued.contents).licence.id;
+  const afterReissue = JSON.parse(await demoAccess.revocationList(reissued.all)).list.revoked;
+  check("новый файл активации получил другой id", newLicenceId !== oldLicenceId);
+  check("отозванный файл остаётся в списке", afterReissue.includes(oldLicenceId), JSON.stringify(afterReissue));
+  check("новый файл в списке отзыва не значится", !afterReissue.includes(newLicenceId), JSON.stringify(afterReissue));
+
+  // История отзывов живёт в записи тестировщика, а форма редактирования про неё не
+  // знает: сохранение имени не должно её стирать.
+  const afterEdit = demoAccess.save(reissued.all, { ...reissued.tester, name: "Тестировщик Один и Ещё" }).all;
+  const afterEditList = JSON.parse(await demoAccess.revocationList(afterEdit)).list.revoked;
+  check("правка карточки не теряет историю отзывов", afterEditList.includes(oldLicenceId), JSON.stringify(afterEditList));
 
   console.log("\nсовместимость форматов");
   check(

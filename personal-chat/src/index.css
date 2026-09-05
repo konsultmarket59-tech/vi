@@ -1173,6 +1173,18 @@ a:hover { color: var(--accent-hover); }
 }
 
 .licence-heading { margin: 6px 0 14px; font-size: 22px; }
+
+/* Условие копии: рамка слева, чтобы читалось как условие, а не как подпись. */
+.licence-terms {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
 .licence-message { margin: 0 0 16px; line-height: 1.6; }
 .licence-step { margin: 18px 0 8px; }
 
@@ -1610,3 +1622,53 @@ button.fin-row-x:hover { color: var(--accent); }
   padding: 3px 8px; cursor: pointer; font-size: 11px;
 }
 .vs-folder:hover { border-color: var(--accent); color: var(--accent); }
+/* Статус подключения: успех и ошибка не должны выглядеть одинаково. Зелёный и
+   красный берутся из палитры, а не назначаются здесь заново. */
+.conn-status {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin: 8px 0 0; padding: 8px 10px;
+  border-radius: 8px; font-size: 13px; line-height: 1.5;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+}
+.conn-mark { flex: none; font-weight: 700; line-height: 1.4; }
+.conn-text { min-width: 0; word-break: break-word; }
+
+.conn-ok { border-color: #b7dfc2; background: #eef8f1; color: #14602f; }
+.conn-ok .conn-mark { color: #1a7f37; }
+
+.conn-error { border-color: #f0c2be; background: #fdefee; color: #8a2018; }
+.conn-error .conn-mark { color: var(--danger); }
+
+.conn-checking, .conn-stale { color: var(--text-dim); }
+
+/* Экран падения интерфейса: белое окно без единого слова — худшее, что может
+   увидеть человек, оставшийся с приложением один на один. */
+.crash-screen {
+  max-width: 760px; margin: 0 auto; padding: 40px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.crash-screen h2 { margin: 0; font-size: 20px; }
+.crash-screen p { margin: 0; color: var(--text-dim); line-height: 1.5; }
+.crash-text {
+  max-height: 320px; overflow: auto; padding: 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-hover);
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* Срок демо: видно всё время, а в последний день — заметнее. */
+.licence-banner-ending { background: #fdefee; border-color: #f0c2be; color: #8a2018; }
+
+/* Отчёт о работе на экране «срок истёк»: путь к файлу и кнопка «Показать». */
+.licence-report {
+  margin-top: 16px; padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg-hover);
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+}
+.licence-report p { margin: 0; line-height: 1.5; }
+.licence-report-path {
+  align-self: stretch; padding: 8px 10px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px; word-break: break-all;
+}

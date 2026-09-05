@@ -111,3 +111,32 @@ Oswald (вместо Bebas Neue Pro) и Caveat (вместо Martina Script).
 Скачай 5–10 треков, которые «качают», и загрузи их в папку `music/` через GitHub
 (`Add file → Upload files`). Ничего конфигурировать не нужно — скрипт увидит их
 автоматически.
+
+---
+
+## 4. OpenMontage — агентная видео-продакшн система
+
+В папку `openmontage/` установлен [OpenMontage](https://github.com/calesthio/OpenMontage) —
+открытый инструмент, который превращает AI coding-ассистента (Claude Code, Cursor и др.)
+в полноценную видеостудию: сценарий, генерация изображений/видео, озвучка, подбор
+музыки, монтаж и рендер финального ролика через FFmpeg/Remotion/HyperFrames.
+
+Лицензия — **AGPLv3** (см. `openmontage/LICENSE`); учитывайте это при публичном
+распространении сервисов на его основе.
+
+**Установка зависимостей** (venv и node_modules намеренно не коммитятся —
+см. `openmontage/.gitignore`):
+
+```bash
+cd openmontage
+make setup
+```
+
+Без `make` — см. инструкцию в `openmontage/README.md` (раздел Quick Start).
+Ключи API (Fal, Kling, ElevenLabs, Pexels и т.д.) — опциональны, добавляются в
+`openmontage/.env` (скопируйте из `openmontage/.env.example`); без ключей доступны
+бесплатные пути: Piper TTS, Archive.org/NASA/Wikimedia footage, Remotion/HyperFrames
+рендер.
+
+Подробности — `openmontage/README.md` (или `README_zh-CN.md`), контракт для
+агентов — `openmontage/AGENT_GUIDE.md`.

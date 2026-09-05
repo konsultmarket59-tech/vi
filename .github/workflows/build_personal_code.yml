@@ -1,0 +1,46 @@
+name: Build personal code desktop app
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "personal-code-build-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: personal-code
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - run: npm run build
+      # --publish never: иначе на CI electron-builder пробует выложить сборку
+      # сам, требует GH_TOKEN и падает уже после того, как установщик собран.
+      - run: npx electron-builder --win --publish never
+
+      - name: Publish build to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: personal-code-desktop
+          name: "Личный код — сборка для Windows"
+          body: |
+            Автоматическая сборка десктопного приложения «Личный код» из ветки ${{ github.ref_name }}.
+            Скачайте `.exe` ниже и запустите (portable-версия не требует установки,
+            Setup-версия — обычный установщик).
+
+            Ключ подписи демо-доступа создаётся на том компьютере, где приложение
+            запущено, и остаётся там: сборка его не содержит.
+          prerelease: true
+          files: |
+            personal-code/release/*.exe

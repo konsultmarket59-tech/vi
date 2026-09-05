@@ -42,6 +42,17 @@ function cleanup() {
   for (const dir of [userData, dataRoot, issuerData]) fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// Файлы конфигурации пишутся прямо в папку приложения, поэтому убрать их надо и
+// тогда, когда тест не дошёл до конца: прерванный запуск оставлял «сборку с
+// лицензией» лежать в репозитории, и следом за ним начинали падать все
+// остальные тесты — на экране активации вместо приложения.
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    cleanup();
+    process.exit(1);
+  });
+}
+
 async function waitFor(win, expression, label, timeout = 20000) {
   const deadline = Date.now() + timeout;
   let last;
@@ -113,6 +124,17 @@ async function waitFor(win, expression, label, timeout = 20000) {
       );
       check("код компьютера показан целиком", /^[0-9A-F]{5}(-[0-9A-F]{5}){3}$/.test(shown.trim()), shown);
 
+      // Условие копии видно на самом экране активации, а не только в переписке
+      // с автором: тестировщик читает его до того, как начнёт работать.
+      check(
+        "предупреждение о непередаваемости показано",
+        /не для продажи[\s\S]*не может быть передана/i.test(
+          await win.webContents.executeJavaScript(
+            `(document.querySelector(".licence-terms")||{}).textContent || ""`
+          )
+        )
+      );
+
       await win.webContents.capturePage().then((img) =>
         fs.writeFileSync(path.join(os.tmpdir(), "chat-gate.png"), img.toPNG())
       );
@@ -127,13 +149,41 @@ async function waitFor(win, expression, label, timeout = 20000) {
       const licFile = path.join(issuerData, "test.lic");
       fs.writeFileSync(licFile, issued.contents);
 
-      // Goes through the same IPC the "Выбрать файл активации" button uses,
-      // minus the file dialog, which cannot be driven from a test.
-      const result = await win.webContents.executeJavaScript(
-        `window.api.activateLicence(${JSON.stringify(issued.contents)})`
-      );
-      check("активация принята", result.ok === true, JSON.stringify(result));
-      check("имя тестировщика записано", result.tester === "Мария Тестова", result.tester);
+      // Нажимаем настоящую кнопку. Подменяем только диалог выбора файла —
+      // всё остальное идёт тем же путём, что у тестировщика. Раньше здесь
+      // дёргался IPC напрямую «потому что диалог из теста не подёргать», и
+      // ровно в обойдённом куске жила ошибка: обработчик открывал диалог с
+      // несуществующей переменной mainWindow и падал. Тестировщик, для которого
+      // этот экран первый и единственный, не мог активировать копию вообще.
+      const { dialog } = require("electron");
+      const originalShowOpenDialog = dialog.showOpenDialog;
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [licFile] });
+      try {
+        const clicked = await win.webContents.executeJavaScript(`
+          (() => {
+            const button = [...document.querySelectorAll("button")].find((b) =>
+              /Выбрать файл активации/.test(b.textContent || "")
+            );
+            if (!button) return false;
+            button.click();
+            return true;
+          })()
+        `);
+        check("кнопка «Выбрать файл активации» на месте", clicked === true);
+        // После удачной активации приложение перезагружает окно само, поэтому
+        // ждём результат снаружи: изнутри страницы ждать нечем — её уже нет.
+        await waitFor(
+          win,
+          `!document.querySelector(".licence-gate") && !!document.querySelector(".sidebar")`,
+          "кнопка выбора файла активировала копию",
+          30000
+        );
+      } finally {
+        dialog.showOpenDialog = originalShowOpenDialog;
+      }
+      const activated = await win.webContents.executeJavaScript(`window.api.licenceStatus()`);
+      check("активация принята", activated.ok === true, JSON.stringify(activated));
+      check("имя тестировщика записано", activated.tester === "Мария Тестова", activated.tester);
 
       await win.webContents.reload();
       await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
@@ -142,6 +192,15 @@ async function waitFor(win, expression, label, timeout = 20000) {
         "экран активации больше не показывается",
         !(await win.webContents.executeJavaScript(`!!document.querySelector(".licence-gate")`))
       );
+
+      console.log("\nсрок демо-версии виден в окне");
+      // Тестировщику про срок должна говорить сама программа, а не письмо: и
+      // на сколько выдана копия, и сколько осталось.
+      const banner = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-banner")||{}).textContent || ""`
+      );
+      check("написано, на сколько дней выдана копия", /демо-версия на 30 дней/i.test(banner), banner);
+      check("и сколько осталось", /осталось/i.test(banner), banner);
 
       console.log("\nимя копии");
       const sidebarTitle = await win.webContents.executeJavaScript(
@@ -193,6 +252,118 @@ async function waitFor(win, expression, label, timeout = 20000) {
         refused = e.message;
       }
       check("изменить предустановленный навык нельзя", /нельзя изменить/.test(refused), refused);
+
+      console.log("\nсрок кончился и продлён задним числом");
+      // Обещание тестировщику: истёкший срок — это закрытая дверь, а не потеря
+      // работы. Проверяем на настоящих файлах: заводим проект с документом,
+      // подкладываем просроченную лицензию, ждём экран «срок истёк», активируем
+      // заново и смотрим, что проект и документ на месте.
+      const project = await win.webContents.executeJavaScript(
+        `window.api.createProject({ name: "Проект до срока", description: "", instructions: "Проверка сохранности." })`
+      );
+      const docsDir = path.join(dataRoot, "projects", project.id, "docs");
+      fs.mkdirSync(docsDir, { recursive: true });
+      fs.writeFileSync(path.join(docsDir, "договор.md"), "Текст, который нельзя потерять.\n", "utf-8");
+
+      const expiredLicence = {
+        id: require("node:crypto").randomUUID(),
+        tester: "Мария Тестова",
+        displayName: "Личный чат Марии",
+        machine: demoAccess.normalizeMachineCode(shown),
+        product: "Личный чат",
+        issuedAt: new Date(Date.now() - 60 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        revocationUrl: "",
+      };
+      fs.writeFileSync(
+        path.join(userData, "licence.json"),
+        JSON.stringify({ licence: expiredLicence, signature: await demoAccess.sign(expiredLicence) }, null, 2),
+        "utf-8"
+      );
+      fs.rmSync(path.join(userData, "licence-state.json"), { force: true });
+
+      await win.webContents.reload();
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await waitFor(win, `!!document.querySelector(".licence-gate")`, "после окончания срока показан экран активации");
+      const expiredHeading = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-heading")||{}).textContent || ""`
+      );
+      check("названа именно причина «срок»", /срок/i.test(expiredHeading), expiredHeading);
+      check(
+        "сказано, что данные сохранены",
+        /остались на месте|не удаляются/i.test(
+          await win.webContents.executeJavaScript(`document.querySelector(".licence-card").textContent`)
+        )
+      );
+      check(
+        "папка проекта на диске не тронута",
+        fs.existsSync(path.join(dataRoot, "projects", project.id, "project.json")) &&
+          fs.readFileSync(path.join(docsDir, "договор.md"), "utf-8").includes("нельзя потерять")
+      );
+
+      // Отчёт о работе: собирается сам и предлагается человеку прямо здесь —
+      // иначе обратную связь автор получает пересказом по памяти или никак.
+      await waitFor(win, `!!document.querySelector(".licence-report-path")`, "показан файл отчёта", 20000);
+      const reportCard = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-report")||{}).textContent || ""`
+      );
+      check("сказано, куда переслать файл", reportCard.includes("hello@dynamicbrands.ru"), reportCard);
+      check(
+        "обещано, что в файле нет ни документов, ни переписки",
+        /ни документов, ни переписки/i.test(reportCard),
+        reportCard
+      );
+      const reportPath = await win.webContents.executeJavaScript(
+        `(document.querySelector(".licence-report-path")||{}).textContent || ""`
+      );
+      check("файл отчёта существует", fs.existsSync(reportPath.trim()), reportPath);
+      const autoReport = JSON.parse(fs.readFileSync(reportPath.trim(), "utf-8"));
+      check("в отчёте есть журнал ошибок", Array.isArray(autoReport.журналОшибок), Object.keys(autoReport).join(", "));
+      check(
+        "в отчёте нет ключа автора",
+        !JSON.stringify(autoReport).includes("ключ-автора-для-теста"),
+        "ключ попал в отчёт"
+      );
+      check(
+        "и нет текста документов тестировщика",
+        !JSON.stringify(autoReport).includes("нельзя потерять"),
+        "документ попал в отчёт"
+      );
+      fs.rmSync(reportPath.trim(), { force: true });
+      fs.rmSync(path.join(userData, "demo-report.json"), { force: true });
+
+      // Продление приходит позже окончания срока — как это и бывает.
+      const renewalSource = demoAccess.save([], {
+        name: "Мария Тестова",
+        displayName: "Личный чат Марии",
+        machineCode: shown,
+      }).all;
+      const renewal = await demoAccess.issue(renewalSource, renewalSource[0].id, {
+        days: 30,
+        productName: "Личный чат",
+      });
+      const renewedResult = await win.webContents.executeJavaScript(
+        `window.api.activateLicence(${JSON.stringify(renewal.contents)})`
+      );
+      check("продление принято", renewedResult.ok === true, JSON.stringify(renewedResult));
+
+      await win.webContents.reload();
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await waitFor(win, `!!document.querySelector(".sidebar")`, "после продления приложение снова открывается");
+      const projectsAfter = await win.webContents.executeJavaScript(`window.api.listProjects()`);
+      check(
+        "проект на месте после продления",
+        projectsAfter.some((p) => p.id === project.id),
+        JSON.stringify(projectsAfter.map((p) => p.name))
+      );
+      const docsAfter = await win.webContents.executeJavaScript(
+        `window.api.listDocs(${JSON.stringify(project.id)})`
+      );
+      check(
+        "документ проекта на месте после продления",
+        docsAfter.some((d) => d.name === "договор.md"),
+        JSON.stringify(docsAfter)
+      );
 
       console.log("\nотчёт о проблеме");
       const info = await win.webContents.executeJavaScript(`window.api.reportInfo()`);

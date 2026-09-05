@@ -18,6 +18,7 @@ import GitHubView from "./components/GitHubView";
 import ChatBotsView from "./components/ChatBotsView";
 import SettingsView from "./components/SettingsView";
 import LicenceGate from "./components/LicenceGate";
+import DemoBanner from "./components/DemoBanner";
 
 const STARTUP_SLOW_MS = 10000;
 
@@ -139,13 +140,7 @@ export default function App() {
         onProjectsChange={setProjects}
       />
       <main className="main-area">
-        {licence?.gated && licence.ok && typeof licence.daysLeft === "number" && licence.daysLeft <= 7 && (
-          <div className="licence-banner">
-            Демо-доступ заканчивается через {licence.daysLeft}{" "}
-            {licence.daysLeft === 1 ? "день" : licence.daysLeft < 5 ? "дня" : "дней"}
-            {licence.tester ? ` · ${licence.tester}` : ""}
-          </div>
-        )}
+        {licence?.gated && licence.ok && <DemoBanner status={licence} />}
         {activeView.kind === "project" && activeProject && (
           <ProjectPanel
             project={activeProject}

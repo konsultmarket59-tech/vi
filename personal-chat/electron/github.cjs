@@ -1,7 +1,9 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const API_BASE = "https://api.github.com";
+// Адрес API можно подменить только переменной окружения — это нужно тестам,
+// которые поднимают поддельный GitHub у себя: настоящий из них не дёрнешь.
+const API_BASE = process.env.GITHUB_API_BASE || "https://api.github.com";
 
 function githubDir(root) {
   return path.join(root, "github");
@@ -172,6 +174,87 @@ async function commitFile(token, owner, repo, filePath, content, message, sha, b
 }
 
 
+// ---------- Git Data API: деревья, файлы, коммиты ----------
+//
+// Через этот раздел копия «Личного чата» уезжает в свой репозиторий целиком и
+// без git на компьютере. Раньше снимок собирался локальным git (`commit-tree` и
+// `push`), и на машине без установленного git сборка просто останавливалась —
+// хотя весь нужный код лежит на GitHub, а не на компьютере.
+
+/** Файлы ветки под указанной папкой: путь и sha содержимого. */
+async function listTree(token, owner, repo, ref, prefix = "") {
+  const json = await apiRequest(
+    token,
+    "GET",
+    `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`
+  );
+  if (json.truncated) {
+    throw new Error("Дерево репозитория слишком велико, GitHub отдал его не целиком.");
+  }
+  const head = prefix ? prefix.replace(/\/*$/, "") + "/" : "";
+  return (json.tree || [])
+    .filter((e) => e.type === "blob" && (!head || e.path.startsWith(head)))
+    .map((e) => ({ path: head ? e.path.slice(head.length) : e.path, sha: e.sha, mode: e.mode, size: e.size || 0 }));
+}
+
+/** Содержимое файла как есть — base64, чтобы двоичные файлы не пострадали. */
+async function readBlob(token, owner, repo, sha) {
+  const json = await apiRequest(token, "GET", `/repos/${owner}/${repo}/git/blobs/${sha}`);
+  if (json.encoding !== "base64" || json.content == null) {
+    throw new Error("GitHub отдал файл в неожиданном виде.");
+  }
+  return json.content;
+}
+
+async function createBlob(token, owner, repo, base64) {
+  const json = await apiRequest(token, "POST", `/repos/${owner}/${repo}/git/blobs`, {
+    content: base64,
+    encoding: "base64",
+  });
+  return json.sha;
+}
+
+async function createTree(token, owner, repo, entries) {
+  const json = await apiRequest(token, "POST", `/repos/${owner}/${repo}/git/trees`, {
+    tree: entries.map((e) => ({ path: e.path, mode: e.mode || "100644", type: "blob", sha: e.sha })),
+  });
+  return json.sha;
+}
+
+async function createCommit(token, owner, repo, { message, tree, parents = [] }) {
+  const json = await apiRequest(token, "POST", `/repos/${owner}/${repo}/git/commits`, {
+    message,
+    tree,
+    parents,
+  });
+  return json.sha;
+}
+
+/** sha ветки или пустая строка, если ветки ещё нет (только что созданный репозиторий). */
+async function branchHead(token, owner, repo, branch) {
+  try {
+    const json = await apiRequest(token, "GET", `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+    return json.object?.sha || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Ставит ветку на коммит. `force` нужен потому, что снимок каждый раз новый и
+ * не является продолжением прежнего: в репозитории копии живёт один коммит с
+ * текущим кодом, без истории монорепозитория.
+ */
+async function setBranch(token, owner, repo, branch, sha, { force = false } = {}) {
+  const existing = await branchHead(token, owner, repo, branch);
+  if (existing) {
+    await apiRequest(token, "PATCH", `/repos/${owner}/${repo}/git/refs/heads/${branch}`, { sha, force });
+  } else {
+    await apiRequest(token, "POST", `/repos/${owner}/${repo}/git/refs`, { ref: `refs/heads/${branch}`, sha });
+  }
+  return sha;
+}
+
 // ---------- GitHub Actions ----------
 
 /** Workflows defined in the repo (.github/workflows/*.yml). */
@@ -244,6 +327,13 @@ module.exports = {
   createRepo,
   getTree,
   getFileContent,
+  listTree,
+  readBlob,
+  createBlob,
+  createTree,
+  createCommit,
+  branchHead,
+  setBranch,
   commitFile,
   getAgentConversation,
   saveAgentConversation,

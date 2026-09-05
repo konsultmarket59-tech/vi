@@ -11,6 +11,10 @@ const workspace = require("./workspace.cjs");
 const git = require("./git.cjs");
 const agent = require("./agent.cjs");
 const blueprints = require("./blueprints.cjs");
+const demoAccess = require("./demoAccess.cjs");
+const buildPipeline = require("./build.cjs");
+const pluginArchive = require("./pluginArchive.cjs");
+const copies = require("./copies.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -71,6 +75,32 @@ function writeSample(rel, content) {
   await expectThrows("выход за пределы папки запрещён", () => workspace.readFile(root, "../../etc/passwd"), /выходит за пределы/);
   await expectThrows("абсолютный путь тоже не выпускает", () => workspace.readFile(root, "/etc/passwd"), /выходит за пределы|не найден|ENOENT/);
   await expectThrows("двоичный файл не открывается как текст", () => workspace.readFile(root, "logo.png"), /двоичный/);
+
+  // Ссылка внутри папки — обход границы, который «..» не ловит: путь остаётся
+  // внутри, а открывается то, на что ссылка показывает.
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-outside-"));
+  fs.writeFileSync(path.join(outside, "secret.txt"), "чужие данные\n", "utf-8");
+  let linksSupported = true;
+  try {
+    fs.symlinkSync(outside, path.join(root, "ссылка"), "dir");
+  } catch {
+    linksSupported = false; // Windows без прав на создание ссылок
+  }
+  if (linksSupported) {
+    await expectThrows(
+      "чтение через ссылку наружу отклоняется",
+      () => workspace.readFile(root, "ссылка/secret.txt"),
+      /за пределы/
+    );
+    await expectThrows(
+      "запись через ссылку наружу отклоняется",
+      () => workspace.writeFile(root, "ссылка/подсунуто.txt", "нет"),
+      /за пределы/
+    );
+    check("файл за ссылкой не изменён", !fs.existsSync(path.join(outside, "подсунуто.txt")));
+    fs.unlinkSync(path.join(root, "ссылка"));
+  }
+  fs.rmSync(outside, { recursive: true, force: true });
 
   const found = await workspace.search(root, "greet");
   check("поиск находит совпадения", found.matches.some((m) => m.path === "src/app.js"), JSON.stringify(found.matches));
@@ -213,6 +243,68 @@ function writeSample(rel, content) {
     /выходит за пределы/
   );
 
+  // Правка показывается человеку и применяется отдельным действием. За это время
+  // файл на диске мог измениться — тогда «после» из предпросмотра затёрло бы
+  // чужую правку целиком.
+  writeSample("src/stale.js", "const a = 1;\n");
+  const staleProposal = await agent.buildProposal(
+    root,
+    [
+      "===CODE EDIT START===",
+      "FILE: src/stale.js",
+      "ACTION: replace",
+      "<<<<<<< НАЙТИ",
+      "const a = 1;",
+      "=======",
+      "const a = 2;",
+      ">>>>>>> ЗАМЕНИТЬ",
+      "===CODE EDIT END===",
+    ].join("\n")
+  );
+  writeSample("src/stale.js", "const a = 1;\nconst b = 3; // правка человека\n");
+  await expectThrows(
+    "устаревшая правка не применяется",
+    () => agent.applyProposal(root, staleProposal),
+    /изменился на диске/
+  );
+  check(
+    "правка человека на месте",
+    fs.readFileSync(path.join(root, "src/stale.js"), "utf-8").includes("правка человека")
+  );
+
+  // И то же самое для блока из нескольких файлов: один устаревший файл не должен
+  // оставить проект применённым наполовину.
+  writeSample("src/first.js", "const first = 1;\n");
+  writeSample("src/second.js", "const second = 1;\n");
+  const pair = await agent.buildProposal(
+    root,
+    [
+      "===CODE EDIT START===",
+      "FILE: src/first.js",
+      "ACTION: replace",
+      "<<<<<<< НАЙТИ",
+      "const first = 1;",
+      "=======",
+      "const first = 2;",
+      ">>>>>>> ЗАМЕНИТЬ",
+      "FILE: src/second.js",
+      "ACTION: replace",
+      "<<<<<<< НАЙТИ",
+      "const second = 1;",
+      "=======",
+      "const second = 2;",
+      ">>>>>>> ЗАМЕНИТЬ",
+      "===CODE EDIT END===",
+    ].join("\n")
+  );
+  writeSample("src/second.js", "const second = 99;\n");
+  await expectThrows("блок с устаревшим файлом отклоняется целиком", () => agent.applyProposal(root, pair), /изменился/);
+  check(
+    "первый файл не тронут",
+    fs.readFileSync(path.join(root, "src/first.js"), "utf-8") === "const first = 1;\n",
+    fs.readFileSync(path.join(root, "src/first.js"), "utf-8")
+  );
+
   console.log("\nagent: команды");
   const command = agent.parseRunBlock("Запусти тесты.\n===RUN START===\nnode -e \"console.log(1+1)\"\n===RUN END===");
   check("команда разобрана", command?.command === 'node -e "console.log(1+1)"', JSON.stringify(command));
@@ -232,6 +324,219 @@ function writeSample(rel, content) {
   check("plugins.json записан", fs.existsSync(exported.file));
   const parsed = JSON.parse(fs.readFileSync(exported.file, "utf-8"));
   check("записанный конфиг читается", parsed.productName === "Тексты" && parsed.modules.word === true);
+
+  console.log("\nсборка одной кнопкой");
+  // Всё, что раньше делалось вручную по трём вкладкам, теперь один проход.
+  // Установщик здесь не собираем — на это нужен настоящий проект и минуты; всё
+  // остальное проверяем на настоящих файлах.
+  const chatDir = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-chat-"));
+  fs.writeFileSync(
+    path.join(chatDir, "package.json"),
+    JSON.stringify({ name: "personal-chat", version: "1.0.0" }, null, 2)
+  );
+
+  const archiveHome = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-archive-"));
+  pluginArchive.init(archiveHome);
+  demoAccess.init(archiveHome);
+  await demoAccess.createKeys();
+  const plugin = await pluginArchive.addVersion({
+    name: "Копирайтинг",
+    description: "Навыки для текстов",
+    skills: [{ name: "Пост во ВКонтакте", description: "Пишет пост", content: "Правила поста…" }],
+  });
+
+  const blueprint = {
+    name: "Для фокус-группы",
+    productName: "Личный чат Марии",
+    modules: ["word"],
+    sourcePath: chatDir,
+    branch: "",
+    apiKey: "polza-test-key",
+    model: "anthropic/claude-sonnet-5",
+    pricesText: "anthropic/claude-sonnet-5 300,5 1500",
+    skills: [{ id: plugin.id, version: plugin.version }],
+    demoGated: true,
+    revocationUrl: "https://example.invalid/revoked.json",
+  };
+
+  const lines = [];
+  const built = await buildPipeline.build(blueprint, { onLog: (l) => lines.push(l), skipInstaller: true });
+  check("сборка прошла шаги без установщика", built.installerBuilt === false);
+  check("рассказала, что делает", lines.length >= 4, lines.join(" | "));
+
+  const pluginsJson = JSON.parse(fs.readFileSync(path.join(chatDir, "plugins.json"), "utf-8"));
+  check("модули записаны", pluginsJson.modules.word === true && pluginsJson.modules.excel === false);
+  check("имя копии записано", pluginsJson.productName === "Личный чат Марии", pluginsJson.productName);
+
+  const managed = JSON.parse(fs.readFileSync(path.join(chatDir, "managed-config.json"), "utf-8"));
+  check("ключ моделей вшит", managed.apiKey === "polza-test-key", JSON.stringify(managed.apiKey));
+  check(
+    "цена с запятой понята правильно",
+    managed.prices["anthropic/claude-sonnet-5"]?.input === 300.5,
+    JSON.stringify(managed.prices)
+  );
+
+  const licenceConfig = JSON.parse(fs.readFileSync(path.join(chatDir, "licence-config.json"), "utf-8"));
+  check("открытый ключ подписи уехал в сборку", Boolean(licenceConfig.publicKey));
+  check("закрытый ключ в сборку не уехал", !JSON.stringify(licenceConfig).includes("privateKey"));
+  check("ссылка на список отзыва записана", licenceConfig.revocationUrl.includes("revoked.json"));
+
+  const bundled = fs.readdirSync(path.join(chatDir, "bundled-skills"));
+  check("навык из архива вшит", bundled.length === 1, bundled.join(","));
+
+  // Сборка без активации: файла лицензии остаться не должно, иначе копия
+  // неожиданно попросит активацию у самой владелицы.
+  await buildPipeline.build({ ...blueprint, demoGated: false, skills: [] }, { skipInstaller: true });
+  check("без активации файл лицензии убран", !fs.existsSync(path.join(chatDir, "licence-config.json")));
+  check(
+    "снятый плагин исчез из сборки",
+    fs.readdirSync(path.join(chatDir, "bundled-skills")).length === 0
+  );
+
+  await expectThrows(
+    "чужая папка отклоняется до сборки",
+    () => buildPipeline.build({ ...blueprint, sourcePath: root }, { skipInstaller: true }),
+    /не папка с исходниками|personal-chat/
+  );
+
+  // Ветка: незакоммиченные правки важнее удобства — сборка останавливается.
+  execFileSync("git", ["init", "-b", "main"], { cwd: chatDir });
+  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: chatDir });
+  execFileSync("git", ["config", "user.name", "Тест"], { cwd: chatDir });
+  execFileSync("git", ["add", "-A"], { cwd: chatDir });
+  execFileSync("git", ["commit", "-m", "исходники"], { cwd: chatDir });
+  execFileSync("git", ["branch", "релиз"], { cwd: chatDir });
+  fs.writeFileSync(path.join(chatDir, "черновик.txt"), "незакоммиченная правка\n");
+  await expectThrows(
+    "с незакоммиченными правками на другую ветку не переключаемся",
+    () => buildPipeline.build({ ...blueprint, branch: "релиз" }, { skipInstaller: true }),
+    /незакоммиченные/
+  );
+  fs.rmSync(path.join(chatDir, "черновик.txt"));
+  await buildPipeline.build({ ...blueprint, branch: "релиз" }, { skipInstaller: true });
+  check(
+    "на чистой копии ветка переключается",
+    execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: chatDir, encoding: "utf-8" }).trim() === "релиз"
+  );
+
+  fs.rmSync(chatDir, { recursive: true, force: true });
+  fs.rmSync(archiveHome, { recursive: true, force: true });
+
+  console.log("\nдемо-доступ: таблица цен");
+  // Цену пишут по-русски, с запятой. Если считать запятую разделителем колонок,
+  // «300,5 1500» превращается в «300» и «5» — и расход показывается втрое-в-сотни
+  // раз меньше настоящего, молча.
+  const decimal = demoAccess.parsePrices("модель 300,5 1500");
+  check(
+    "десятичная запятая — это цена, а не разделитель",
+    decimal.prices["модель"]?.input === 300.5 && decimal.prices["модель"]?.output === 1500,
+    JSON.stringify(decimal)
+  );
+  const spaced = demoAccess.parsePrices("модель 300 1500");
+  check("пробелы по-прежнему разделяют", spaced.prices["модель"]?.output === 1500, JSON.stringify(spaced));
+  const csv = demoAccess.parsePrices("модель,300,1500");
+  check("запятые как разделители тоже понимаются", csv.prices["модель"]?.output === 1500, JSON.stringify(csv));
+  const spacedCsv = demoAccess.parsePrices("модель, 300, 1500");
+  check("запятая с пробелом — тоже разделитель", spacedCsv.prices["модель"]?.output === 1500, JSON.stringify(spacedCsv));
+  const broken = demoAccess.parsePrices("модель 300");
+  check("неполная строка объясняется, а не молчит", broken.problems.length === 1, JSON.stringify(broken));
+
+  console.log("\nкопии: имя, репозиторий, модули");
+  check("репозиторий предлагается по имени", copies.repoNameFor("Мария Тестова").startsWith("personal-chat-"));
+  check("название в окне — «Личный чат Имя»", copies.displayNameFor("Марии") === "Личный чат Марии");
+
+  let copyStore = [];
+  const demoDraft = {
+    name: "Мария Тестова",
+    kind: "demo",
+    apiKey: "polza-demo-key",
+    days: 5,
+    plugins: ["docflow", "finmodel"],
+    machineCode: "1A2B3-C4D5E-6F7A8-B9C0D",
+  };
+  await expectThrows(
+    "демо без ключа отклоняется",
+    () => copies.save([], { ...demoDraft, apiKey: "" }),
+    /ключ Polza/
+  );
+  ({ all: copyStore } = copies.save(copyStore, demoDraft));
+  const demoCopy = copyStore[0];
+  check(
+    "демо получает базу, офис и выбранные плагины",
+    JSON.stringify(copies.modulesOf(demoCopy).sort()) ===
+      JSON.stringify(["docflow", "excel", "finmodel", "projects", "skills", "word"].sort()),
+    JSON.stringify(copies.modulesOf(demoCopy))
+  );
+  check("демо-копия всегда просит активацию", copies.toBlueprint(demoCopy).demoGated === true);
+
+  console.log("\nкопии: выдача, отзыв, перевыдача");
+  const licence1 = copies.licenceFor(demoCopy, {});
+  check("лицензия подписана на код компьютера копии", licence1.machine === demoCopy.machineCode);
+  copyStore = [copies.withIssuedLicence(demoCopy, licence1)];
+  check("выданная лицензия записана в копию", copyStore[0].licenceId === licence1.id);
+
+  copyStore = copies.setRevoked(copyStore, copyStore[0].id, true);
+  check("отозванный id попадает в список отзыва", copies.revokedIds(copyStore).includes(licence1.id));
+
+  // Перевыдача после отзыва не должна тихо вернуть старую копию к жизни — тот
+  // же дефект, что уже чинился в demoAccess.cjs, здесь проверяется отдельно,
+  // потому что copies.cjs — независимая реализация того же правила.
+  const licence2 = copies.licenceFor(copyStore[0], {});
+  copyStore = [copies.withIssuedLicence(copyStore[0], licence2)];
+  check("новый файл получил другой id", licence2.id !== licence1.id);
+  check(
+    "старый отозванный id остаётся в списке и после перевыдачи",
+    copies.revokedIds(copyStore).includes(licence1.id) && !copies.revokedIds(copyStore).includes(licence2.id),
+    JSON.stringify(copies.revokedIds(copyStore))
+  );
+
+  await expectThrows(
+    "лицензия без кода компьютера не выдаётся",
+    () => copies.licenceFor({ ...demoCopy, machineCode: "" }, {}),
+    /код компьютера/
+  );
+
+  console.log("\nкопии: оплаченная копия и защита от копирования");
+  const paidDraft = {
+    name: "Мария Тестова",
+    kind: "paid",
+    fromCopyId: demoCopy.id,
+    repoName: demoCopy.repoName,
+    days: 365,
+  };
+  const { all: withPaid } = copies.save(copyStore, paidDraft);
+  const paidCopy = withPaid.find((c) => c.kind === "paid");
+  check("оплаченная копия не несёт вшитого ключа", paidCopy.apiKey === "");
+  check("оплаченная копия защищена от копирования по умолчанию", copies.toBlueprint(paidCopy).demoGated === true);
+  const unprotected = copies.normalize({ ...paidCopy, copyProtection: false });
+  check("защиту можно снять явно", copies.toBlueprint(unprotected).demoGated === false);
+  await expectThrows(
+    "два разных id не делят один репозиторий, если не переносится явно",
+    () => copies.save(withPaid, { name: "Другой Клиент", kind: "demo", apiKey: "k", repoName: demoCopy.repoName }),
+    /уже занят/
+  );
+
+  console.log("\nрабочий процесс сборки копии");
+  // Первая настоящая сборка копии дошла до готового установщика и упала на
+  // последнем шаге: electron-builder на CI сам полез публиковать релиз и
+  // потребовал GH_TOKEN. Установщик при этом был собран, но забрать его было
+  // неоткуда — шага с артефактом тоже не было.
+  const publish = require("./publish.cjs");
+  const yaml = publish.workflowYaml("Личный чат Мария");
+  check("сборка не пытается публиковать сама", yaml.includes("--publish never"), yaml);
+  check(
+    "и не запускается скриптом, который это делает",
+    !/npm run electron:build:win/.test(yaml),
+    yaml
+  );
+  check("установщик остаётся артефактом запуска", yaml.includes("upload-artifact"), yaml);
+  check(
+    "артефакт сохраняется даже при сбое публикации",
+    /upload-artifact[\s\S]*?if: always\(\)|if: always\(\)[\s\S]*?upload-artifact/.test(yaml),
+    yaml
+  );
+  check("релиз называется именем копии", yaml.includes("Личный чат Мария — установщик"), yaml);
+  check("права на запись в релизы есть", /permissions:\s*\n\s*contents: write/.test(yaml), yaml);
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   fs.rmSync(root, { recursive: true, force: true });

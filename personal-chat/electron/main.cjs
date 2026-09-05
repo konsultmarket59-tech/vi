@@ -58,9 +58,36 @@ function stripWindowsExtendedPrefix(p) {
   return typeof p === "string" && p.startsWith("\\\\?\\") ? p.slice(4) : p;
 }
 
+// Копия для тестировщика должна выглядеть новой программой, в которой никто не
+// работал. Пока копия называлась так же, как канонический чат, обе брали одну и
+// ту же папку данных и одну и ту же служебную папку: на компьютере автора
+// тестировщик видел её проекты, документы и навыки. Поэтому копия с собственным
+// названием получает и собственные папки — и на чужом компьютере, и на своём.
+//
+// Название приходит из licence-config.json, который кладётся в сборку копии;
+// у канонического чата такого файла нет, и его папки не меняются.
+const COPY_NAME = (() => {
+  try {
+    const config = require("./licence.cjs").buildConfig();
+    // Имя задаёт автор копии, а из него получается путь на диске: символы,
+    // которых в именах папок быть не может, убираем сразу.
+    const name = String(config?.productName || "")
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    return name && name !== app.getName() ? name : "";
+  } catch {
+    return "";
+  }
+})();
+// setName обязательно до первого обращения к getPath("userData"): служебная
+// папка складывается из имени приложения.
+if (COPY_NAME) app.setName(COPY_NAME);
+
 const USER_DATA_PATH = stripWindowsExtendedPrefix(app.getPath("userData"));
 const APP_CONFIG_PATH = path.join(USER_DATA_PATH, "config.json");
-const DEFAULT_ROOT = path.join(stripWindowsExtendedPrefix(app.getPath("documents")), "Личный чат");
+const DEFAULT_ROOT = path.join(stripWindowsExtendedPrefix(app.getPath("documents")), COPY_NAME || "Личный чат");
 const FALLBACK_ROOT = path.join(USER_DATA_PATH, "data");
 
 const DEFAULT_SETTINGS = {
@@ -178,7 +205,9 @@ async function loadSettings() {
   // never touched the slider, not that they deliberately chose the smallest setting — so
   // carry them forward to the new, more generous default.
   if (s.maxTokens === OLD_DEFAULT_MAX_TOKENS) s.maxTokens = DEFAULT_SETTINGS.maxTokens;
-  return managed.apply({ ...DEFAULT_SETTINGS, ...s });
+  // В сборке для тестировщика длину ответа задаёт автор — но только пока человек
+  // не выбрал своё. Отличаем «не трогал» от «выбрал» по наличию поля в файле.
+  return managed.apply({ ...DEFAULT_SETTINGS, ...s }, { chosenMaxTokens: "maxTokens" in s });
 }
 
 async function saveSettingsFile(settings) {
@@ -620,7 +649,13 @@ async function removeDoc(projectId, fileName) {
   await shell.trashItem(filePath).catch(async () => {
     await fs.rm(filePath, { force: true });
   });
-  await updateProject(projectId, {});
+  // Снятая галочка «отдавать ассистенту» помнится по имени файла. Если её не
+  // убрать вместе с документом, документ с тем же именем, добавленный позже,
+  // молча не попадёт в контекст — и понять, почему ассистент его не видит,
+  // будет неоткуда.
+  const meta = await readJson(path.join(projectDir(root, projectId), "project.json"), null);
+  const excludedDocs = (meta?.excludedDocs || []).filter((key) => key !== `docs/${fileName}`);
+  await updateProject(projectId, { excludedDocs });
   return listDocs(projectId);
 }
 
@@ -829,6 +864,7 @@ const exportDocs = require("./exportDocs.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
 const cloud = require("./cloud.cjs");
+const connectionError = require("./connectionError.cjs");
 
 function broadcast(channel, payload) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -1275,41 +1311,6 @@ async function buildAttachments(filePaths) {
   return out;
 }
 
-// ---------- import from Claude.ai export ----------
-
-async function importClaudeExport(filePaths) {
-  const created = [];
-  for (const filePath of filePaths) {
-    const raw = JSON.parse(await fs.readFile(filePath, "utf-8"));
-    const project = await createProject({
-      name: raw.name,
-      description: raw.description,
-      instructions: raw.prompt_template,
-    });
-    for (const d of raw.docs || []) {
-      const fileName = (d.filename || d.name || "документ").replace(/[\\/:*?"<>|]+/g, " ").trim();
-      const withExt = /\.[a-zA-Z0-9]+$/.test(fileName) ? fileName : fileName + ".md";
-      await addPastedDocRaw(project.id, withExt, d.content || "");
-    }
-    created.push(project);
-  }
-  return created;
-}
-
-async function addPastedDocRaw(projectId, fileName, content) {
-  const root = await getRootPath();
-  const dir = docsDir(root, projectId);
-  await ensureDir(dir);
-  let dest = path.join(dir, fileName);
-  let n = 2;
-  const base = fileName.replace(/(\.[a-zA-Z0-9]+)$/, "");
-  const ext = fileName.match(/(\.[a-zA-Z0-9]+)$/)?.[1] || "";
-  while (fsSync.existsSync(dest)) {
-    dest = path.join(dir, `${base} (${n})${ext}`);
-    n++;
-  }
-  await fs.writeFile(dest, content, "utf-8");
-}
 
 // ---------- export (PDF / PNG) ----------
 
@@ -1461,6 +1462,70 @@ function createWindow() {
   }
 }
 
+
+// ---------- отчёт о работе к концу демо-доступа ----------
+//
+// Тестировщик отдаёт время, а обратной связью занимается редко: пока он вспомнит
+// и напишет, половина замеченного забывается. Поэтому копия собирает отчёт сама
+// — за двадцать минут до конца срока, пока программа ещё работает и журнал
+// ошибок при ней, — а на экране «срок истёк» показывает готовый файл и просит
+// переслать его разработчику.
+//
+// Никакой отправки: файл лежит на компьютере тестировщика, пересылает его он
+// сам. Внутри — версия, система и ошибки самой программы; ни документов, ни
+// переписки, ни ключа там нет (см. report.cjs).
+
+const DEMO_REPORT_LEAD_MS = 20 * 60 * 1000;
+const demoReportFile = () => path.join(USER_DATA_PATH, "demo-report.json");
+let demoReportTimer = null;
+
+/** Собирает отчёт, если он ещё не собран. Возвращает то, что показать человеку. */
+async function ensureDemoReport(reason = "срок демо-доступа заканчивается") {
+  const saved = await readJson(demoReportFile(), null);
+  if (saved?.file && fsSync.existsSync(saved.file)) return saved;
+
+  const cfg = plugins.load(app);
+  const lic = await licence.status({ allowNetwork: false });
+  const written = await report.write({
+    description: `Автоматический отчёт: ${reason}.`,
+    version: app.getVersion(),
+    productName: cfg.productName,
+    tester: lic.tester || "",
+    extra: {
+      модули: cfg.modules,
+      срокДо: lic.expiresAt || "",
+      поводОтчёта: reason,
+    },
+  });
+  const record = { ...written, at: new Date().toISOString(), reason };
+  await writeJson(demoReportFile(), record);
+  return record;
+}
+
+/**
+ * Заводит будильник на «за двадцать минут до конца». Если программу в этот
+ * момент не запускали, отчёт всё равно соберётся — при первом же запуске после
+ * окончания срока, с экрана «срок истёк».
+ */
+function scheduleDemoReport(status) {
+  if (demoReportTimer) clearTimeout(demoReportTimer);
+  demoReportTimer = null;
+  if (!status?.gated || !status.expiresAt) return;
+  const left = Date.parse(status.expiresAt) - Date.now() - DEMO_REPORT_LEAD_MS;
+  if (!Number.isFinite(left)) return;
+  if (left <= 0) {
+    void ensureDemoReport();
+    return;
+  }
+  // setTimeout не умеет ждать дольше ~24 дней, поэтому длинное ожидание режем
+  // на сутки и переспрашиваем.
+  const wait = Math.min(left, 24 * 60 * 60 * 1000);
+  demoReportTimer = setTimeout(() => {
+    if (wait === left) void ensureDemoReport();
+    else void licence.status({ allowNetwork: false }).then(scheduleDemoReport);
+  }, wait);
+}
+
 app.whenReady().then(async () => {
   await applyProxySettings(await loadSettings());
   createWindow();
@@ -1469,6 +1534,11 @@ app.whenReady().then(async () => {
   });
   chatbots.startScheduler(getRootPath, (platform, message) => broadcast("chatbots:message", { platform, message }));
   tasks.startScheduler(getRootPath, runScheduledTask);
+  // Отчёт к концу демо-доступа: будильник ставится сразу, а не при закрытии.
+  licence
+    .status({ allowNetwork: false })
+    .then(scheduleDemoReport)
+    .catch(() => {});
 });
 
 app.on("window-all-closed", () => {
@@ -1529,6 +1599,8 @@ ipcMain.handle("report:write", async (_e, description) => {
   });
   return written;
 });
+/** Готовый отчёт для экрана «срок истёк»: собирается, если ещё не собран. */
+ipcMain.handle("licence:demoReport", async () => ensureDemoReport("срок демо-доступа закончился"));
 ipcMain.handle("report:reveal", (_e, file) => {
   shell.showItemInFolder(file);
   return true;
@@ -1536,8 +1608,13 @@ ipcMain.handle("report:reveal", (_e, file) => {
 
 ipcMain.handle("licence:status", (_e, options) => licence.status(options || {}));
 ipcMain.handle("licence:activate", (_e, contents) => licence.activate(contents));
-ipcMain.handle("licence:pickFile", async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle("licence:pickFile", async (event) => {
+  // Окно берём у того, кто спросил. Раньше здесь стояла переменная mainWindow,
+  // которой в этом файле нет вовсе: кнопка «Выбрать файл активации» падала с
+  // «mainWindow is not defined» — и ни один тестировщик не мог активировать
+  // копию, потому что этот экран у него первый и единственный.
+  const parentWin = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(parentWin, {
     title: "Выберите файл активации",
     filters: [{ name: "Файл активации", extensions: ["lic", "json"] }],
     properties: ["openFile"],
@@ -2317,26 +2394,16 @@ ipcMain.handle("proxy:test", async (_e, draftSettings) => {
   try {
     const res = await fetch(url, { headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {} });
     const ms = Date.now() - started;
-    if (res.status === 407) {
-      return {
-        ok: false,
-        error:
-          "Прокси требует авторизацию, но логин/пароль не подошли (407). Проверьте их — " +
-          "это логин от прокси, а не от Polza.",
-      };
-    }
+    // Причину отказа объясняет общий словарь: те же слова, что в «Личном коде» и
+    // в остальных проверках подключения, вместо короткого списка на месте.
+    const byStatus = connectionError.fromStatus(res.status, { what: "Адрес API" });
+    if (byStatus) return { ok: false, error: byStatus, ms };
     if (!res.ok) {
       return { ok: false, error: `Соединение прошло, но сервер ответил ${res.status} ${res.statusText}.`, ms };
     }
     return { ok: true, ms };
   } catch (e) {
-    const msg = String(e.message || e);
-    let hint = "";
-    if (msg.includes("ERR_PROXY_CONNECTION_FAILED")) hint = " Адрес или порт прокси недоступны.";
-    else if (msg.includes("ERR_TOO_MANY_RETRIES")) hint = " Прокси отклоняет логин/пароль.";
-    else if (msg.includes("ERR_NO_SUPPORTED_PROXIES")) hint = " Такой адрес прокси не поддерживается — уберите логин/пароль из адреса и впишите их в поля ниже.";
-    else if (msg.includes("ERR_NAME_NOT_RESOLVED")) hint = " Не удалось определить адрес — проверьте написание.";
-    return { ok: false, error: msg + hint };
+    return { ok: false, error: connectionError.explain(e, { what: "Адрес API" }) };
   } finally {
     // Leave the session on the *saved* settings, so merely testing a draft doesn't
     // silently change what the rest of the app is using.
@@ -2354,17 +2421,6 @@ ipcMain.handle("meta:webToolsHint", async () => {
 ipcMain.handle("tasks:list", async (_e, projectId) => tasks.list(await getRootPath(), projectId));
 ipcMain.handle("tasks:save", async (_e, projectId, task) => tasks.save(await getRootPath(), projectId, task));
 ipcMain.handle("tasks:delete", async (_e, projectId, id) => tasks.remove(await getRootPath(), projectId, id));
-
-ipcMain.handle("import:pickClaudeExports", async () => {
-  const win = BrowserWindow.getFocusedWindow();
-  const result = await dialog.showOpenDialog(win, {
-    properties: ["openFile", "multiSelections"],
-    filters: [{ name: "Экспорт Claude.ai", extensions: ["json"] }],
-  });
-  if (result.canceled) return [];
-  return result.filePaths;
-});
-ipcMain.handle("import:claudeExports", (_e, filePaths) => importClaudeExport(filePaths));
 
 ipcMain.handle("export:toDocx", (_e, payload) => exportChatToFile(payload, "docx"));
 ipcMain.handle("export:toXlsx", (_e, payload) => exportChatToFile(payload, "xlsx"));

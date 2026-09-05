@@ -20,6 +20,14 @@ export default function PluginArchiveView() {
   const [note, setNote] = useState("");
   const [skills, setSkills] = useState<PluginSkill[]>([]);
   const [sourcePaths, setSourcePaths] = useState<string[]>([]);
+  // Ветка репозитория, в которой живёт код этого плагина: там его дописывают и
+  // туда же сливают правки.
+  const [branch, setBranch] = useState("");
+  const [branches, setBranches] = useState<{ current: string; local: string[]; canonical: string }>({
+    current: "",
+    local: [],
+    canonical: "",
+  });
 
   // Что уходит в сборку: плагин → выбранная версия.
   const [selected, setSelected] = useState<Record<string, number>>({});
@@ -34,6 +42,13 @@ export default function PluginArchiveView() {
 
   useEffect(() => {
     reload();
+    window.api
+      .pluginBranches()
+      .then((info) => {
+        setBranches(info);
+        setBranch((prev) => prev || info.current || info.canonical);
+      })
+      .catch(() => {});
   }, [reload]);
 
   async function act<T>(fn: () => Promise<T>, success = "") {
@@ -53,6 +68,7 @@ export default function PluginArchiveView() {
   }
 
   function resetDraft() {
+    setBranch(branches.current || branches.canonical);
     setTargetId("");
     setName("");
     setDescription("");
@@ -108,6 +124,8 @@ export default function PluginArchiveView() {
                       {version.version === plugin.latest && " (последняя)"} · навыков: {version.skills}
                       {version.sources ? ` · файлов: ${version.sources}` : ""}
                       {version.createdAt && ` · ${formatDate(version.createdAt)}`}
+                      {version.branch && ` · ветка ${version.branch}`}
+                      {version.commit && ` @${version.commit}`}
                       {version.note && ` — ${version.note}`}
                     </span>
                   </label>
@@ -135,11 +153,33 @@ export default function PluginArchiveView() {
                   setTargetId(plugin.id);
                   setName(plugin.name);
                   setDescription(plugin.description);
+                  if (plugin.branch) setBranch(plugin.branch);
                   setNotice(`Новая версия будет добавлена к «${plugin.name}».`);
                 }}
               >
                 Обновить до новой версии
               </button>
+              {plugin.branch && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={() =>
+                    act(async () => {
+                      const result = await window.api.usePluginBranch(plugin.branch);
+                      const info = await window.api.pluginBranches();
+                      setBranches(info);
+                      setNotice(
+                        result.switched
+                          ? `Открытая папка переведена на ветку ${result.branch} — дописывайте плагин здесь.`
+                          : `Уже на ветке ${result.branch}.`
+                      );
+                    })
+                  }
+                >
+                  Открыть ветку плагина
+                </button>
+              )}
               <button type="button" className="btn btn-sm" onClick={() => window.api.openPluginFolder(plugin.dir)}>
                 Показать файлы
               </button>
@@ -247,6 +287,27 @@ export default function PluginArchiveView() {
           открываться, даже если исходники в репозитории давно переписаны.
         </p>
 
+        <label className="field-label">Ветка репозитория, где живёт код плагина</label>
+        <input
+          className="input"
+          list="plugin-branch-list"
+          placeholder={branches.canonical || "ветка репозитория"}
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+        />
+        <datalist id="plugin-branch-list">
+          {[...new Set([branches.canonical, ...branches.local].filter(Boolean))].map((b) => (
+            <option key={b} value={b} />
+          ))}
+        </datalist>
+        <p className="hint">
+          Код плагина пишется в этой ветке и сливается обратно в неё же — так базовая конфигурация
+          остаётся целой, а плагин можно доработать позже, не собирая его заново по кусочкам. По
+          умолчанию подставляется ветка открытой сейчас папки
+          {branches.canonical ? `, каноническая — ${branches.canonical}` : ""}. Слияние делается во
+          вкладке «Git»: молча коммитить и мерджить за вас приложение не будет.
+        </p>
+
         <div className="sticky-actions">
           <button
             type="button"
@@ -261,6 +322,7 @@ export default function PluginArchiveView() {
                   note,
                   skills,
                   sourcePaths,
+                  branch,
                 });
                 await reload();
                 resetDraft();

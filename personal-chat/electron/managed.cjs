@@ -45,6 +45,9 @@ function config() {
         apiKey: String(parsed.apiKey),
         baseUrl: parsed.baseUrl ? String(parsed.baseUrl) : "",
         model: parsed.model ? String(parsed.model) : "",
+        // Потолок длины ответа, заданный автором сборки. 0 — не задан: тогда
+        // работает обычный предел приложения.
+        maxTokens: Number(parsed.maxTokens) > 0 ? Math.round(Number(parsed.maxTokens)) : 0,
         // Цены за 1 000 000 токенов. Модель без цены показывается с токенами, но
         // без суммы — придумывать стоимость нельзя.
         prices: parsed.prices && typeof parsed.prices === "object" ? parsed.prices : {},
@@ -63,9 +66,17 @@ function config() {
  * because the chat window makes the API calls itself; what changes is that the
  * interface hides it and offers usage figures instead.
  */
-function apply(settings) {
+/**
+ * Накладывает настройки сборки на пользовательские.
+ *
+ * `chosenMaxTokens` — трогал ли человек длину ответа сам. Без этого различить
+ * «оставил как было» и «выбрал 16 000» нельзя, и заданные автором 64 000 не
+ * доехали бы до тестировщика: значение по умолчанию молча победило бы.
+ */
+function apply(settings, { chosenMaxTokens = false } = {}) {
   const managed = config();
   if (!managed) return { ...settings, managed: false };
+  const limit = managed.maxTokens || 0;
   return {
     ...settings,
     apiKey: managed.apiKey,
@@ -73,6 +84,10 @@ function apply(settings) {
     // Модель предустановлена только как начальная: выбор модели — часть базовой
     // функциональности, отбирать его у тестировщика не нужно.
     model: settings.model || managed.model || "",
+    // Длину ответа автор задаёт сборкой: это и значение по умолчанию, и предел.
+    // Уменьшить можно (дешевле и быстрее), увеличить — нет.
+    maxTokens: limit ? Math.min(limit, chosenMaxTokens ? settings.maxTokens : limit) : settings.maxTokens,
+    maxTokensLimit: limit,
     managed: true,
   };
 }
