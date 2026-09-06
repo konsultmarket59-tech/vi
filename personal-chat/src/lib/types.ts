@@ -112,6 +112,8 @@ export interface Conversation {
 
 export type TaskRecurrence = "once" | "daily" | "weekly";
 
+export type TaskFormat = "digest" | "free";
+
 export interface ScheduledTask {
   id: string;
   projectId: string;
@@ -122,8 +124,18 @@ export interface ScheduledTask {
   date?: string; // "YYYY-MM-DD" — only for recurrence "once"
   weekday?: number; // 0 (Sun) – 6 (Sat) — only for recurrence "weekly"
   enabled: boolean;
+  /**
+   * «digest» — ответ раскладывается по темам задания с периодом и честным
+   * «за такой-то срок ничего не произошло»; «free» — задание уходит модели как есть.
+   */
+  format?: TaskFormat;
   lastRunAt?: number;
   lastConversationId?: string;
+  /** Почему сорвался прошлый запуск. Пусто, если всё прошло штатно. */
+  lastError?: string;
+  lastErrorAt?: number | null;
+  /** Момент, когда запуск начался. Слот занимается до обращения к модели. */
+  runStartedAt?: number | null;
   nextRunAt: number | null; // epoch ms; null once a "once" task has fired
   createdAt: number;
   updatedAt: number;
@@ -203,6 +215,17 @@ export interface StorageReport {
   folders: StorageEntry[];
   /** Chats whose history is long enough to be worth folding down. */
   heavyChats: { projectId: string; projectName: string; convId: string; title: string; messages: number; chars: number }[];
+  /** Служебный кэш Chromium: не данные человека, чистится без последствий. */
+  cache: { bytes: number; files: number; path: string };
+  /** Падения окна в прошлых запусках — пусто, если приложение не падало. */
+  crashes: CrashEntry[];
+}
+
+export interface CrashEntry {
+  at: string;
+  что: string;
+  причина: string;
+  код: number | null;
 }
 
 export interface AppConfig {
@@ -788,6 +811,9 @@ export interface StorySpec {
   /** «none» — моушн-дизайн без съёмки: подложка рисуется цветом. */
   source: { kind: "file" | "stock" | "none"; path: string; query: string; trimStart: number };
   bgColor: string;
+  /** Акцентные цвета ролика: из них берут умолчания плашки, иконки, шкалы, графики. */
+  accentColor: string;
+  accent2Color: string;
   musicPath: string;
   musicVolume: number;
   duration: number;
@@ -1056,6 +1082,9 @@ export interface ElectronAPI {
     messages: ChatMessage[]
   ): Promise<{ path: string }>;
   getStorageReport(): Promise<StorageReport>;
+  clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
+  pastCrashes(): Promise<CrashEntry[]>;
+  onCrashed(handler: (entry: CrashEntry) => void): () => void;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
   deleteConversation(projectId: string, convId: string): Promise<void>;
 

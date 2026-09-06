@@ -161,6 +161,13 @@ contextBridge.exposeInMainWorld("api", {
   archiveConversationMessages: (projectId, conv, messages) =>
     ipcRenderer.invoke("chats:archiveMessages", projectId, conv, messages),
   getStorageReport: () => ipcRenderer.invoke("storage:report"),
+  clearCache: () => ipcRenderer.invoke("storage:clearCache"),
+  pastCrashes: () => ipcRenderer.invoke("app:pastCrashes"),
+  onCrashed: (handler) => {
+    const listener = (_e, entry) => handler(entry);
+    ipcRenderer.on("app:crashed", listener);
+    return () => ipcRenderer.removeListener("app:crashed", listener);
+  },
 
   // Яндекс Директ
   getDirectSettings: () => ipcRenderer.invoke("direct:getSettings"),

@@ -1672,3 +1672,62 @@ button.fin-row-x:hover { color: var(--accent); }
   background: var(--bg); border: 1px solid var(--border);
   font-family: var(--mono); font-size: 12px; word-break: break-all;
 }
+
+/* Служебный кэш и история падений в «Обслуживании». */
+.cache-box { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
+.cache-box .settings-actions { margin-top: 8px; }
+
+/* Окно перезапустилось само — молчать об этом нельзя. */
+.crash-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid #f0c2be;
+  background: #fdefee; color: #8a2018; font-size: 13px; line-height: 1.5;
+}
+.crash-banner .link-btn { flex: none; color: inherit; }
+
+/* «Агент думает»: видно, что работа идёт, сколько она идёт и на какой стадии. */
+.thinking {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px; font-size: 13px; color: var(--text-dim);
+}
+.thinking-spinner {
+  width: 13px; height: 13px; flex: none;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: thinking-spin 0.9s linear infinite;
+}
+@keyframes thinking-spin { to { transform: rotate(360deg); } }
+.thinking-clock {
+  font-family: var(--mono); font-size: 12px;
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px;
+}
+.thinking-slow { flex-basis: 100%; font-size: 12px; color: #8a6d18; }
+@media (prefers-reduced-motion: reduce) {
+  .thinking-spinner { animation: none; border-top-color: var(--accent); }
+}
+
+/* Задача по времени: формат ответа и причина сорвавшегося запуска. */
+.task-format-hint { margin: -4px 0 2px; font-size: 12px; line-height: 1.45; }
+.task-error {
+  display: block; margin-top: 2px; font-size: 11px; line-height: 1.4;
+  color: var(--danger); word-break: break-word;
+}
+
+/* Цвета моушн-дизайна: фон и два акцента стоят рядом, их сравнивают глазами. */
+.vs-colors { display: flex; gap: 12px; flex-wrap: wrap; }
+.vs-colors .vs-field { margin-bottom: 6px; }
+.vs-colors input[type="color"] { width: 64px; height: 34px; padding: 2px; }
+
+/* Когда в правой колонке работает агент, колонка перестаёт быть узкой полоской:
+   в 340 пикселях не видно ни вставленного текста, ни того, что агент отвечает. */
+.vs-right-agent { flex: 1 1 620px; min-width: 460px; }
+.vs-agent { display: flex; flex-direction: column; min-height: 420px; flex: 1; }
+.vs-agent > .chat-view { flex: 1; min-height: 0; }
+.vs-agent-note { margin-left: auto; }
+
+/* Поле ввода агента внутри разделов: три строки — это полторы фразы, а сюда
+   вставляют целый текст ролика. */
+.vs-agent .chat-input-bar textarea,
+.fin-agent .chat-input-bar textarea {
+  min-height: 110px;
+  resize: vertical;
+}

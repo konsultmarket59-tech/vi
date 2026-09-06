@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Brand, Conversation, DesignSystemFile, DocMeta, Project, ProjectProfile, ScheduledTask, Settings, Skill, TaskRecurrence, TaskRunSummary } from "../lib/types";
+import type { Brand, Conversation, DesignSystemFile, DocMeta, Project, ProjectProfile, ScheduledTask, Settings, Skill, TaskFormat, TaskRecurrence, TaskRunSummary } from "../lib/types";
 import { DEFAULT_BRAND } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import { streamChat } from "../lib/api";
@@ -15,9 +15,18 @@ interface TaskDraft {
   time: string;
   date: string;
   weekday: number;
+  format: TaskFormat;
 }
 
-const emptyTaskDraft: TaskDraft = { title: "", prompt: "", recurrence: "once", time: "09:00", date: "", weekday: 1 };
+const emptyTaskDraft: TaskDraft = {
+  title: "",
+  prompt: "",
+  recurrence: "once",
+  time: "09:00",
+  date: "",
+  weekday: 1,
+  format: "digest",
+};
 
 function describeTaskSchedule(t: ScheduledTask): string {
   if (t.recurrence === "daily") return `Каждый день в ${t.time}`;
@@ -177,6 +186,7 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
       title: taskDraft.title.trim(),
       prompt: taskDraft.prompt.trim(),
       recurrence: taskDraft.recurrence,
+      format: taskDraft.format,
       time: taskDraft.time,
       date: taskDraft.recurrence === "once" ? taskDraft.date : undefined,
       weekday: taskDraft.recurrence === "weekly" ? taskDraft.weekday : undefined,
@@ -451,6 +461,18 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                   rows={3}
                 />
                 <select
+                  value={taskDraft.format}
+                  onChange={(e) => setTaskDraft((d) => ({ ...d, format: e.target.value as TaskFormat }))}
+                >
+                  <option value="digest">Дайджест: разбор по темам</option>
+                  <option value="free">Свободный ответ</option>
+                </select>
+                <p className="hint task-format-hint">
+                  {taskDraft.format === "digest"
+                    ? "Ответ придёт списком: период «с … по …», каждая тема из задания отдельно, у каждой новости дата, суть и ссылка. Если по теме ничего не произошло — так и будет написано."
+                    : "Задание уйдёт модели как есть — для напоминаний и всего, чему разбор по темам только мешает."}
+                </p>
+                <select
                   value={taskDraft.recurrence}
                   onChange={(e) => setTaskDraft((d) => ({ ...d, recurrence: e.target.value as TaskRecurrence }))}
                 >
@@ -501,6 +523,11 @@ export default function ProjectPanel({ project, skills, settings, onProjectChang
                   <span className="task-item-text">
                     <span className="task-title">{t.title}</span>
                     <span className="task-meta">{describeTaskSchedule(t)}</span>
+                    {t.lastError && (
+                      <span className="task-error" title={t.lastError}>
+                        Прошлый запуск не удался: {t.lastError.slice(0, 90)}
+                      </span>
+                    )}
                   </span>
                 </label>
                 <button className="conv-delete" onClick={() => removeTask(t.id)} title="Удалить">

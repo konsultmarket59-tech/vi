@@ -42,6 +42,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
   const [duration, setDuration] = useState("15");
   const [sourceKind, setSourceKind] = useState<"file" | "stock" | "none">("file");
   const [bgColor, setBgColor] = useState("#0A0A0A");
+  // Акцентные цвета ролика. Из них берут цвет плашки, иконки, шкалы и графики —
+  // и их же получает агент, когда собирает моушн-дизайн с нуля.
+  const [accentColor, setAccentColor] = useState("#FF2F6D");
+  const [accent2Color, setAccent2Color] = useState("#00D9FF");
   const [assetPaths, setAssetPaths] = useState<string[]>([]);
   const [cloudFolder, setCloudFolder] = useState("");
   const [cloudFolders, setCloudFolders] = useState<StoryCloudFolder[]>([]);
@@ -101,13 +105,15 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       duration: Number(duration) || 15,
       source: { kind: sourceKind, path: sourcePath, query: stockQuery, trimStart: 0 },
       bgColor,
+      accentColor,
+      accent2Color,
       musicPath,
       musicVolume: 0.25,
       fonts: fontFamily ? fonts.filter((f) => f.family === fontFamily) : [],
       references,
       layers,
     }),
-    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, musicPath, fontFamily, fonts, references, layers]
+    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, accentColor, accent2Color, musicPath, fontFamily, fonts, references, layers]
   );
 
   // Сцена и замечания пересобираются на каждую правку: композицию видно сразу,
@@ -428,10 +434,29 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
               </div>
               {sourceKind === "none" ? (
                 <>
-                  {field(
-                    "Цвет фона",
-                    <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} />
-                  )}
+                  <div className="vs-colors">
+                    {field(
+                      "Цвет фона",
+                      <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} />
+                    )}
+                    {field(
+                      "Акцент",
+                      <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} />
+                    )}
+                    {field(
+                      "Второй акцент",
+                      <input
+                        type="color"
+                        value={accent2Color}
+                        onChange={(e) => setAccent2Color(e.target.value)}
+                      />
+                    )}
+                  </div>
+                  <p className="vs-hint">
+                    Эти три цвета получает агент и из них же берут цвет плашки, иконки, шкалы и
+                    графика. Цвет букв подбирается сам — контрастно своей подложке, поэтому светлый
+                    фон не оставит вас с белым текстом на белом.
+                  </p>
                   <div className="vs-row">
                     <button
                       className="btn btn-secondary btn-small"
@@ -964,7 +989,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
             {error && <div className="vs-error">{error}</div>}
           </div>
 
-          <div className="vs-right">
+          <div className={conv ? "vs-right vs-right-agent" : "vs-right"}>
             <div className="vs-preview-head">
               <strong>Предпросмотр</strong>
               <span>{at.toFixed(1)} с</span>
@@ -1096,6 +1121,9 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
               <div className="vs-agent">
                 <div className="vs-agent-head">
                   <strong>Раскладка по сценам</strong>
+                  <span className="hint vs-agent-note">
+                    {layers.length > 0 ? `слоёв в ролике: ${layers.length}` : "слоёв пока нет"}
+                  </span>
                   <button className="btn btn-secondary btn-small" onClick={() => setConv(null)}>
                     Закрыть
                   </button>

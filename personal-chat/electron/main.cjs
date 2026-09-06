@@ -1094,6 +1094,10 @@ async function callModelOnce(settings, messages) {
 // "once" task after it fires).
 async function runScheduledTask(root, task) {
   const now = Date.now();
+  // Слот занимается первым делом: см. tasks.claim — это и есть гарантия
+  // «один запуск = один ответ» даже если приложение закроется на середине.
+  const claimed = await tasks.claim(root, task.projectId, task, now);
+  const period = tasks.coveredPeriod(task, now);
   const systemPrompt = await buildSystemPrompt(task.projectId);
   const settings = await loadSettings();
 
@@ -1103,19 +1107,36 @@ async function runScheduledTask(root, task) {
   // search/fetch it requests, feed the result back, repeat until it answers in
   // plain text or we hit the round limit.
   const webOn = settings.searchEnabled !== false;
+  const request = task.format === "free" ? task.prompt : tasks.buildDigestPrompt(task, period);
   const messages = [
     buildSystemMessage(systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), settings),
-    { role: "user", content: task.prompt },
+    { role: "user", content: request },
   ];
-  let reply = await callModelOnce(settings, messages);
-  if (webOn) {
-    for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
-      const toolOutput = await websearch.runTools(reply, settings);
-      if (toolOutput == null) break;
-      messages.push({ role: "assistant", content: reply });
-      messages.push({ role: "user", content: toolOutput });
-      reply = await callModelOnce(settings, messages);
+  let reply;
+  try {
+    reply = await callModelOnce(settings, messages);
+    if (webOn) {
+      for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
+        const toolOutput = await websearch.runTools(reply, settings);
+        if (toolOutput == null) break;
+        messages.push({ role: "assistant", content: reply });
+        messages.push({ role: "user", content: toolOutput });
+        reply = await callModelOnce(settings, messages);
+      }
     }
+  } catch (e) {
+    // Сорвавшаяся задача больше не повторяется каждые полминуты до победного:
+    // слот уже занят, поэтому здесь остаётся записать причину так, чтобы она
+    // была видна в списке задач, а не только в журнале.
+    const text = e instanceof Error ? e.message : String(e);
+    const failed = await tasks.save(root, task.projectId, {
+      ...claimed,
+      runStartedAt: null,
+      lastError: text,
+      lastErrorAt: Date.now(),
+    });
+    broadcast("tasks:ran", { projectId: task.projectId, task: failed, runId: "" });
+    throw e;
   }
 
   const conv = {
@@ -1134,7 +1155,10 @@ async function runScheduledTask(root, task) {
   // те чаты, которые человек вёл руками.
   await saveTaskRun(task.projectId, { ...conv, taskId: task.id, taskTitle: task.title });
   const updated = await tasks.save(root, task.projectId, {
-    ...task,
+    ...claimed,
+    runStartedAt: null,
+    lastError: "",
+    lastErrorAt: null,
     lastRunAt: now,
     lastConversationId: conv.id,
     enabled: task.recurrence === "once" ? false : task.enabled,
@@ -1454,6 +1478,27 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  // Окно может умереть само — чаще всего от нехватки памяти на длинной работе.
+  // Раньше это выглядело как «приложение вдруг перезапустилось»: Electron молча
+  // показывал пустой экран, журнал ошибок исчезал вместе с процессом, и в отчёте
+  // о проблеме не оставалось ни строчки. Теперь причина записывается на диск
+  // ДО перезагрузки и попадает в отчёт, а человек видит, что именно случилось.
+  win.webContents.on("render-process-gone", (_event, details) => {
+    const entry = report.recordCrash({
+      kind: "окно приложения",
+      reason: details?.reason || "",
+      exitCode: details?.exitCode,
+    });
+    if (win.isDestroyed()) return;
+    win.reload();
+    win.webContents.once("did-finish-load", () => {
+      if (!win.isDestroyed()) win.webContents.send("app:crashed", entry);
+    });
+  });
+  win.webContents.on("unresponsive", () => {
+    report.record("main", "warn", "окно перестало отвечать");
+  });
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     win.loadURL(devUrl);
@@ -1528,6 +1573,9 @@ function scheduleDemoReport(status) {
 
 app.whenReady().then(async () => {
   await applyProxySettings(await loadSettings());
+  // Падения прошлых запусков нужны раньше окна: приложение сообщает о них само,
+  // не дожидаясь, пока человек догадается открыть отчёт о проблеме.
+  await report.loadCrashes();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -2084,8 +2132,65 @@ ipcMain.handle("storage:report", async () => {
     }
   }
   heavyChats.sort((a, b) => b.chars - a.chars);
-  return { rootPath: root, totalBytes, folders, heavyChats: heavyChats.slice(0, 20) };
+  return {
+    rootPath: root,
+    totalBytes,
+    folders,
+    heavyChats: heavyChats.slice(0, 20),
+    cache: await cacheStats(),
+    crashes: report.pastCrashes(),
+  };
 });
+
+// ---------- служебный кэш ----------
+//
+// Это НЕ данные человека. Здесь Chromium складывает загруженные картинки,
+// превью стоковых роликов, иконки и скомпилированный код страницы. Папка растёт
+// сама и никогда не убирается: у активного пользователя она добирается до
+// сотен мегабайт и заметно замедляет и запуск, и работу. Проекты, переписки,
+// сгенерированные файлы и настройки лежат в другом месте и здесь не трогаются
+// вообще — поэтому очистка безопасна и не спрашивает подтверждений.
+const CACHE_DIRS = [
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "DawnCache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+  "Shared Dictionary",
+  "blob_storage",
+  "Service Worker",
+];
+
+async function cacheStats() {
+  const base = app.getPath("userData");
+  let bytes = 0;
+  let files = 0;
+  for (const dir of CACHE_DIRS) {
+    const stat = await dirStats(path.join(base, dir));
+    bytes += stat.bytes;
+    files += stat.files;
+  }
+  return { bytes, files, path: base };
+}
+
+ipcMain.handle("storage:clearCache", async () => {
+  const before = await cacheStats();
+  const ses = session.defaultSession;
+  // Сначала штатными средствами: так Chromium закрывает свои файлы сам и не
+  // держит то, что мы собираемся удалить.
+  await ses.clearCache().catch(() => {});
+  await ses.clearCodeCaches({}).catch(() => {});
+  const base = app.getPath("userData");
+  for (const dir of CACHE_DIRS) {
+    await fs.rm(path.join(base, dir), { recursive: true, force: true }).catch(() => {});
+  }
+  const after = await cacheStats();
+  return { freedBytes: Math.max(0, before.bytes - after.bytes), before: before.bytes, after: after.bytes };
+});
+
+/** Падения прошлых запусков — приложение показывает их само при старте. */
+ipcMain.handle("app:pastCrashes", () => report.pastCrashes());
 
 // Folding a chat down must never destroy anything: the original messages are written
 // out first, under the chat's own folder, before the conversation keeps only a summary.
@@ -3159,13 +3264,18 @@ ipcMain.handle("stories:render", async (event, payload) => {
 
   const work = await fs.mkdtemp(path.join(app.getPath("temp"), "story-"));
   try {
+    // Моушн-дизайн собирается без съёмки: подложка — ровный цвет. Раньше сборка
+    // до него просто не доходила — общая проверка «выбрано ли исходное видео»
+    // срабатывала и в этом режиме, и весь режим падал с сообщением про видео,
+    // которого в нём и не должно быть.
+    const noVideo = spec.source.kind === "none";
     let basePath = spec.source.path;
     if (spec.source.kind === "stock") {
       if (!spec.source.path) throw new Error("Не выбран ролик со стока.");
       send("download", {});
       basePath = await videostories.downloadTo(spec.source.path, path.join(work, "base.mp4"));
     }
-    if (!basePath) throw new Error("Не выбрано исходное видео.");
+    if (!noVideo && !basePath) throw new Error("Не выбрано исходное видео.");
 
     send("frames", { done: 0, total: videostories.frameCount(spec) });
     const framesDir = path.join(work, "frames");
@@ -3173,7 +3283,8 @@ ipcMain.handle("stories:render", async (event, payload) => {
 
     let maskPath = null;
     const head = spec.layers.find((l) => l.kind === "head");
-    if (head) {
+    // Голова в кружке вырезается из исходного видео — без него маска не нужна.
+    if (head && !noVideo) {
       maskPath = await renderStoryMask(
         Math.max(2, Math.round(head.size - head.ringWidth * 2)),
         path.join(work, "mask.png")
@@ -3181,7 +3292,9 @@ ipcMain.handle("stories:render", async (event, payload) => {
     }
 
     send("encode", {});
-    const info = await videostories.probe(bin, basePath);
+    const info = noVideo
+      ? { duration: spec.duration, width: spec.width, height: spec.height, fps: spec.fps, hasAudio: false }
+      : await videostories.probe(bin, basePath);
     const safe = spec.title.replace(/[\\/:*?"<>|]/g, " ").trim() || "Ролик";
     const outPath = path.join(outputDir, `${safe}.mp4`);
     await fs.mkdir(outputDir, { recursive: true });
