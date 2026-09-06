@@ -425,6 +425,57 @@ app.whenReady().then(async () => {
       check("слой добавляется", (await call(`document.querySelectorAll(".vs-layer").length`)) === 1);
       check("появились настройки слоя",
         (await call(`[...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes("Настройки слоя"))`)) === true);
+
+      console.log("\nмоушн-дизайн по тому же пути, что и кнопка");
+      // Раньше здесь проверялись только кирпичики — buildFfmpegArgs напрямую, — и
+      // весь режим лежал: обработчик stories:render требовал исходное видео,
+      // которого в моушн-дизайне нет по определению, и падал до первого кадра.
+      // Поэтому теперь ролик собирается ровно тем вызовом, который делает кнопка.
+      await call(`[...document.querySelectorAll(".vs-tab")].find(b => b.textContent.includes("Моушн без видео")).click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      check("в моушне есть фон и два акцента",
+        (await call(`document.querySelectorAll('.vs-colors input[type="color"]').length`)) === 3);
+
+      const motionOutDir = path.join(outDir, "motion-ipc");
+      fs.mkdirSync(motionOutDir, { recursive: true });
+      const built = await call(`window.api.renderStory(${JSON.stringify({
+        spec: {
+          title: "Моушн",
+          presetId: "story",
+          fps: 24,
+          duration: 2,
+          source: { kind: "none", path: "", query: "", trimStart: 0 },
+          bgColor: "#F5F0E8",
+          accentColor: "#C6362F",
+          accent2Color: "#1B7F4B",
+          layers: [
+            { kind: "pill", text: "ПЕРВЫЙ ТЕЗИС", start: 0, duration: 2, x: 8, y: 30 },
+          ],
+        },
+        outputDir: motionOutDir,
+      })}).then(p => p, e => "ОШИБКА: " + e.message)`);
+      check("моушн собрался кнопкой, а не в обход неё", typeof built === "string" && built.endsWith(".mp4"), String(built));
+      if (typeof built === "string" && built.endsWith(".mp4")) {
+        const info2 = await vs.probe(ffmpeg, built);
+        check("ролик настоящий, нужного размера", info2.width === 1080 && info2.height === 1920, JSON.stringify(info2));
+        check("длительность как заказана", Math.abs(info2.duration - 2) < 0.3, String(info2.duration));
+      }
+
+      console.log("\nпалитра");
+      const light = vs.normalizeSpec({
+        source: { kind: "none" }, bgColor: "#FFFFFF",
+        accentColor: "#1B7F4B", accent2Color: "#F4B400",
+        layers: [{ kind: "pill", text: "A" }, { kind: "pill", text: "B" }, { kind: "pill", text: "C" }],
+      });
+      check("акценты доходят до слоёв", light.layers[1].bg === "#1B7F4B", light.layers[1].bg);
+      // Светлый фон и белые буквы — это пустое место вместо текста.
+      check("на светлом фоне буквы не белые", light.layers[0].fg === "#FFFFFF" && light.layers[0].bg === "#0A0A0A",
+        `${light.layers[0].bg} / ${light.layers[0].fg}`);
+      check("на жёлтом акценте буквы тёмные", light.layers[2].fg === "#0A0A0A", light.layers[2].fg);
+      const overVideo = vs.normalizeSpec({ source: { kind: "file", path: "x.mp4" }, layers: [{ kind: "pill", text: "A" }] });
+      check("поверх съёмки плашка остаётся чёрной", overVideo.layers[0].bg === "#0A0A0A", overVideo.layers[0].bg);
+      const mp = vs.buildMotionPrompt({ spec: light, text: "т", assets: [] });
+      check("агент получает всю палитру", mp.includes("#FFFFFF") && mp.includes("#1B7F4B") && mp.includes("#F4B400"));
     }
   } catch (e) {
     failures++;

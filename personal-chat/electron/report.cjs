@@ -13,6 +13,7 @@
 const { app } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
 const os = require("node:os");
 
 // Enough to see what led to a crash, small enough to stay readable.
@@ -20,6 +21,54 @@ const MAX_ENTRIES = 300;
 const MAX_ENTRY_CHARS = 2000;
 
 const entries = [];
+
+// Падения переживают перезапуск: журнал ошибок живёт в памяти и исчезает
+// вместе с процессом, поэтому именно про падение — то единственное, что человек
+// точно заметил, — в отчёте не оказывалось ни строчки. Здесь их немного и они
+// маленькие, так что файл остаётся читаемым.
+const MAX_CRASHES = 20;
+let crashFile = null;
+let crashes = [];
+
+function crashLogPath() {
+  if (!crashFile) crashFile = path.join(app.getPath("userData"), "падения.json");
+  return crashFile;
+}
+
+/** Прошлые падения читаются один раз при старте — до того, как окно откроется. */
+async function loadCrashes() {
+  try {
+    const raw = await fs.readFile(crashLogPath(), "utf-8");
+    const parsed = JSON.parse(raw);
+    crashes = Array.isArray(parsed) ? parsed.slice(-MAX_CRASHES) : [];
+  } catch {
+    crashes = [];
+  }
+  return crashes;
+}
+
+/**
+ * Записывает падение окна на диск сразу, не откладывая: если следом умрёт и
+ * главный процесс, запись всё равно уже сделана.
+ */
+function recordCrash({ kind, reason, exitCode }) {
+  const entry = {
+    at: new Date().toISOString(),
+    что: kind,
+    причина: reason || "",
+    код: typeof exitCode === "number" ? exitCode : null,
+  };
+  crashes.push(entry);
+  if (crashes.length > MAX_CRASHES) crashes.splice(0, crashes.length - MAX_CRASHES);
+  record("main", "error", `падение окна: ${kind} ${reason || ""} код=${entry.код ?? "-"}`);
+  fsSync.writeFileSync(crashLogPath(), JSON.stringify(crashes, null, 2), "utf-8");
+  return entry;
+}
+
+/** Падения, случившиеся до этого запуска, — их и показывает приложение. */
+function pastCrashes() {
+  return crashes.slice();
+}
 
 function record(source, level, message) {
   const text = String(message ?? "").slice(0, MAX_ENTRY_CHARS);
@@ -52,7 +101,7 @@ function recordFromRenderer(level, message) {
 
 function summary() {
   const errors = entries.filter((e) => e.level === "error").length;
-  return { total: entries.length, errors, since: entries[0]?.at || "" };
+  return { total: entries.length, errors, since: entries[0]?.at || "", crashes: crashes.length };
 }
 
 /**
@@ -75,6 +124,7 @@ async function write({ description = "", version = "", productName = "", tester 
     },
     ...extra,
     описаниеПроблемы: description || "(не заполнено)",
+    падения: crashes,
     журналОшибок: entries,
   };
 
@@ -91,4 +141,4 @@ async function write({ description = "", version = "", productName = "", tester 
   return { file, entries: entries.length };
 }
 
-module.exports = { install, record, recordFromRenderer, summary, write };
+module.exports = { install, record, recordFromRenderer, summary, write, loadCrashes, recordCrash, pastCrashes };

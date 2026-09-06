@@ -37,6 +37,52 @@ const BRAND = {
   white: "#FFFFFF",
 };
 
+/**
+ * Палитра ролика: фон и два акцента, заданные человеком.
+ *
+ * Раньше цвета слоёв были прибиты к фирменным розовому и голубому, и «выбрать
+ * акцентные цвета и цвет фона» в моушн-дизайне было попросту нечем. Теперь
+ * умолчания слоёв берутся отсюда — а цвет текста считается по яркости подложки,
+ * иначе белые буквы на светлом фоне пропадают, что и происходило при любом
+ * фоне светлее среднего.
+ */
+function hexToRgb(hex) {
+  const clean = String(hex || "").replace("#", "").trim();
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const value = parseInt(full.slice(0, 6), 16);
+  if (!Number.isFinite(value)) return { r: 0, g: 0, b: 0 };
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+/** Чёрный или белый — тот, что читается поверх этого цвета. */
+function contrastOn(color) {
+  const { r, g, b } = hexToRgb(color);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? BRAND.black : BRAND.white;
+}
+
+function buildPalette(raw = {}) {
+  const bg = str(raw.bgColor, BRAND.black);
+  const accent = str(raw.accentColor, BRAND.pink);
+  const accent2 = str(raw.accent2Color, BRAND.cyan);
+  // Нейтральная подложка. Поверх съёмки она всегда чёрная — так плашка читается
+  // на любом кадре, это и есть фирменный приём. В моушн-дизайне съёмки нет,
+  // фон известен заранее, и подложка берётся противоположной ему по яркости:
+  // иначе на светлом фоне светлая плашка со светлыми буквами просто исчезает.
+  const overFootage = raw.source?.kind !== "none";
+  const neutral = overFootage ? BRAND.black : contrastOn(bg);
+  return {
+    bg,
+    accent,
+    accent2,
+    neutral,
+    onBg: contrastOn(bg),
+    onAccent: contrastOn(accent),
+    onAccent2: contrastOn(accent2),
+    onNeutral: contrastOn(neutral),
+  };
+}
+
 const CANVAS_PRESETS = [
   { id: "story", name: "Вертикальное 1080×1920", width: 1080, height: 1920 },
   { id: "square", name: "Квадрат 1080×1080", width: 1080, height: 1080 },
@@ -82,7 +128,7 @@ const str = (v, fallback = "") => (typeof v === "string" && v.trim() ? v.trim() 
 let seq = 0;
 const newId = () => `l${Date.now().toString(36)}${(seq++).toString(36)}`;
 
-function normalizeLayer(raw = {}, index = 0) {
+function normalizeLayer(raw = {}, index = 0, palette = buildPalette()) {
   const kind = LAYER_KINDS.some((k) => k.id === raw.kind) ? raw.kind : "pill";
   const base = {
     id: str(raw.id, newId()),
@@ -108,18 +154,23 @@ function normalizeLayer(raw = {}, index = 0) {
     return {
       ...base,
       text: str(raw.text, "ТЕКСТ"),
-      bg: str(raw.bg, index % 3 === 1 ? BRAND.pink : index % 3 === 2 ? BRAND.cyan : BRAND.black),
-      fg: str(raw.fg, index % 3 === 2 ? BRAND.black : BRAND.white),
+      // Плашки чередуют акцент, второй акцент и нейтральную подложку; цвет
+      // букв каждый раз берётся контрастным к своей подложке.
+      bg: str(raw.bg, index % 3 === 1 ? palette.accent : index % 3 === 2 ? palette.accent2 : palette.neutral),
+      fg: str(
+        raw.fg,
+        index % 3 === 1 ? palette.onAccent : index % 3 === 2 ? palette.onAccent2 : palette.onNeutral
+      ),
       font: str(raw.font, ""),
       fontSize: num(raw.fontSize, 72),
       radius: num(raw.radius, 0),
       borderWidth: num(raw.borderWidth, 0),
-      borderColor: str(raw.borderColor, BRAND.white),
+      borderColor: str(raw.borderColor, palette.onBg),
       // Скос даёт те самые угловатые параллелограммы вместо прямоугольников.
       skew: num(raw.skew, 0),
       glass: !!raw.glass,
       shadow: !!raw.shadow,
-      shadowColor: str(raw.shadowColor, BRAND.cyan),
+      shadowColor: str(raw.shadowColor, palette.accent2),
       uppercase: raw.uppercase !== false,
     };
   }
@@ -129,17 +180,17 @@ function normalizeLayer(raw = {}, index = 0) {
       steps: (Array.isArray(raw.steps) ? raw.steps : []).map((s2) => str(s2)).filter(Boolean),
       orientation: raw.orientation === "vertical" ? "vertical" : "horizontal",
       bg: str(raw.bg, ""),
-      accent: str(raw.accent, BRAND.pink),
+      accent: str(raw.accent, palette.accent),
       track: str(raw.track, "rgba(255,255,255,0.25)"),
       font: str(raw.font, ""),
       fontSize: num(raw.fontSize, 34),
-      fg: str(raw.fg, BRAND.white),
+      fg: str(raw.fg, palette.onBg),
       // Кружки-отметки на шкале: их часто хочется крупнее самого текста.
       dotSize: Math.max(4, num(raw.dotSize, 20)),
     };
   }
   if (kind === "icon") {
-    return { ...base, svg: str(raw.svg), color: str(raw.color, BRAND.cyan), size: num(raw.size, 160) };
+    return { ...base, svg: str(raw.svg), color: str(raw.color, palette.accent2), size: num(raw.size, 160) };
   }
   if (kind === "image") {
     return {
@@ -165,8 +216,8 @@ function normalizeLayer(raw = {}, index = 0) {
     return {
       ...base,
       size: num(raw.size, 340),
-      ringA: str(raw.ringA, BRAND.pink),
-      ringB: str(raw.ringB, BRAND.cyan),
+      ringA: str(raw.ringA, palette.accent),
+      ringB: str(raw.ringB, palette.accent2),
       ringWidth: num(raw.ringWidth, 10),
       // Откуда в исходном кадре вырезается лицо — заполняется в форме.
       cropX: num(raw.cropX, 0),
@@ -181,9 +232,9 @@ function normalizeLayer(raw = {}, index = 0) {
       hub: str(raw.hub, ""),
       nodes: (Array.isArray(raw.nodes) ? raw.nodes : []).map((n) => str(n)).filter(Boolean),
       accentNode: str(raw.accentNode, ""),
-      accent: str(raw.accent, BRAND.pink),
-      fg: str(raw.fg, BRAND.white),
-      nodeBg: str(raw.nodeBg, BRAND.black),
+      accent: str(raw.accent, palette.accent),
+      fg: str(raw.fg, palette.onNeutral),
+      nodeBg: str(raw.nodeBg, palette.neutral),
       font: str(raw.font, ""),
       fontSize: num(raw.fontSize, 28),
       // Насколько крупнее считанного по ширине делать узлы и плитки.
@@ -192,8 +243,8 @@ function normalizeLayer(raw = {}, index = 0) {
   }
   return {
     ...base,
-    from: str(raw.from, BRAND.pink),
-    to: str(raw.to, BRAND.cyan),
+    from: str(raw.from, palette.accent),
+    to: str(raw.to, palette.accent2),
     halftone: raw.halftone !== false,
     // Полноэкранная вставка закрывает видео целиком — звук при этом идёт дальше.
     opacity: Math.min(1, Math.max(0, num(raw.opacity, 1))),
@@ -203,7 +254,8 @@ function normalizeLayer(raw = {}, index = 0) {
 function normalizeSpec(raw = {}) {
   const preset =
     CANVAS_PRESETS.find((p) => p.id === raw.presetId) || CANVAS_PRESETS[0];
-  const layers = (Array.isArray(raw.layers) ? raw.layers : []).map(normalizeLayer);
+  const palette = buildPalette(raw);
+  const layers = (Array.isArray(raw.layers) ? raw.layers : []).map((l, i) => normalizeLayer(l, i, palette));
   const longest = layers.reduce((m, l) => Math.max(m, l.start + l.duration), 0);
   return {
     title: str(raw.title, "Ролик"),
@@ -219,7 +271,11 @@ function normalizeSpec(raw = {}) {
       query: str(raw.source?.query),
       trimStart: Math.max(0, num(raw.source?.trimStart, 0)),
     },
-    bgColor: str(raw.bgColor, BRAND.black),
+    bgColor: palette.bg,
+    // Акцентные цвета ролика: из них по умолчанию берут цвет плашки, иконки,
+    // шкалы и графики, и их же получает агент в моушн-режиме.
+    accentColor: palette.accent,
+    accent2Color: palette.accent2,
     musicPath: str(raw.musicPath),
     musicVolume: Math.min(2, Math.max(0, num(raw.musicVolume, 0.25))),
     // Длительность по умолчанию — пока идёт последний слой, но не меньше секунды.
@@ -1251,7 +1307,14 @@ function buildMotionPrompt({ spec, text, assets = [], referenceCount = 0 }) {
     "всё остальное появляется слоями.",
     "",
     `Холст ${spec.width}×${spec.height}, ${spec.fps} кадров в секунду, длительность ${spec.duration} с.`,
-    `Цвет фона: ${spec.bgColor}.`,
+    "",
+    "ПАЛИТРА — из неё и только из неё:",
+    `  фон ${spec.bgColor}`,
+    `  акцент ${spec.accentColor}`,
+    `  второй акцент ${spec.accent2Color}`,
+    "  Других цветов не придумывай. Цвета в JSON можно не указывать вообще —",
+    "  тогда слои возьмут палитру сами, и буквы будут контрастны своей подложке.",
+    "  Указывай цвет только там, где нужен именно акцент, а не умолчание.",
     "",
     "ТЕКСТ РОЛИКА:",
     text || "(текста нет — предложи структуру под тему)",
@@ -1343,4 +1406,6 @@ module.exports = {
   parseScenes,
   validateSpec,
   layerTitle,
+  buildPalette,
+  contrastOn,
 };

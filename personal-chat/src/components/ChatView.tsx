@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { ChatAttachment, ChatMessage, Conversation, MediaGenerationResult, Settings, Skill } from "../lib/types";
 import { MEDIA_SYNTAX_HINT, parseMediaRequest, uid, type ParsedMediaRequest } from "../lib/promptBuilder";
 import {
@@ -13,6 +13,7 @@ import { buildConversationExportHtml, buildMessageExportHtml, type BrandKit } fr
 import { CHART_SYNTAX_HINT } from "../lib/markdownRender";
 import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
 import Markdown from "./Markdown";
+import Thinking, { type ThinkingStage } from "./Thinking";
 
 interface Props {
   conversation: Conversation;
@@ -98,6 +99,54 @@ const ATTACHMENT_ICONS: Record<ChatAttachment["kind"], string> = {
   audio: "🎵",
   other: "📎",
 };
+
+/**
+ * Одно сообщение переписки, отделённое от остального чата и запомненное по props.
+ *
+ * Иначе каждая буква, набранная в поле ввода, перерисовывала бы всю переписку
+ * целиком: при 240 сообщениях это 7 мс на нажатие вместо 0,4 мс, и печатать в
+ * давно живущем чате становится физически неприятно. Сообщение меняется только
+ * когда меняется оно само, поэтому memo здесь честное, а не косметическое.
+ */
+const MessageRow = memo(function MessageRow({
+  message,
+  accentColor,
+  onExport,
+}: {
+  message: ChatMessage;
+  accentColor?: string;
+  onExport: (m: ChatMessage, format: ExportFormat) => void;
+}) {
+  return (
+    <div className={`msg msg-${message.role}`}>
+      <div className="msg-role">{message.role === "user" ? "Вы" : "Ассистент"}</div>
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="msg-attachments">
+          {message.attachments.map((att, i) => (
+            <span key={`${att.path}-${i}`} className="attachment-chip">
+              {ATTACHMENT_ICONS[att.kind]} {att.name}
+            </span>
+          ))}
+        </div>
+      )}
+      <Markdown text={message.content} accentColor={accentColor} />
+      <div className="msg-export-actions">
+        <button className="link-btn" onClick={() => onExport(message, "pdf")}>
+          Экспорт в PDF
+        </button>
+        <button className="link-btn" onClick={() => onExport(message, "png")}>
+          Экспорт в PNG
+        </button>
+        <button className="link-btn" onClick={() => onExport(message, "docx")}>
+          в Word
+        </button>
+        <button className="link-btn" onClick={() => onExport(message, "xlsx")}>
+          в Excel
+        </button>
+      </div>
+    </div>
+  );
+});
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
@@ -202,6 +251,8 @@ export default function ChatView({
   const [chatModels, setChatModels] = useState(CURATED_CHAT_MODELS);
   const [webToolsHint, setWebToolsHint] = useState("");
   const [webToolStatus, setWebToolStatus] = useState("");
+  // Момент отправки: по нему идут часы «сколько уже думает».
+  const [startedAt, setStartedAt] = useState(0);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attaching, setAttaching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -378,6 +429,7 @@ export default function ChatView({
     }
 
     setBusy(true);
+    setStartedAt(Date.now());
     setStreamingText("");
     const controller = new AbortController();
     abortRef.current = controller;
@@ -540,6 +592,25 @@ export default function ChatView({
       setFolding(false);
     }
   }
+
+  // Ссылка на обработчик обязана быть неизменной, иначе memo у строки сообщения
+  // ничего не даст: новая функция на каждый рендер = новые props = перерисовка.
+  const exportMessageRef = useCallback((m: ChatMessage, format: ExportFormat) => {
+    void exportMessage(m, format);
+    // exportMessage читает brand и projectId, но обе величины меняются только при
+    // смене проекта, а не при наборе текста.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, brand]);
+
+  // Стадия работы выводится из того, что уже происходит, а не хранится отдельно:
+  // одно состояние вместо трёх, которые можно рассинхронизировать.
+  const thinkingStage: ThinkingStage = webToolStatus
+    ? { kind: "tool", label: webToolStatus.replace(/^[^\p{L}\d]+/u, "").trim() || "Работаю" }
+    : streamingText
+      ? { kind: "writing", chars: streamingText.length }
+      : startedAt && Date.now() - startedAt < 1500
+        ? { kind: "sending" }
+        : { kind: "thinking" };
 
   async function exportMessage(m: ChatMessage, format: ExportFormat) {
     setExportError(null);
@@ -721,39 +792,13 @@ export default function ChatView({
           <div className="chat-empty-hint">{emptyHint ?? "Начните диалог — сообщение ниже."}</div>
         )}
         {conversation.messages.map((m) => (
-          <div key={m.id} className={`msg msg-${m.role}`}>
-            <div className="msg-role">{m.role === "user" ? "Вы" : "Ассистент"}</div>
-            {m.attachments && m.attachments.length > 0 && (
-              <div className="msg-attachments">
-                {m.attachments.map((att, i) => (
-                  <span key={`${att.path}-${i}`} className="attachment-chip">
-                    {ATTACHMENT_ICONS[att.kind]} {att.name}
-                  </span>
-                ))}
-              </div>
-            )}
-            <Markdown text={m.content} accentColor={brand?.accentColor} />
-            <div className="msg-export-actions">
-              <button className="link-btn" onClick={() => exportMessage(m, "pdf")}>
-                Экспорт в PDF
-              </button>
-              <button className="link-btn" onClick={() => exportMessage(m, "png")}>
-                Экспорт в PNG
-              </button>
-              <button className="link-btn" onClick={() => exportMessage(m, "docx")}>
-                в Word
-              </button>
-              <button className="link-btn" onClick={() => exportMessage(m, "xlsx")}>
-                в Excel
-              </button>
-            </div>
-          </div>
+          <MessageRow key={m.id} message={m} accentColor={brand?.accentColor} onExport={exportMessageRef} />
         ))}
         {busy && (
           <div className="msg msg-assistant">
             <div className="msg-role">Ассистент</div>
-            {webToolStatus && <div className="web-tool-status">{webToolStatus}</div>}
-            <Markdown text={streamingText || "…"} accentColor={brand?.accentColor} />
+            <Thinking stage={thinkingStage} since={startedAt} />
+            <Markdown text={streamingText} accentColor={brand?.accentColor} />
           </div>
         )}
         {error && <div className="chat-error">{error}</div>}

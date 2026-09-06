@@ -13,6 +13,23 @@ import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
 import ProblemReport from "./ProblemReport";
 import UsagePanel from "./UsagePanel";
 
+/**
+ * Причина падения от Chromium — по-русски. «oom» в этом списке важнее прочего:
+ * именно оно объясняет ощущение «приложение вдруг перезапустилось само».
+ */
+function crashReasonRu(reason: string): string {
+  const map: Record<string, string> = {
+    oom: "не хватило оперативной памяти",
+    crashed: "сбой в окне приложения",
+    killed: "процесс остановила система",
+    "abnormal-exit": "окно завершилось нештатно",
+    "launch-failed": "окно не удалось запустить",
+    "integrity-failure": "повреждён файл приложения",
+    "clean-exit": "штатное завершение",
+  };
+  return map[reason] || reason || "причина неизвестна";
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 ** 3).toFixed(1)} ГБ`;
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
@@ -35,6 +52,8 @@ export default function SettingsView({ settings, onChange }: Props) {
   const [testingProxy, setTestingProxy] = useState(false);
   const [report, setReport] = useState<StorageReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [cleared, setCleared] = useState("");
   // По одному состоянию на подключение: и успех, и отказ должны быть видны с
   // одного взгляда, а не одинаковым серым текстом.
   const [proxyStatus, setProxyStatus] = useState<ConnectionStatusValue | null>(null);
@@ -82,6 +101,24 @@ export default function SettingsView({ settings, onChange }: Props) {
       setReport(await window.api.getStorageReport());
     } finally {
       setReportLoading(false);
+    }
+  }
+
+  async function clearCache() {
+    setClearing(true);
+    setCleared("");
+    try {
+      const result = await window.api.clearCache();
+      setCleared(
+        result.freedBytes > 0
+          ? `Освобождено ${formatBytes(result.freedBytes)}.`
+          : "Кэш и так был пуст — чистить было нечего."
+      );
+      setReport(await window.api.getStorageReport());
+    } catch (e) {
+      setCleared(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -482,6 +519,38 @@ export default function SettingsView({ settings, onChange }: Props) {
             </>
           ) : (
             <p className="hint">Длинных чатов нет — сворачивать пока нечего.</p>
+          )}
+          <div className="cache-box">
+            <p className="hint">
+              Служебный кэш: <b>{formatBytes(report.cache.bytes)}</b>. Сюда браузерная часть
+              приложения складывает загруженные картинки, превью роликов со стока и иконки. Это не
+              ваши данные — проекты, переписки, документы и настройки лежат отдельно и очисткой не
+              затрагиваются. Кэш растёт сам и не убирается, поэтому со временем приложение
+              запускается и работает медленнее.
+            </p>
+            <div className="settings-actions">
+              <button className="btn btn-secondary" onClick={clearCache} disabled={clearing}>
+                {clearing ? "Очищаю…" : "Очистить кэш"}
+              </button>
+              {cleared && <span className="saved-note">{cleared}</span>}
+            </div>
+          </div>
+          {report.crashes.length > 0 && (
+            <div className="cache-box">
+              <p className="hint">
+                Окно приложения закрывалось само {report.crashes.length}{" "}
+                {report.crashes.length === 1 ? "раз" : "раз(а)"} — вот когда и почему. Эти же строки
+                попадают в отчёт о проблеме, кнопка выше.
+              </p>
+              <ul className="doc-list">
+                {report.crashes.slice(-5).reverse().map((c) => (
+                  <li key={c.at}>
+                    <span className="doc-name">{new Date(c.at).toLocaleString("ru-RU")}</span>
+                    <span className="doc-size">{crashReasonRu(c.причина)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}
