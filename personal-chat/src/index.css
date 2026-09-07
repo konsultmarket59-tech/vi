@@ -1731,3 +1731,129 @@ button.fin-row-x:hover { color: var(--accent); }
   min-height: 110px;
   resize: vertical;
 }
+
+/* Сцены и швы: строка на сцену, чтобы порядок и переходы читались сверху вниз. */
+.vs-scenes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* Имя vs-scene уже занято рамкой предпросмотра — строка сцены зовётся иначе,
+   иначе эти правила поехали бы по самому предпросмотру. */
+.vs-scene-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+}
+.vs-scene-row > input { flex: 1 1 120px; min-width: 90px; }
+.vs-scene-row label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+.vs-scene-row label input { width: 56px; }
+.vs-scene-row select { font-size: 12px; }
+.vs-scene-row > button {
+  margin-left: auto; border: none; background: none; cursor: pointer;
+  color: var(--text-dim); font-size: 14px; line-height: 1;
+}
+.vs-scene-row > button:hover { color: var(--danger); }
+.vs-scene-pick { flex-direction: column; align-items: stretch; gap: 6px; }
+
+/* Видеотека: список записей и источники ответа. */
+.lib-files { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.lib-file {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.lib-file-name { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-file-meta { color: var(--text-dim); font-size: 11px; }
+.lib-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  background: #eef8f1; color: #14602f; border: 1px solid #b7dfc2;
+}
+
+/* Источники нумерованы так же, как ссылки в ответе: [2] — второй пункт. */
+.lib-hits { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+.lib-hits li { font-size: 12px; line-height: 1.45; }
+.lib-hits b { display: block; color: var(--accent); }
+.lib-hits span { color: var(--text-dim); }
+
+/* Замечания к ответу: проверить должно быть проще, чем поверить. */
+.lib-check {
+  border: 1px solid #f0c2be; background: #fdefee; color: #8a2018;
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; line-height: 1.5;
+}
+.lib-check strong { display: block; margin-bottom: 4px; }
+.lib-check p { margin: 2px 0; }
+
+/* Каталог: соответствие посёлков, заготовки описаний, предпросмотр строк. */
+.cat-village { align-items: center; gap: 8px; }
+.cat-village > span:first-child { flex: 1 1 120px; font-size: 12px; }
+.cat-arrow { color: var(--text-dim); }
+.cat-village input { flex: 1 1 140px; }
+
+.cat-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.cat-card .vs-field { flex: 1 1 120px; }
+
+.cat-problems ul { max-height: 260px; overflow-y: auto; }
+.cat-problems li { font-size: 12px; line-height: 1.45; }
+
+.cat-rows { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.cat-row {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.cat-title { font-weight: 600; }
+.cat-meta { color: var(--text-dim); font-size: 11px; }
+/* Ярлык стадии: готовые дома должны опознаваться с одного взгляда. */
+.cat-mark {
+  flex: none; font-size: 10px; padding: 1px 7px; border-radius: 6px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.cat-mark-готов { background: #eef8f1; color: #14602f; border-color: #b7dfc2; }
+.cat-mark-стройка { background: #fdf6e3; color: #8a6d18; border-color: #e8d9a8; }
+.cat-mark-план { background: var(--bg-hover); }
+
+/* Таблица каталога: вид Тильды с правкой любой ячейки. */
+.cat-tabs {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); flex: none;
+}
+.cat-tabs-actions { margin-left: auto; display: flex; gap: 8px; }
+.cat-bar-note { margin: 8px 16px 0; }
+
+.cat-table-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.cat-table-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 8px 16px; flex: none;
+}
+.cat-table-scroll { flex: 1; overflow: auto; padding: 0 16px 16px; }
+.cat-table { border-collapse: collapse; font-size: 12px; }
+.cat-table th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  padding: 6px 8px; text-align: left; white-space: nowrap; font-weight: 600;
+}
+/* Ячейка показывает текст, а не поле ввода: полей на пять тысяч ячеек
+   браузер не выдержит, да и читать такую таблицу было бы нечем. */
+.cat-cell {
+  border: 1px solid var(--border); padding: 4px 8px; cursor: text;
+  max-width: 280px; vertical-align: top; position: relative;
+}
+.cat-cell:hover { background: var(--bg-hover); }
+.cat-cell-text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.cat-cell-edited { background: #fdf6e3; }
+.cat-cell-active { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cat-cell-reset {
+  position: absolute; top: 2px; right: 2px; border: none; background: none;
+  cursor: pointer; font-size: 11px; color: var(--text-dim); line-height: 1;
+}
+.cat-cell-reset:hover { color: var(--accent); }
+
+.cat-editor-panel {
+  margin: 0 16px 10px; padding: 10px 12px;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--bg-hover);
+}
+.cat-editor-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.cat-editor textarea { width: 100%; font-family: inherit; font-size: 13px; }
+.cat-editor-pick { margin-bottom: 6px; }
+.cat-editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cat-render-note { margin-top: -2px; }

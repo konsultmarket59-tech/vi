@@ -11,6 +11,9 @@ import type {
   StoryProbe,
   StoryCloudFolder,
   StoryProgress,
+  StoryScene,
+  StorySeamKind,
+  StorySeamDirection,
   StorySpec,
   StoryStockVideo,
 } from "../lib/types";
@@ -33,6 +36,8 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
   const [presets, setPresets] = useState<StoryPreset[]>([]);
   const [appearKinds, setAppearKinds] = useState<StoryLayerKind[]>([]);
   const [layerKinds, setLayerKinds] = useState<StoryLayerKind[]>([]);
+  const [seamKinds, setSeamKinds] = useState<{ id: string; name: string }[]>([]);
+  const [seamDirections, setSeamDirections] = useState<{ id: string; name: string }[]>([]);
   const [graphicsKinds, setGraphicsKinds] = useState<StoryLayerKind[]>([]);
   const [fonts, setFonts] = useState<StoryFont[]>([]);
 
@@ -57,6 +62,9 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
   const [fontFamily, setFontFamily] = useState("");
   const [outputDir, setOutputDir] = useState("");
   const [layers, setLayers] = useState<StoryLayer[]>([]);
+  // Сцены и швы между ними. Без сцен ролик работает как раньше — слои сами по
+  // себе; со сценами появляется склейка, которая ведёт взгляд от кадра к кадру.
+  const [scenes, setScenes] = useState<StoryScene[]>([]);
   const [selected, setSelected] = useState<string>("");
 
   const [probe, setProbe] = useState<StoryProbe | null>(null);
@@ -84,6 +92,8 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       setAppearKinds(o.appear);
       setLayerKinds(o.kinds);
       setGraphicsKinds(o.graphics);
+      setSeamKinds(o.seams);
+      setSeamDirections(o.seamDirections);
     });
     window.api.storiesFonts().then(setFonts).catch(() => setFonts([]));
     return window.api.onStoriesProgress((p) => {
@@ -111,9 +121,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       musicVolume: 0.25,
       fonts: fontFamily ? fonts.filter((f) => f.family === fontFamily) : [],
       references,
+      scenes,
       layers,
     }),
-    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, accentColor, accent2Color, musicPath, fontFamily, fonts, references, layers]
+    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, accentColor, accent2Color, musicPath, fontFamily, fonts, references, scenes, layers]
   );
 
   // Сцена и замечания пересобираются на каждую правку: композицию видно сразу,
@@ -316,6 +327,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       return;
     }
     setLayers(parsed.layers);
+    if (parsed.scenes?.length) setScenes(parsed.scenes);
     if (parsed.duration) setDuration(String(parsed.duration));
     setApplied(`Подставлено слоёв: ${parsed.layers.length}. Проверьте в предпросмотре и правьте руками.`);
   }
@@ -625,6 +637,132 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
             </section>
 
             <section className="vs-block">
+              <h3>Сцены и переходы</h3>
+              <p className="vs-hint">
+                Ролик из сцен читается как один проезд камеры, а не как стопка слайдов: как сцена
+                уходит — так следующая и приходит. Без сцен всё работает как раньше.
+              </p>
+              <div className="vs-scenes">
+                {scenes.map((sc, i) => (
+                  <div key={sc.id} className="vs-scene-row">
+                    <input
+                      value={sc.title}
+                      onChange={(e) =>
+                        setScenes((prev) => prev.map((x) => (x.id === sc.id ? { ...x, title: e.target.value } : x)))
+                      }
+                    />
+                    <label>
+                      с
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={sc.start}
+                        onChange={(e) =>
+                          setScenes((prev) =>
+                            prev.map((x) => (x.id === sc.id ? { ...x, start: Number(e.target.value) } : x))
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      длит.
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={sc.duration}
+                        onChange={(e) =>
+                          setScenes((prev) =>
+                            prev.map((x) => (x.id === sc.id ? { ...x, duration: Number(e.target.value) } : x))
+                          )
+                        }
+                      />
+                    </label>
+                    {i > 0 && (
+                      <>
+                        <select
+                          value={sc.seam?.kind || "cut-the-curve"}
+                          onChange={(e) =>
+                            setScenes((prev) =>
+                              prev.map((x) =>
+                                x.id === sc.id
+                                  ? { ...x, seam: { ...(x.seam || {}), kind: e.target.value as StorySeamKind } }
+                                  : x
+                              )
+                            )
+                          }
+                        >
+                          {seamKinds.map((k) => (
+                            <option key={k.id} value={k.id}>
+                              {k.name}
+                            </option>
+                          ))}
+                        </select>
+                        {(sc.seam?.kind || "cut-the-curve") === "cut-the-curve" && (
+                          <select
+                            value={sc.seam?.direction || "left"}
+                            onChange={(e) =>
+                              setScenes((prev) =>
+                                prev.map((x) =>
+                                  x.id === sc.id
+                                    ? {
+                                        ...x,
+                                        seam: {
+                                          ...(x.seam || { kind: "cut-the-curve" }),
+                                          direction: e.target.value as StorySeamDirection,
+                                        },
+                                      }
+                                    : x
+                                )
+                              )
+                            }
+                          >
+                            {seamDirections.map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </>
+                    )}
+                    <button
+                      onClick={() => {
+                        setScenes((prev) => prev.filter((x) => x.id !== sc.id));
+                        setLayers((prev) =>
+                          prev.map((l) => (l.sceneId === sc.id ? { ...l, sceneId: undefined } : l))
+                        );
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                className="btn btn-secondary btn-small"
+                onClick={() => {
+                  const last = scenes[scenes.length - 1];
+                  const start = last ? last.start + last.duration : 0;
+                  setScenes([
+                    ...scenes,
+                    {
+                      id: `sc${Date.now().toString(36)}`,
+                      title: `Сцена ${scenes.length + 1}`,
+                      start,
+                      duration: 3,
+                      seam: { kind: "cut-the-curve", direction: "left" },
+                    },
+                  ]);
+                }}
+              >
+                + Сцена
+              </button>
+              {!scenes.length && (
+                <p className="vs-hint">Сцен нет — переходов между кадрами тоже не будет.</p>
+              )}
+            </section>
+
+            <section className="vs-block">
               <h3>Слои</h3>
               <div className="vs-add">
                 {layerKinds.map((k) => (
@@ -662,6 +800,30 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
             {active && (
               <section className="vs-block">
                 <h3>Настройки слоя</h3>
+                <div className="vs-row vs-scene-pick">
+                  <label className="vs-field">
+                    Сцена
+                    <select
+                      value={(active.sceneId as string) || ""}
+                      onChange={(e) => patch(active.id, { sceneId: e.target.value || undefined })}
+                    >
+                      <option value="">вне сцен (не уезжает на склейках)</option>
+                      {scenes.map((sc) => (
+                        <option key={sc.id} value={sc.id}>
+                          {sc.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="vs-check">
+                    <input
+                      type="checkbox"
+                      checked={!!active.waterfall}
+                      onChange={(e) => patch(active.id, { waterfall: e.target.checked })}
+                    />
+                    Каскад: слова влетают по очереди
+                  </label>
+                </div>
                 <div className="vs-move">
                   <div className="vs-pad">
                     <button onClick={() => nudge(0, -1)} title="Выше">↑</button>

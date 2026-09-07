@@ -3,6 +3,7 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const { proxyAwareFetch, setProxyCredentials } = require("./netFetch.cjs");
 
 // Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, web
@@ -2825,6 +2826,8 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
 const dataviz = require("./dataviz.cjs");
 const finmodel = require("./finmodel.cjs");
 const videostories = require("./videostories.cjs");
+const library = require("./library.cjs");
+const catalog = require("./catalog.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -3128,6 +3131,8 @@ ipcMain.handle("stories:options", () => ({
   appear: videostories.APPEAR,
   kinds: videostories.LAYER_KINDS,
   graphics: videostories.GRAPHICS_KINDS,
+  seams: videostories.SEAM_KINDS,
+  seamDirections: videostories.SEAM_DIRECTIONS,
   brand: videostories.BRAND,
 }));
 
@@ -3139,7 +3144,7 @@ ipcMain.handle("stories:searchIcons", (_e, query) => videostories.searchIcons(qu
 ipcMain.handle("stories:icon", (_e, id, color) => videostories.fetchIconSvg(id, color));
 ipcMain.handle("stories:readSvg", (_e, file) => fs.readFile(file, "utf-8"));
 ipcMain.handle("stories:searchStock", async (_e, query, orientation) => {
-  const settings = await readSettings();
+  const settings = await loadSettings();
   return videostories.searchStock(query, settings.pexelsKey, orientation);
 });
 
@@ -3321,6 +3326,413 @@ ipcMain.handle("stories:render", async (event, payload) => {
     await fs.rm(work, { recursive: true, force: true }).catch(() => {});
   }
 });
+
+// ---------- каталог для Тильды ----------
+
+function catalogConfigFile(root) {
+  return path.join(root, "catalog", "config.json");
+}
+
+async function loadCatalogConfig() {
+  const root = await getRootPath();
+  try {
+    return JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+  } catch {
+    return {
+      exportPath: "",
+      previousPath: "",
+      outputDir: "",
+      villages: {},
+      // Исключения по улицам: в одном посёлке 1С бывает несколько кварталов с
+      // разными названиями на витрине.
+      streetNames: [],
+      // Все фото из выгрузки. У домов их до семи, и терять шесть из них,
+      // отдавая витрине одно, незачем.
+      photoMode: "all",
+      // Каталог на сайте заливается заново: старые номера позиций указывали бы
+      // на удалённые товары, поэтому по умолчанию они не переносятся.
+      carryIds: false,
+    };
+  }
+}
+
+async function saveCatalogConfig(config) {
+  const root = await getRootPath();
+  await fs.mkdir(path.join(root, "catalog"), { recursive: true });
+  const merged = { ...(await loadCatalogConfig()), ...config };
+  await fs.writeFile(catalogConfigFile(root), JSON.stringify(merged, null, 2), "utf-8");
+  return merged;
+}
+
+ipcMain.handle("catalog:config", () => loadCatalogConfig());
+ipcMain.handle("catalog:saveConfig", (_e, config) => saveCatalogConfig(config));
+ipcMain.handle("catalog:library", async () => catalog.readLibrary(await getRootPath()));
+ipcMain.handle("catalog:saveLibrary", async (_e, items) => catalog.writeLibrary(await getRootPath(), items));
+
+ipcMain.handle("catalog:pick", async (_e, what) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (what === "outputDir") {
+    const r = await dialog.showOpenDialog(win, { title: "Куда сохранить каталог", properties: ["openDirectory", "createDirectory"] });
+    return r.canceled ? "" : r.filePaths[0];
+  }
+  const filters =
+    what === "export"
+      ? [{ name: "Выгрузка 1С", extensions: ["xlsx", "xlsm"] }]
+      : what === "previous"
+        ? [{ name: "Файл каталога", extensions: ["csv"] }]
+        : what === "render"
+        ? [{ name: "Изображение", extensions: ["png", "jpg", "jpeg", "webp", "avif"] }]
+        : [{ name: "Описание", extensions: ["txt", "md", "docx", "doc", "rtf"] }];
+  const r = await dialog.showOpenDialog(win, { title: "Выберите файл", properties: ["openFile"], filters });
+  return r.canceled ? "" : r.filePaths[0];
+});
+
+/**
+ * Сборка каталога. Один путь и для предпросмотра, и для записи файла: показать
+ * человеку одно, а сохранить другое — самый простой способ его подвести.
+ */
+async function assembleCatalog() {
+  const config = await loadCatalogConfig();
+  if (!config.exportPath) throw new Error("Не выбрана выгрузка из 1С.");
+  const root = await getRootPath();
+  const source = await catalog.readExport(config.exportPath);
+  const previous = config.previousPath ? await catalog.readPrevious(config.previousPath) : null;
+
+  // Соответствие имён посёлков достаётся из прошлого каталога: как посёлок
+  // назван на витрине, там уже решено. Ручные правки из настроек важнее.
+  // Имена посёлков из прошлого каталога — только ПОДСКАЗКА, а не истина: в
+  // нынешнем файле они местами неверны (весь КРП лежит в «Самоцветах», хотя к
+  // этому кварталу относится одна улица). Ручные настройки перекрывают их.
+  const villages = {};
+  if (previous) {
+    for (const item of [...source.houses, ...source.plots]) {
+      const name = previous.villages.get(item.cadastral);
+      if (name) villages[item.village] = name;
+    }
+  }
+  Object.assign(villages, config.villages || {});
+
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  const result = catalog.buildCatalog({
+    houses: source.houses,
+    plots: source.plots,
+    library,
+    villages,
+    streetNames: config.streetNames || [],
+    previous,
+    photoMode: config.photoMode,
+    carryIds: !!config.carryIds,
+  });
+  for (const item of library) if (item.error) result.problems.unshift(item.error);
+  return { ...result, villages, config, source };
+}
+
+ipcMain.handle("catalog:preview", async () => {
+  const result = await assembleCatalog();
+  // Список улиц по посёлкам нужен окну, чтобы исключение можно было выбрать, а
+  // не печатать название улицы вручную и промахиваться в опечатке.
+  const streets = {};
+  for (const item of [...result.source.houses, ...result.source.plots]) {
+    if (!item.street) continue;
+    (streets[item.village] = streets[item.village] || new Set()).add(item.street);
+  }
+  return {
+    problems: result.problems,
+    counts: result.counts,
+    villages: result.villages,
+    streets: Object.fromEntries(Object.entries(streets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "ru"))])),
+    // Первые двадцать строк — увидеть порядок и заполненность, не пересылая
+    // в окно весь каталог.
+    sample: result.rows.slice(0, 20),
+    total: result.rows.length,
+  };
+});
+
+/**
+ * Вся таблица в том виде, в каком её ждёт магазин, — плюс ручные правки.
+ *
+ * Отдаётся целиком: человек смотрит и правит именно то, что уедет в файл, а не
+ * образец из двадцати строк. Двести позиций на двадцать семь колонок окно
+ * выдерживает; резать здесь было бы враньём — правка ушла бы в невидимую часть.
+ */
+ipcMain.handle("catalog:table", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const edits = await catalog.readEdits(root);
+  const applied = catalog.applyEdits(result.rows, edits);
+  const streets = {};
+  for (const item of [...result.source.houses, ...result.source.plots]) {
+    if (!item.street) continue;
+    (streets[item.village] = streets[item.village] || new Set()).add(item.street);
+  }
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  return {
+    columns: catalog.TILDA_COLUMNS,
+    rows: applied.rows,
+    edited: applied.touched,
+    problems: result.problems.concat(
+      applied.orphaned.length
+        ? [`Правки к ${applied.orphaned.length} позиц. остались от прошлой выгрузки — этих позиций в текущей нет.`]
+        : []
+    ),
+    counts: result.counts,
+    villages: result.villages,
+    streets: Object.fromEntries(Object.entries(streets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "ru"))])),
+    // Список заготовок для выбора описания прямо в ячейке.
+    library: library.map((item) => ({
+      id: item.id,
+      label: catalog.describeLibraryItem(item),
+      text: item.text || "",
+    })),
+  };
+});
+
+ipcMain.handle("catalog:edits", async () => catalog.readEdits(await getRootPath()));
+ipcMain.handle("catalog:saveEdits", async (_e, edits) => catalog.writeEdits(await getRootPath(), edits || {}));
+
+/**
+ * Выгрузка. Два файла рядом: CSV забирает магазин, книгу Excel смотрит человек.
+ */
+ipcMain.handle("catalog:build", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const dir = result.config.outputDir;
+  if (!dir) throw new Error("Не выбрана папка, куда сохранить каталог.");
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
+  await fs.mkdir(dir, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const csvFile = path.join(dir, `каталог-${stamp}.csv`);
+  const xlsxFile = path.join(dir, `каталог-${stamp}.xlsx`);
+  // BOM в начале: без него магазин читает кириллицу как набор знаков.
+  await fs.writeFile(csvFile, "\ufeff" + catalog.toCsv(rows), "utf-8");
+  await catalog.toXlsx(rows, xlsxFile);
+  return { csvFile, xlsxFile, rows: rows.length, problems: result.problems };
+});
+
+// ---------- видеотека ----------
+//
+// Записи не копируются: человек указывает папку, приложение читает файлы на
+// месте и хранит только расшифровку. Двадцать часов записей — это гигабайты
+// видео и примерно мегабайт текста.
+
+function libraryConfigFile(root) {
+  return path.join(root, "library", "config.json");
+}
+
+async function loadLibraryConfig() {
+  const root = await getRootPath();
+  try {
+    return JSON.parse(await fs.readFile(libraryConfigFile(root), "utf-8"));
+  } catch {
+    return {
+      folderPath: "",
+      // Локально по умолчанию: материал не покидает компьютер. Платный путь
+      // включается только руками — на записях бывают клиентские дела.
+      engine: "local",
+      binPath: "",
+      modelPath: "",
+      threads: Math.max(2, Math.min(8, os.cpus().length - 1)),
+      remoteModel: "whisper-1",
+      language: "ru",
+    };
+  }
+}
+
+async function saveLibraryConfig(config) {
+  const root = await getRootPath();
+  await fs.mkdir(path.join(root, "library"), { recursive: true });
+  const merged = { ...(await loadLibraryConfig()), ...config };
+  await fs.writeFile(libraryConfigFile(root), JSON.stringify(merged, null, 2), "utf-8");
+  return merged;
+}
+
+ipcMain.handle("library:config", () => loadLibraryConfig());
+ipcMain.handle("library:saveConfig", (_e, config) => saveLibraryConfig(config));
+
+ipcMain.handle("library:pickFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Папка с записями",
+    properties: ["openDirectory"],
+  });
+  return result.canceled ? "" : result.filePaths[0];
+});
+
+ipcMain.handle("library:pickFile", async (_e, title) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { title: title || "Выберите файл", properties: ["openFile"] });
+  return result.canceled ? "" : result.filePaths[0];
+});
+
+ipcMain.handle("library:engineStatus", async () => {
+  const config = await loadLibraryConfig();
+  return library.localEngineStatus(config);
+});
+
+/** Что лежит в папке и что из этого уже расшифровано. */
+ipcMain.handle("library:scan", async () => {
+  const config = await loadLibraryConfig();
+  if (!config.folderPath) return { files: [], missing: false };
+  const root = await getRootPath();
+  let files;
+  try {
+    files = await library.scanFolder(config.folderPath);
+  } catch {
+    return { files: [], missing: true };
+  }
+  const docs = await library.listDocs(root);
+  const byPath = new Map(docs.map((d) => [d.path, d]));
+  return {
+    files: files.map((f) => {
+      const doc = byPath.get(f.path);
+      return {
+        ...f,
+        transcribed: !!doc,
+        seconds: doc?.seconds || 0,
+        chunks: doc?.chunks?.length || 0,
+        transcribedAt: doc?.transcribedAt || 0,
+        engine: doc?.engine || "",
+      };
+    }),
+    // Расшифровки записей, которых в папке больше нет: файл переименовали или
+    // унесли. Молча держать их в поиске нельзя — по ссылке будет некуда пойти.
+    orphans: docs.filter((d) => !files.some((f) => f.path === d.path)).map((d) => ({ path: d.path, name: d.name })),
+    missing: false,
+  };
+});
+
+// Очередь расшифровки живёт в главном процессе: она идёт часами, и переживать
+// перерисовки окна ей нельзя.
+let libraryQueue = null;
+
+ipcMain.handle("library:transcribe", async (event, paths) => {
+  if (libraryQueue) throw new Error("Расшифровка уже идёт.");
+  const config = await loadLibraryConfig();
+  const root = await getRootPath();
+  const bin = ffmpegPath();
+  const settings = await loadSettings();
+  const send = (payload) => event.sender.send("library-progress", payload);
+
+  if (config.engine === "local") {
+    const status = library.localEngineStatus(config);
+    if (!status.ready) throw new Error(status.reason);
+  }
+
+  const queue = { stopped: false };
+  libraryQueue = queue;
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "library-"));
+  const done = [];
+  const failed = [];
+
+  try {
+    for (let i = 0; i < paths.length; i++) {
+      if (queue.stopped) break;
+      const filePath = paths[i];
+      const name = path.basename(filePath);
+      send({ stage: "file", index: i, total: paths.length, name, done: done.length });
+      try {
+        const seconds = await library.probeDuration(bin, filePath);
+        let segments;
+        if (config.engine === "local") {
+          const wav = path.join(work, "audio.wav");
+          send({ stage: "audio", index: i, total: paths.length, name });
+          await library.extractAudio(bin, filePath, wav);
+          send({ stage: "transcribe", index: i, total: paths.length, name, progress: 0 });
+          segments = await library.transcribeLocal({
+            binPath: config.binPath,
+            modelPath: config.modelPath,
+            wavPath: wav,
+            language: config.language || "ru",
+            threads: config.threads,
+            onProgress: (progress) =>
+              send({ stage: "transcribe", index: i, total: paths.length, name, progress }),
+          });
+          await fs.rm(wav, { force: true });
+          await fs.rm(wav.replace(/\.wav$/, ".srt"), { force: true });
+        } else {
+          const audio = path.join(work, "audio.opus");
+          send({ stage: "audio", index: i, total: paths.length, name });
+          await library.extractAudioCompressed(bin, filePath, audio);
+          send({ stage: "transcribe", index: i, total: paths.length, name, progress: 0 });
+          segments = await library.transcribeRemote({
+            baseUrl: settings.baseUrl,
+            apiKey: settings.apiKey,
+            model: config.remoteModel || "whisper-1",
+            audioPath: audio,
+            language: config.language || "ru",
+          });
+          await fs.rm(audio, { force: true });
+        }
+
+        const chunks = library.buildChunks(segments);
+        await library.writeDoc(root, {
+          path: filePath,
+          name,
+          kind: library.kindOf(name),
+          seconds,
+          engine: config.engine,
+          transcribedAt: Date.now(),
+          segments,
+          chunks,
+        });
+        done.push(filePath);
+      } catch (e) {
+        // Одна сорвавшаяся запись не должна останавливать всю ночь работы.
+        failed.push({ path: filePath, error: e instanceof Error ? e.message : String(e) });
+        send({ stage: "failed", index: i, total: paths.length, name, error: String(e && e.message) });
+      }
+    }
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+    libraryQueue = null;
+  }
+  send({ stage: "done", done: done.length, failed: failed.length, stopped: queue.stopped });
+  return { done: done.length, failed, stopped: queue.stopped };
+});
+
+ipcMain.handle("library:stop", () => {
+  if (libraryQueue) libraryQueue.stopped = true;
+  return true;
+});
+
+ipcMain.handle("library:forget", async (_e, filePath) => {
+  await library.removeDoc(await getRootPath(), filePath);
+  return true;
+});
+
+/** Поиск по расшифровкам и задание для модели — строго по источникам. */
+ipcMain.handle("library:ask", async (_e, question) => {
+  const root = await getRootPath();
+  const docs = await library.listDocs(root);
+  const index = library.buildIndex(docs);
+  const hits = library.search(index, question, 14);
+  return {
+    prompt: library.buildAnswerPrompt({ question, hits }),
+    hits,
+    searched: index.total,
+    files: docs.length,
+  };
+});
+
+/** Пересказ одной записи целиком: в модель уходит вся её расшифровка. */
+ipcMain.handle("library:retell", async (_e, filePath) => {
+  const root = await getRootPath();
+  const doc = await library.readDoc(root, filePath);
+  if (!doc) throw new Error("Эта запись ещё не расшифрована.");
+  const hits = (doc.chunks || []).map((c) => ({ ...c, name: doc.name, file: doc.path }));
+  return {
+    prompt: library.buildAnswerPrompt({
+      question: `Перескажи запись «${doc.name}» целиком.`,
+      hits,
+      mode: "retell",
+    }),
+    hits,
+    searched: hits.length,
+    files: 1,
+  };
+});
+
+ipcMain.handle("library:verify", (_e, answer, hits) => library.verifyCitations(answer, hits));
 
 // ---------- финмодель ----------
 

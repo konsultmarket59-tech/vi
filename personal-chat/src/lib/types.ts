@@ -228,6 +228,144 @@ export interface CrashEntry {
   код: number | null;
 }
 
+// ---------- каталог для Тильды ----------
+
+export interface CatalogConfig {
+  exportPath: string;
+  previousPath: string;
+  outputDir: string;
+  /** Имя посёлка в 1С → имя на витрине. Из прошлого каталога берётся подсказка. */
+  villages: Record<string, string>;
+  /**
+   * Исключения по улицам: в одном посёлке 1С бывает несколько кварталов, у
+   * которых на витрине разные названия.
+   */
+  streetNames: { village: string; street: string; name: string }[];
+  /** «all» — все фото из выгрузки, «first» — только первое. */
+  photoMode: "all" | "first";
+  /**
+   * Переносить ли номера позиций магазина из прошлого каталога. Нужно только
+   * при обновлении существующего каталога; при заливке заново старые номера
+   * указывали бы на удалённые товары.
+   */
+  carryIds: boolean;
+}
+
+/** Заготовка описания: одна на вариацию «площадь + облицовка». */
+export interface CatalogDescription {
+  id: string;
+  name: string;
+  area: number;
+  cladding: string;
+  /** Путь к файлу описания на компьютере — читается при каждой сборке. */
+  textPath: string;
+  /** Ссылки на рендеры. Именно ссылки: в каталог нельзя положить файл с диска. */
+  renderUrls: string[];
+  /** Локальные пути к рендерам — напоминание, что их надо загрузить на сайт. */
+  renderPaths: string[];
+}
+
+/** Ручные правки: кадастровый номер → колонка → значение. */
+export type CatalogEdits = Record<string, Record<string, string>>;
+
+export interface CatalogTable {
+  columns: string[];
+  rows: Record<string, string>[];
+  edited: { sku: string; column: string }[];
+  problems: string[];
+  counts: { houses: number; plots: number; gone: number };
+  villages: Record<string, string>;
+  streets: Record<string, string[]>;
+  /** Заготовки описаний — для выбора прямо в ячейке. */
+  library: { id: string; label: string; text: string }[];
+}
+
+export interface CatalogPreview {
+  problems: string[];
+  counts: { houses: number; plots: number; gone: number };
+  villages: Record<string, string>;
+  /** Улицы по посёлкам — чтобы исключение выбиралось списком, а не печаталось. */
+  streets: Record<string, string[]>;
+  sample: Record<string, string>[];
+  total: number;
+}
+
+// ---------- видеотека ----------
+
+export interface LibraryConfig {
+  /** Папка с записями. Файлы читаются на месте и никуда не копируются. */
+  folderPath: string;
+  /** «local» — расшифровка на этом компьютере; «remote» — платный сервис. */
+  engine: "local" | "remote";
+  binPath: string;
+  modelPath: string;
+  threads: number;
+  remoteModel: string;
+  language: string;
+}
+
+export interface LibraryFile {
+  path: string;
+  name: string;
+  folder: string;
+  kind: string;
+  bytes: number;
+  modified: number;
+  transcribed: boolean;
+  seconds: number;
+  chunks: number;
+  transcribedAt: number;
+  engine: string;
+}
+
+export interface LibraryScan {
+  files: LibraryFile[];
+  orphans?: { path: string; name: string }[];
+  missing: boolean;
+}
+
+export interface LibraryEngineStatus {
+  ready: boolean;
+  bin: boolean;
+  model: boolean;
+  reason: string;
+}
+
+/** Кусок расшифровки — то, на что ссылается ответ. */
+export interface LibraryHit {
+  file: string;
+  name: string;
+  from: number;
+  to: number;
+  text: string;
+}
+
+export interface LibraryQuestion {
+  prompt: string;
+  hits: LibraryHit[];
+  searched: number;
+  files: number;
+}
+
+export interface LibraryCheck {
+  problems: string[];
+  /** Сколько утверждений в ответе остались без ссылки на источник. */
+  unsupported: number;
+  used: number[];
+}
+
+export interface LibraryProgress {
+  stage: "file" | "audio" | "transcribe" | "failed" | "done";
+  index?: number;
+  total?: number;
+  name?: string;
+  progress?: number;
+  done?: number;
+  failed?: number;
+  error?: string;
+  stopped?: boolean;
+}
+
 export interface AppConfig {
   rootPath: string;
 }
@@ -799,7 +937,34 @@ export interface StoryLayer {
   width: number;
   /** Общий масштаб слоя: 1 — как есть, 1.5 — в полтора раза крупнее. */
   scale: number;
+  /** К какой сцене принадлежит слой. Пусто — слой поверх всех сцен и склейками не задет. */
+  sceneId?: string;
+  /** Части слоя влетают каскадом одна за другой, а не появляются разом. */
+  waterfall?: boolean;
+  /** Сдвиг уже сложившейся группы по кривой «медленно — быстро — медленно». */
+  nudge?: { at: number; dur: number; dx: number; dy: number } | null;
   [extra: string]: unknown;
+}
+
+/** Каким приёмом склеены две сцены. */
+export type StorySeamKind = "cut-the-curve" | "zoom-through" | "inverse-zoom" | "rack-focus" | "none";
+export type StorySeamDirection = "left" | "right" | "up" | "down";
+
+export interface StorySeam {
+  kind: StorySeamKind;
+  direction?: StorySeamDirection;
+  blur?: number;
+  exitDur?: number;
+  entryDur?: number;
+}
+
+export interface StoryScene {
+  id: string;
+  title: string;
+  start: number;
+  duration: number;
+  /** Шов, которым эта сцена ПРИХОДИТ. Он же ведёт уход предыдущей. */
+  seam?: StorySeam;
 }
 
 export interface StorySpec {
@@ -811,6 +976,11 @@ export interface StorySpec {
   /** «none» — моушн-дизайн без съёмки: подложка рисуется цветом. */
   source: { kind: "file" | "stock" | "none"; path: string; query: string; trimStart: number };
   bgColor: string;
+  /**
+   * Сцены и швы между ними. Пусто — ролик работает как раньше, слои живут сами
+   * по себе; со сценами появляется склейка, ведущая взгляд от кадра к кадру.
+   */
+  scenes: StoryScene[];
   /** Акцентные цвета ролика: из них берут умолчания плашки, иконки, шкалы, графики. */
   accentColor: string;
   accent2Color: string;
@@ -1083,6 +1253,33 @@ export interface ElectronAPI {
   ): Promise<{ path: string }>;
   getStorageReport(): Promise<StorageReport>;
   clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
+
+  // каталог для Тильды
+  catalogConfig(): Promise<CatalogConfig>;
+  catalogSaveConfig(config: Partial<CatalogConfig>): Promise<CatalogConfig>;
+  catalogLibrary(): Promise<CatalogDescription[]>;
+  catalogSaveLibrary(items: CatalogDescription[]): Promise<CatalogDescription[]>;
+  catalogPick(what: "export" | "previous" | "outputDir" | "text" | "render"): Promise<string>;
+  catalogPreview(): Promise<CatalogPreview>;
+  catalogTable(): Promise<CatalogTable>;
+  catalogEdits(): Promise<CatalogEdits>;
+  catalogSaveEdits(edits: CatalogEdits): Promise<CatalogEdits>;
+  catalogBuild(): Promise<{ csvFile: string; xlsxFile: string; rows: number; problems: string[] }>;
+
+  // видеотека
+  libraryConfig(): Promise<LibraryConfig>;
+  librarySaveConfig(config: Partial<LibraryConfig>): Promise<LibraryConfig>;
+  libraryPickFolder(): Promise<string>;
+  libraryPickFile(title?: string): Promise<string>;
+  libraryEngineStatus(): Promise<LibraryEngineStatus>;
+  libraryScan(): Promise<LibraryScan>;
+  libraryTranscribe(paths: string[]): Promise<{ done: number; failed: { path: string; error: string }[]; stopped: boolean }>;
+  libraryStop(): Promise<boolean>;
+  libraryForget(filePath: string): Promise<boolean>;
+  libraryAsk(question: string): Promise<LibraryQuestion>;
+  libraryRetell(filePath: string): Promise<LibraryQuestion>;
+  libraryVerify(answer: string, hits: LibraryHit[]): Promise<LibraryCheck>;
+  onLibraryProgress(handler: (payload: LibraryProgress) => void): () => void;
   pastCrashes(): Promise<CrashEntry[]>;
   onCrashed(handler: (entry: CrashEntry) => void): () => void;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
@@ -1307,6 +1504,8 @@ export interface ElectronAPI {
     appear: StoryLayerKind[];
     kinds: StoryLayerKind[];
     graphics: StoryLayerKind[];
+    seams: StoryLayerKind[];
+    seamDirections: StoryLayerKind[];
     brand: Record<string, string>;
   }>;
   storiesFonts(): Promise<StoryFont[]>;
@@ -1329,7 +1528,7 @@ export interface ElectronAPI {
     images: ChatAttachment[];
     problems: string[];
   }>;
-  parseStoriesScript(text: string): Promise<{ duration: number; layers: StoryLayer[] } | null>;
+  parseStoriesScript(text: string): Promise<{ duration: number; scenes?: StoryScene[]; layers: StoryLayer[] } | null>;
   prepareStoriesMotion(request: {
     spec: Partial<StorySpec>;
     text: string;

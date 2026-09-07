@@ -117,6 +117,68 @@ const GRAPHICS_KINDS = [
   { id: "bars", name: "Диаграмма-столбцы" },
 ];
 
+/**
+ * Швы между сценами — каталог приёмов из доктрины движения HyperFrames
+ * (Apache-2.0, heygen-com/hyperframes), уложенный на здешний движок.
+ *
+ * Закон вектора: как сцена уходит — так следующая и приходит. Та же ось, то же
+ * направление, та же скорость в точке склейки. Иначе взгляд на каждой склейке
+ * останавливается и ролик распадается на стопку слайдов, анимированных порознь.
+ *
+ * По оси Z «то же направление» — это ЗНАК изменения масштаба: растёт = камера
+ * идёт вперёд, уменьшается = камера отъезжает. Уход вглубь, отвеченный приходом
+ * «вырастаю из маленького», — самое частое нарушение, потому что вырастание из
+ * маленького и есть появление по умолчанию.
+ */
+const SEAM_KINDS = [
+  { id: "cut-the-curve", name: "Срез по дуге (по умолчанию)", axis: "xy" },
+  { id: "zoom-through", name: "Пролёт вперёд", axis: "z", sign: "push" },
+  { id: "inverse-zoom", name: "Отъезд назад", axis: "z", sign: "pull" },
+  { id: "rack-focus", name: "Перевод фокуса", axis: "focus" },
+  { id: "none", name: "Без перехода", axis: "none" },
+];
+
+const SEAM_DIRECTIONS = [
+  { id: "left", name: "влево" },
+  { id: "right", name: "вправо" },
+  { id: "up", name: "вверх" },
+  { id: "down", name: "вниз" },
+];
+
+/** Длительности из каталога: они выверены под скорость, а не под красоту. */
+const SEAM_TIMING = {
+  "cut-the-curve": { exitDur: 0.3, entryDur: 0.35 },
+  "zoom-through": { exitDur: 0.2, entryDur: 0.5 },
+  "inverse-zoom": { exitDur: 0.2, entryDur: 0.5 },
+  "rack-focus": { exitDur: 0.2, entryDur: 0.4 },
+  none: { exitDur: 0, entryDur: 0 },
+};
+
+function normalizeSeam(raw = {}) {
+  const kind = SEAM_KINDS.some((k) => k.id === raw.kind) ? raw.kind : "cut-the-curve";
+  const timing = SEAM_TIMING[kind];
+  return {
+    kind,
+    direction: SEAM_DIRECTIONS.some((d) => d.id === raw.direction) ? raw.direction : "left",
+    // Размытие по размеру предмета: 10 пикселей на тексте и 18 на полном кадре.
+    // На тексте 20 размазывает буквы, и склейка читается как сбой, а не как
+    // скорость; на большой плоскости 10 выглядит подтормаживанием отрисовки.
+    blur: Math.max(0, num(raw.blur, raw.fullFrame ? 18 : 10)),
+    exitDur: Math.max(0, num(raw.exitDur, timing.exitDur)),
+    entryDur: Math.max(0, num(raw.entryDur, timing.entryDur)),
+  };
+}
+
+function normalizeScene(raw = {}, index = 0) {
+  return {
+    id: str(raw.id, `s${index + 1}`),
+    title: str(raw.title, `Сцена ${index + 1}`),
+    start: Math.max(0, num(raw.start, 0)),
+    duration: Math.max(0.1, num(raw.duration, 3)),
+    seam: normalizeSeam(raw.seam),
+  };
+}
+
 const num = (v, fallback = 0) => {
   const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -148,6 +210,30 @@ function normalizeLayer(raw = {}, index = 0, palette = buildPalette()) {
     // его из отдельных размеров. Точка отсчёта — левый верхний угол, чтобы
     // увеличение не уводило элемент с места.
     scale: Math.min(6, Math.max(0.1, num(raw.scale, 1))),
+    // К какой сцене принадлежит слой. Пусто — слой живёт сам по себе, поверх
+    // всех сцен: так ведут себя логотип и подпись, которые не должны уезжать
+    // на каждой склейке.
+    sceneId: str(raw.sceneId),
+    /**
+     * Каскадное появление: части слоя влетают снизу одна за другой, следующая
+     * стартует, не дожидаясь, пока предыдущая встанет. Непрозрачность здесь
+     * ДВОИЧНАЯ — часть либо есть, либо нет; проявление съедает скорость, ради
+     * которой каскад и делается.
+     */
+    waterfall: !!raw.waterfall,
+    /**
+     * Сдвиг группы по кривой «медленно — быстро — медленно»: сцена уже
+     * сложилась, и её надо подвинуть, освобождая место. Момент — доля от начала
+     * слоя, сдвиг — в процентах холста.
+     */
+    nudge: raw.nudge
+      ? {
+          at: Math.max(0, num(raw.nudge.at, 0)),
+          dur: Math.max(0.1, num(raw.nudge.dur, 0.8)),
+          dx: num(raw.nudge.dx, 0),
+          dy: num(raw.nudge.dy, 0),
+        }
+      : null,
   };
 
   if (kind === "pill") {
@@ -256,6 +342,19 @@ function normalizeSpec(raw = {}) {
     CANVAS_PRESETS.find((p) => p.id === raw.presetId) || CANVAS_PRESETS[0];
   const palette = buildPalette(raw);
   const layers = (Array.isArray(raw.layers) ? raw.layers : []).map((l, i) => normalizeLayer(l, i, palette));
+  // Сцены не обязательны: ролик без них ведёт себя ровно как раньше, слои живут
+  // сами по себе. Появились сцены — появились и швы между ними.
+  const scenes = (Array.isArray(raw.scenes) ? raw.scenes : [])
+    .map(normalizeScene)
+    .sort((a, b) => a.start - b.start)
+    .map((scene, i, all) => ({
+      ...scene,
+      // Один и тот же шов ведёт обе стороны склейки — в этом и есть закон
+      // вектора: уход и приход не могут разойтись, потому что описаны одним
+      // объектом, а не двумя независимыми настройками.
+      seamIn: i === 0 ? normalizeSeam({ kind: "none" }) : all[i].seam,
+      seamOut: i === all.length - 1 ? normalizeSeam({ kind: "none" }) : all[i + 1].seam,
+    }));
   const longest = layers.reduce((m, l) => Math.max(m, l.start + l.duration), 0);
   return {
     title: str(raw.title, "Ролик"),
@@ -283,6 +382,7 @@ function normalizeSpec(raw = {}) {
     fonts: Array.isArray(raw.fonts) ? raw.fonts : [],
     // Картинки-референсы: по ним агент повторяет вашу графику и расположение.
     references: (Array.isArray(raw.references) ? raw.references : []).map((r) => str(r)).filter(Boolean),
+    scenes,
     layers,
   };
 }
@@ -325,6 +425,116 @@ function bezier(x1, y1, x2, y2) {
 }
 const EASE_IN = bezier(0.34, 1.5, 0.4, 1);   // с перелётом, как в гайде
 const EASE_OUT = bezier(0.4, 0, 0.9, 0.4);
+
+// Кривые из каталога швов — формулами, а не подбором контрольных точек:
+// в каталоге они названы именно так, и приблизительное совпадение здесь
+// означало бы рассогласование скоростей ровно в той точке, ради которой всё
+// и затевается.
+const P3_IN = (t) => t * t * t;
+const P4_IN = (t) => t * t * t * t;
+const P4_OUT = (t) => 1 - Math.pow(1 - t, 4);
+const EXPO_OUT = (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
+// Частичный проезд: около 12% кадра. Уезжать за край целиком нельзя — на краю
+// скорость уже нулевая, а склейка живёт именно скоростью в своей точке.
+const TRAVEL_FRACTION = 0.12;
+
+/**
+ * Кривая сдвига: медленно — быстро — медленно, тремя участками.
+ * Ни одна одиночная кривая так не умеет: power4.inOut прилетает в конец с
+ * ударом. Разгон почти не двигает, рывок идёт линейно, хвост занимает больше
+ * половины времени и этот удар съедает.
+ */
+function nudgeProgress(p) {
+  if (p <= 0) return 0;
+  if (p >= 1) return 1;
+  if (p < 0.2) return 0.1 * P3_IN(p / 0.2);
+  if (p < 0.38) return 0.1 + 0.65 * ((p - 0.2) / 0.18);
+  return 0.75 + 0.25 * P4_OUT((p - 0.38) / 0.62);
+}
+
+/**
+ * Состояние обёртки сцены в момент t.
+ *
+ * Размывается и двигается ТОЛЬКО обёртка: если размыть детей по отдельности,
+ * буквы расползутся каждая сама по себе. Склейка жёсткая — в любой момент видна
+ * ровно одна сцена. Это не упрощение: приём прямо требует, чтобы два текста
+ * никогда не были видны разом, а заодно исчезает окно, где суммарная
+ * непрозрачность меньше единицы, — то самое, что даёт белую вспышку на склейке.
+ */
+function seamState(scene, t) {
+  const st = { visible: true, opacity: 1, x: 0, y: 0, scale: 1, blur: 0 };
+  const local = t - scene.start;
+  if (local < -1e-6 || local > scene.duration + 1e-6) {
+    st.visible = false;
+    return st;
+  }
+  const travel = (seam) =>
+    (seam.direction === "up" || seam.direction === "down" ? SPEC.height : SPEC.width) * TRAVEL_FRACTION;
+
+  const inSeam = scene.seamIn;
+  if (inSeam && inSeam.kind !== "none" && inSeam.entryDur > 0 && local < inSeam.entryDur) {
+    const p = clamp01(local / inSeam.entryDur);
+    if (inSeam.kind === "cut-the-curve") {
+      const d = travel(inSeam) * (1 - P4_OUT(p));
+      if (inSeam.direction === "left") st.x = d;
+      else if (inSeam.direction === "right") st.x = -d;
+      else if (inSeam.direction === "up") st.y = d;
+      else st.y = -d;
+      // Зажигается с 0.35 на середине пути: провал, где ничего не движется,
+      // читается как мёртвый воздух.
+      st.opacity = 0.35 + 0.65 * clamp01(p / 0.5);
+      st.blur = inSeam.blur * (1 - clamp01(p / 0.5));
+    } else if (inSeam.kind === "zoom-through") {
+      const e = EXPO_OUT(p);
+      st.scale = 0.75 + 0.25 * e;   // растёт — камера идёт вперёд
+      st.blur = inSeam.blur * (1 - e);
+      st.opacity = 0.15 + 0.85 * e;
+    } else if (inSeam.kind === "inverse-zoom") {
+      const e = EXPO_OUT(p);
+      st.scale = 1.25 - 0.25 * e;   // уменьшается — камера отъезжает
+      st.blur = inSeam.blur * (1 - e);
+      st.opacity = 0.15 + 0.85 * e;
+    } else if (inSeam.kind === "rack-focus") {
+      const e = EXPO_OUT(p);
+      st.blur = inSeam.blur * (1 - e);
+      st.opacity = 0.15 + 0.85 * e;
+    }
+  }
+
+  const outSeam = scene.seamOut;
+  if (outSeam && outSeam.kind !== "none" && outSeam.exitDur > 0) {
+    const outStart = scene.duration - outSeam.exitDur;
+    if (local > outStart) {
+      const p = clamp01((local - outStart) / outSeam.exitDur);
+      if (outSeam.kind === "cut-the-curve") {
+        const d = travel(outSeam) * P4_IN(p);
+        if (outSeam.direction === "left") st.x = -d;
+        else if (outSeam.direction === "right") st.x = d;
+        else if (outSeam.direction === "up") st.y = -d;
+        else st.y = d;
+        // Непрозрачность гаснет ОТДЕЛЬНОЙ линейной кривой и заканчивается на
+        // 28% пути: с power4.in она держалась бы у единицы слишком долго.
+        st.opacity = 1 - clamp01(p / 0.73);
+        st.blur = outSeam.blur * p;
+      } else if (outSeam.kind === "zoom-through") {
+        const e = P3_IN(p);
+        st.scale = 1 + 0.2 * e;     // тот же знак, что у прихода
+        st.blur = outSeam.blur * e;
+        st.opacity = 1 - 0.85 * p;
+      } else if (outSeam.kind === "inverse-zoom") {
+        const e = P3_IN(p);
+        st.scale = 1 - 0.2 * e;
+        st.blur = outSeam.blur * e;
+        st.opacity = 1 - 0.85 * p;
+      } else if (outSeam.kind === "rack-focus") {
+        const e = P3_IN(p);
+        st.blur = outSeam.blur * e;
+        st.opacity = 1 - 0.85 * p;
+      }
+    }
+  }
+  return st;
+}
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 const SPEC = window.__SPEC__;
@@ -349,7 +559,21 @@ function buildLayer(layer, index) {
   if (layer.kind === "pill") {
     const inner = document.createElement("div");
     inner.className = "pill-inner";
-    inner.textContent = layer.uppercase ? layer.text.toUpperCase() : layer.text;
+    if (layer.waterfall) {
+      // Каскад идёт по словам, поэтому текст разбирается на отдельные части.
+      const words = (layer.uppercase ? layer.text.toUpperCase() : layer.text).split(/\s+/).filter(Boolean);
+      words.forEach((w, wi) => {
+        const span = document.createElement("span");
+        span.dataset.wf = String(wi);
+        span.textContent = w;
+        span.style.display = "inline-block";
+        span.style.willChange = "transform";
+        inner.appendChild(span);
+        if (wi < words.length - 1) inner.appendChild(document.createTextNode(" "));
+      });
+    } else {
+      inner.textContent = layer.uppercase ? layer.text.toUpperCase() : layer.text;
+    }
     inner.style.fontFamily = fontStack(layer.font);
     inner.style.fontSize = px(layer.fontSize);
     inner.style.color = layer.fg;
@@ -627,11 +851,50 @@ function buildGraphics(layer) {
 
 /** seek(t) — единственный вход сцены. */
 const SCENE_SEEK = String.raw`
+// Обёртка на сцену: шов двигает и размывает именно её, а не каждый слой в
+// отдельности. Слой без сцены кладётся прямо на холст и склейками не задет —
+// так ведут себя логотип и подпись, которым уезжать не положено.
+const SCENE_NODES = (SPEC.scenes || []).map((scene) => {
+  const el = document.createElement("div");
+  el.className = "scene-wrap";
+  el.dataset.scene = scene.id;
+  stage.appendChild(el);
+  return { scene, el };
+});
+const SCENE_BY_ID = {};
+for (const node of SCENE_NODES) SCENE_BY_ID[node.scene.id] = node.el;
+
 const NODES = SPEC.layers.map((layer, i) => {
   const el = buildLayer(layer, i);
-  stage.appendChild(el);
+  (SCENE_BY_ID[layer.sceneId] || stage).appendChild(el);
   return { layer, el };
 });
+
+/**
+ * Каскадное появление: части влетают снизу одна за другой, следующая стартует
+ * до того, как встанет предыдущая, и промежутки по ходу каскада сокращаются —
+ * получается разгоняющаяся волна, а не очередь.
+ *
+ * Скорость зависит от веса: тяжёлая часть летит дальше и дольше, лёгкая
+ * защёлкивается. Непрозрачность двоичная — часть либо есть, либо нет.
+ */
+function applyWaterfall(el, layer, local) {
+  const parts = el.querySelectorAll("[data-wf]");
+  if (!parts.length) return;
+  const n = parts.length;
+  let at = 0;
+  parts.forEach((part, i) => {
+    // Первая часть — якорь: летит дальше и дольше остальных.
+    const heavy = i === 0;
+    const offset = heavy ? 70 : 45;
+    const dur = heavy ? 0.18 : 0.14;
+    const p = clamp01((local - at) / dur);
+    part.style.opacity = local >= at ? "1" : "0";
+    part.style.transform = "translateY(" + offset * (1 - P4_OUT(p)) + "px)";
+    // Следующая стартует с перехлёстом, и перехлёст растёт к концу каскада.
+    at += dur * (0.75 - 0.25 * (i / Math.max(1, n - 1)));
+  });
+}
 
 /**
  * Появление слоя плюс его собственный масштаб.
@@ -666,6 +929,21 @@ function applyAppear(el, layer, p, distance) {
 }
 
 window.seek = function seek(t) {
+  for (const { scene, el } of SCENE_NODES) {
+    const st = seamState(scene, t);
+    if (!st.visible) {
+      el.style.display = "none";
+      continue;
+    }
+    el.style.display = "";
+    el.style.opacity = String(st.opacity);
+    el.style.filter = st.blur > 0.01 ? "blur(" + st.blur.toFixed(2) + "px)" : "";
+    el.style.transformOrigin = "50% 50%";
+    el.style.transform =
+      "translate(" + st.x.toFixed(2) + "px," + st.y.toFixed(2) + "px)" +
+      (Math.abs(st.scale - 1) > 1e-4 ? " scale(" + st.scale.toFixed(4) + ")" : "");
+  }
+
   for (const { layer, el } of NODES) {
     const local = t - layer.start;
     if (local < -1e-6 || local > layer.duration + 1e-6) {
@@ -675,6 +953,17 @@ window.seek = function seek(t) {
     el.style.display = "";
     const pIn = layer.appearDur > 0 ? clamp01(local / layer.appearDur) : 1;
     applyAppear(el, layer, pIn, 60);
+    if (layer.waterfall) {
+      // Каскад ведёт части сам, поэтому общее появление слоя ему только мешает.
+      el.style.opacity = "1";
+      applyWaterfall(el, layer, local);
+    }
+    if (layer.nudge && (layer.nudge.dx || layer.nudge.dy)) {
+      const q = nudgeProgress(clamp01((local - layer.nudge.at) / layer.nudge.dur));
+      const nx = (layer.nudge.dx / 100) * SPEC.width * q;
+      const ny = (layer.nudge.dy / 100) * SPEC.height * q;
+      el.style.transform = "translate(" + nx.toFixed(2) + "px," + ny.toFixed(2) + "px) " + el.style.transform;
+    }
 
     const outStart = layer.duration - layer.exitDur;
     if (layer.exitDur > 0 && local > outStart) {
@@ -738,6 +1027,13 @@ window.seek = function seek(t) {
   // хоть что-нибудь: если нет, ждать нового кадра отрисовки бессмысленно, а
   // ожидание впустую стоило по две секунды на каждый статичный кадр.
   let signature = "";
+  // Шов меняет всю сцену целиком, слои при этом не шевелятся. Без этой части
+  // подписи два разных момента склейки сочлись бы одним кадром, и в готовом
+  // ролике переход бы просто пропал.
+  for (const { scene, el } of SCENE_NODES) {
+    signature += "|s" + scene.id + ":" + (el.style.display === "none" ? "-" :
+      (el.style.opacity || "1") + ":" + (el.style.transform || "") + ":" + (el.style.filter || ""));
+  }
   for (const { layer, el } of NODES) {
     if (el.style.display === "none") { signature += "|-"; continue; }
     signature += "|" + layer.id + ":" + (el.style.opacity || "1") + ":" + (el.style.transform || "");
@@ -783,6 +1079,12 @@ const SCENE_CSS = `
   html, body { background: transparent; }
   #stage { position: relative; overflow: hidden; background: transparent; }
   .layer { position: absolute; will-change: transform, opacity; }
+  /* Обёртка сцены занимает весь холст: шов двигает и размывает её целиком,
+     а слои внутри остаются на своих местах в процентах холста. */
+  .scene-wrap {
+    position: absolute; inset: 0; will-change: transform, opacity, filter;
+    transform-origin: 50% 50%;
+  }
   .pill-inner {
     display: inline-block; font-weight: 700; letter-spacing: 1px; line-height: 1.12;
     white-space: pre-wrap;
@@ -1155,9 +1457,77 @@ async function downloadTo(url, dest) {
  * значит потерять эти минуты. Здесь считаются приблизительные габариты слоёв:
  * точная верстка живёт в браузере, но выход за холст и наложение видно и так.
  */
+/**
+ * Контроль швов — проверка закона вектора перед сборкой.
+ *
+ * Ошибку в шве глазами на статичном предпросмотре не видно: она проявляется
+ * ровно в момент склейки и читается не как «неправильный параметр», а как
+ * «ролик почему-то рассыпается». Поэтому её ловят проверкой, а не просмотром.
+ */
+function checkSeams(spec) {
+  const problems = [];
+  const scenes = spec.scenes || [];
+  const known = new Set(scenes.map((s2) => s2.id));
+
+  for (const layer of spec.layers) {
+    if (layer.sceneId && !known.has(layer.sceneId)) {
+      problems.push(`«${layerTitle(layer)}» привязан к сцене «${layer.sceneId}», которой нет.`);
+    }
+  }
+
+  for (let i = 0; i < scenes.length; i++) {
+    const scene = scenes[i];
+    const prev = scenes[i - 1];
+    if (prev && Math.abs(prev.start + prev.duration - scene.start) > 0.01) {
+      problems.push(
+        `Между сценами «${prev.title}» и «${scene.title}" разрыв во времени — на склейке будет пустой кадр.`
+      );
+    }
+    if (scene.start + scene.duration > spec.duration + 0.01) {
+      problems.push(`Сцена «${scene.title}» заканчивается позже ролика.`);
+    }
+    const seam = scene.seamIn;
+    if (!seam || seam.kind === "none") continue;
+
+    // Шов длиннее самой сцены — приход не успевает закончиться до ухода.
+    if (seam.entryDur + (scene.seamOut ? scene.seamOut.exitDur : 0) > scene.duration + 0.01) {
+      problems.push(`Сцена «${scene.title}» короче своих переходов — она не успеет ничего показать.`);
+    }
+
+    // Знак по оси Z: отъезд назад, отвеченный вырастанием из маленького, — это
+    // развернувшаяся камера. Самое частое нарушение, потому что вырастание из
+    // маленького стоит появлением по умолчанию.
+    if (seam.kind === "inverse-zoom") {
+      const grows = spec.layers.filter(
+        (l) => l.sceneId === scene.id && l.appear === "scale" && l.start - scene.start < seam.entryDur + 0.5
+      );
+      for (const l of grows) {
+        problems.push(
+          `«${layerTitle(l)}» вырастает из точки сразу после отъезда назад в сцене «${scene.title}» — ` +
+            `камера меняет направление на обратное. Возьмите другое появление или сдвиньте слой позже.`
+        );
+      }
+    }
+
+    // Зеркальное направление на соседних склейках: ушли влево, пришли справа —
+    // взгляд разворачивают дважды подряд, и течение ролика ломается.
+    const nextSeam = scenes[i + 1] ? scenes[i + 1].seamIn : null;
+    if (nextSeam && nextSeam.kind === "cut-the-curve" && seam.kind === "cut-the-curve") {
+      const opposite = { left: "right", right: "left", up: "down", down: "up" };
+      if (opposite[seam.direction] === nextSeam.direction) {
+        problems.push(
+          `Сцена «${scene.title}»: пришли ${seam.direction === "left" ? "влево" : "в одну сторону"}, ` +
+            `а уходим в противоположную — течение ролика разворачивается на месте.`
+        );
+      }
+    }
+  }
+  return problems;
+}
+
 function validateSpec(raw) {
   const spec = normalizeSpec(raw);
-  const problems = [];
+  const problems = checkSeams(spec);
   const boxes = [];
 
   for (const layer of spec.layers) {
@@ -1256,6 +1626,8 @@ function buildScriptPrompt({ spec, sourceInfo, text, referenceCount = 0 }) {
     text || "(текста нет — предложи структуру под тему ролика)",
     ...reference,
     "",
+    MOTION_DOCTRINE,
+    "",
     "ПРАВИЛА МОНТАЖА, они важнее красоты:",
     "  — Одна фраза — одна плашка. Не склеивай несколько строк в одну плашку.",
     "  — Плашки идут каскадом: то левее, то правее, с небольшим сдвигом по вертикали.",
@@ -1298,6 +1670,39 @@ function buildScriptPrompt({ spec, sourceInfo, text, referenceCount = 0 }) {
  * материал на куски, здесь — сочиняет кадр целиком: чем занята каждая секунда,
  * что появляется, что уходит, где пустота. Поэтому и задание другое.
  */
+/**
+ * Закон движения одним куском — общий для обоих заданий агенту.
+ *
+ * Взято из доктрины движения HyperFrames. Смысл: ролик должен читаться как один
+ * непрерывный проезд камеры, а не как стопка слайдов, анимированных порознь.
+ * Без этих правил агент раскладывает каждую сцену отдельно, взгляд на каждой
+ * склейке останавливается, и ролик рассыпается — даже когда каждый кадр в
+ * отдельности хорош.
+ */
+const MOTION_DOCTRINE = [
+  "ЗАКОН ДВИЖЕНИЯ (обязателен):",
+  "  — Ролик делится на сцены, между сценами стоит шов. Как сцена уходит — так",
+  "    следующая и приходит: та же ось, то же направление, та же скорость.",
+  "  — Швы: cut-the-curve (срез по дуге, по умолчанию для любой границы,",
+  "    направление left/right/up/down), zoom-through (пролёт вперёд — уходим",
+  "    глубже в ту же мысль), inverse-zoom (отъезд назад — только на развязку,",
+  "    когда прилетает что-то крупное), rack-focus (перевод фокуса — когда склейку",
+  "    надо ЗАМЕТИТЬ), none.",
+  "  — По оси Z направление задаётся знаком масштаба. После inverse-zoom нельзя",
+  "    ставить слой с появлением scale: отъезд, отвеченный вырастанием из точки,",
+  "    разворачивает камеру.",
+  "  — Не разворачивайте течение: если пришли влево, следующий шов тоже влево.",
+  "  — Движение обязано РАБОТАТЬ, а не дышать. Никаких покачиваний на месте между",
+  "    появлением и уходом: слой либо приходит, либо уходит, либо стоит.",
+  "  — Перед развязкой — тишина. Кадр, где ничего не движется, делает следующий",
+  "    сильнее.",
+  "  — waterfall: true у плашки — слова влетают каскадом снизу, один за другим.",
+  "    Для заголовков и открывающих кадров. Не на каждой плашке, иначе приём стирается.",
+  "  — nudge {at, dur, dx, dy} — сдвинуть уже сложившуюся группу, освобождая место",
+  "    для следующего блока. Внутри сцены, без склейки.",
+  "  — Сцены идут встык: конец одной = начало следующей, без зазоров.",
+].join("\n");
+
 function buildMotionPrompt({ spec, text, assets = [], referenceCount = 0 }) {
   const list = assets.length
     ? assets.map((a) => `  ${a.kind === "image" ? "картинка" : "SVG"}: ${a.name}`)
@@ -1328,6 +1733,8 @@ function buildMotionPrompt({ spec, text, assets = [], referenceCount = 0 }) {
         ]
       : []),
     "",
+    MOTION_DOCTRINE,
+    "",
     "ПРАВИЛА:",
     "  — Кадр не должен быть пустым и не должен быть свалкой. В каждый момент",
     "    один смысловой центр, вокруг него воздух.",
@@ -1347,9 +1754,15 @@ function buildMotionPrompt({ spec, text, assets = [], referenceCount = 0 }) {
     "```json",
     "{",
     '  "duration": 12,',
+    '  "scenes": [',
+    '    {"id":"s1","title":"Открытие","start":0,"duration":4},',
+    '    {"id":"s2","title":"Суть","start":4,"duration":4,"seam":{"kind":"cut-the-curve","direction":"left"}},',
+    '    {"id":"s3","title":"Развязка","start":8,"duration":4,"seam":{"kind":"inverse-zoom"}}',
+    "  ],",
     '  "layers": [',
-    '    {"kind":"image","sourcePath":"<путь из списка выше>","start":0,"duration":2.5,"x":30,"y":40,"widthPct":40,"appear":"scale"},',
-    '    {"kind":"pill","text":"ГЛАВНАЯ МЫСЛЬ","start":2.6,"duration":3,"x":8,"y":30,"scale":1,"appear":"slide-left"}',
+    '    {"kind":"image","sceneId":"s1","sourcePath":"<путь из списка выше>","start":0,"duration":4,"x":30,"y":40,"widthPct":40,"appear":"scale"},',
+    '    {"kind":"pill","sceneId":"s2","text":"ГЛАВНАЯ МЫСЛЬ","start":4,"duration":4,"x":8,"y":30,"waterfall":true},',
+    '    {"kind":"pill","sceneId":"s3","text":"ВЫВОД","start":8,"duration":4,"x":8,"y":30,"appear":"fade"}',
     "  ]",
     "}",
     "```",
@@ -1376,6 +1789,9 @@ function parseScenes(text) {
   if (!Array.isArray(layers) || !layers.length) return null;
   return {
     duration: num(parsed.duration, 0) || 0,
+    // Сцены агента доходят до раскладки: без них швы, которые он расставил,
+    // просто потерялись бы на разборе ответа.
+    scenes: (Array.isArray(parsed.scenes) ? parsed.scenes : []).map(normalizeScene),
     layers: layers.map((l, i) => normalizeLayer(l, i)),
   };
 }
@@ -1406,6 +1822,9 @@ module.exports = {
   parseScenes,
   validateSpec,
   layerTitle,
+  checkSeams,
+  SEAM_KINDS,
+  SEAM_DIRECTIONS,
   buildPalette,
   contrastOn,
 };
