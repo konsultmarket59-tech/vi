@@ -1750,3 +1750,30 @@ button.fin-row-x:hover { color: var(--accent); }
 }
 .vs-scene-row > button:hover { color: var(--danger); }
 .vs-scene-pick { flex-direction: column; align-items: stretch; gap: 6px; }
+
+/* Видеотека: список записей и источники ответа. */
+.lib-files { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.lib-file {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.lib-file-name { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-file-meta { color: var(--text-dim); font-size: 11px; }
+.lib-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  background: #eef8f1; color: #14602f; border: 1px solid #b7dfc2;
+}
+
+/* Источники нумерованы так же, как ссылки в ответе: [2] — второй пункт. */
+.lib-hits { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+.lib-hits li { font-size: 12px; line-height: 1.45; }
+.lib-hits b { display: block; color: var(--accent); }
+.lib-hits span { color: var(--text-dim); }
+
+/* Замечания к ответу: проверить должно быть проще, чем поверить. */
+.lib-check {
+  border: 1px solid #f0c2be; background: #fdefee; color: #8a2018;
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; line-height: 1.5;
+}
+.lib-check strong { display: block; margin-bottom: 4px; }
+.lib-check p { margin: 2px 0; }

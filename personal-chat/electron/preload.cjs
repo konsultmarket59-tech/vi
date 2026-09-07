@@ -162,6 +162,25 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("chats:archiveMessages", projectId, conv, messages),
   getStorageReport: () => ipcRenderer.invoke("storage:report"),
   clearCache: () => ipcRenderer.invoke("storage:clearCache"),
+
+  // видеотека
+  libraryConfig: () => ipcRenderer.invoke("library:config"),
+  librarySaveConfig: (config) => ipcRenderer.invoke("library:saveConfig", config),
+  libraryPickFolder: () => ipcRenderer.invoke("library:pickFolder"),
+  libraryPickFile: (title) => ipcRenderer.invoke("library:pickFile", title),
+  libraryEngineStatus: () => ipcRenderer.invoke("library:engineStatus"),
+  libraryScan: () => ipcRenderer.invoke("library:scan"),
+  libraryTranscribe: (paths) => ipcRenderer.invoke("library:transcribe", paths),
+  libraryStop: () => ipcRenderer.invoke("library:stop"),
+  libraryForget: (filePath) => ipcRenderer.invoke("library:forget", filePath),
+  libraryAsk: (question) => ipcRenderer.invoke("library:ask", question),
+  libraryRetell: (filePath) => ipcRenderer.invoke("library:retell", filePath),
+  libraryVerify: (answer, hits) => ipcRenderer.invoke("library:verify", answer, hits),
+  onLibraryProgress: (handler) => {
+    const listener = (_e, payload) => handler(payload);
+    ipcRenderer.on("library-progress", listener);
+    return () => ipcRenderer.removeListener("library-progress", listener);
+  },
   pastCrashes: () => ipcRenderer.invoke("app:pastCrashes"),
   onCrashed: (handler) => {
     const listener = (_e, entry) => handler(entry);

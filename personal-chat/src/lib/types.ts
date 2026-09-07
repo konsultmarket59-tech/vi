@@ -228,6 +228,82 @@ export interface CrashEntry {
   код: number | null;
 }
 
+// ---------- видеотека ----------
+
+export interface LibraryConfig {
+  /** Папка с записями. Файлы читаются на месте и никуда не копируются. */
+  folderPath: string;
+  /** «local» — расшифровка на этом компьютере; «remote» — платный сервис. */
+  engine: "local" | "remote";
+  binPath: string;
+  modelPath: string;
+  threads: number;
+  remoteModel: string;
+  language: string;
+}
+
+export interface LibraryFile {
+  path: string;
+  name: string;
+  folder: string;
+  kind: string;
+  bytes: number;
+  modified: number;
+  transcribed: boolean;
+  seconds: number;
+  chunks: number;
+  transcribedAt: number;
+  engine: string;
+}
+
+export interface LibraryScan {
+  files: LibraryFile[];
+  orphans?: { path: string; name: string }[];
+  missing: boolean;
+}
+
+export interface LibraryEngineStatus {
+  ready: boolean;
+  bin: boolean;
+  model: boolean;
+  reason: string;
+}
+
+/** Кусок расшифровки — то, на что ссылается ответ. */
+export interface LibraryHit {
+  file: string;
+  name: string;
+  from: number;
+  to: number;
+  text: string;
+}
+
+export interface LibraryQuestion {
+  prompt: string;
+  hits: LibraryHit[];
+  searched: number;
+  files: number;
+}
+
+export interface LibraryCheck {
+  problems: string[];
+  /** Сколько утверждений в ответе остались без ссылки на источник. */
+  unsupported: number;
+  used: number[];
+}
+
+export interface LibraryProgress {
+  stage: "file" | "audio" | "transcribe" | "failed" | "done";
+  index?: number;
+  total?: number;
+  name?: string;
+  progress?: number;
+  done?: number;
+  failed?: number;
+  error?: string;
+  stopped?: boolean;
+}
+
 export interface AppConfig {
   rootPath: string;
 }
@@ -1115,6 +1191,21 @@ export interface ElectronAPI {
   ): Promise<{ path: string }>;
   getStorageReport(): Promise<StorageReport>;
   clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
+
+  // видеотека
+  libraryConfig(): Promise<LibraryConfig>;
+  librarySaveConfig(config: Partial<LibraryConfig>): Promise<LibraryConfig>;
+  libraryPickFolder(): Promise<string>;
+  libraryPickFile(title?: string): Promise<string>;
+  libraryEngineStatus(): Promise<LibraryEngineStatus>;
+  libraryScan(): Promise<LibraryScan>;
+  libraryTranscribe(paths: string[]): Promise<{ done: number; failed: { path: string; error: string }[]; stopped: boolean }>;
+  libraryStop(): Promise<boolean>;
+  libraryForget(filePath: string): Promise<boolean>;
+  libraryAsk(question: string): Promise<LibraryQuestion>;
+  libraryRetell(filePath: string): Promise<LibraryQuestion>;
+  libraryVerify(answer: string, hits: LibraryHit[]): Promise<LibraryCheck>;
+  onLibraryProgress(handler: (payload: LibraryProgress) => void): () => void;
   pastCrashes(): Promise<CrashEntry[]>;
   onCrashed(handler: (entry: CrashEntry) => void): () => void;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;

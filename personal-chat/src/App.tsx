@@ -10,6 +10,7 @@ import DocFlowView from "./components/DocFlowView";
 import DataVizView from "./components/DataVizView";
 import FinModelView from "./components/FinModelView";
 import VideoStoriesView from "./components/VideoStoriesView";
+import LibraryView from "./components/LibraryView";
 import CleanupView from "./components/CleanupView";
 import DirectView from "./components/DirectView";
 import CloudView from "./components/CloudView";
@@ -197,6 +198,9 @@ export default function App() {
         )}
         {activeView.kind === "stories" && (
           <VideoStoriesView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "library" && (
+          <LibraryView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "cleanup" && (
           <CleanupView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />

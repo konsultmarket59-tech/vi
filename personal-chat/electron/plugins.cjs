@@ -21,6 +21,7 @@ const MODULE_IDS = [
   "dataviz",
   "finmodel",
   "stories",
+  "library",
   "cleanup",
   "media",
   "cloud",
