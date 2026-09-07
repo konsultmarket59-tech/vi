@@ -112,6 +112,8 @@ export default function CatalogView() {
   }
 
   const short = (p: string) => (p ? p.split(/[\\/]/).pop() : "не выбран");
+  const fitsOf = (id: string) => preview?.library.find((l) => l.id === id)?.fits ?? 0;
+  const errorOf = (id: string) => preview?.library.find((l) => l.id === id)?.error || "";
 
   /** Правка ячейки: сохраняется сразу и на диск, чтобы не потеряться. */
   async function editCell(sku: string, column: string, value: string) {
@@ -120,6 +122,30 @@ export default function CatalogView() {
     setPreview((prev) =>
       prev ? { ...prev, rows: prev.rows.map((r) => (r.SKU === sku ? { ...r, [column]: value } : r)) } : prev
     );
+    await window.api.catalogSaveEdits(next);
+  }
+
+  /**
+   * Одно описание во все дома, у которых его нет.
+   *
+   * Это ручная правка, а не подбор: она помечается как правка и снимается тем
+   * же способом. Участков не касается — им длинный текст не положен.
+   */
+  async function fillEmptyDescriptions(text: string) {
+    if (!preview) return;
+    const next: CatalogEdits = { ...edits };
+    const touched: string[] = [];
+    for (const row of preview.rows) {
+      if (!row.Mark || row.Text) continue;
+      next[row.SKU] = { ...(next[row.SKU] || {}), Text: text };
+      touched.push(row.SKU);
+    }
+    if (!touched.length) return;
+    setEdits(next);
+    setPreview({
+      ...preview,
+      rows: preview.rows.map((r) => (touched.includes(r.SKU) ? { ...r, Text: text } : r)),
+    });
     await window.api.catalogSaveEdits(next);
   }
 
@@ -176,6 +202,7 @@ export default function CatalogView() {
             library={preview.library}
             onEdit={editCell}
             onReset={resetCell}
+            onFillEmpty={fillEmptyDescriptions}
           />
         )}
 
@@ -440,17 +467,25 @@ export default function CatalogView() {
                       полученные адреса ниже — пути здесь остаются напоминанием, что именно грузить.
                     </p>
                   )}
+                  {preview && (
+                    <p className={fitsOf(item.id) ? "vs-hint" : "vs-warn"}>
+                      {fitsOf(item.id)
+                        ? `Подходит к ${fitsOf(item.id)} домам в выгрузке.`
+                        : "Ни к одному дому не подошла — проверьте метраж и облицовку."}
+                      {errorOf(item.id) ? ` ${errorOf(item.id)}` : ""}
+                    </p>
+                  )}
                   <label className="vs-field">
                     Ссылки на рендеры — по одной в строке
                     <textarea
                       rows={2}
-                      value={item.renderUrls.join("\\n")}
+                      value={item.renderUrls.join("\n")}
                       placeholder="https://static.tildacdn.com/…"
                       onChange={(e) =>
                         patchLibrary(
                           library.map((x) =>
                             x.id === item.id
-                              ? { ...x, renderUrls: e.target.value.split("\\n").map((s) => s.trim()).filter(Boolean) }
+                              ? { ...x, renderUrls: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) }
                               : x
                           )
                         )
@@ -459,6 +494,33 @@ export default function CatalogView() {
                   </label>
                 </div>
               ))}
+              {preview && !!preview.variants.length && (
+                <div className="cat-variants">
+                  <strong>Что есть в выгрузке</strong>
+                  <p className="vs-hint">Нажмите, чтобы завести заготовку под эту вариацию.</p>
+                  {preview.variants.map((v) => (
+                    <button
+                      key={`${v.area}|${v.cladding}`}
+                      className="cat-variant"
+                      disabled={!v.area || !v.cladding}
+                      title={!v.area || !v.cladding ? "В выгрузке не хватает данных — заготовку не подобрать" : ""}
+                      onClick={() =>
+                        patchLibrary([
+                          ...library,
+                          {
+                            id: uid(), name: "", area: v.area, cladding: v.cladding,
+                            textPath: "", renderUrls: [], renderPaths: [],
+                          },
+                        ])
+                      }
+                    >
+                      <b>{v.count}</b> {v.area ? `${v.area} м²` : "метраж не указан"} ·{" "}
+                      {v.claddingLabel || "облицовка не указана"}
+                      {library.some((l) => l.area === v.area && l.cladding === v.cladding) ? " ✓" : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
                 className="btn btn-secondary btn-small"
                 onClick={() =>

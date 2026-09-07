@@ -14,27 +14,41 @@ interface Props {
   columns: string[];
   rows: Record<string, string>[];
   edits: Record<string, Record<string, string>>;
-  library: { id: string; label: string; text: string }[];
+  /**
+   * Библиотека описаний. `fits` — к скольким домам описание подошло само;
+   * `error` — почему файл не прочитался. И то и другое показываем в списке
+   * выбора: без этого человек выбирает вслепую.
+   */
+  library: { id: string; label: string; text: string; fits: number; error: string }[];
   onEdit: (sku: string, column: string, value: string) => void;
   onReset: (sku: string, column: string) => void;
+  /** Подставить один текст во все дома, у которых описания нет. */
+  onFillEmpty: (text: string) => void;
 }
 
 /** Колонки, которые почти всегда пусты: прячем их, чтобы таблица читалась. */
 const QUIET_COLUMNS = ["Brand", "Quantity", "Price Old", "Editions", "Modifications", "Parent UID", "FB title", "FB descr"];
 
+/** Колонки, куда кладётся текст описания: в них выбор из библиотеки уместен. */
+const TEXT_COLUMNS = ["Text", "Description"];
+
 function Editor({
   value,
   library,
-  isText,
+  column,
   onCommit,
   onCancel,
 }: {
   value: string;
   library: Props["library"];
-  isText: boolean;
+  column: string;
   onCommit: (v: string) => void;
   onCancel: () => void;
 }) {
+  // Выбор из библиотеки предлагается и в Text, и в Description: в магазине это
+  // разные поля — длинное описание и строчка под названием, — и человек сам
+  // решает, куда лечь заготовке.
+  const pickable = TEXT_COLUMNS.includes(column);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -45,7 +59,7 @@ function Editor({
 
   return (
     <div className="cat-editor">
-      {isText && library.length > 0 && (
+      {pickable && library.length > 0 && (
         <select
           className="cat-editor-pick"
           value=""
@@ -56,8 +70,13 @@ function Editor({
         >
           <option value="">выбрать из библиотеки…</option>
           {library.map((l) => (
-            <option key={l.id} value={l.id}>
+            <option key={l.id} value={l.id} disabled={!l.text}>
               {l.label}
+              {!l.text
+                ? ` — текст не прочитан${l.error ? ": " + l.error : ""}`
+                : l.fits
+                  ? ` — подошла к ${l.fits} домам сама`
+                  : " — сама ни к одному дому не подошла"}
             </option>
           ))}
         </select>
@@ -65,7 +84,7 @@ function Editor({
       <textarea
         ref={ref}
         value={draft}
-        rows={isText ? 8 : 2}
+        rows={pickable ? 8 : 2}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Escape") onCancel();
@@ -114,7 +133,13 @@ const Row = memo(function Row({
             title={value}
             onClick={() => onOpen(row.SKU, column)}
           >
-            <span className="cat-cell-text">{value}</span>
+            {column === "Text" && !value ? (
+              // Пустое описание — не «ничего нет», а «выберите». Иначе человек
+              // видит пустоту и не знает, что с ней можно сделать.
+              <span className="cat-cell-pick">выбрать описание</span>
+            ) : (
+              <span className="cat-cell-text">{value}</span>
+            )}
             {edited && (
               <button
                 className="cat-cell-reset"
@@ -134,9 +159,15 @@ const Row = memo(function Row({
   );
 });
 
-export default function CatalogTable({ columns, rows, edits, library, onEdit, onReset }: Props) {
+export default function CatalogTable({ columns, rows, edits, library, onEdit, onReset, onFillEmpty }: Props) {
   const [open, setOpen] = useState<{ sku: string; column: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [bulk, setBulk] = useState("");
+  // Дома без описания. Участки сюда не попадают: их текст собирается из площади
+  // и кадастрового номера и пустым не бывает. По ярлыку готовности отбирать
+  // нельзя — он у дома тоже бывает пустым, и такой дом выпал бы из счёта.
+  const emptyText = rows.filter((r) => !r.Text).length;
+  const usable = library.filter((l) => l.text);
 
   const shown = showAll ? columns : columns.filter((c) => !QUIET_COLUMNS.includes(c));
   const openRow = open ? rows.find((r) => r.SKU === open.sku) : null;
@@ -145,6 +176,31 @@ export default function CatalogTable({ columns, rows, edits, library, onEdit, on
   return (
     <div className="cat-table-wrap">
       <div className="cat-table-bar">
+        {emptyText > 0 && usable.length > 0 && (
+          <div className="cat-fill">
+            <span>Без описания: {emptyText}</span>
+            <select value={bulk} onChange={(e) => setBulk(e.target.value)}>
+              <option value="">подставить описание…</option>
+              {usable.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary btn-small"
+              disabled={!bulk}
+              onClick={() => {
+                const item = library.find((l) => l.id === bulk);
+                if (!item) return;
+                onFillEmpty(item.text);
+                setBulk("");
+              }}
+            >
+              Подставить во все пустые
+            </button>
+          </div>
+        )}
         <label className="vs-check">
           <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
           Показывать все колонки, включая всегда пустые
@@ -162,7 +218,7 @@ export default function CatalogTable({ columns, rows, edits, library, onEdit, on
             key={`${open.sku}|${open.column}`}
             value={openValue}
             library={library}
-            isText={open.column === "Text"}
+            column={open.column}
             onCommit={(v) => {
               onEdit(open.sku, open.column, v);
               setOpen(null);

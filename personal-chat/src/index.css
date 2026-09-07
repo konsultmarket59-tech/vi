@@ -123,7 +123,9 @@ body {
   display: flex;
   flex-direction: column;
   padding: 12px;
-  overflow-y: auto;
+  /* Прокручиваются части по отдельности, а не колонка целиком: иначе список
+     разделов уезжает вместе с проектами и до настроек не добраться. */
+  overflow: hidden;
 }
 
 .sidebar-title {
@@ -141,7 +143,15 @@ body {
 
 .sidebar-section { margin-bottom: 16px; }
 
-.sidebar-projects { flex: 1; overflow-y: auto; }
+/* Проекты и разделы делят высоту и прокручиваются каждый сам по себе.
+   Раньше список разделов просто рос вниз и выдавливал проекты за край окна:
+   с каждым новым разделом их становилось видно всё меньше, а на невысоком
+   экране — не видно вовсе. */
+.sidebar-projects {
+  flex: 1 1 auto;
+  min-height: 90px;
+  overflow-y: auto;
+}
 
 .sidebar-label {
   font-size: 11px;
@@ -224,6 +234,12 @@ body {
 .sidebar-footer {
   border-top: 1px solid var(--border);
   padding-top: 10px;
+  /* Разделам отводится не больше половины колонки: их много, и они не должны
+     съедать место у проектов. Что не поместилось — прокручивается. */
+  flex: 0 1 auto;
+  max-height: 52%;
+  overflow-y: auto;
+  margin-bottom: 0;
 }
 
 .seed-menu {
@@ -1857,3 +1873,18 @@ button.fin-row-x:hover { color: var(--accent); }
 .cat-editor-pick { margin-bottom: 6px; }
 .cat-editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .cat-render-note { margin-top: -2px; }
+
+/* Пустое описание — приглашение, а не пустота: иначе не видно, что с ячейкой
+   можно что-то сделать. */
+.cat-cell-pick { color: var(--accent); font-size: 12px; border-bottom: 1px dashed var(--accent); }
+.cat-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cat-fill select { max-width: 320px; }
+
+.cat-variants { margin-top: 10px; }
+.cat-variant {
+  display: inline-block; margin: 0 6px 6px 0; padding: 3px 9px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--bg);
+  font-size: 12px; cursor: pointer;
+}
+.cat-variant:hover { border-color: var(--accent); color: var(--accent); }
+.cat-variant.on { border-color: var(--accent); background: var(--bg-hover); }

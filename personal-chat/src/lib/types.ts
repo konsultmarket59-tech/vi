@@ -277,7 +277,9 @@ export interface CatalogTable {
   villages: Record<string, string>;
   streets: Record<string, string[]>;
   /** Заготовки описаний — для выбора прямо в ячейке. */
-  library: { id: string; label: string; text: string }[];
+  library: { id: string; label: string; text: string; fits: number; error: string }[];
+  /** Вариации домов в выгрузке: подо что нужны заготовки. */
+  variants: { area: number; cladding: string; claddingLabel: string; count: number }[];
 }
 
 export interface CatalogPreview {

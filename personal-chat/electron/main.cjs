@@ -3466,6 +3466,10 @@ ipcMain.handle("catalog:table", async () => {
     (streets[item.village] = streets[item.village] || new Set()).add(item.street);
   }
   const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  // Сколько домов подходит каждой заготовке. Без этого числа промах по паре
+  // «метраж + облицовка» выглядит как «программа не подтягивает описания»:
+  // всё работает, просто ни один дом не совпал, и сказать об этом было некому.
+  const fits = catalog.countMatches(result.source.houses, library);
   return {
     columns: catalog.TILDA_COLUMNS,
     rows: applied.rows,
@@ -3483,7 +3487,12 @@ ipcMain.handle("catalog:table", async () => {
       id: item.id,
       label: catalog.describeLibraryItem(item),
       text: item.text || "",
+      fits: fits[item.id] || 0,
+      error: item.error || "",
     })),
+    // Какие вариации есть в выгрузке — чтобы было видно, подо что заводить
+    // заготовку, и не подбирать метраж наугад.
+    variants: catalog.listVariants(result.source.houses),
   };
 });
 

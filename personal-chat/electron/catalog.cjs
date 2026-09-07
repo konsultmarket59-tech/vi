@@ -799,6 +799,51 @@ function describeLibraryItem(item) {
   return `дом ${area || "?"} м²${cladding ? " · " + cladding.label : ""}`;
 }
 
+/**
+ * Сколько домов из выгрузки подходит каждой заготовке.
+ *
+ * Считается тем же правилом, что и подстановка, — иначе число врало бы. Нужно,
+ * чтобы промах по паре «метраж + облицовка» был виден сразу: «подходит к 0
+ * домов» объясняет пустое описание лучше любого сообщения об ошибке.
+ */
+function countMatches(houses = [], library = []) {
+  const counts = {};
+  for (const item of library) counts[item.id] = 0;
+  for (const house of houses) {
+    const parsed = parseDescription(house.description);
+    const area = Math.round(house.houseArea);
+    const sameArea = (d) => Math.round(num(d.area)) === area && area > 0;
+    const sameCladding = (d) => d.cladding && d.cladding === parsed.cladding;
+    const hit =
+      library.find((d) => sameArea(d) && sameCladding(d)) ||
+      library.find((d) => sameArea(d) && !d.cladding) ||
+      library.find((d) => sameCladding(d) && !num(d.area)) ||
+      null;
+    if (hit) counts[hit.id] = (counts[hit.id] || 0) + 1;
+  }
+  return counts;
+}
+
+/** Вариации домов в выгрузке: подо что вообще нужны заготовки. */
+function listVariants(houses = []) {
+  const map = new Map();
+  for (const house of houses) {
+    const parsed = parseDescription(house.description);
+    const area = Math.round(house.houseArea);
+    const key = `${area}|${parsed.cladding}`;
+    const found = map.get(key);
+    if (found) found.count += 1;
+    else
+      map.set(key, {
+        area,
+        cladding: parsed.cladding,
+        claddingLabel: parsed.claddingLabel,
+        count: 1,
+      });
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count);
+}
+
 module.exports = {
   TILDA_COLUMNS,
   READINESS_ORDER,
@@ -822,4 +867,6 @@ module.exports = {
   applyEdits,
   toXlsx,
   describeLibraryItem,
+  countMatches,
+  listVariants,
 };
