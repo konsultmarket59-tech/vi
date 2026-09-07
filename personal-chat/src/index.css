@@ -1731,3 +1731,22 @@ button.fin-row-x:hover { color: var(--accent); }
   min-height: 110px;
   resize: vertical;
 }
+
+/* Сцены и швы: строка на сцену, чтобы порядок и переходы читались сверху вниз. */
+.vs-scenes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* Имя vs-scene уже занято рамкой предпросмотра — строка сцены зовётся иначе,
+   иначе эти правила поехали бы по самому предпросмотру. */
+.vs-scene-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+}
+.vs-scene-row > input { flex: 1 1 120px; min-width: 90px; }
+.vs-scene-row label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+.vs-scene-row label input { width: 56px; }
+.vs-scene-row select { font-size: 12px; }
+.vs-scene-row > button {
+  margin-left: auto; border: none; background: none; cursor: pointer;
+  color: var(--text-dim); font-size: 14px; line-height: 1;
+}
+.vs-scene-row > button:hover { color: var(--danger); }
+.vs-scene-pick { flex-direction: column; align-items: stretch; gap: 6px; }

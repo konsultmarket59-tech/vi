@@ -130,6 +130,18 @@ app.whenReady().then(async () => {
       await win.webContents.executeJavaScript(`window.seekAndSettle(${t})`);
       const deadline = Date.now() + 2000;
       while (painted === before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 8));
+      // Дожидаемся, пока перерисовки прекратятся. Первая пришедшая под нагрузкой
+      // бывает частичной, и сравнение двух кадров одного момента тогда падает не
+      // из-за сцены, а из-за того, что снимок сделан на середине отрисовки.
+      let seen = painted;
+      let quiet = Date.now() + 150;
+      while (Date.now() < quiet && Date.now() < deadline + 1000) {
+        await new Promise((r) => setTimeout(r, 15));
+        if (painted !== seen) {
+          seen = painted;
+          quiet = Date.now() + 150;
+        }
+      }
       return lastImage || (await win.webContents.capturePage());
     };
     const shot = async (t) => (await grab(t)).toPNG();
@@ -426,6 +438,29 @@ app.whenReady().then(async () => {
       check("появились настройки слоя",
         (await call(`[...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes("Настройки слоя"))`)) === true);
 
+      console.log("\nсцены в разделе");
+      check("блок сцен есть в форме",
+        (await call(`[...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes("Сцены и переходы"))`)) === true);
+      await call(`[...document.querySelectorAll(".vs-block button")].find(b => b.textContent.trim() === "+ Сцена").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      await call(`[...document.querySelectorAll(".vs-block button")].find(b => b.textContent.trim() === "+ Сцена").click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      const sceneCount = await call(`document.querySelectorAll(".vs-scene-row").length`);
+      check("сцены добавляются", sceneCount === 2, `сцен на экране: ${sceneCount}`);
+      // У первой сцены выбора шва быть не должно: ей неоткуда приходить.
+      const seamSelects = await call(`[...document.querySelectorAll(".vs-scene-row")].map(n => n.querySelectorAll("select").length)`);
+      check("у первой сцены перехода нет, у второй есть", seamSelects[0] === 0 && seamSelects[1] >= 1,
+        JSON.stringify(seamSelects));
+      check("сцены идут встык",
+        (await call(`(() => { const v = [...document.querySelectorAll(".vs-scene-row")].map(n =>
+          [...n.querySelectorAll("label input")].map(i => Number(i.value)));
+          return v[0][0] + v[0][1] === v[1][0]; })()`)) === true);
+      check("у слоя можно выбрать сцену",
+        (await call(`(() => { const s = [...document.querySelectorAll(".vs-scene-pick select option")].map(o => o.textContent);
+          return s.some(t => t.includes("вне сцен")) && s.length >= 3; })()`)) === true);
+      check("каскад включается галочкой",
+        (await call(`[...document.querySelectorAll(".vs-scene-pick .vs-check")].some(n => n.textContent.includes("Каскад"))`)) === true);
+
       console.log("\nмоушн-дизайн по тому же пути, что и кнопка");
       // Раньше здесь проверялись только кирпичики — buildFfmpegArgs напрямую, — и
       // весь режим лежал: обработчик stories:render требовал исходное видео,
@@ -460,6 +495,98 @@ app.whenReady().then(async () => {
         check("ролик настоящий, нужного размера", info2.width === 1080 && info2.height === 1920, JSON.stringify(info2));
         check("длительность как заказана", Math.abs(info2.duration - 2) < 0.3, String(info2.duration));
       }
+
+      console.log("\nшвы между сценами");
+      // Ошибка в шве не видна на статичном кадре: она живёт ровно в момент
+      // склейки. Поэтому проверяем не картинку целиком, а само состояние сцены
+      // в конкретные моменты — и отдельно то, что кадры вокруг склейки разные.
+      const seamSpec = vs.normalizeSpec({
+        source: { kind: "none" }, bgColor: "#101820", duration: 6, fps: 25,
+        scenes: [
+          { id: "a", title: "Раз", start: 0, duration: 3 },
+          { id: "b", title: "Два", start: 3, duration: 3, seam: { kind: "cut-the-curve", direction: "left" } },
+        ],
+        layers: [
+          { kind: "pill", text: "ПЕРВЫЙ ТЕЗИС", sceneId: "a", start: 0, duration: 3, x: 8, y: 30, fontSize: 70 },
+          { kind: "pill", text: "ВТОРОЙ ТЕЗИС ТУТ", sceneId: "b", start: 3, duration: 3, x: 8, y: 30, fontSize: 70, waterfall: true },
+        ],
+      });
+      const seamFile = path.join(outDir, "seam.html");
+      fs.writeFileSync(seamFile, vs.buildSceneHtml(seamSpec));
+      const seamWin = new BrowserWindow({
+        show: false, width: 640, height: 480, transparent: true, frame: false,
+        backgroundColor: "#00000000", webPreferences: { offscreen: true },
+      });
+      await seamWin.loadFile(seamFile);
+      seamWin.setContentSize(seamSpec.width, seamSpec.height);
+      await new Promise((r) => setTimeout(r, 350));
+      const at = (t) => seamWin.webContents.executeJavaScript(`(() => {
+        window.seek(${t});
+        const read = (id) => {
+          const el = document.querySelector('[data-scene="' + id + '"]');
+          return { shown: el.style.display !== "none", opacity: Number(el.style.opacity || 1),
+                   transform: el.style.transform || "", filter: el.style.filter || "" };
+        };
+        return { a: read("a"), b: read("b") };
+      })()`);
+      const dx = (tr) => { const m = /translate\((-?[\d.]+)px/.exec(tr); return m ? Number(m[1]) : 0; };
+
+      const calm = await at(1.5);
+      check("вне склейки сцена стоит на месте", Math.abs(dx(calm.a.transform)) < 0.01 && calm.a.opacity === 1,
+        JSON.stringify(calm.a));
+      check("вторая сцена до своего начала не показана", !calm.b.shown, JSON.stringify(calm.b));
+
+      const leaving = await at(2.92);
+      check("уходящая сцена поехала влево", dx(leaving.a.transform) < -1, leaving.a.transform);
+      check("и уже гаснет", leaving.a.opacity < 0.9, String(leaving.a.opacity));
+      check("на уходе появляется размытие", /blur\(/.test(leaving.a.filter), leaving.a.filter);
+
+      const arriving = await at(3.08);
+      check("первая сцена после склейки скрыта", !arriving.a.shown, JSON.stringify(arriving.a));
+      // Закон вектора: ушли влево — приходящая продолжает ТО ЖЕ движение
+      // влево, то есть начинает справа и едет к нулю.
+      check("пришедшая продолжает то же направление", dx(arriving.b.transform) > 1, arriving.b.transform);
+      check("приход зажигается не с нуля", arriving.b.opacity > 0.3 && arriving.b.opacity < 1,
+        String(arriving.b.opacity));
+
+      const settled = await at(3.6);
+      check("к концу перехода сцена встала на место", Math.abs(dx(settled.b.transform)) < 1 && settled.b.opacity === 1,
+        JSON.stringify(settled.b));
+
+      // Каскад: слова прилетают по очереди, а не все разом.
+      const cascade = await seamWin.webContents.executeJavaScript(`(() => {
+        const count = (t) => { window.seek(t);
+          return [...document.querySelectorAll('[data-wf]')].filter(n => Number(n.style.opacity) > 0.5).length; };
+        return { total: document.querySelectorAll('[data-wf]').length, early: count(3.02), late: count(3.9) };
+      })()`);
+      check("текст разобран на слова для каскада", cascade.total === 3, String(cascade.total));
+      check("в начале каскада видны не все слова", cascade.early < cascade.total, `${cascade.early} из ${cascade.total}`);
+      check("к концу — все", cascade.late === cascade.total, `${cascade.late} из ${cascade.total}`);
+      seamWin.destroy();
+
+      console.log("\nконтроль швов");
+      const gate = vs.checkSeams(vs.normalizeSpec({
+        source: { kind: "none" }, duration: 6,
+        scenes: [
+          { id: "a", title: "Раз", start: 0, duration: 3 },
+          { id: "b", title: "Два", start: 3, duration: 3, seam: { kind: "inverse-zoom" } },
+        ],
+        layers: [{ kind: "pill", text: "Б", sceneId: "b", start: 3, duration: 3, appear: "scale" }],
+      }));
+      check("развернувшаяся камера поймана", gate.some((p) => /меняет направление на обратное/.test(p)),
+        JSON.stringify(gate));
+      const gap = vs.checkSeams(vs.normalizeSpec({
+        source: { kind: "none" }, duration: 8,
+        scenes: [{ id: "a", title: "Раз", start: 0, duration: 3 }, { id: "b", title: "Два", start: 4, duration: 3 }],
+        layers: [],
+      }));
+      check("разрыв между сценами пойман", gap.some((p) => /разрыв во времени/.test(p)), JSON.stringify(gap));
+      check("чистая раскладка проходит без замечаний",
+        vs.checkSeams(vs.normalizeSpec({
+          source: { kind: "none" }, duration: 6,
+          scenes: [{ id: "a", start: 0, duration: 3 }, { id: "b", start: 3, duration: 3 }],
+          layers: [{ kind: "pill", text: "Б", sceneId: "b", start: 3, duration: 3 }],
+        })).length === 0);
 
       console.log("\nпалитра");
       const light = vs.normalizeSpec({

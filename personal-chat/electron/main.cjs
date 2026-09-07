@@ -3128,6 +3128,8 @@ ipcMain.handle("stories:options", () => ({
   appear: videostories.APPEAR,
   kinds: videostories.LAYER_KINDS,
   graphics: videostories.GRAPHICS_KINDS,
+  seams: videostories.SEAM_KINDS,
+  seamDirections: videostories.SEAM_DIRECTIONS,
   brand: videostories.BRAND,
 }));
 

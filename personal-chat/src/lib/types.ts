@@ -799,7 +799,34 @@ export interface StoryLayer {
   width: number;
   /** Общий масштаб слоя: 1 — как есть, 1.5 — в полтора раза крупнее. */
   scale: number;
+  /** К какой сцене принадлежит слой. Пусто — слой поверх всех сцен и склейками не задет. */
+  sceneId?: string;
+  /** Части слоя влетают каскадом одна за другой, а не появляются разом. */
+  waterfall?: boolean;
+  /** Сдвиг уже сложившейся группы по кривой «медленно — быстро — медленно». */
+  nudge?: { at: number; dur: number; dx: number; dy: number } | null;
   [extra: string]: unknown;
+}
+
+/** Каким приёмом склеены две сцены. */
+export type StorySeamKind = "cut-the-curve" | "zoom-through" | "inverse-zoom" | "rack-focus" | "none";
+export type StorySeamDirection = "left" | "right" | "up" | "down";
+
+export interface StorySeam {
+  kind: StorySeamKind;
+  direction?: StorySeamDirection;
+  blur?: number;
+  exitDur?: number;
+  entryDur?: number;
+}
+
+export interface StoryScene {
+  id: string;
+  title: string;
+  start: number;
+  duration: number;
+  /** Шов, которым эта сцена ПРИХОДИТ. Он же ведёт уход предыдущей. */
+  seam?: StorySeam;
 }
 
 export interface StorySpec {
@@ -811,6 +838,11 @@ export interface StorySpec {
   /** «none» — моушн-дизайн без съёмки: подложка рисуется цветом. */
   source: { kind: "file" | "stock" | "none"; path: string; query: string; trimStart: number };
   bgColor: string;
+  /**
+   * Сцены и швы между ними. Пусто — ролик работает как раньше, слои живут сами
+   * по себе; со сценами появляется склейка, ведущая взгляд от кадра к кадру.
+   */
+  scenes: StoryScene[];
   /** Акцентные цвета ролика: из них берут умолчания плашки, иконки, шкалы, графики. */
   accentColor: string;
   accent2Color: string;
@@ -1307,6 +1339,8 @@ export interface ElectronAPI {
     appear: StoryLayerKind[];
     kinds: StoryLayerKind[];
     graphics: StoryLayerKind[];
+    seams: StoryLayerKind[];
+    seamDirections: StoryLayerKind[];
     brand: Record<string, string>;
   }>;
   storiesFonts(): Promise<StoryFont[]>;
@@ -1329,7 +1363,7 @@ export interface ElectronAPI {
     images: ChatAttachment[];
     problems: string[];
   }>;
-  parseStoriesScript(text: string): Promise<{ duration: number; layers: StoryLayer[] } | null>;
+  parseStoriesScript(text: string): Promise<{ duration: number; scenes?: StoryScene[]; layers: StoryLayer[] } | null>;
   prepareStoriesMotion(request: {
     spec: Partial<StorySpec>;
     text: string;
