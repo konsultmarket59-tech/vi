@@ -178,6 +178,8 @@ app.whenReady().then(async () => {
     const библиотека = [
       { id: "a", area: 100, cladding: "кирпич", text: "Длинное описание дома 100 м² в кирпиче.", renderUrls: ["https://example.test/render/100k.png"] },
       { id: "b", area: 85, cladding: "сайдинг", text: "Длинное описание дома 85 м² в сайдинге." },
+      { id: "c", area: 100, cladding: "сайдинг-под-кирпич", text: "Сайдинг под кирпич, 100 м²." },
+      { id: "d", area: 100, cladding: "", text: "Общее описание на 100 м²." },
     ];
     const streetNames = [{ village: "ПКР", street: "Нефритовая", name: "Самоцветы" }];
     const built = catalog.buildCatalog({
@@ -205,6 +207,45 @@ app.whenReady().then(async () => {
     check("описание из библиотеки подставлено", дом.Text === "Длинное описание дома 100 м² в кирпиче.", дом.Text);
     check("все фото из выгрузки прикреплены, а не одно", дом.Photo.split(" ").length === 2, дом.Photo);
     check("площадь участка с запятой", дом["Characteristics:Площадь участка"] === "6,50", дом["Characteristics:Площадь участка"]);
+
+    console.log("\nописания подставляются по облицовке из выгрузки");
+    // Пять домов из семи: у дома 120 в кирпиче заготовки нет, у дома с
+    // незаполненной площадью подобрать не по чему.
+    check("подставлено ровно там, где заготовка есть", built.counts.described === 5,
+      `${built.counts.described} из ${built.counts.houses}`);
+    const кирпич100 = built.rows.find((r) => r.SKU === "00:00:0000001:1001");
+    check("дом 100 в кирпиче получил своё описание",
+      кирпич100.Text === "Длинное описание дома 100 м² в кирпиче.", кирпич100.Text);
+    const сайдинг85 = built.rows.find((r) => r.SKU === "00:00:0000001:1002");
+    check("дом 85 в сайдинге получил своё", сайдинг85.Text === "Длинное описание дома 85 м² в сайдинге.", сайдинг85.Text);
+    // Главное правило: чужой текст не ставится. Дом 120 в кирпиче — заготовки на
+    // него нет, и пусть лучше будет пусто, чем описание другого дома.
+    const без = built.rows.find((r) => r.SKU === "00:00:0000002:2002");
+    check("где заготовки нет — описание пустое", без.Text === "", `«${без.Text}»`);
+    check("и об этом сказано в замечаниях",
+      built.problems.some((p2) => /Нет заготовки описания: дом 120 м²/.test(p2)),
+      JSON.stringify(built.problems.filter((p2) => /Нет заготовки/.test(p2))));
+    // Одна строка на вариацию, а не на каждый дом.
+    const повторы = built.problems.filter((p2) => /Нет заготовки описания/.test(p2));
+    check("замечание о нехватке не повторяется по каждому дому",
+      повторы.length === new Set(повторы).size, JSON.stringify(повторы));
+
+    const лесенка = catalog.buildCatalog({
+      houses: [{ kind: "house", village: "П", street: "У", house: "1", cadastral: "x1", houseArea: 60,
+        plotArea: 5, price: 1e6, readiness: "план", description: "Дом 60 м2. Внешняя облицовка сайдинг.", photos: ["u"] }],
+      plots: [], villages: { "П": "П" },
+      library: [{ id: "l", area: 0, cladding: "сайдинг", text: "Сайдинг на любой метраж" }],
+    });
+    check("заготовка без метража подходит по облицовке",
+      лесенка.rows[0].Text === "Сайдинг на любой метраж", лесенка.rows[0].Text);
+    const слишкомОбщая = catalog.buildCatalog({
+      houses: [{ kind: "house", village: "П", street: "У", house: "1", cadastral: "x2", houseArea: 60,
+        plotArea: 5, price: 1e6, readiness: "план", description: "Дом 60 м2. Внешняя облицовка планкен.", photos: ["u"] }],
+      plots: [], villages: { "П": "П" },
+      library: [{ id: "l", area: 0, cladding: "", text: "ЭТО НЕ ДОЛЖНО ПОДСТАВЛЯТЬСЯ" }],
+    });
+    check("заготовка без метража и без облицовки не подходит никогда",
+      слишкомОбщая.rows[0].Text === "", `«${слишкомОбщая.rows[0].Text}»`);
 
     console.log("\nкварталы: имя по улице");
     // Правило на улицу важнее правила на посёлок: в одном посёлке 1С бывает
@@ -315,7 +356,7 @@ app.whenReady().then(async () => {
         table.columns.join(";") === catalog.TILDA_COLUMNS.join(";"), table.columns.slice(0, 4).join(";"));
       check("отдана вся таблица, а не образец", table.rows.length === 10, String(table.rows.length));
       check("заготовки описаний пришли для выбора в ячейке",
-        table.library.length === 2 && table.library.every((l) => l.label), JSON.stringify(table.library.map((l) => l.label)));
+        table.library.length === 4 && table.library.every((l) => l.label), JSON.stringify(table.library.map((l) => l.label)));
       check("у заготовки читаемое имя",
         table.library.some((l) => /дом 100 м² · кирпич/.test(l.label)), JSON.stringify(table.library.map((l) => l.label)));
 
@@ -358,17 +399,73 @@ app.whenReady().then(async () => {
       sheet.eachRow((r2) => { if (String(r2.getCell(6).value || "") === "Правленое название") нашлось = true; });
       check("правка попала и в книгу Excel", нашлось);
 
-      console.log("\nправка не должна зависеть от размера таблицы");
-      // Открытый редактор один, и набираемое значение живёт внутри него. Если
-      // поднять его в состояние всей таблицы, каждая буква будет перерисовывать
-      // тысячи ячеек — ровно та беда, что была в чате.
-      // Настройки в этом тесте менялись мимо окна, поэтому таблицу собираем так
-      // же, как человек, — кнопкой.
+      console.log("\nправка настроек не должна ломать кнопки");
+      // Живая жалоба: «подгрузила таблицы, подгрузила описания — кнопки не
+      // работают». Причина была в том, что каждая правка настройки или
+      // библиотеки запускала полную пересборку и перекидывала на вкладку с
+      // таблицей. Проверяем именно это: печатаем в поле библиотеки и смотрим,
+      // что вкладка не съехала, а кнопки живы.
+      // Настройки и библиотека в этом тесте сохранялись мимо окна — перечитываем
+      // их так же, как это делает свежий запуск приложения.
       await call(`window.location.reload()`);
       await new Promise((r) => (win.webContents.isLoading() ? win.webContents.once("did-finish-load", r) : r()));
       await new Promise((r) => setTimeout(r, 1500));
       await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Каталог")).click()`);
       await new Promise((r) => setTimeout(r, 800));
+      // Сначала собираем — как она и делала, — и только потом правим настройки.
+      await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => /Пересобрать/.test(b.textContent)).click()`);
+      await new Promise((r) => setTimeout(r, 2500));
+      check("после сборки открылась таблица", (await call(`!!document.querySelector(".cat-table")`)) === true);
+      await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => /Настройка/.test(b.textContent)).click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      const typed = await call(`(async () => {
+        const inputs = [...document.querySelectorAll(".cat-card input[type=number]")];
+        if (!inputs.length) return { error: "нет полей библиотеки" };
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        const t0 = performance.now();
+        for (const v of ["1", "12", "120"]) {
+          setter.call(inputs[0], v);
+          inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 120));
+        }
+        // Ждём заведомо дольше полной пересборки: если правка её всё-таки
+        // запускает, к этому моменту вид уже перескочит на таблицу, и проверка
+        // ниже это увидит. Без ожидания она ловила бы гонку, а не поведение.
+        await new Promise(r => setTimeout(r, 2500));
+        const rebuild = [...document.querySelectorAll(".cat-tabs button")].find(b => /Пересобрать/.test(b.textContent));
+        const exportBtn = [...document.querySelectorAll(".cat-tabs button")].find(b => /Выгрузить/.test(b.textContent));
+        return {
+          ms: Math.round(performance.now() - t0),
+          // Именно ВИДИМОСТЬ, а не наличие в разметке: панель настроек прячется
+          // атрибутом hidden и остаётся в DOM, так что querySelector находил бы
+          // её и на вкладке с таблицей.
+          onSetupTab: [...document.querySelectorAll(".cat-tabs .vs-tab")]
+            .find(b => /Настройка/.test(b.textContent)).classList.contains("on"),
+          rebuildEnabled: rebuild && !rebuild.disabled,
+          rebuildText: rebuild ? rebuild.textContent.trim() : "",
+          exportEnabled: exportBtn && !exportBtn.disabled,
+        };
+      })()`);
+      check("вкладка не переключилась сама на таблицу", typed.onSetupTab === true, JSON.stringify(typed));
+      check("кнопка пересборки жива", typed.rebuildEnabled === true, JSON.stringify(typed));
+      check("кнопка выгрузки жива", typed.exportEnabled === true, JSON.stringify(typed));
+      check("правка в библиотеке идёт мгновенно", typed.ms - 2500 < 900, `${typed.ms - 2500} мс на три правки`);
+      check("но сказано, что настройки изменились",
+        /настройки изменились/i.test(typed.rebuildText), typed.rebuildText);
+      // И выгрузка не должна молча отдать вчерашний каталог.
+      const отказ = await call(`(() => {
+        [...document.querySelectorAll(".cat-tabs button")].find(b => /Выгрузить/.test(b.textContent)).click();
+        return new Promise(r => setTimeout(() => r((document.querySelector(".cat-bar-note") || {}).textContent || ""), 400));
+      })()`);
+      check("выгрузка устаревшей таблицы остановлена с объяснением",
+        /Пересобрать/.test(отказ), отказ);
+
+      console.log("\nправка не должна зависеть от размера таблицы");
+      // Открытый редактор один, и набираемое значение живёт внутри него. Если
+      // поднять его в состояние всей таблицы, каждая буква будет перерисовывать
+      // тысячи ячеек — ровно та беда, что была в чате.
+      // Возвращаем библиотеку в исходное после правки полей выше.
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека)})`);
       await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => b.textContent.includes("Пересобрать")).click()`);
       await new Promise((r) => setTimeout(r, 2500));
       const cells = await call(`document.querySelectorAll(".cat-cell").length`);
