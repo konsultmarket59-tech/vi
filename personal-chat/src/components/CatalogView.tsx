@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CatalogConfig, CatalogDescription, CatalogEdits, CatalogTable as CatalogTableData } from "../lib/types";
 import CatalogTable from "./CatalogTable";
 
@@ -32,6 +32,9 @@ export default function CatalogView() {
   const [preview, setPreview] = useState<CatalogTableData | null>(null);
   const [edits, setEdits] = useState<CatalogEdits>({});
   const [tab, setTab] = useState<"table" | "setup">("setup");
+  // Настройки поменялись, а таблица собрана по прежним: об этом надо сказать,
+  // иначе человек выгрузит вчерашний каталог, будучи уверенным в обратном.
+  const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -42,36 +45,59 @@ export default function CatalogView() {
     window.api.catalogEdits().then(setEdits);
   }, []);
 
-  const refresh = useCallback(async () => {
+  /**
+   * Пересборка каталога.
+   *
+   * Запускается ТОЛЬКО по кнопке и один раз при выборе выгрузки. Раньше она
+   * висела на каждой правке настроек и библиотеки: одна набранная буква в имени
+   * посёлка пересобирала все двести позиций, кнопки на это время гасли, а вид
+   * перескакивал на вкладку с таблицей. Со стороны это выглядело так, будто
+   * раздел не работает вовсе.
+   */
+  const running = useRef(false);
+  const refresh = useCallback(async (showTable = true) => {
+    if (running.current) return;
+    running.current = true;
     setError("");
     setBusy(true);
     try {
       const table = await window.api.catalogTable();
       setPreview(table);
-      // Как только таблица собралась, показываем именно её: человек пришёл
-      // править каталог, а не листать настройки.
-      setTab("table");
+      if (showTable) setTab("table");
     } catch (e) {
       setPreview(null);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }, []);
 
-  async function patch(changes: Partial<CatalogConfig>) {
+  /**
+   * Настройка сохраняется сразу, а каталог — нет.
+   *
+   * Пересборка тут была бы не помощью, а помехой: человек ещё печатает.
+   * Исключение одно — выбор самой выгрузки: без неё показывать нечего, и
+   * первый разбор уместен сразу.
+   */
+  async function patch(changes: Partial<CatalogConfig>, rebuild = false) {
     const next = await window.api.catalogSaveConfig(changes);
     setConfig(next);
-    if (next.exportPath) void refresh();
+    setStale(true);
+    if (rebuild && next.exportPath) void refresh();
   }
 
   async function patchLibrary(items: CatalogDescription[]) {
     setLibrary(items);
+    setStale(true);
     await window.api.catalogSaveLibrary(items);
-    if (config?.exportPath) void refresh();
   }
 
   async function build() {
+    if (stale) {
+      setError("Настройки изменились после сборки — нажмите «Пересобрать», иначе выгрузится прежний каталог.");
+      return;
+    }
     setError("");
     setSaved("");
     setBusy(true);
@@ -106,7 +132,7 @@ export default function CatalogView() {
     else delete next[sku];
     setEdits(next);
     await window.api.catalogSaveEdits(next);
-    await refresh();
+    await refresh(false);
   }
 
   return (
@@ -124,8 +150,15 @@ export default function CatalogView() {
             Таблица {preview ? `(${preview.rows.length})` : ""}
           </button>
           <div className="cat-tabs-actions">
-            <button className="btn btn-secondary btn-small" disabled={busy || !config?.exportPath} onClick={refresh}>
-              {busy ? "Считаю…" : "Пересобрать"}
+            <button
+              className={stale ? "btn btn-primary btn-small" : "btn btn-secondary btn-small"}
+              disabled={busy || !config?.exportPath}
+              onClick={async () => {
+                await refresh();
+                setStale(false);
+              }}
+            >
+              {busy ? "Собираю…" : stale ? "Пересобрать (настройки изменились)" : "Пересобрать"}
             </button>
             <button className="btn btn-primary btn-small" disabled={busy || !preview} onClick={build}>
               Выгрузить в Excel и CSV
@@ -160,7 +193,7 @@ export default function CatalogView() {
                   className="btn btn-secondary btn-small"
                   onClick={async () => {
                     const f = await window.api.catalogPick("export");
-                    if (f) await patch({ exportPath: f });
+                    if (f) await patch({ exportPath: f }, true);
                   }}
                 >
                   Выгрузка из 1С
@@ -174,7 +207,7 @@ export default function CatalogView() {
                   className="btn btn-secondary btn-small"
                   onClick={async () => {
                     const f = await window.api.catalogPick("previous");
-                    if (f) await patch({ previousPath: f });
+                    if (f) await patch({ previousPath: f }, true);
                   }}
                 >
                   Прошлый каталог
@@ -314,8 +347,11 @@ export default function CatalogView() {
               <h3>Библиотека описаний</h3>
               <p className="vs-hint">
                 Заготовка описывает <b>вариацию</b>, а не отдельный дом: «дом 100 м² с облицовкой
-                кирпич». Одна заготовка обслуживает все такие дома в выгрузке. Текст читается из
-                файла при каждой сборке — поправите файл, и правка сама попадёт в следующий каталог.
+                кирпич». Облицовку приложение берёт из выгрузки 1С и подставляет описание само.
+                Одна заготовка обслуживает все такие дома. Текст читается из файла при каждой
+                сборке — поправите файл, и правка сама попадёт в следующий каталог; разбивка на
+                абзацы сохраняется. Оставьте метраж пустым, чтобы заготовка подошла к любому
+                метражу с этой облицовкой.
               </p>
               {library.map((item) => (
                 <div key={item.id} className="cat-card">
@@ -450,6 +486,11 @@ export default function CatalogView() {
                   <p className="vs-hint">
                     Позиций: <b>{preview.rows.length}</b> — домов {preview.counts.houses}, участков{" "}
                     {preview.counts.plots}.
+                  </p>
+                  <p className="vs-hint">
+                    Описание подставлено из библиотеки у <b>{preview.counts.described}</b> домов из{" "}
+                    {preview.counts.houses}. Облицовка берётся из выгрузки 1С; где подходящей
+                    заготовки нет, описание остаётся пустым — чужой текст туда не ставится.
                   </p>
                   <p className="vs-hint">
                     Правок вручную: <b>{Object.values(edits).reduce((n, row) => n + Object.keys(row).length, 0)}</b>.

@@ -273,7 +273,7 @@ export interface CatalogTable {
   rows: Record<string, string>[];
   edited: { sku: string; column: string }[];
   problems: string[];
-  counts: { houses: number; plots: number; gone: number };
+  counts: { houses: number; plots: number; gone: number; described: number };
   villages: Record<string, string>;
   streets: Record<string, string[]>;
   /** Заготовки описаний — для выбора прямо в ячейке. */
@@ -282,7 +282,7 @@ export interface CatalogTable {
 
 export interface CatalogPreview {
   problems: string[];
-  counts: { houses: number; plots: number; gone: number };
+  counts: { houses: number; plots: number; gone: number; described: number };
   villages: Record<string, string>;
   /** Улицы по посёлкам — чтобы исключение выбиралось списком, а не печаталось. */
   streets: Record<string, string[]>;

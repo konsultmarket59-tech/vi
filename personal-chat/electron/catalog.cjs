@@ -185,7 +185,31 @@ const IMAGE_EXT = /\.(png|jpe?g|webp|gif|avif|heic)(\?|$)/i;
  * Фото лежат гиперссылками на ячейках «фото 0», «фото 1» — сам текст ячейки
  * бесполезен, нужна ссылка. Поэтому лист читается вместе со ссылками.
  */
+// Разобранная выгрузка, пока файл не изменился. Разбор книги — самая дорогая
+// часть сборки, а пересобирают каталог по многу раз подряд: правят имя посёлка,
+// добавляют заготовку, смотрят, что получилось. Перечитывать книгу на каждый
+// такой шаг незачем.
+const exportCache = new Map();
+
 async function readExport(filePath) {
+  let key = "";
+  try {
+    const stat = await fs.stat(filePath);
+    key = `${filePath}:${stat.mtimeMs}:${stat.size}`;
+    const hit = exportCache.get(key);
+    if (hit) return hit;
+  } catch {
+    // Файла нет — пусть об этом скажет сам разбор ниже, понятной ошибкой.
+  }
+  const parsed = await parseExport(filePath);
+  if (key) {
+    exportCache.clear();
+    exportCache.set(key, parsed);
+  }
+  return parsed;
+}
+
+async function parseExport(filePath) {
   const ExcelJS = require("exceljs");
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
@@ -432,13 +456,29 @@ function buildCatalog({
     return parts.join(", ");
   };
 
+  /**
+   * Подбор заготовки описания.
+   *
+   * Облицовку берём из самой выгрузки — она написана в описании 1С, — и ищем
+   * заготовку лесенкой, от точной к общей. Если ничего не подошло, описание
+   * остаётся ПУСТЫМ: подставить туда чужой текст было бы хуже, чем не
+   * подставить ничего, — на витрине оказался бы кирпич вместо сайдинга.
+   *
+   * Заготовка без метража и без облицовки не подходит никогда: она подошла бы
+   * ко всему подряд и молча разошлась бы по всему каталогу.
+   */
   const findDescription = (item, parsed) => {
     const area = Math.round(item.houseArea);
-    const exact = library.find((d) => Math.round(num(d.area)) === area && d.cladding === parsed.cladding);
-    if (exact) return exact;
-    // Заготовка без указанной облицовки годится как общая для метража.
-    return library.find((d) => Math.round(num(d.area)) === area && !d.cladding) || null;
+    const sameArea = (d) => Math.round(num(d.area)) === area && area > 0;
+    const sameCladding = (d) => d.cladding && d.cladding === parsed.cladding;
+    return (
+      library.find((d) => sameArea(d) && sameCladding(d)) ||
+      library.find((d) => sameArea(d) && !d.cladding) ||
+      library.find((d) => sameCladding(d) && !num(d.area)) ||
+      null
+    );
   };
+  let matched = 0;
 
   const sortedHouses = [...houses].sort((a, b) => {
     const ra = READINESS_ORDER.indexOf(a.readiness);
@@ -466,9 +506,13 @@ function buildCatalog({
     if (!parsed.cladding) {
       problems.push(`«${village}, ${item.street}, ${item.house}» — по описанию не понять облицовку, описание из библиотеки не подобрано.`);
     } else if (!doc) {
-      problems.push(`Нет заготовки описания: дом ${area} м², облицовка ${parsed.claddingLabel}. Добавьте её в библиотеку.`);
+      // Одна строка на вариацию, а не на каждый дом: иначе семнадцать
+      // одинаковых замечаний вытеснят всё остальное.
+      const note = `Нет заготовки описания: дом ${area} м², облицовка ${parsed.claddingLabel}. Добавьте её в библиотеку.`;
+      if (!problems.includes(note)) problems.push(note);
     }
 
+    if (doc && doc.text) matched += 1;
     const photos = item.photos.length ? item.photos : doc?.renderUrls || [];
     if (!photos.length) {
       problems.push(`«${village}, ${item.street}, ${item.house}» — нет ни одного фото ни в выгрузке, ни в заготовке.`);
@@ -568,7 +612,11 @@ function buildCatalog({
     );
   }
 
-  return { rows, problems, counts: { houses: sortedHouses.length, plots: plots.length, gone: gone.length } };
+  return {
+    rows,
+    problems,
+    counts: { houses: sortedHouses.length, plots: plots.length, gone: gone.length, described: matched },
+  };
 }
 
 /** Файл в том виде, в каком его ждёт магазин: точка с запятой и кавычки. */
@@ -654,7 +702,14 @@ async function loadLibraryTexts(items, extractText) {
         error = `Не прочитан файл описания «${path.basename(item.textPath)}»: ${e.message}`;
       }
     }
-    loaded.push({ ...item, text: str(text), error });
+    // Разбивка на абзацы сохраняется как есть: описание дома — не одна строка,
+    // и склеенное в сплошной кусок оно на витрине не читается. Убираются только
+    // пустые края и лишние переводы строк подряд.
+    const kept = String(text || "")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    loaded.push({ ...item, text: kept, error });
   }
   return loaded;
 }
