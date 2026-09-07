@@ -228,6 +228,40 @@ export interface CrashEntry {
   код: number | null;
 }
 
+// ---------- каталог для Тильды ----------
+
+export interface CatalogConfig {
+  exportPath: string;
+  previousPath: string;
+  outputDir: string;
+  /** Имя посёлка в 1С → имя на витрине. Заполняется из прошлого каталога. */
+  villages: Record<string, string>;
+  /** «all» — все фото из выгрузки, «first» — только первое. */
+  photoMode: "all" | "first";
+}
+
+/** Заготовка описания: одна на вариацию «площадь + облицовка». */
+export interface CatalogDescription {
+  id: string;
+  name: string;
+  area: number;
+  cladding: string;
+  /** Путь к файлу описания на компьютере — читается при каждой сборке. */
+  textPath: string;
+  /** Ссылки на рендеры. Именно ссылки: в каталог нельзя положить файл с диска. */
+  renderUrls: string[];
+  /** Локальные пути к рендерам — напоминание, что их надо загрузить на сайт. */
+  renderPaths: string[];
+}
+
+export interface CatalogPreview {
+  problems: string[];
+  counts: { houses: number; plots: number; gone: number };
+  villages: Record<string, string>;
+  sample: Record<string, string>[];
+  total: number;
+}
+
 // ---------- видеотека ----------
 
 export interface LibraryConfig {
@@ -1191,6 +1225,15 @@ export interface ElectronAPI {
   ): Promise<{ path: string }>;
   getStorageReport(): Promise<StorageReport>;
   clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
+
+  // каталог для Тильды
+  catalogConfig(): Promise<CatalogConfig>;
+  catalogSaveConfig(config: Partial<CatalogConfig>): Promise<CatalogConfig>;
+  catalogLibrary(): Promise<CatalogDescription[]>;
+  catalogSaveLibrary(items: CatalogDescription[]): Promise<CatalogDescription[]>;
+  catalogPick(what: "export" | "previous" | "outputDir" | "text"): Promise<string>;
+  catalogPreview(): Promise<CatalogPreview>;
+  catalogBuild(): Promise<{ file: string; rows: number; problems: string[] }>;
 
   // видеотека
   libraryConfig(): Promise<LibraryConfig>;

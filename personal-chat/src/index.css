@@ -1777,3 +1777,34 @@ button.fin-row-x:hover { color: var(--accent); }
 }
 .lib-check strong { display: block; margin-bottom: 4px; }
 .lib-check p { margin: 2px 0; }
+
+/* Каталог: соответствие посёлков, заготовки описаний, предпросмотр строк. */
+.cat-village { align-items: center; gap: 8px; }
+.cat-village > span:first-child { flex: 1 1 120px; font-size: 12px; }
+.cat-arrow { color: var(--text-dim); }
+.cat-village input { flex: 1 1 140px; }
+
+.cat-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.cat-card .vs-field { flex: 1 1 120px; }
+
+.cat-problems ul { max-height: 260px; overflow-y: auto; }
+.cat-problems li { font-size: 12px; line-height: 1.45; }
+
+.cat-rows { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.cat-row {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.cat-title { font-weight: 600; }
+.cat-meta { color: var(--text-dim); font-size: 11px; }
+/* Ярлык стадии: готовые дома должны опознаваться с одного взгляда. */
+.cat-mark {
+  flex: none; font-size: 10px; padding: 1px 7px; border-radius: 6px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.cat-mark-готов { background: #eef8f1; color: #14602f; border-color: #b7dfc2; }
+.cat-mark-стройка { background: #fdf6e3; color: #8a6d18; border-color: #e8d9a8; }
+.cat-mark-план { background: var(--bg-hover); }

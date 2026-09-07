@@ -22,6 +22,7 @@ const MODULE_IDS = [
   "finmodel",
   "stories",
   "library",
+  "catalog",
   "cleanup",
   "media",
   "cloud",

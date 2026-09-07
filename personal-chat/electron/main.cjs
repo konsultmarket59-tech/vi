@@ -2827,6 +2827,7 @@ const dataviz = require("./dataviz.cjs");
 const finmodel = require("./finmodel.cjs");
 const videostories = require("./videostories.cjs");
 const library = require("./library.cjs");
+const catalog = require("./catalog.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -3324,6 +3325,119 @@ ipcMain.handle("stories:render", async (event, payload) => {
     // сохранения не остаётся ничего, иначе папка распухала бы от каждой пробы.
     await fs.rm(work, { recursive: true, force: true }).catch(() => {});
   }
+});
+
+// ---------- каталог для Тильды ----------
+
+function catalogConfigFile(root) {
+  return path.join(root, "catalog", "config.json");
+}
+
+async function loadCatalogConfig() {
+  const root = await getRootPath();
+  try {
+    return JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+  } catch {
+    return {
+      exportPath: "",
+      previousPath: "",
+      outputDir: "",
+      villages: {},
+      // «all» — все фото из выгрузки в одно поле; «first» — только первое, как
+      // в нынешнем каталоге. Умолчание — как сейчас: проверено, что так магазин
+      // точно принимает файл.
+      photoMode: "first",
+    };
+  }
+}
+
+async function saveCatalogConfig(config) {
+  const root = await getRootPath();
+  await fs.mkdir(path.join(root, "catalog"), { recursive: true });
+  const merged = { ...(await loadCatalogConfig()), ...config };
+  await fs.writeFile(catalogConfigFile(root), JSON.stringify(merged, null, 2), "utf-8");
+  return merged;
+}
+
+ipcMain.handle("catalog:config", () => loadCatalogConfig());
+ipcMain.handle("catalog:saveConfig", (_e, config) => saveCatalogConfig(config));
+ipcMain.handle("catalog:library", async () => catalog.readLibrary(await getRootPath()));
+ipcMain.handle("catalog:saveLibrary", async (_e, items) => catalog.writeLibrary(await getRootPath(), items));
+
+ipcMain.handle("catalog:pick", async (_e, what) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (what === "outputDir") {
+    const r = await dialog.showOpenDialog(win, { title: "Куда сохранить каталог", properties: ["openDirectory", "createDirectory"] });
+    return r.canceled ? "" : r.filePaths[0];
+  }
+  const filters =
+    what === "export"
+      ? [{ name: "Выгрузка 1С", extensions: ["xlsx", "xlsm"] }]
+      : what === "previous"
+        ? [{ name: "Файл каталога", extensions: ["csv"] }]
+        : [{ name: "Описание", extensions: ["txt", "md", "docx", "doc", "rtf"] }];
+  const r = await dialog.showOpenDialog(win, { title: "Выберите файл", properties: ["openFile"], filters });
+  return r.canceled ? "" : r.filePaths[0];
+});
+
+/**
+ * Сборка каталога. Один путь и для предпросмотра, и для записи файла: показать
+ * человеку одно, а сохранить другое — самый простой способ его подвести.
+ */
+async function assembleCatalog() {
+  const config = await loadCatalogConfig();
+  if (!config.exportPath) throw new Error("Не выбрана выгрузка из 1С.");
+  const root = await getRootPath();
+  const source = await catalog.readExport(config.exportPath);
+  const previous = config.previousPath ? await catalog.readPrevious(config.previousPath) : null;
+
+  // Соответствие имён посёлков достаётся из прошлого каталога: как посёлок
+  // назван на витрине, там уже решено. Ручные правки из настроек важнее.
+  const villages = {};
+  if (previous) {
+    for (const item of [...source.houses, ...source.plots]) {
+      const name = previous.villages.get(item.cadastral);
+      if (name) villages[item.village] = name;
+    }
+  }
+  Object.assign(villages, config.villages || {});
+
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  const result = catalog.buildCatalog({
+    houses: source.houses,
+    plots: source.plots,
+    library,
+    villages,
+    previous,
+    photoMode: config.photoMode,
+  });
+  for (const item of library) if (item.error) result.problems.unshift(item.error);
+  return { ...result, villages, config };
+}
+
+ipcMain.handle("catalog:preview", async () => {
+  const result = await assembleCatalog();
+  return {
+    problems: result.problems,
+    counts: result.counts,
+    villages: result.villages,
+    // Первые двадцать строк — увидеть порядок и заполненность, не пересылая
+    // в окно весь каталог.
+    sample: result.rows.slice(0, 20),
+    total: result.rows.length,
+  };
+});
+
+ipcMain.handle("catalog:build", async () => {
+  const result = await assembleCatalog();
+  const dir = result.config.outputDir;
+  if (!dir) throw new Error("Не выбрана папка, куда сохранить каталог.");
+  await fs.mkdir(dir, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const file = path.join(dir, `каталог-${stamp}.csv`);
+  // BOM в начале: без него магазин читает кириллицу как набор знаков.
+  await fs.writeFile(file, "\ufeff" + catalog.toCsv(result.rows), "utf-8");
+  return { file, rows: result.rows.length, problems: result.problems };
 });
 
 // ---------- видеотека ----------

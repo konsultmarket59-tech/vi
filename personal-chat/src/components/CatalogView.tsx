@@ -1,0 +1,330 @@
+import { useCallback, useEffect, useState } from "react";
+import type { CatalogConfig, CatalogDescription, CatalogPreview } from "../lib/types";
+
+/**
+ * Каталог: пересборка выгрузки 1С в файл для магазина Тильды.
+ *
+ * Ручная работа, которую заменяет раздел, занимает часы после каждой выгрузки:
+ * заголовки, категории, длинные описания по вариациям, SEO по каждой позиции.
+ * Раздел устроен так, чтобы человек видел, ЧТО получится, до того как файл
+ * уедет на сайт: сначала предпросмотр и замечания, потом сохранение.
+ */
+
+const CLADDINGS = [
+  { id: "", name: "любая (общая заготовка на метраж)" },
+  { id: "кирпич", name: "кирпич" },
+  { id: "сайдинг", name: "сайдинг" },
+  { id: "сайдинг-под-кирпич", name: "сайдинг «под кирпич»" },
+  { id: "штукатурка-планкен", name: "штукатурка с планкеном" },
+  { id: "профлист-планкен", name: "профлист с планкеном" },
+  { id: "штукатурка", name: "штукатурка" },
+  { id: "планкен", name: "планкен" },
+];
+
+function uid() {
+  return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+export default function CatalogView() {
+  const [config, setConfig] = useState<CatalogConfig | null>(null);
+  const [library, setLibrary] = useState<CatalogDescription[]>([]);
+  const [preview, setPreview] = useState<CatalogPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+
+  useEffect(() => {
+    window.api.catalogConfig().then(setConfig);
+    window.api.catalogLibrary().then(setLibrary);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setError("");
+    setBusy(true);
+    try {
+      setPreview(await window.api.catalogPreview());
+    } catch (e) {
+      setPreview(null);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  async function patch(changes: Partial<CatalogConfig>) {
+    const next = await window.api.catalogSaveConfig(changes);
+    setConfig(next);
+    if (next.exportPath) void refresh();
+  }
+
+  async function patchLibrary(items: CatalogDescription[]) {
+    setLibrary(items);
+    await window.api.catalogSaveLibrary(items);
+    if (config?.exportPath) void refresh();
+  }
+
+  async function build() {
+    setError("");
+    setSaved("");
+    setBusy(true);
+    try {
+      const result = await window.api.catalogBuild();
+      setSaved(`${result.file} — ${result.rows} позиций`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const short = (p: string) => (p ? p.split(/[\\/]/).pop() : "не выбран");
+
+  return (
+    <div className="ops-view">
+      <div className="ops-app">
+        <div className="vs-body">
+          <div className="vs-form">
+            <p className="vs-lead">
+              Выгрузка из 1С пересобирается в файл для магазина: заголовки, категории, описания по
+              вариациям, фото и SEO по каждой позиции. Готовые дома идут первыми.
+            </p>
+
+            <section className="vs-block">
+              <h3>Файлы</h3>
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const f = await window.api.catalogPick("export");
+                    if (f) await patch({ exportPath: f });
+                  }}
+                >
+                  Выгрузка из 1С
+                </button>
+                <span className="vs-path" title={config?.exportPath}>
+                  {short(config?.exportPath || "")}
+                </span>
+              </div>
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const f = await window.api.catalogPick("previous");
+                    if (f) await patch({ previousPath: f });
+                  }}
+                >
+                  Прошлый каталог
+                </button>
+                <span className="vs-path" title={config?.previousPath}>
+                  {short(config?.previousPath || "")}
+                </span>
+              </div>
+              <p className="vs-hint">
+                Прошлый файл каталога нужен не для красоты: из него берутся номера позиций магазина.
+                Без них магазин заведёт вторые экземпляры вместо обновления, и каталог удвоится.
+                Оттуда же берётся, как посёлки названы на витрине.
+              </p>
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const d = await window.api.catalogPick("outputDir");
+                    if (d) await patch({ outputDir: d });
+                  }}
+                >
+                  Куда сохранить
+                </button>
+                <span className="vs-path" title={config?.outputDir}>
+                  {config?.outputDir || "не выбрана"}
+                </span>
+              </div>
+              <label className="vs-check">
+                <input
+                  type="checkbox"
+                  checked={config?.photoMode === "all"}
+                  onChange={(e) => patch({ photoMode: e.target.checked ? "all" : "first" })}
+                />
+                Все фото из выгрузки, а не только первое
+              </label>
+            </section>
+
+            <section className="vs-block">
+              <h3>Соответствие посёлков</h3>
+              <p className="vs-hint">
+                В 1С и на витрине посёлки называются по-разному. Взято из прошлого каталога, можно
+                поправить.
+              </p>
+              {preview &&
+                Object.entries(preview.villages).map(([from, to]) => (
+                  <div key={from} className="vs-row cat-village">
+                    <span>{from}</span>
+                    <span className="cat-arrow">→</span>
+                    <input
+                      value={to}
+                      onChange={(e) =>
+                        patch({ villages: { ...(config?.villages || {}), [from]: e.target.value } })
+                      }
+                    />
+                  </div>
+                ))}
+              {!preview && <p className="vs-hint">Выберите выгрузку — соответствие подтянется само.</p>}
+            </section>
+
+            <section className="vs-block">
+              <h3>Библиотека описаний</h3>
+              <p className="vs-hint">
+                Заготовка описывает <b>вариацию</b>, а не отдельный дом: «дом 100 м² с облицовкой
+                кирпич». Одна заготовка обслуживает все такие дома в выгрузке. Текст читается из
+                файла при каждой сборке — поправите файл, и правка сама попадёт в следующий каталог.
+              </p>
+              {library.map((item) => (
+                <div key={item.id} className="cat-card">
+                  <div className="vs-row">
+                    <label className="vs-field">
+                      Площадь, м²
+                      <input
+                        type="number"
+                        value={item.area || ""}
+                        onChange={(e) =>
+                          patchLibrary(
+                            library.map((x) => (x.id === item.id ? { ...x, area: Number(e.target.value) } : x))
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="vs-field">
+                      Облицовка
+                      <select
+                        value={item.cladding}
+                        onChange={(e) =>
+                          patchLibrary(
+                            library.map((x) => (x.id === item.id ? { ...x, cladding: e.target.value } : x))
+                          )
+                        }
+                      >
+                        {CLADDINGS.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="link-btn"
+                      onClick={() => patchLibrary(library.filter((x) => x.id !== item.id))}
+                    >
+                      удалить
+                    </button>
+                  </div>
+                  <div className="vs-row">
+                    <button
+                      className="btn btn-secondary btn-small"
+                      onClick={async () => {
+                        const f = await window.api.catalogPick("text");
+                        if (f) patchLibrary(library.map((x) => (x.id === item.id ? { ...x, textPath: f } : x)));
+                      }}
+                    >
+                      Файл описания
+                    </button>
+                    <span className="vs-path" title={item.textPath}>
+                      {short(item.textPath)}
+                    </span>
+                  </div>
+                  <label className="vs-field">
+                    Ссылки на рендеры — по одной в строке
+                    <textarea
+                      rows={2}
+                      value={item.renderUrls.join("\\n")}
+                      placeholder="https://static.tildacdn.com/…"
+                      onChange={(e) =>
+                        patchLibrary(
+                          library.map((x) =>
+                            x.id === item.id
+                              ? { ...x, renderUrls: e.target.value.split("\\n").map((s) => s.trim()).filter(Boolean) }
+                              : x
+                          )
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              ))}
+              <button
+                className="btn btn-secondary btn-small"
+                onClick={() =>
+                  patchLibrary([
+                    ...library,
+                    { id: uid(), name: "", area: 100, cladding: "кирпич", textPath: "", renderUrls: [], renderPaths: [] },
+                  ])
+                }
+              >
+                + Новое описание
+              </button>
+              <p className="vs-hint">
+                Рендеры указываются <b>ссылками</b>, а не файлами с компьютера: магазин забирает
+                картинки по адресу, и локальный путь на сайте превратится в пустое место. Загрузите
+                рендеры на сайт один раз и вставьте сюда полученные адреса.
+              </p>
+            </section>
+          </div>
+
+          <div className="vs-right vs-right-agent">
+            <section className="vs-block">
+              <h3>Что получится</h3>
+              <div className="vs-row">
+                <button className="btn btn-secondary btn-small" disabled={busy || !config?.exportPath} onClick={refresh}>
+                  {busy ? "Считаю…" : "Пересчитать"}
+                </button>
+                <button className="btn btn-primary btn-small" disabled={busy || !preview} onClick={build}>
+                  Собрать файл
+                </button>
+              </div>
+              {error && <p className="vs-warn">{error}</p>}
+              {saved && <div className="vs-saved">Сохранено: {saved}</div>}
+              {preview && (
+                <p className="vs-hint">
+                  Позиций: <b>{preview.total}</b> — домов {preview.counts.houses}, участков{" "}
+                  {preview.counts.plots}.
+                </p>
+              )}
+            </section>
+
+            {preview && preview.problems.length > 0 && (
+              <section className="vs-block cat-problems">
+                <h3>Замечания ({preview.problems.length})</h3>
+                <p className="vs-hint">
+                  Файл соберётся и с ними — но лучше знать заранее, чем увидеть на витрине.
+                </p>
+                <ul className="doc-list">
+                  {preview.problems.map((p, i) => (
+                    <li key={i}>{p}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {preview && !!preview.sample.length && (
+              <section className="vs-block">
+                <h3>Первые позиции</h3>
+                <p className="vs-hint">Готовые дома идут первыми — их можно купить сегодня.</p>
+                <div className="cat-rows">
+                  {preview.sample.map((row, i) => (
+                    <div key={i} className="cat-row">
+                      <span className={`cat-mark cat-mark-${row.Mark || "none"}`}>{row.Mark || "участок"}</span>
+                      <span className="cat-title">{row.Title}</span>
+                      <span className="cat-meta">
+                        {row.Category}
+                        {row.Photo ? "" : " · без фото"}
+                        {row.Text ? "" : " · без описания"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

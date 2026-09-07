@@ -11,6 +11,7 @@ export type View =
   | { kind: "finmodel" }
   | { kind: "stories" }
   | { kind: "library" }
+  | { kind: "catalog" }
   | { kind: "cleanup" }
   | { kind: "cloud" }
   | { kind: "direct" }
@@ -31,6 +32,7 @@ const MODULE_ITEMS = [
   { id: "finmodel", label: "💹 Финмодель" },
   { id: "stories", label: "🎬 Видео-сторис" },
   { id: "library", label: "🎙 Видеотека" },
+  { id: "catalog", label: "🏠 Каталог" },
   { id: "cleanup", label: "🧹 Клининг" },
   { id: "media", label: "🎨 Медиа" },
   { id: "cloud", label: "☁️ Облако" },

@@ -163,6 +163,15 @@ contextBridge.exposeInMainWorld("api", {
   getStorageReport: () => ipcRenderer.invoke("storage:report"),
   clearCache: () => ipcRenderer.invoke("storage:clearCache"),
 
+  // каталог для Тильды
+  catalogConfig: () => ipcRenderer.invoke("catalog:config"),
+  catalogSaveConfig: (config) => ipcRenderer.invoke("catalog:saveConfig", config),
+  catalogLibrary: () => ipcRenderer.invoke("catalog:library"),
+  catalogSaveLibrary: (items) => ipcRenderer.invoke("catalog:saveLibrary", items),
+  catalogPick: (what) => ipcRenderer.invoke("catalog:pick", what),
+  catalogPreview: () => ipcRenderer.invoke("catalog:preview"),
+  catalogBuild: () => ipcRenderer.invoke("catalog:build"),
+
   // видеотека
   libraryConfig: () => ipcRenderer.invoke("library:config"),
   librarySaveConfig: (config) => ipcRenderer.invoke("library:saveConfig", config),
