@@ -146,6 +146,19 @@ export default function CatalogView() {
                 />
                 Все фото из выгрузки, а не только первое
               </label>
+              <label className="vs-check">
+                <input
+                  type="checkbox"
+                  checked={!!config?.carryIds}
+                  onChange={(e) => patch({ carryIds: e.target.checked })}
+                />
+                Обновляю каталог на сайте, а не заливаю заново
+              </label>
+              <p className="vs-hint">
+                {config?.carryIds
+                  ? "Номера позиций из прошлого файла переносятся — магазин обновит существующие товары."
+                  : "Номера позиций не переносятся: каталог на сайте удаляется и заливается заново, старые номера указывали бы на удалённые товары."}
+              </p>
             </section>
 
             <section className="vs-block">
@@ -168,6 +181,69 @@ export default function CatalogView() {
                   </div>
                 ))}
               {!preview && <p className="vs-hint">Выберите выгрузку — соответствие подтянется само.</p>}
+            </section>
+
+            <section className="vs-block">
+              <h3>Кварталы: имя по улице</h3>
+              <p className="vs-hint">
+                Если в одном посёлке 1С несколько кварталов с разными названиями на сайте — правило
+                на улицу важнее правила на посёлок. Без этого весь посёлок уедет под одним именем.
+              </p>
+              {(config?.streetNames || []).map((rule, i) => (
+                <div key={i} className="vs-row cat-village">
+                  <select
+                    value={rule.village}
+                    onChange={(e) => {
+                      const next = [...(config?.streetNames || [])];
+                      next[i] = { ...rule, village: e.target.value, street: "" };
+                      patch({ streetNames: next });
+                    }}
+                  >
+                    <option value="">посёлок…</option>
+                    {Object.keys(preview?.streets || {}).map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={rule.street}
+                    onChange={(e) => {
+                      const next = [...(config?.streetNames || [])];
+                      next[i] = { ...rule, street: e.target.value };
+                      patch({ streetNames: next });
+                    }}
+                  >
+                    <option value="">улица…</option>
+                    {(preview?.streets?.[rule.village] || []).map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="cat-arrow">→</span>
+                  <input
+                    value={rule.name}
+                    placeholder="имя на витрине"
+                    onChange={(e) => {
+                      const next = [...(config?.streetNames || [])];
+                      next[i] = { ...rule, name: e.target.value };
+                      patch({ streetNames: next });
+                    }}
+                  />
+                  <button
+                    onClick={() => patch({ streetNames: (config?.streetNames || []).filter((_, n) => n !== i) })}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn btn-secondary btn-small"
+                onClick={() => patch({ streetNames: [...(config?.streetNames || []), { village: "", street: "", name: "" }] })}
+              >
+                + Правило по улице
+              </button>
             </section>
 
             <section className="vs-block">

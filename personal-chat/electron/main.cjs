@@ -3343,10 +3343,15 @@ async function loadCatalogConfig() {
       previousPath: "",
       outputDir: "",
       villages: {},
-      // «all» — все фото из выгрузки в одно поле; «first» — только первое, как
-      // в нынешнем каталоге. Умолчание — как сейчас: проверено, что так магазин
-      // точно принимает файл.
-      photoMode: "first",
+      // Исключения по улицам: в одном посёлке 1С бывает несколько кварталов с
+      // разными названиями на витрине.
+      streetNames: [],
+      // Все фото из выгрузки. У домов их до семи, и терять шесть из них,
+      // отдавая витрине одно, незачем.
+      photoMode: "all",
+      // Каталог на сайте заливается заново: старые номера позиций указывали бы
+      // на удалённые товары, поэтому по умолчанию они не переносятся.
+      carryIds: false,
     };
   }
 }
@@ -3393,6 +3398,9 @@ async function assembleCatalog() {
 
   // Соответствие имён посёлков достаётся из прошлого каталога: как посёлок
   // назван на витрине, там уже решено. Ручные правки из настроек важнее.
+  // Имена посёлков из прошлого каталога — только ПОДСКАЗКА, а не истина: в
+  // нынешнем файле они местами неверны (весь КРП лежит в «Самоцветах», хотя к
+  // этому кварталу относится одна улица). Ручные настройки перекрывают их.
   const villages = {};
   if (previous) {
     for (const item of [...source.houses, ...source.plots]) {
@@ -3408,19 +3416,29 @@ async function assembleCatalog() {
     plots: source.plots,
     library,
     villages,
+    streetNames: config.streetNames || [],
     previous,
     photoMode: config.photoMode,
+    carryIds: !!config.carryIds,
   });
   for (const item of library) if (item.error) result.problems.unshift(item.error);
-  return { ...result, villages, config };
+  return { ...result, villages, config, source };
 }
 
 ipcMain.handle("catalog:preview", async () => {
   const result = await assembleCatalog();
+  // Список улиц по посёлкам нужен окну, чтобы исключение можно было выбрать, а
+  // не печатать название улицы вручную и промахиваться в опечатке.
+  const streets = {};
+  for (const item of [...result.source.houses, ...result.source.plots]) {
+    if (!item.street) continue;
+    (streets[item.village] = streets[item.village] || new Set()).add(item.street);
+  }
   return {
     problems: result.problems,
     counts: result.counts,
     villages: result.villages,
+    streets: Object.fromEntries(Object.entries(streets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "ru"))])),
     // Первые двадцать строк — увидеть порядок и заполненность, не пересылая
     // в окно весь каталог.
     sample: result.rows.slice(0, 20),

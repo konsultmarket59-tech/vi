@@ -234,10 +234,21 @@ export interface CatalogConfig {
   exportPath: string;
   previousPath: string;
   outputDir: string;
-  /** Имя посёлка в 1С → имя на витрине. Заполняется из прошлого каталога. */
+  /** Имя посёлка в 1С → имя на витрине. Из прошлого каталога берётся подсказка. */
   villages: Record<string, string>;
+  /**
+   * Исключения по улицам: в одном посёлке 1С бывает несколько кварталов, у
+   * которых на витрине разные названия.
+   */
+  streetNames: { village: string; street: string; name: string }[];
   /** «all» — все фото из выгрузки, «first» — только первое. */
   photoMode: "all" | "first";
+  /**
+   * Переносить ли номера позиций магазина из прошлого каталога. Нужно только
+   * при обновлении существующего каталога; при заливке заново старые номера
+   * указывали бы на удалённые товары.
+   */
+  carryIds: boolean;
 }
 
 /** Заготовка описания: одна на вариацию «площадь + облицовка». */
@@ -258,6 +269,8 @@ export interface CatalogPreview {
   problems: string[];
   counts: { houses: number; plots: number; gone: number };
   villages: Record<string, string>;
+  /** Улицы по посёлкам — чтобы исключение выбиралось списком, а не печаталось. */
+  streets: Record<string, string[]>;
   sample: Record<string, string>[];
   total: number;
 }

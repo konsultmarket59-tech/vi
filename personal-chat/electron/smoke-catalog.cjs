@@ -53,6 +53,11 @@ async function makeExport(dest) {
     // Неровность из жизни: площадь не заполнена, а в тексте метраж есть.
     ["в продаже", "план", "00:00:0000002:2003", "Сосновка", "Боровая", "11", 0, 0,
      8300000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка сайдинг."],
+    // Два квартала в одном посёлке 1С: на витрине у них разные имена.
+    ["в продаже", "план", "00:00:0000004:4001", "ПКР", "Нефритовая", "2", 6.0, 100,
+     7700000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка кирпич."],
+    ["в продаже", "план", "00:00:0000004:4002", "ПКР", "Перламутровая", "5", 6.0, 100,
+     7800000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка кирпич."],
   ];
   for (const r of rows) {
     const row = houses.addRow(r);
@@ -70,6 +75,8 @@ async function makeExport(dest) {
   const plotRows = [
     ["в продаже", "00:00:0000003:3001", "Ромашкино", "Полевая", "2", 8.58, 343200, "ИЖС, дороги, электричество"],
     ["в продаже", "00:00:0000003:3002", "Сосновка", "Полевая", "4", 6.0, 180000, "СНТ"],
+    // Улица и номер не заполнены — в названии не должно остаться висящих запятых.
+    ["в продаже", "00:00:0000003:3003", "ПКР", "", "", 7.0, 210000, "СНТ"],
   ];
   for (const r of plotRows) {
     const row = plots.addRow(r);
@@ -147,7 +154,7 @@ app.whenReady().then(async () => {
     console.log("\nчтение выгрузки");
     const exportPath = await makeExport(path.join(workDir, "выгрузка.xlsx"));
     const source = await catalog.readExport(exportPath);
-    check("дома и участки прочитаны", source.houses.length === 5 && source.plots.length === 2,
+    check("дома и участки прочитаны", source.houses.length === 7 && source.plots.length === 3,
       `${source.houses.length}/${source.plots.length}`);
     const first = source.houses[0];
     check("кадастровый номер — строка, а не объект", first.cadastral === "00:00:0000001:1001", first.cadastral);
@@ -172,14 +179,17 @@ app.whenReady().then(async () => {
       { id: "a", area: 100, cladding: "кирпич", text: "Длинное описание дома 100 м² в кирпиче.", renderUrls: ["https://example.test/render/100k.png"] },
       { id: "b", area: 85, cladding: "сайдинг", text: "Длинное описание дома 85 м² в сайдинге." },
     ];
-    const built = catalog.buildCatalog({ ...source, library: библиотека, villages, previous, photoMode: "all" });
-    check("собраны все позиции", built.rows.length === 7, String(built.rows.length));
+    const streetNames = [{ village: "ПКР", street: "Нефритовая", name: "Самоцветы" }];
+    const built = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous, photoMode: "all", carryIds: true,
+    });
+    check("собраны все позиции", built.rows.length === 10, String(built.rows.length));
 
     // Готовые дома первыми — это и есть смысл сортировки.
     const marks = built.rows.map((r) => r.Mark);
     check("готовые дома идут первыми", marks[0] === "готов" && marks[1] === "готов", JSON.stringify(marks.slice(0, 4)));
     check("стройка после готовых", marks[2] === "стройка", JSON.stringify(marks.slice(0, 5)));
-    check("участки в конце", marks.slice(-2).every((m) => m === ""), JSON.stringify(marks));
+    check("участки в конце", marks.slice(-3).every((m) => m === ""), JSON.stringify(marks));
     check("стадия попала в ярлык", built.rows.every((r) => r.Mark === "" || catalog.READINESS_ORDER.includes(r.Mark)));
 
     const дом = built.rows.find((r) => r.SKU === "00:00:0000001:1001");
@@ -193,8 +203,30 @@ app.whenReady().then(async () => {
     // тот же посёлок называется «Самоцветы».
     check("заголовок несёт витринное имя посёлка", дом.Title === "Ромашки, Луговая, 3", дом.Title);
     check("описание из библиотеки подставлено", дом.Text === "Длинное описание дома 100 м² в кирпиче.", дом.Text);
-    check("фото из выгрузки прикреплены", дом.Photo.split(" ").length === 2, дом.Photo);
+    check("все фото из выгрузки прикреплены, а не одно", дом.Photo.split(" ").length === 2, дом.Photo);
     check("площадь участка с запятой", дом["Characteristics:Площадь участка"] === "6,50", дом["Characteristics:Площадь участка"]);
+
+    console.log("\nкварталы: имя по улице");
+    // Правило на улицу важнее правила на посёлок: в одном посёлке 1С бывает
+    // несколько кварталов, и весь посёлок под одним именем — уже ошибка.
+    const нефрит = built.rows.find((r) => r.SKU === "00:00:0000004:4001");
+    const перламутр = built.rows.find((r) => r.SKU === "00:00:0000004:4002");
+    check("улица с правилом получила своё имя", нефрит.Title === "Самоцветы, Нефритовая, 2", нефрит.Title);
+    check("и оно же в категории", /Поселки>>>Самоцветы$/.test(нефрит.Category), нефрит.Category);
+    check("соседняя улица правило не подхватила", перламутр.Title === "ПКР, Перламутровая, 5", перламутр.Title);
+    check("имя посёлка в названии не задвоено", !/ПКР, Самоцветы/.test(нефрит.Title), нефрит.Title);
+    const безУлицы = built.rows.find((r) => r.SKU === "00:00:0000003:3003");
+    check("позиция без улицы не даёт висящих запятых",
+      !/,\s*,/.test(безУлицы.Title) && безУлицы.Title.includes("участок"), безУлицы.Title);
+    check("незаданное витринное имя замечено",
+      built.problems.some((p2) => /Посёлок «ПКР»/.test(p2)), JSON.stringify(built.problems.slice(0, 3)));
+
+    console.log("\nномера позиций переносятся только при обновлении");
+    const свежий = catalog.buildCatalog({ ...source, library: библиотека, villages, streetNames, previous, carryIds: false });
+    check("при заливке заново номера не переносятся",
+      свежий.rows.every((r) => !r["Tilda UID"]), JSON.stringify(свежий.rows.filter((r) => r["Tilda UID"]).length));
+    check("но пропавшие позиции всё равно замечены",
+      свежий.problems.some((p2) => /вероятно, проданы/.test(p2)));
 
     console.log("\nSEO заполнено у каждой позиции");
     check("SEO title везде", built.rows.every((r) => r["SEO title"]));
@@ -260,10 +292,13 @@ app.whenReady().then(async () => {
       check("сказано, что рендеры нужны ссылками",
         (await call(`document.body.textContent.includes("локальный путь на сайте превратится в пустое место")`)) === true);
 
-      await call(`window.api.catalogSaveConfig(${JSON.stringify({ exportPath, previousPath, outputDir: workDir, photoMode: "all" })})`);
+      await call(`window.api.catalogSaveConfig(${JSON.stringify({
+        exportPath, previousPath, outputDir: workDir, photoMode: "all", carryIds: false,
+        streetNames: [{ village: "ПКР", street: "Нефритовая", name: "Самоцветы" }],
+      })})`);
       await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека.map((b) => ({ ...b, textPath: "", renderPaths: [], name: "" })))})`);
       const preview = await call(`window.api.catalogPreview()`);
-      check("предпросмотр собрался через приложение", preview.total === 7, String(preview.total));
+      check("предпросмотр собрался через приложение", preview.total === 10, String(preview.total));
       check("замечания дошли до окна", preview.problems.length > 0, String(preview.problems.length));
       check("готовые первыми и в предпросмотре", preview.sample[0].Mark === "готов", preview.sample[0].Mark);
 
@@ -272,7 +307,7 @@ app.whenReady().then(async () => {
       const written = fs.readFileSync(result.file, "utf-8");
       check("файл начинается с метки кодировки", written.charCodeAt(0) === 0xfeff);
       check("кириллица читается", written.includes("Ромашки"));
-      check("в файле все позиции", catalog.parseCsv(written).length === 8, String(catalog.parseCsv(written).length));
+      check("в файле все позиции", catalog.parseCsv(written).length === 11, String(catalog.parseCsv(written).length));
     }
   } catch (e) {
     failures++;

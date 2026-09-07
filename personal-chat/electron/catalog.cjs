@@ -389,11 +389,48 @@ async function readPrevious(filePath) {
  * Библиотека описаний ищется по паре «площадь + облицовка»: одна заготовка
  * обслуживает все дома этой вариации, сколько бы их ни было в выгрузке.
  */
-function buildCatalog({ houses = [], plots = [], library = [], villages = {}, previous = null, photoMode = "all" }) {
+function buildCatalog({
+  houses = [],
+  plots = [],
+  library = [],
+  villages = {},
+  streetNames = [],
+  previous = null,
+  photoMode = "all",
+  carryIds = false,
+}) {
   const problems = [];
   const rows = [];
-  const prevBySku = previous?.bySku || new Map();
-  const villageName = (raw) => str(villages[raw]) || str(raw);
+  // Номера позиций магазина переносятся только при обновлении существующего
+  // каталога. Если каталог на сайте удаляют и заливают заново, старые номера
+  // указывают на удалённые товары — переносить их нельзя.
+  const prevBySku = carryIds && previous ? previous.bySku : new Map();
+
+  /**
+   * Имя посёлка для витрины.
+   *
+   * Правило бывает не на посёлок целиком, а на улицу: в одном посёлке 1С
+   * несколько кварталов с разными названиями на сайте, и весь посёлок под одним
+   * именем — уже ошибка, которая сейчас в каталоге и есть.
+   */
+  const villageName = (item) => {
+    const street = str(item.street);
+    const rule = streetNames.find(
+      (r) => str(r.village) === str(item.village) && str(r.street) === street && str(r.name)
+    );
+    if (rule) return str(rule.name);
+    return str(villages[item.village]) || str(item.village);
+  };
+
+  /**
+   * Название позиции. Улица или номер иногда не заполнены — тогда в названии не
+   * должно оставаться висящих запятых вроде «КРП, , 5».
+   */
+  const titleOf = (item, village) => {
+    const parts = [village, str(item.street), str(item.house)].filter(Boolean);
+    if (parts.length === 1) return `${village}, ${item.kind === "plot" ? "участок" : "дом"} ${item.cadastral}`;
+    return parts.join(", ");
+  };
 
   const findDescription = (item, parsed) => {
     const area = Math.round(item.houseArea);
@@ -417,7 +454,7 @@ function buildCatalog({ houses = [], plots = [], library = [], villages = {}, pr
 
   for (const item of sortedHouses) {
     const parsed = parseDescription(item.description);
-    const village = villageName(item.village);
+    const village = villageName(item);
     const area = Math.round(item.houseArea);
     const prev = prevBySku.get(item.cadastral);
     const doc = findDescription(item, parsed);
@@ -444,7 +481,7 @@ function buildCatalog({ houses = [], plots = [], library = [], villages = {}, pr
       SKU: item.cadastral,
       Mark: item.readiness,
       Category: `Метраж дома>>>дом ${area} м2;Поселки>>>${village}`,
-      Title: `${village}, ${item.street}, ${item.house}`,
+      Title: titleOf(item, village),
       Description: shortDescription(parsed),
       Text: doc?.text || "",
       Photo: photoMode === "first" ? photos[0] || "" : photos.join(" "),
@@ -470,7 +507,7 @@ function buildCatalog({ houses = [], plots = [], library = [], villages = {}, pr
   }
 
   for (const item of [...plots].sort((a, b) => a.village.localeCompare(b.village, "ru"))) {
-    const village = villageName(item.village);
+    const village = villageName(item);
     const prev = prevBySku.get(item.cadastral);
     if (!item.price) problems.push(`Участок «${village}, ${item.street}, ${item.house}» — нет цены.`);
     const seo = buildSeo(item, village, "");
@@ -481,7 +518,7 @@ function buildCatalog({ houses = [], plots = [], library = [], villages = {}, pr
       SKU: item.cadastral,
       Mark: "",
       Category: `Земельные участки;Поселки>>>${village}`,
-      Title: `${village}, ${item.street}, ${item.house}`,
+      Title: titleOf(item, village),
       Description: item.description,
       Text: `Площадь участка: ${decimal(item.plotArea)} соток. Кадастровый номер: ${item.cadastral}.${note ? " " + note : ""}`,
       Photo: photoMode === "first" ? item.photos[0] || "" : item.photos.join(" "),
@@ -506,10 +543,24 @@ function buildCatalog({ houses = [], plots = [], library = [], villages = {}, pr
     });
   }
 
+  // Посёлки, для которых витринное имя не задано: в каталог уедет внутреннее
+  // название из 1С, и покупатель увидит служебное сокращение вроде «КРП».
+  const unnamed = new Set();
+  for (const item of [...houses, ...plots]) {
+    const shown = villageName(item);
+    if (shown === str(item.village) && !str(villages[item.village])) unnamed.add(str(item.village));
+  }
+  for (const name of unnamed) {
+    problems.push(
+      `Посёлок «${name}» уйдёт в каталог под этим же именем — витринное не задано. ` +
+        `Если это внутреннее название, покупатель увидит его на сайте.`
+    );
+  }
+
   // Позиции, которые были в каталоге, а из выгрузки пропали: скорее всего
   // проданы. Молчать нельзя — иначе они останутся висеть на витрине.
   const nowSkus = new Set(rows.map((r) => r.SKU));
-  const gone = [...prevBySku.keys()].filter((sku) => !nowSkus.has(sku));
+  const gone = [...(previous?.bySku.keys() || [])].filter((sku) => !nowSkus.has(sku));
   if (gone.length) {
     problems.push(
       `В прошлом каталоге были и пропали из выгрузки: ${gone.length} позиц. — вероятно, проданы. ` +
