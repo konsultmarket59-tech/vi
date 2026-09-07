@@ -1808,3 +1808,52 @@ button.fin-row-x:hover { color: var(--accent); }
 .cat-mark-готов { background: #eef8f1; color: #14602f; border-color: #b7dfc2; }
 .cat-mark-стройка { background: #fdf6e3; color: #8a6d18; border-color: #e8d9a8; }
 .cat-mark-план { background: var(--bg-hover); }
+
+/* Таблица каталога: вид Тильды с правкой любой ячейки. */
+.cat-tabs {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); flex: none;
+}
+.cat-tabs-actions { margin-left: auto; display: flex; gap: 8px; }
+.cat-bar-note { margin: 8px 16px 0; }
+
+.cat-table-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.cat-table-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 8px 16px; flex: none;
+}
+.cat-table-scroll { flex: 1; overflow: auto; padding: 0 16px 16px; }
+.cat-table { border-collapse: collapse; font-size: 12px; }
+.cat-table th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  padding: 6px 8px; text-align: left; white-space: nowrap; font-weight: 600;
+}
+/* Ячейка показывает текст, а не поле ввода: полей на пять тысяч ячеек
+   браузер не выдержит, да и читать такую таблицу было бы нечем. */
+.cat-cell {
+  border: 1px solid var(--border); padding: 4px 8px; cursor: text;
+  max-width: 280px; vertical-align: top; position: relative;
+}
+.cat-cell:hover { background: var(--bg-hover); }
+.cat-cell-text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.cat-cell-edited { background: #fdf6e3; }
+.cat-cell-active { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cat-cell-reset {
+  position: absolute; top: 2px; right: 2px; border: none; background: none;
+  cursor: pointer; font-size: 11px; color: var(--text-dim); line-height: 1;
+}
+.cat-cell-reset:hover { color: var(--accent); }
+
+.cat-editor-panel {
+  margin: 0 16px 10px; padding: 10px 12px;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--bg-hover);
+}
+.cat-editor-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.cat-editor textarea { width: 100%; font-family: inherit; font-size: 13px; }
+.cat-editor-pick { margin-bottom: 6px; }
+.cat-editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cat-render-note { margin-top: -2px; }

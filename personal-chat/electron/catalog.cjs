@@ -596,10 +596,30 @@ function libraryFile(root) {
   return path.join(root, "catalog", "library.json");
 }
 
+/**
+ * Заготовка всегда приходит с полным набором полей.
+ *
+ * Форма приводится здесь, на границе чтения, а не проверяется в каждом месте,
+ * где заготовку показывают: файл на диске мог быть записан прежней версией или
+ * поправлен руками, и одно отсутствующее поле роняло весь раздел.
+ */
+function normalizeLibraryItem(raw = {}) {
+  return {
+    id: str(raw.id) || "d" + Math.random().toString(36).slice(2, 8),
+    name: str(raw.name),
+    area: num(raw.area),
+    cladding: str(raw.cladding),
+    textPath: str(raw.textPath),
+    text: str(raw.text),
+    renderUrls: (Array.isArray(raw.renderUrls) ? raw.renderUrls : []).map((u) => str(u)).filter(Boolean),
+    renderPaths: (Array.isArray(raw.renderPaths) ? raw.renderPaths : []).map((u) => str(u)).filter(Boolean),
+  };
+}
+
 async function readLibrary(root) {
   try {
     const data = JSON.parse(await fs.readFile(libraryFile(root), "utf-8"));
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? data.map(normalizeLibraryItem) : [];
   } catch {
     return [];
   }
@@ -607,8 +627,9 @@ async function readLibrary(root) {
 
 async function writeLibrary(root, items) {
   await fs.mkdir(path.dirname(libraryFile(root)), { recursive: true });
-  await fs.writeFile(libraryFile(root), JSON.stringify(items, null, 2), "utf-8");
-  return items;
+  const clean = (Array.isArray(items) ? items : []).map(normalizeLibraryItem);
+  await fs.writeFile(libraryFile(root), JSON.stringify(clean, null, 2), "utf-8");
+  return clean;
 }
 
 /**
@@ -638,6 +659,91 @@ async function loadLibraryTexts(items, extractText) {
   return loaded;
 }
 
+// ---------- ручные правки ----------
+//
+// Собранная таблица — заготовка, а не приговор. Любую ячейку человек правит
+// руками до выгрузки, и правки переживают пересборку: ключ — кадастровый номер
+// плюс колонка, а не номер строки. Иначе новая выгрузка из 1С, где порядок
+// позиций другой, разнесла бы все правки по чужим домам.
+
+function editsFile(root) {
+  return path.join(root, "catalog", "edits.json");
+}
+
+async function readEdits(root) {
+  try {
+    const data = JSON.parse(await fs.readFile(editsFile(root), "utf-8"));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeEdits(root, edits) {
+  await fs.mkdir(path.dirname(editsFile(root)), { recursive: true });
+  await fs.writeFile(editsFile(root), JSON.stringify(edits, null, 1), "utf-8");
+  return edits;
+}
+
+/** Наложение правок на собранные строки. Возвращает и сами строки, и что тронуто. */
+function applyEdits(rows, edits = {}) {
+  const touched = [];
+  const out = rows.map((row) => {
+    const patch = edits[row.SKU];
+    if (!patch) return row;
+    const next = { ...row };
+    for (const [column, value] of Object.entries(patch)) {
+      if (!TILDA_COLUMNS.includes(column)) continue;
+      next[column] = value;
+      touched.push({ sku: row.SKU, column });
+    }
+    return next;
+  });
+  // Правки к позициям, которых в новой выгрузке уже нет: молча копиться им
+  // незачем, но и стирать чужой труд без спроса нельзя — просто скажем.
+  const known = new Set(rows.map((r) => r.SKU));
+  const orphaned = Object.keys(edits).filter((sku) => !known.has(sku));
+  return { rows: out, touched, orphaned };
+}
+
+// ---------- выгрузка в Excel ----------
+
+/**
+ * Тот же каталог книгой Excel.
+ *
+ * Магазин принимает CSV, а Excel нужен человеку: посмотреть глазами, показать
+ * коллеге, поправить в привычном месте. Поэтому книга не «тоже файл», а
+ * читаемая таблица: закреплённая шапка, ширины по содержимому, перенос строк в
+ * длинных описаниях.
+ */
+async function toXlsx(rows, destPath) {
+  const ExcelJS = require("exceljs");
+  const wb = new ExcelJS.Workbook();
+  const sheet = wb.addWorksheet("Каталог");
+  sheet.columns = TILDA_COLUMNS.map((name) => ({
+    header: name,
+    key: name,
+    width: name === "Text" ? 60 : name === "Description" || name.startsWith("SEO") ? 40 : name === "Photo" ? 44 : 18,
+  }));
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  for (const row of rows) {
+    const added = sheet.addRow(row);
+    added.alignment = { vertical: "top", wrapText: true };
+  }
+  await wb.xlsx.writeFile(destPath);
+  return destPath;
+}
+
+/** Понятное имя заготовки для списка: «дом 100 м² · кирпич». */
+function describeLibraryItem(item) {
+  const named = str(item.name);
+  if (named) return named;
+  const cladding = CLADDINGS.find((c) => c.key === item.cladding);
+  const area = Math.round(num(item.area));
+  return `дом ${area || "?"} м²${cladding ? " · " + cladding.label : ""}`;
+}
+
 module.exports = {
   TILDA_COLUMNS,
   READINESS_ORDER,
@@ -652,7 +758,13 @@ module.exports = {
   readPrevious,
   buildCatalog,
   toCsv,
+  normalizeLibraryItem,
   readLibrary,
   writeLibrary,
   loadLibraryTexts,
+  readEdits,
+  writeEdits,
+  applyEdits,
+  toXlsx,
+  describeLibraryItem,
 };

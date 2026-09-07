@@ -170,6 +170,9 @@ contextBridge.exposeInMainWorld("api", {
   catalogSaveLibrary: (items) => ipcRenderer.invoke("catalog:saveLibrary", items),
   catalogPick: (what) => ipcRenderer.invoke("catalog:pick", what),
   catalogPreview: () => ipcRenderer.invoke("catalog:preview"),
+  catalogTable: () => ipcRenderer.invoke("catalog:table"),
+  catalogEdits: () => ipcRenderer.invoke("catalog:edits"),
+  catalogSaveEdits: (edits) => ipcRenderer.invoke("catalog:saveEdits", edits),
   catalogBuild: () => ipcRenderer.invoke("catalog:build"),
 
   // видеотека

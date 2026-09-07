@@ -438,6 +438,14 @@ app.whenReady().then(async () => {
       check("появились настройки слоя",
         (await call(`[...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes("Настройки слоя"))`)) === true);
 
+      console.log("\nпоиск на стоке");
+      // Здесь жил вызов несуществующей функции: раздел падал при первом же
+      // обращении к стоку. Ключа в тесте нет, поэтому проверяем, что ответ —
+      // внятный отказ, а не «readSettings is not defined».
+      const stock = await call(`window.api.storiesSearchStock("дом", "portrait").then(r => ({ ok: true, n: r.length }), e => ({ ok: false, msg: e.message }))`);
+      check("поиск на стоке не падает на несуществующей функции",
+        stock.ok || !/is not defined/.test(stock.msg || ""), JSON.stringify(stock));
+
       console.log("\nсцены в разделе");
       check("блок сцен есть в форме",
         (await call(`[...document.querySelectorAll(".vs-block h3")].some(h => h.textContent.includes("Сцены и переходы"))`)) === true);

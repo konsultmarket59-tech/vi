@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { CatalogConfig, CatalogDescription, CatalogPreview } from "../lib/types";
+import type { CatalogConfig, CatalogDescription, CatalogEdits, CatalogTable as CatalogTableData } from "../lib/types";
+import CatalogTable from "./CatalogTable";
 
 /**
  * Каталог: пересборка выгрузки 1С в файл для магазина Тильды.
@@ -28,7 +29,9 @@ function uid() {
 export default function CatalogView() {
   const [config, setConfig] = useState<CatalogConfig | null>(null);
   const [library, setLibrary] = useState<CatalogDescription[]>([]);
-  const [preview, setPreview] = useState<CatalogPreview | null>(null);
+  const [preview, setPreview] = useState<CatalogTableData | null>(null);
+  const [edits, setEdits] = useState<CatalogEdits>({});
+  const [tab, setTab] = useState<"table" | "setup">("setup");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -36,13 +39,18 @@ export default function CatalogView() {
   useEffect(() => {
     window.api.catalogConfig().then(setConfig);
     window.api.catalogLibrary().then(setLibrary);
+    window.api.catalogEdits().then(setEdits);
   }, []);
 
   const refresh = useCallback(async () => {
     setError("");
     setBusy(true);
     try {
-      setPreview(await window.api.catalogPreview());
+      const table = await window.api.catalogTable();
+      setPreview(table);
+      // Как только таблица собралась, показываем именно её: человек пришёл
+      // править каталог, а не листать настройки.
+      setTab("table");
     } catch (e) {
       setPreview(null);
       setError(e instanceof Error ? e.message : String(e));
@@ -69,7 +77,7 @@ export default function CatalogView() {
     setBusy(true);
     try {
       const result = await window.api.catalogBuild();
-      setSaved(`${result.file} — ${result.rows} позиций`);
+      setSaved(`${result.rows} позиций · ${result.csvFile} · ${result.xlsxFile}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -79,10 +87,66 @@ export default function CatalogView() {
 
   const short = (p: string) => (p ? p.split(/[\\/]/).pop() : "не выбран");
 
+  /** Правка ячейки: сохраняется сразу и на диск, чтобы не потеряться. */
+  async function editCell(sku: string, column: string, value: string) {
+    const next: CatalogEdits = { ...edits, [sku]: { ...(edits[sku] || {}), [column]: value } };
+    setEdits(next);
+    setPreview((prev) =>
+      prev ? { ...prev, rows: prev.rows.map((r) => (r.SKU === sku ? { ...r, [column]: value } : r)) } : prev
+    );
+    await window.api.catalogSaveEdits(next);
+  }
+
+  /** Вернуть собранное значение: правка снимается, ячейка пересобирается. */
+  async function resetCell(sku: string, column: string) {
+    const forRow = { ...(edits[sku] || {}) };
+    delete forRow[column];
+    const next: CatalogEdits = { ...edits };
+    if (Object.keys(forRow).length) next[sku] = forRow;
+    else delete next[sku];
+    setEdits(next);
+    await window.api.catalogSaveEdits(next);
+    await refresh();
+  }
+
   return (
     <div className="ops-view">
       <div className="ops-app">
-        <div className="vs-body">
+        <div className="cat-tabs">
+          <button className={tab === "setup" ? "vs-tab on" : "vs-tab"} onClick={() => setTab("setup")}>
+            Настройка
+          </button>
+          <button
+            className={tab === "table" ? "vs-tab on" : "vs-tab"}
+            onClick={() => setTab("table")}
+            disabled={!preview}
+          >
+            Таблица {preview ? `(${preview.rows.length})` : ""}
+          </button>
+          <div className="cat-tabs-actions">
+            <button className="btn btn-secondary btn-small" disabled={busy || !config?.exportPath} onClick={refresh}>
+              {busy ? "Считаю…" : "Пересобрать"}
+            </button>
+            <button className="btn btn-primary btn-small" disabled={busy || !preview} onClick={build}>
+              Выгрузить в Excel и CSV
+            </button>
+          </div>
+        </div>
+        {error && <p className="vs-warn cat-bar-note">{error}</p>}
+        {saved && <div className="vs-saved cat-bar-note">Сохранено: {saved}</div>}
+
+        {tab === "table" && preview && (
+          <CatalogTable
+            columns={preview.columns}
+            rows={preview.rows}
+            edits={edits}
+            library={preview.library}
+            onEdit={editCell}
+            onReset={resetCell}
+          />
+        )}
+
+        <div className="vs-body" hidden={tab !== "setup"}>
           <div className="vs-form">
             <p className="vs-lead">
               Выгрузка из 1С пересобирается в файл для магазина: заголовки, категории, описания по
@@ -306,6 +370,40 @@ export default function CatalogView() {
                       {short(item.textPath)}
                     </span>
                   </div>
+                  <div className="vs-row">
+                    <button
+                      className="btn btn-secondary btn-small"
+                      onClick={async () => {
+                        const f = await window.api.catalogPick("render");
+                        if (f)
+                          patchLibrary(
+                            library.map((x) =>
+                              x.id === item.id ? { ...x, renderPaths: [...(x.renderPaths || []), f] } : x
+                            )
+                          );
+                      }}
+                    >
+                      + Рендер с компьютера
+                    </button>
+                    <span className="vs-path">
+                      {item.renderPaths?.length ? `${item.renderPaths.length} файл(ов)` : "нет"}
+                    </span>
+                    {!!item.renderPaths?.length && (
+                      <button
+                        className="link-btn"
+                        onClick={() => patchLibrary(library.map((x) => (x.id === item.id ? { ...x, renderPaths: [] } : x)))}
+                      >
+                        очистить
+                      </button>
+                    )}
+                  </div>
+                  {!!item.renderPaths?.length && (
+                    <p className="vs-hint cat-render-note">
+                      Эти файлы <b>в каталог не попадут</b>: магазин забирает картинки по адресу, а путь с
+                      компьютера превратится на сайте в пустое место. Загрузите их в магазин и вставьте
+                      полученные адреса ниже — пути здесь остаются напоминанием, что именно грузить.
+                    </p>
+                  )}
                   <label className="vs-field">
                     Ссылки на рендеры — по одной в строке
                     <textarea
@@ -347,21 +445,19 @@ export default function CatalogView() {
           <div className="vs-right vs-right-agent">
             <section className="vs-block">
               <h3>Что получится</h3>
-              <div className="vs-row">
-                <button className="btn btn-secondary btn-small" disabled={busy || !config?.exportPath} onClick={refresh}>
-                  {busy ? "Считаю…" : "Пересчитать"}
-                </button>
-                <button className="btn btn-primary btn-small" disabled={busy || !preview} onClick={build}>
-                  Собрать файл
-                </button>
-              </div>
-              {error && <p className="vs-warn">{error}</p>}
-              {saved && <div className="vs-saved">Сохранено: {saved}</div>}
-              {preview && (
-                <p className="vs-hint">
-                  Позиций: <b>{preview.total}</b> — домов {preview.counts.houses}, участков{" "}
-                  {preview.counts.plots}.
-                </p>
+              {preview ? (
+                <>
+                  <p className="vs-hint">
+                    Позиций: <b>{preview.rows.length}</b> — домов {preview.counts.houses}, участков{" "}
+                    {preview.counts.plots}.
+                  </p>
+                  <p className="vs-hint">
+                    Правок вручную: <b>{Object.values(edits).reduce((n, row) => n + Object.keys(row).length, 0)}</b>.
+                    Они переживают пересборку: привязаны к кадастровому номеру, а не к номеру строки.
+                  </p>
+                </>
+              ) : (
+                <p className="vs-hint">Выберите выгрузку и нажмите «Пересобрать».</p>
               )}
             </section>
 
@@ -376,26 +472,6 @@ export default function CatalogView() {
                     <li key={i}>{p}</li>
                   ))}
                 </ul>
-              </section>
-            )}
-
-            {preview && !!preview.sample.length && (
-              <section className="vs-block">
-                <h3>Первые позиции</h3>
-                <p className="vs-hint">Готовые дома идут первыми — их можно купить сегодня.</p>
-                <div className="cat-rows">
-                  {preview.sample.map((row, i) => (
-                    <div key={i} className="cat-row">
-                      <span className={`cat-mark cat-mark-${row.Mark || "none"}`}>{row.Mark || "участок"}</span>
-                      <span className="cat-title">{row.Title}</span>
-                      <span className="cat-meta">
-                        {row.Category}
-                        {row.Photo ? "" : " · без фото"}
-                        {row.Text ? "" : " · без описания"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </section>
             )}
           </div>

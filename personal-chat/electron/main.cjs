@@ -3144,7 +3144,7 @@ ipcMain.handle("stories:searchIcons", (_e, query) => videostories.searchIcons(qu
 ipcMain.handle("stories:icon", (_e, id, color) => videostories.fetchIconSvg(id, color));
 ipcMain.handle("stories:readSvg", (_e, file) => fs.readFile(file, "utf-8"));
 ipcMain.handle("stories:searchStock", async (_e, query, orientation) => {
-  const settings = await readSettings();
+  const settings = await loadSettings();
   return videostories.searchStock(query, settings.pexelsKey, orientation);
 });
 
@@ -3380,6 +3380,8 @@ ipcMain.handle("catalog:pick", async (_e, what) => {
       ? [{ name: "Выгрузка 1С", extensions: ["xlsx", "xlsm"] }]
       : what === "previous"
         ? [{ name: "Файл каталога", extensions: ["csv"] }]
+        : what === "render"
+        ? [{ name: "Изображение", extensions: ["png", "jpg", "jpeg", "webp", "avif"] }]
         : [{ name: "Описание", extensions: ["txt", "md", "docx", "doc", "rtf"] }];
   const r = await dialog.showOpenDialog(win, { title: "Выберите файл", properties: ["openFile"], filters });
   return r.canceled ? "" : r.filePaths[0];
@@ -3446,16 +3448,65 @@ ipcMain.handle("catalog:preview", async () => {
   };
 });
 
+/**
+ * Вся таблица в том виде, в каком её ждёт магазин, — плюс ручные правки.
+ *
+ * Отдаётся целиком: человек смотрит и правит именно то, что уедет в файл, а не
+ * образец из двадцати строк. Двести позиций на двадцать семь колонок окно
+ * выдерживает; резать здесь было бы враньём — правка ушла бы в невидимую часть.
+ */
+ipcMain.handle("catalog:table", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const edits = await catalog.readEdits(root);
+  const applied = catalog.applyEdits(result.rows, edits);
+  const streets = {};
+  for (const item of [...result.source.houses, ...result.source.plots]) {
+    if (!item.street) continue;
+    (streets[item.village] = streets[item.village] || new Set()).add(item.street);
+  }
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  return {
+    columns: catalog.TILDA_COLUMNS,
+    rows: applied.rows,
+    edited: applied.touched,
+    problems: result.problems.concat(
+      applied.orphaned.length
+        ? [`Правки к ${applied.orphaned.length} позиц. остались от прошлой выгрузки — этих позиций в текущей нет.`]
+        : []
+    ),
+    counts: result.counts,
+    villages: result.villages,
+    streets: Object.fromEntries(Object.entries(streets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "ru"))])),
+    // Список заготовок для выбора описания прямо в ячейке.
+    library: library.map((item) => ({
+      id: item.id,
+      label: catalog.describeLibraryItem(item),
+      text: item.text || "",
+    })),
+  };
+});
+
+ipcMain.handle("catalog:edits", async () => catalog.readEdits(await getRootPath()));
+ipcMain.handle("catalog:saveEdits", async (_e, edits) => catalog.writeEdits(await getRootPath(), edits || {}));
+
+/**
+ * Выгрузка. Два файла рядом: CSV забирает магазин, книгу Excel смотрит человек.
+ */
 ipcMain.handle("catalog:build", async () => {
+  const root = await getRootPath();
   const result = await assembleCatalog();
   const dir = result.config.outputDir;
   if (!dir) throw new Error("Не выбрана папка, куда сохранить каталог.");
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
   await fs.mkdir(dir, { recursive: true });
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-  const file = path.join(dir, `каталог-${stamp}.csv`);
+  const csvFile = path.join(dir, `каталог-${stamp}.csv`);
+  const xlsxFile = path.join(dir, `каталог-${stamp}.xlsx`);
   // BOM в начале: без него магазин читает кириллицу как набор знаков.
-  await fs.writeFile(file, "\ufeff" + catalog.toCsv(result.rows), "utf-8");
-  return { file, rows: result.rows.length, problems: result.problems };
+  await fs.writeFile(csvFile, "\ufeff" + catalog.toCsv(rows), "utf-8");
+  await catalog.toXlsx(rows, xlsxFile);
+  return { csvFile, xlsxFile, rows: rows.length, problems: result.problems };
 });
 
 // ---------- видеотека ----------

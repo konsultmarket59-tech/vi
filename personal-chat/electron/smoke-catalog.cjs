@@ -296,18 +296,129 @@ app.whenReady().then(async () => {
         exportPath, previousPath, outputDir: workDir, photoMode: "all", carryIds: false,
         streetNames: [{ village: "ПКР", street: "Нефритовая", name: "Самоцветы" }],
       })})`);
-      await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека.map((b) => ({ ...b, textPath: "", renderPaths: [], name: "" })))})`);
+      // Вторая заготовка сознательно без renderUrls и renderPaths: файл на диске
+      // мог быть записан прежней версией, и одно отсутствующее поле роняло весь
+      // раздел. Форма приводится при чтении, а не проверяется в каждом месте.
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека)})`);
+      const вычитано = await call(`window.api.catalogLibrary()`);
+      check("неполная заготовка приводится к полной форме",
+        вычитано.every((x) => Array.isArray(x.renderUrls) && Array.isArray(x.renderPaths)),
+        JSON.stringify(вычитано.map((x) => Object.keys(x).length)));
       const preview = await call(`window.api.catalogPreview()`);
       check("предпросмотр собрался через приложение", preview.total === 10, String(preview.total));
       check("замечания дошли до окна", preview.problems.length > 0, String(preview.problems.length));
       check("готовые первыми и в предпросмотре", preview.sample[0].Mark === "готов", preview.sample[0].Mark);
 
+      console.log("\nтаблица в виде магазина");
+      const table = await call(`window.api.catalogTable()`);
+      check("колонки те же, что у магазина",
+        table.columns.join(";") === catalog.TILDA_COLUMNS.join(";"), table.columns.slice(0, 4).join(";"));
+      check("отдана вся таблица, а не образец", table.rows.length === 10, String(table.rows.length));
+      check("заготовки описаний пришли для выбора в ячейке",
+        table.library.length === 2 && table.library.every((l) => l.label), JSON.stringify(table.library.map((l) => l.label)));
+      check("у заготовки читаемое имя",
+        table.library.some((l) => /дом 100 м² · кирпич/.test(l.label)), JSON.stringify(table.library.map((l) => l.label)));
+
+      console.log("\nправка ячеек руками");
+      const sku = "00:00:0000001:1002";
+      await call(`window.api.catalogSaveEdits(${JSON.stringify({
+        [sku]: { Title: "Правленое название", Text: "Своё описание руками", Price: "9999999.00" },
+      })})`);
+      const edited = await call(`window.api.catalogTable()`);
+      const row = edited.rows.find((r) => r.SKU === sku);
+      check("правка встала в таблицу", row.Title === "Правленое название", row.Title);
+      check("правится любая колонка, не только описание", row.Price === "9999999.00", row.Price);
+      check("правки помечены", edited.edited.some((e) => e.sku === sku && e.column === "Title"),
+        JSON.stringify(edited.edited));
+      // Правка привязана к кадастровому номеру, а не к номеру строки: иначе
+      // новая выгрузка с другим порядком разнесла бы правки по чужим домам.
+      const другой = edited.rows.find((r) => r.SKU !== sku);
+      check("соседние позиции не задеты", другой.Title !== "Правленое название", другой.Title);
+
+      console.log("\nвыгрузка в Excel и CSV");
       const result = await call(`window.api.catalogBuild()`);
-      check("файл сохранён", fs.existsSync(result.file), result.file);
-      const written = fs.readFileSync(result.file, "utf-8");
+      check("оба файла сохранены",
+        fs.existsSync(result.csvFile) && fs.existsSync(result.xlsxFile), `${result.csvFile} | ${result.xlsxFile}`);
+      const written = fs.readFileSync(result.csvFile, "utf-8");
       check("файл начинается с метки кодировки", written.charCodeAt(0) === 0xfeff);
       check("кириллица читается", written.includes("Ромашки"));
       check("в файле все позиции", catalog.parseCsv(written).length === 11, String(catalog.parseCsv(written).length));
+      check("правка попала в CSV", written.includes("Правленое название"));
+
+      const ExcelJS = require("exceljs");
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.readFile(result.xlsxFile);
+      const sheet = wb.worksheets[0];
+      check("книга Excel читается", !!sheet && sheet.rowCount === 11, sheet && String(sheet.rowCount));
+      const header = [];
+      sheet.getRow(1).eachCell({ includeEmpty: true }, (c2, i2) => (header[i2 - 1] = String(c2.value || "")));
+      check("в книге те же колонки", header.join(";") === catalog.TILDA_COLUMNS.join(";"), header.slice(0, 4).join(";"));
+      check("шапка закреплена", sheet.views && sheet.views[0] && sheet.views[0].ySplit === 1);
+      let нашлось = false;
+      sheet.eachRow((r2) => { if (String(r2.getCell(6).value || "") === "Правленое название") нашлось = true; });
+      check("правка попала и в книгу Excel", нашлось);
+
+      console.log("\nправка не должна зависеть от размера таблицы");
+      // Открытый редактор один, и набираемое значение живёт внутри него. Если
+      // поднять его в состояние всей таблицы, каждая буква будет перерисовывать
+      // тысячи ячеек — ровно та беда, что была в чате.
+      // Настройки в этом тесте менялись мимо окна, поэтому таблицу собираем так
+      // же, как человек, — кнопкой.
+      await call(`window.location.reload()`);
+      await new Promise((r) => (win.webContents.isLoading() ? win.webContents.once("did-finish-load", r) : r()));
+      await new Promise((r) => setTimeout(r, 1500));
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Каталог")).click()`);
+      await new Promise((r) => setTimeout(r, 800));
+      await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => b.textContent.includes("Пересобрать")).click()`);
+      await new Promise((r) => setTimeout(r, 2500));
+      const cells = await call(`document.querySelectorAll(".cat-cell").length`);
+      check("таблица показана целиком", cells > 100, String(cells));
+      check("всегда пустые колонки скрыты",
+        (await call(`document.querySelectorAll(".cat-table th").length`)) < catalog.TILDA_COLUMNS.length);
+      await call(`document.querySelectorAll(".cat-cell")[5].click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      check("редактор открылся", (await call(`!!document.querySelector(".cat-editor textarea")`)) === true);
+      const typing = await call(`(async () => {
+        const ta = document.querySelector(".cat-editor textarea");
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+        const times = []; let text = "";
+        for (let i = 0; i < 25; i++) {
+          text += "а";
+          const t0 = performance.now();
+          setter.call(ta, text);
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+          times.push(performance.now() - t0);
+          await new Promise(r => setTimeout(r, 0));
+        }
+        times.sort((a, b) => a - b);
+        return { median: times[12], cells: document.querySelectorAll(".cat-cell").length };
+      })()`);
+      check("набор в ячейке не тормозит при полной таблице", typing.median < 3,
+        `${typing.median.toFixed(2)} мс при ${typing.cells} ячейках`);
+      console.log(`     (медиана ${typing.median.toFixed(2)} мс на клавишу, ячеек на экране ${typing.cells})`);
+      // Выбор описания из библиотеки живёт прямо в редакторе ячейки Text.
+      await call(`document.querySelector(".cat-editor button.btn-secondary").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      const textCol = await call(`(() => {
+        const heads = [...document.querySelectorAll(".cat-table th")].map(h => h.textContent);
+        const idx = heads.indexOf("Text");
+        const rowCells = document.querySelectorAll(".cat-table tbody tr")[0].querySelectorAll("td");
+        rowCells[idx].click();
+        return idx;
+      })()`);
+      await new Promise((r) => setTimeout(r, 400));
+      check("в описании есть выбор из библиотеки",
+        (await call(`!!document.querySelector(".cat-editor-pick")`)) === true, String(textCol));
+      check("в списке — заготовки библиотеки",
+        (await call(`[...document.querySelectorAll(".cat-editor-pick option")].map(o => o.textContent).join("|")`))
+          .includes("дом 100 м²"));
+
+      console.log("\nотмена правки");
+      await call(`window.api.catalogSaveEdits({})`);
+      const вернулось = await call(`window.api.catalogTable()`);
+      const back2 = вернулось.rows.find((r) => r.SKU === sku);
+      check("после снятия правки вернулось собранное значение",
+        back2.Title !== "Правленое название" && back2.Title.includes("Луговая"), back2.Title);
     }
   } catch (e) {
     failures++;

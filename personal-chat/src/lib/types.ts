@@ -265,6 +265,21 @@ export interface CatalogDescription {
   renderPaths: string[];
 }
 
+/** Ручные правки: кадастровый номер → колонка → значение. */
+export type CatalogEdits = Record<string, Record<string, string>>;
+
+export interface CatalogTable {
+  columns: string[];
+  rows: Record<string, string>[];
+  edited: { sku: string; column: string }[];
+  problems: string[];
+  counts: { houses: number; plots: number; gone: number };
+  villages: Record<string, string>;
+  streets: Record<string, string[]>;
+  /** Заготовки описаний — для выбора прямо в ячейке. */
+  library: { id: string; label: string; text: string }[];
+}
+
 export interface CatalogPreview {
   problems: string[];
   counts: { houses: number; plots: number; gone: number };
@@ -1244,9 +1259,12 @@ export interface ElectronAPI {
   catalogSaveConfig(config: Partial<CatalogConfig>): Promise<CatalogConfig>;
   catalogLibrary(): Promise<CatalogDescription[]>;
   catalogSaveLibrary(items: CatalogDescription[]): Promise<CatalogDescription[]>;
-  catalogPick(what: "export" | "previous" | "outputDir" | "text"): Promise<string>;
+  catalogPick(what: "export" | "previous" | "outputDir" | "text" | "render"): Promise<string>;
   catalogPreview(): Promise<CatalogPreview>;
-  catalogBuild(): Promise<{ file: string; rows: number; problems: string[] }>;
+  catalogTable(): Promise<CatalogTable>;
+  catalogEdits(): Promise<CatalogEdits>;
+  catalogSaveEdits(edits: CatalogEdits): Promise<CatalogEdits>;
+  catalogBuild(): Promise<{ csvFile: string; xlsxFile: string; rows: number; problems: string[] }>;
 
   // видеотека
   libraryConfig(): Promise<LibraryConfig>;
