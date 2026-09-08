@@ -43,6 +43,7 @@ function check(label, condition, detail = "") {
 
 const library = require("./library.cjs");
 const ffmpeg = require("ffmpeg-static");
+const { finish } = require("./smoke-finish.cjs");
 
 function makeMedia(dest, seconds, withVideo) {
   const args = ["-y", "-hide_banner", "-loglevel", "error"];
@@ -233,7 +234,7 @@ app.whenReady().then(async () => {
   } finally {
     console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
     cleanup();
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });
 

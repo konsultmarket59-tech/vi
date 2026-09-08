@@ -33,6 +33,7 @@ const near = (a, b, tol = 1) => typeof a === "number" && Number.isFinite(a) && M
 const fm = require("./finmodel.cjs");
 const MONTHS_OF = fm.MONTHS;
 const excel = require("./excel.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 // Ответ агента с допущениями — как он приходит из чата.
 const PARAMS_REPLY = `Разобрал выгрузку Вордстата за три года.
@@ -489,7 +490,7 @@ server.listen(0, "127.0.0.1", () => {
     } finally {
       console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
       cleanup();
-      app.exit(failures === 0 ? 0 : 1);
+      finish(failures, (c) => app.exit(c));
     }
   });
 });

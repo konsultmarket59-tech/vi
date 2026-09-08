@@ -44,6 +44,7 @@ function check(label, condition, detail = "") {
 
 const vs = require("./videostories.cjs");
 const ffmpeg = require("ffmpeg-static");
+const { finish } = require("./smoke-finish.cjs");
 
 /** Короткий цветной ролик со звуком — исходник для сборки. */
 function makeSource(dest, seconds = 3) {
@@ -618,6 +619,6 @@ app.whenReady().then(async () => {
   } finally {
     console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
     cleanup();
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });

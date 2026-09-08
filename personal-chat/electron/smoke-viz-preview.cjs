@@ -17,6 +17,7 @@ const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "vizprev-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vizprev-data-"));
@@ -202,7 +203,7 @@ server.listen(0, "127.0.0.1", () => {
     } finally {
       console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
       cleanup();
-      app.exit(failures === 0 ? 0 : 1);
+      finish(failures, (c) => app.exit(c));
     }
   });
 });

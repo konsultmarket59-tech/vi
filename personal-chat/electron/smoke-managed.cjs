@@ -14,6 +14,7 @@ const fs = require("node:fs");
 const usage = require("./usage.cjs");
 const managed = require("./managed.cjs");
 const bundledSkills = require("./bundledSkills.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "managed-ud-"));
 const configFile = path.join(__dirname, "..", "managed-config.json");
@@ -155,7 +156,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   cleanup();
-  process.exit(failures === 0 ? 0 : 1);
+  finish(failures, (c) => process.exit(c));
 })().catch((e) => {
   console.error("Тест упал:", e);
   cleanup();

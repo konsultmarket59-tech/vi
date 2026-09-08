@@ -14,6 +14,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const settingsStore = require("./settings.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 const docs = fs.mkdtempSync(path.join(os.tmpdir(), "code-docs-"));
 const first = fs.mkdtempSync(path.join(os.tmpdir(), "code-ud1-"));
@@ -115,6 +116,6 @@ app.whenReady().then(async () => {
   } finally {
     console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
     cleanup();
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });

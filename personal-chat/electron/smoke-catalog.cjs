@@ -32,6 +32,7 @@ function check(label, condition, detail = "") {
 }
 
 const catalog = require("./catalog.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 /** Выгрузка той же формы, что даёт 1С, — со всеми её неровностями. */
 async function makeExport(dest) {
@@ -701,7 +702,7 @@ app.whenReady().then(async () => {
   } finally {
     console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
     cleanup();
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });
 

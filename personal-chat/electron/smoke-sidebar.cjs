@@ -11,6 +11,7 @@ const { app, BrowserWindow } = require("electron");
 const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "personal-chat-sidebar-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "personal-chat-sidebar-data-"));
@@ -151,7 +152,7 @@ app.whenReady().then(async () => {
   } finally {
     console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
     cleanup();
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });
 

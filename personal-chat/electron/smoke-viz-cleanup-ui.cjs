@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "viz-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "viz-data-"));
@@ -186,9 +187,9 @@ RENAME: июль -> июль 2025
       failures++;
       console.log("  FAIL непойманная ошибка —", e.message);
     } finally {
-      console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
       cleanupDirs();
-      app.exit(failures === 0 ? 0 : 1);
+      console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
+      finish(failures, (c) => app.exit(c));
     }
   });
 });
