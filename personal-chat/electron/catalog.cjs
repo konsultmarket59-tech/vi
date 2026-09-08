@@ -659,14 +659,49 @@ function buildCatalog({
 }
 
 /** Файл в том виде, в каком его ждёт магазин: точка с запятой и кавычки. */
-function toCsv(rows) {
+/**
+ * Колонки-ключи магазина. Их значения выдаёт сам магазин, придумать их нельзя.
+ *
+ * При импорте магазин выбирает по одной из них «уникальную колонку» и по ней
+ * ищет, какой товар обновлять. Если колонка в файле есть, но пуста, импорт
+ * падает на каждой строке: «Empty Uniq column: uid» — ровно это и случилось на
+ * 186 позициях. Поэтому пустую колонку-ключ в файл не кладём вовсе: тогда
+ * магазину остаётся SKU (кадастровый номер) — он заполнен всегда и уникален.
+ */
+const ID_COLUMNS = ["Tilda UID", "External ID"];
+
+/**
+ * Колонки файла: пустые колонки-ключи выбрасываются.
+ *
+ * Выбрасываются только целиком пустые. Если номера переносятся из прошлого
+ * каталога, колонка остаётся — по ней магазин и обновит товары.
+ */
+function csvColumns(rows) {
+  return TILDA_COLUMNS.filter(
+    (c) => !ID_COLUMNS.includes(c) || rows.some((r) => str(r[c]))
+  );
+}
+
+/**
+ * CSV ровно того вида, в каком его отдаёт сам магазин.
+ *
+ * Правило кавычек снято с его собственной выгрузки и проверено на ней побайтно:
+ * в кавычки берётся значение, где есть пробел, точка с запятой, кавычка или
+ * перевод строки; кавычка внутри удваивается. Разделитель — точка с запятой,
+ * перевод строки — LF, в конце файла перевод строки есть.
+ *
+ * Метки кодировки (BOM) в начале НЕТ — её нет и в выгрузке магазина. Читать
+ * файл глазами предназначена книга Excel, которая сохраняется рядом; CSV — для
+ * магазина, и он должен совпадать с образцом, а не быть удобнее его.
+ */
+function toCsv(rows, columns = csvColumns(rows)) {
   const escape = (v) => {
     const s2 = v == null ? "" : String(v);
-    return /[";\n]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2;
+    return /[ ;"\n\r]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2;
   };
-  const lines = [TILDA_COLUMNS.join(";")];
-  for (const row of rows) lines.push(TILDA_COLUMNS.map((c) => escape(row[c])).join(";"));
-  return lines.join("\n");
+  const lines = [columns.map(escape).join(";")];
+  for (const row of rows) lines.push(columns.map((c) => escape(row[c])).join(";"));
+  return lines.join("\n") + "\n";
 }
 
 // ---------- библиотека описаний ----------
@@ -810,11 +845,13 @@ function applyEdits(rows, edits = {}) {
  * читаемая таблица: закреплённая шапка, ширины по содержимому, перенос строк в
  * длинных описаниях.
  */
-async function toXlsx(rows, destPath) {
+async function toXlsx(rows, destPath, columns = csvColumns(rows)) {
   const ExcelJS = require("exceljs");
   const wb = new ExcelJS.Workbook();
   const sheet = wb.addWorksheet("Каталог");
-  sheet.columns = TILDA_COLUMNS.map((name) => ({
+  // Колонки те же, что в CSV: два файла об одном каталоге не должны расходиться
+  // составом колонок — иначе непонятно, который из них поедет в магазин.
+  sheet.columns = columns.map((name) => ({
     header: name,
     key: name,
     width: name === "Text" ? 60 : name === "Description" || name.startsWith("SEO") ? 40 : name === "Photo" ? 44 : 18,
@@ -897,6 +934,8 @@ module.exports = {
   readPrevious,
   buildCatalog,
   toCsv,
+  csvColumns,
+  ID_COLUMNS,
   normalizeLibraryItem,
   readLibrary,
   writeLibrary,

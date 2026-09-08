@@ -3517,10 +3517,14 @@ ipcMain.handle("catalog:build", async () => {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   const csvFile = path.join(dir, `каталог-${stamp}.csv`);
   const xlsxFile = path.join(dir, `каталог-${stamp}.xlsx`);
-  // BOM в начале: без него магазин читает кириллицу как набор знаков.
-  await fs.writeFile(csvFile, "\ufeff" + catalog.toCsv(rows), "utf-8");
-  await catalog.toXlsx(rows, xlsxFile);
-  return { csvFile, xlsxFile, rows: rows.length, problems: result.problems };
+  // Без метки кодировки: её нет и в выгрузке самого магазина, а образец —
+  // единственное, что здесь можно проверить. Смотреть каталог глазами
+  // предназначена книга Excel рядом.
+  const columns = catalog.csvColumns(rows);
+  await fs.writeFile(csvFile, catalog.toCsv(rows, columns), "utf-8");
+  await catalog.toXlsx(rows, xlsxFile, columns);
+  const dropped = catalog.ID_COLUMNS.filter((c) => !columns.includes(c));
+  return { csvFile, xlsxFile, rows: rows.length, problems: result.problems, dropped };
 });
 
 // ---------- видеотека ----------

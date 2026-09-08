@@ -1879,6 +1879,7 @@ button.fin-row-x:hover { color: var(--accent); }
 .cat-cell-pick { color: var(--accent); font-size: 12px; border-bottom: 1px dashed var(--accent); }
 .cat-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cat-fill select { max-width: 320px; }
+.cat-uniq { margin-top: 6px; font-size: 12px; line-height: 1.45; opacity: 0.9; }
 
 .cat-variants { margin-top: 10px; }
 .cat-variant {
