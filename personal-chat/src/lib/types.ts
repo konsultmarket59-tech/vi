@@ -244,6 +244,11 @@ export interface CatalogConfig {
   /** «all» — все фото из выгрузки, «first» — только первое. */
   photoMode: "all" | "first";
   /**
+   * Откуда брать фото при совпадении по кадастровому номеру: «tilda» — из
+   * прошлого каталога магазина (они там уже загружены), «export» — из 1С.
+   */
+  photoSource: "tilda" | "export";
+  /**
    * Переносить ли номера позиций магазина из прошлого каталога. Нужно только
    * при обновлении существующего каталога; при заливке заново старые номера
    * указывали бы на удалённые товары.
@@ -273,7 +278,7 @@ export interface CatalogTable {
   rows: Record<string, string>[];
   edited: { sku: string; column: string }[];
   problems: string[];
-  counts: { houses: number; plots: number; gone: number; described: number };
+  counts: { houses: number; plots: number; gone: number; described: number; photosCarried: number };
   villages: Record<string, string>;
   streets: Record<string, string[]>;
   /** Заготовки описаний — для выбора прямо в ячейке. */
@@ -284,7 +289,7 @@ export interface CatalogTable {
 
 export interface CatalogPreview {
   problems: string[];
-  counts: { houses: number; plots: number; gone: number; described: number };
+  counts: { houses: number; plots: number; gone: number; described: number; photosCarried: number };
   villages: Record<string, string>;
   /** Улицы по посёлкам — чтобы исключение выбиралось списком, а не печаталось. */
   streets: Record<string, string[]>;

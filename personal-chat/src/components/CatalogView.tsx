@@ -273,6 +273,22 @@ export default function CatalogView() {
               <label className="vs-check">
                 <input
                   type="checkbox"
+                  checked={(config?.photoSource || "tilda") === "tilda"}
+                  onChange={(e) => patch({ photoSource: e.target.checked ? "tilda" : "export" })}
+                />
+                Фото из прошлого каталога, если позиция нашлась по кадастровому номеру
+              </label>
+              <p className="vs-hint">
+                {(config?.photoSource || "tilda") === "tilda"
+                  ? "Снимки из прошлого каталога уже загружены в магазин и заведомо открываются на витрине. Ссылки из 1С ведут на сторонний сайт — они могут работать, а могут и нет, и проверить это отсюда нечем. Где совпадения нет, берутся фото из 1С, а затем рендеры заготовки."
+                  : "Первыми идут фото из 1С. Из прошлого каталога снимок берётся только там, где в выгрузке его нет."}
+                {preview
+                  ? ` Сейчас перенесено из прошлого каталога: ${preview.counts.photosCarried} позиц.`
+                  : ""}
+              </p>
+              <label className="vs-check">
+                <input
+                  type="checkbox"
                   checked={!!config?.carryIds}
                   onChange={(e) => patch({ carryIds: e.target.checked })}
                 />

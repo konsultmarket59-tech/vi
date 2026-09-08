@@ -3349,6 +3349,10 @@ async function loadCatalogConfig() {
       // Все фото из выгрузки. У домов их до семи, и терять шесть из них,
       // отдавая витрине одно, незачем.
       photoMode: "all",
+      // При совпадении по кадастровому номеру фото берутся из прошлого каталога
+      // магазина: они там уже загружены и заведомо открываются на витрине, чего
+      // про ссылки на сторонний сайт из 1С сказать нельзя.
+      photoSource: "tilda",
       // Каталог на сайте заливается заново: старые номера позиций указывали бы
       // на удалённые товары, поэтому по умолчанию они не переносятся.
       carryIds: false,
@@ -3421,6 +3425,7 @@ async function assembleCatalog() {
     streetNames: config.streetNames || [],
     previous,
     photoMode: config.photoMode,
+    photoSource: config.photoSource || "tilda",
     carryIds: !!config.carryIds,
   });
   for (const item of library) if (item.error) result.problems.unshift(item.error);

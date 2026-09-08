@@ -399,6 +399,9 @@ async function readPrevious(filePath) {
       externalId: str(row[at("External ID")]),
       category: str(row[at("Category")]),
       title: str(row[at("Title")]),
+      // Фото из прошлого каталога — уже загруженные в магазин адреса. Они
+      // заведомо открываются на витрине, чего про ссылки из 1С сказать нельзя.
+      photo: str(row[at("Photo")]),
     });
     const cat = str(row[at("Category")]);
     const m = /Поселки>>>([^;]+)/.exec(cat);
@@ -421,6 +424,7 @@ function buildCatalog({
   streetNames = [],
   previous = null,
   photoMode = "all",
+  photoSource = "tilda",
   carryIds = false,
 }) {
   const problems = [];
@@ -429,6 +433,33 @@ function buildCatalog({
   // каталога. Если каталог на сайте удаляют и заливают заново, старые номера
   // указывают на удалённые товары — переносить их нельзя.
   const prevBySku = carryIds && previous ? previous.bySku : new Map();
+  // А фото из прошлого каталога переносятся независимо от номеров: каталог
+  // можно заливать заново (номера не нужны), но снимки, уже загруженные в
+  // магазин, при этом терять незачем.
+  const prevAny = previous ? previous.bySku : new Map();
+  let photosFromPrevious = 0;
+
+  /**
+   * Фото позиции.
+   *
+   * Два источника, и они не равны. В прошлом каталоге лежат адреса файлов,
+   * УЖЕ ЗАГРУЖЕННЫХ В МАГАЗИН, — они заведомо открываются на витрине. Из 1С
+   * приходят ссылки на сторонний сайт: они могут работать, а могут и нет, и
+   * проверить это отсюда нечем.
+   *
+   * Поэтому при совпадении по кадастровому номеру по умолчанию берутся фото из
+   * Тильды, а выгрузка 1С и рендеры заготовки заполняют остальное. Порядок
+   * переключается: `photoSource: "export"` ставит 1С первым.
+   */
+  const photosFor = (cadastral, own, fallback = []) => {
+    const carried = str((prevAny.get(cadastral) || {}).photo)
+      .split(/\s+/)
+      .filter(Boolean);
+    const order = photoSource === "export" ? [own, carried, fallback] : [carried, own, fallback];
+    const chosen = order.find((list) => list && list.length) || [];
+    if (chosen === carried && carried.length) photosFromPrevious += 1;
+    return photoMode === "first" ? chosen.slice(0, 1) : chosen;
+  };
 
   /**
    * Имя посёлка для витрины.
@@ -513,9 +544,9 @@ function buildCatalog({
     }
 
     if (doc && doc.text) matched += 1;
-    const photos = item.photos.length ? item.photos : doc?.renderUrls || [];
+    const photos = photosFor(item.cadastral, item.photos, doc?.renderUrls || []);
     if (!photos.length) {
-      problems.push(`«${village}, ${item.street}, ${item.house}» — нет ни одного фото ни в выгрузке, ни в заготовке.`);
+      problems.push(`«${village}, ${item.street}, ${item.house}» — нет ни одного фото ни в выгрузке, ни в прошлом каталоге, ни в заготовке.`);
     }
     const seo = buildSeo(item, village, parsed.claddingLabel);
 
@@ -528,7 +559,7 @@ function buildCatalog({
       Title: titleOf(item, village),
       Description: shortDescription(parsed),
       Text: doc?.text || "",
-      Photo: photoMode === "first" ? photos[0] || "" : photos.join(" "),
+      Photo: photos.join(" "),
       Price: num(item.price).toFixed(2),
       Quantity: "",
       "Price Old": "",
@@ -565,7 +596,7 @@ function buildCatalog({
       Title: titleOf(item, village),
       Description: item.description,
       Text: `Площадь участка: ${decimal(item.plotArea)} соток. Кадастровый номер: ${item.cadastral}.${note ? " " + note : ""}`,
-      Photo: photoMode === "first" ? item.photos[0] || "" : item.photos.join(" "),
+      Photo: photosFor(item.cadastral, item.photos).join(" "),
       Price: num(item.price).toFixed(2),
       Quantity: "",
       "Price Old": "",
@@ -615,7 +646,15 @@ function buildCatalog({
   return {
     rows,
     problems,
-    counts: { houses: sortedHouses.length, plots: plots.length, gone: gone.length, described: matched },
+    counts: {
+      houses: sortedHouses.length,
+      plots: plots.length,
+      gone: gone.length,
+      described: matched,
+      // Сколько позиций взяли фото из прошлого каталога: без этого числа
+      // непонятно, сработало совпадение по кадастровому или нет.
+      photosCarried: photosFromPrevious,
+    },
   };
 }
 
