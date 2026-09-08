@@ -17,6 +17,7 @@ const http = require("node:http");
 
 const licence = require("./licence.cjs");
 const demoAccess = require("../../personal-code/electron/demoAccess.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 const configFile = path.join(__dirname, "..", "licence-config.json");
 const hadConfig = fs.existsSync(configFile);
@@ -257,7 +258,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   cleanup();
-  process.exit(failures === 0 ? 0 : 1);
+  finish(failures, (c) => process.exit(c));
 })().catch((e) => {
   console.error("Тест упал:", e);
   cleanup();

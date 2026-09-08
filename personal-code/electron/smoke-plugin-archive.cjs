@@ -6,6 +6,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const archive = require("./pluginArchive.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-archive-"));
 const chatDir = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-chat-"));
@@ -141,7 +142,7 @@ const skill = (name, content) => ({ name, description: `описание ${name}
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   cleanup();
-  process.exit(failures === 0 ? 0 : 1);
+  finish(failures, (c) => process.exit(c));
 })().catch((e) => {
   console.error("Тест упал:", e);
   cleanup();

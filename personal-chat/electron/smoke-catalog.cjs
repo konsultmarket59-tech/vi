@@ -32,6 +32,7 @@ function check(label, condition, detail = "") {
 }
 
 const catalog = require("./catalog.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 /** Выгрузка той же формы, что даёт 1С, — со всеми её неровностями. */
 async function makeExport(dest) {
@@ -99,9 +100,12 @@ async function makeExport(dest) {
 function makePrevious(dest) {
   const body = catalog.toCsv([
     { "Tilda UID": "111111111111", SKU: "00:00:0000001:1001", "External ID": "AAA",
-      Category: "Метраж дома>>>дом 100 м2;Поселки>>>Ромашки", Title: "Ромашкино, Луговая, 3" },
+      Category: "Метраж дома>>>дом 100 м2;Поселки>>>Ромашки", Title: "Ромашкино, Луговая, 3",
+      // Снимки, уже загруженные в магазин: у них адреса витрины, а не стороннего сайта.
+      Photo: "https://static.tildacdn.com/stor1/дом-1001-a.png https://static.tildacdn.com/stor1/дом-1001-b.png" },
     { "Tilda UID": "222222222222", SKU: "00:00:0000003:3001", "External ID": "BBB",
-      Category: "Земельные участки;Поселки>>>Ромашки", Title: "Ромашкино, Полевая, 2" },
+      Category: "Земельные участки;Поселки>>>Ромашки", Title: "Ромашкино, Полевая, 2",
+      Photo: "https://static.tildacdn.com/stor1/участок-3001.png" },
     // Позиция, которой в новой выгрузке уже нет — продана.
     { "Tilda UID": "333333333333", SKU: "00:00:0000009:9999", Category: "Земельные участки;Поселки>>>Ромашки" },
   ]);
@@ -205,8 +209,58 @@ app.whenReady().then(async () => {
     // тот же посёлок называется «Самоцветы».
     check("заголовок несёт витринное имя посёлка", дом.Title === "Ромашки, Луговая, 3", дом.Title);
     check("описание из библиотеки подставлено", дом.Text === "Длинное описание дома 100 м² в кирпиче.", дом.Text);
-    check("все фото из выгрузки прикреплены, а не одно", дом.Photo.split(" ").length === 2, дом.Photo);
     check("площадь участка с запятой", дом["Characteristics:Площадь участка"] === "6,50", дом["Characteristics:Площадь участка"]);
+    // Этот дом есть и в прошлом каталоге, поэтому «все фото, а не одно»
+    // проверяем на доме, которого в прошлом каталоге нет, — иначе проверка
+    // молча переехала бы на другой источник.
+    const безПрошлого = built.rows.find((r) => r.SKU === "00:00:0000001:1002");
+    check("все фото из выгрузки прикреплены, а не одно",
+      безПрошлого.Photo.split(" ").length === 2, безПрошлого.Photo);
+
+    console.log("\nфото из прошлого каталога по кадастровому номеру");
+    // Снимки в прошлом каталоге уже загружены в магазин: их адреса заведомо
+    // открываются на витрине. Ссылки из 1С ведут на сторонний сайт — они могут
+    // работать, а могут и нет, и проверить это отсюда нечем.
+    check("у совпавшего дома фото взяты из каталога, а не из 1С",
+      дом.Photo.split(" ").every((u) => u.includes("tildacdn")), дом.Photo);
+    check("перенеслись все снимки позиции, а не первый",
+      дом.Photo.split(" ").length === 2, дом.Photo);
+    const участокСФото = built.rows.find((r) => r.SKU === "00:00:0000003:3001");
+    check("перенос работает и для участков",
+      участокСФото.Photo.includes("tildacdn"), участокСФото.Photo);
+    check("сколько позиций взяли фото из каталога — посчитано",
+      built.counts.photosCarried === 2, String(built.counts.photosCarried));
+    check("там, где совпадения нет, остаются фото из 1С",
+      безПрошлого.Photo.includes("example.test"), безПрошлого.Photo);
+
+    // Перенос не должен зависеть от переноса номеров позиций: каталог можно
+    // заливать заново (номера не нужны), но снимки при этом терять незачем.
+    const заново = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous, photoMode: "all", carryIds: false,
+    });
+    const домЗаново = заново.rows.find((r) => r.SKU === "00:00:0000001:1001");
+    check("фото переносятся и когда каталог заливается заново",
+      домЗаново.Photo.includes("tildacdn") && !домЗаново["Tilda UID"],
+      `${домЗаново.Photo} | uid «${домЗаново["Tilda UID"]}»`);
+
+    // Обратный порядок: сначала 1С, каталог только там, где в выгрузке пусто.
+    const из1С = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous,
+      photoMode: "all", photoSource: "export", carryIds: true,
+    });
+    const дом1С = из1С.rows.find((r) => r.SKU === "00:00:0000001:1001");
+    check("переключатель возвращает первенство выгрузке 1С",
+      дом1С.Photo.includes("example.test") && !дом1С.Photo.includes("tildacdn"), дом1С.Photo);
+    check("и тогда из каталога не переносится ничего лишнего",
+      из1С.counts.photosCarried === 0, String(из1С.counts.photosCarried));
+
+    // Только первое фото — при переносе тоже.
+    const одно = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous, photoMode: "first", carryIds: true,
+    });
+    const домОдно = одно.rows.find((r) => r.SKU === "00:00:0000001:1001");
+    check("«только первое фото» действует и на перенесённые",
+      домОдно.Photo.includes("tildacdn") && !домОдно.Photo.includes(" "), домОдно.Photo);
 
     console.log("\nописания подставляются по облицовке из выгрузки");
     // Пять домов из семи: у дома 120 в кирпиче заготовки нет, у дома с
@@ -350,6 +404,33 @@ app.whenReady().then(async () => {
       check("замечания дошли до окна", preview.problems.length > 0, String(preview.problems.length));
       check("готовые первыми и в предпросмотре", preview.sample[0].Mark === "готов", preview.sample[0].Mark);
 
+      console.log("\nописание из ФАЙЛА по пути, а не из карточки");
+      // Прежде библиотека в тесте хранила текст прямо в карточке, и путь к файлу
+      // не проверялся вовсе — а человек указывает именно путь.
+      const описанияDir = path.join(workDir, "описания");
+      fs.mkdirSync(описанияDir, { recursive: true });
+      const txtПуть = path.join(описанияDir, "дом 100 кирпич.txt");
+      fs.writeFileSync(txtПуть, "Фундамент: монолитная плита.\n\nСтены: газобетон D400.\n", "utf-8");
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify([
+        { id: "f1", name: "", area: 100, cladding: "кирпич", textPath: txtПуть, renderUrls: [], renderPaths: [] },
+      ])})`);
+      const сФайлом = await call(`window.api.catalogTable()`);
+      const домИзФайла = сФайлом.rows.find((r) => r.SKU === "00:00:0000001:1001");
+      check("описание подтянулось из файла по пути",
+        /Фундамент: монолитная плита/.test(домИзФайла.Text), `«${домИзФайла.Text}»`);
+      check("абзацы сохранились", /\n\n/.test(домИзФайла.Text), JSON.stringify(домИзФайла.Text));
+      check("подставлено там, где облицовка совпала", сФайлом.counts.described >= 1,
+        String(сФайлом.counts.described));
+      // Битый путь не должен молчать.
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify([
+        { id: "f2", area: 100, cladding: "кирпич", textPath: path.join(описанияDir, "нет-такого.txt"), renderUrls: [], renderPaths: [] },
+      ])})`);
+      const битый = await call(`window.api.catalogTable()`);
+      check("нечитаемый файл описания попадает в замечания",
+        битый.problems.some((p2) => /Не прочитан файл описания/.test(p2)),
+        JSON.stringify(битый.problems.slice(0, 2)));
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека)})`);
+
       console.log("\nтаблица в виде магазина");
       const table = await call(`window.api.catalogTable()`);
       check("колонки те же, что у магазина",
@@ -359,6 +440,53 @@ app.whenReady().then(async () => {
         table.library.length === 4 && table.library.every((l) => l.label), JSON.stringify(table.library.map((l) => l.label)));
       check("у заготовки читаемое имя",
         table.library.some((l) => /дом 100 м² · кирпич/.test(l.label)), JSON.stringify(table.library.map((l) => l.label)));
+
+      console.log("\nпочему описание не подставилось");
+      // Главная жалоба: «указала пути, нажала пересобрать — в описании пусто».
+      // Механизм при этом исправен: просто ни одна заготовка не совпала с парой
+      // «метраж + облицовка», и сказать об этом было некому. Теперь у каждой
+      // заготовки видно число домов, к которым она подошла, а рядом — список
+      // вариаций, которые в выгрузке есть на самом деле.
+      const подошло = Object.fromEntries(table.library.map((l) => [l.id, l.fits]));
+      check("посчитано, к скольким домам подошла каждая заготовка",
+        table.library.every((l) => typeof l.fits === "number"), JSON.stringify(подошло));
+      check("сумма совпадений равна числу описанных домов",
+        table.library.reduce((n, l) => n + l.fits, 0) === table.counts.described,
+        `${JSON.stringify(подошло)} против ${table.counts.described}`);
+      check("заготовка, к которой подошли дома, имеет ненулевое число",
+        table.library.some((l) => l.fits > 0), JSON.stringify(подошло));
+
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify([
+        { id: "мимо", name: "", area: 999, cladding: "планкен", textPath: "", renderUrls: [], renderPaths: [] },
+      ])})`);
+      const мимо = await call(`window.api.catalogTable()`);
+      check("заготовка не по той вариации честно показывает ноль",
+        мимо.library.length === 1 && мимо.library[0].fits === 0, JSON.stringify(мимо.library));
+      check("и видно, что текста у неё нет",
+        мимо.library[0].text === "", JSON.stringify(мимо.library[0]));
+      check("вариации из выгрузки перечислены",
+        мимо.variants.length > 0 && мимо.variants.every((v) => typeof v.count === "number"),
+        JSON.stringify(мимо.variants));
+      check("вариации отсортированы по числу домов",
+        мимо.variants.every((v, i2) => i2 === 0 || мимо.variants[i2 - 1].count >= v.count),
+        JSON.stringify(мимо.variants.map((v) => v.count)));
+      check("999 м² планкена в выгрузке и правда нет — вот почему ноль",
+        !мимо.variants.some((v) => v.area === 999 && v.cladding === "планкен"),
+        JSON.stringify(мимо.variants));
+      // Сумма по вариациям обязана сойтись с числом домов: иначе список врёт о
+      // том, подо что заводить заготовки.
+      check("вариации покрывают все дома выгрузки",
+        мимо.variants.reduce((n, v) => n + v.count, 0) === мимо.counts.houses,
+        `${мимо.variants.reduce((n, v) => n + v.count, 0)} против ${мимо.counts.houses}`);
+      // Нечитаемый файл — другая причина пустого описания, и она называется
+      // отдельно, прямо в карточке.
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify([
+        { id: "битая", area: 100, cladding: "кирпич", textPath: path.join(описанияDir, "нет-такого.txt"), renderUrls: [], renderPaths: [] },
+      ])})`);
+      const сОшибкой = await call(`window.api.catalogTable()`);
+      check("причина непрочитанного файла доходит до карточки",
+        !!сОшибкой.library[0].error, JSON.stringify(сОшибкой.library[0]));
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека)})`);
 
       console.log("\nправка ячеек руками");
       const sku = "00:00:0000001:1002";
@@ -509,6 +637,110 @@ app.whenReady().then(async () => {
       check("в списке — заготовки библиотеки",
         (await call(`[...document.querySelectorAll(".cat-editor-pick option")].map(o => o.textContent).join("|")`))
           .includes("дом 100 м²"));
+      check("в списке сказано, сколько домов взяли эту заготовку сами",
+        (await call(`[...document.querySelectorAll(".cat-editor-pick option")].map(o => o.textContent).join("|")`))
+          .includes("подошла к"));
+
+      console.log("\nописание выбирается руками там, где подбора не случилось");
+      // Ради этого всё и затевалось: подбор промахнулся — человек должен уметь
+      // поставить описание сам, не открывая ни одного файла.
+      const выбор = await call(`(() => {
+        const heads = [...document.querySelectorAll(".cat-table th")].map(h => h.textContent);
+        const idx = heads.indexOf("Text");
+        const rows = [...document.querySelectorAll(".cat-table tbody tr")];
+        const пустая = rows.find(r => {
+          const c = r.querySelectorAll("td")[idx];
+          return c && c.querySelector(".cat-cell-pick");
+        });
+        if (!пустая) return { нет: true };
+        пустая.querySelectorAll("td")[idx].click();
+        return { sku: пустая.querySelectorAll("td")[heads.indexOf("SKU")].textContent };
+      })()`);
+      check("пустое описание приглашает выбрать, а не молчит", !выбор.нет, JSON.stringify(выбор));
+      if (!выбор.нет) {
+        await new Promise((r) => setTimeout(r, 400));
+        const поставлено = await call(`(async () => {
+          const sel = document.querySelector(".cat-editor-pick");
+          const opt = [...sel.options].find(o => o.value && !o.disabled);
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+          setter.call(sel, opt.value);
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 50));
+          const ta = document.querySelector(".cat-editor textarea");
+          const был = ta.value;
+          [...document.querySelectorAll(".cat-editor-actions button")].find(b => /Сохранить/.test(b.textContent)).click();
+          return { был };
+        })()`);
+        check("выбранное из библиотеки описание встало в редактор",
+          поставлено.был.length > 10, JSON.stringify(поставлено.был.slice(0, 60)));
+        await new Promise((r) => setTimeout(r, 500));
+        const вТаблице = await call(`window.api.catalogEdits()`);
+        check("и сохранилось как правка именно у этого дома",
+          !!(вТаблице[выбор.sku] && вТаблице[выбор.sku].Text === поставлено.был),
+          JSON.stringify(Object.keys(вТаблице)));
+      }
+
+      console.log("\nодно описание во все пустые сразу");
+      const массово = await call(`(async () => {
+        const bar = document.querySelector(".cat-fill");
+        if (!bar) return { нет: true };
+        const было = Number((bar.textContent.match(/Без описания: (\\d+)/) || [])[1]);
+        const sel = bar.querySelector("select");
+        const opt = [...sel.options].find(o => o.value);
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+        setter.call(sel, opt.value);
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise(r => setTimeout(r, 60));
+        bar.querySelector("button").click();
+        await new Promise(r => setTimeout(r, 600));
+        const после = document.querySelector(".cat-fill");
+        return { было, осталось: после ? Number((после.textContent.match(/Без описания: (\\d+)/) || [])[1]) : 0 };
+      })()`);
+      check("подстановка во все пустые предложена, пока пустые есть", !массово.нет, JSON.stringify(массово));
+      if (!массово.нет) {
+        check("пустые описания были и сосчитаны", массово.было > 0, JSON.stringify(массово));
+        check("после подстановки пустых описаний не осталось",
+          массово.осталось === 0, JSON.stringify(массово));
+        console.log(`     (было без описания ${массово.было}, стало ${массово.осталось})`);
+      }
+      // Правки снимаются так же, как любые другие: подстановка — это правка, а
+      // не новый сорт данных.
+      await call(`window.api.catalogSaveEdits({})`);
+      await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => b.textContent.includes("Пересобрать")).click()`);
+      await new Promise((r) => setTimeout(r, 2500));
+      const снято = await call(`document.querySelectorAll(".cat-cell-pick").length`);
+      check("после снятия правок пустые описания вернулись на место", снято > 0, String(снято));
+
+      console.log("\nвыбор из библиотеки есть и в короткой строке Description");
+      const вDescription = await call(`(() => {
+        const heads = [...document.querySelectorAll(".cat-table th")].map(h => h.textContent);
+        document.querySelectorAll(".cat-table tbody tr")[0]
+          .querySelectorAll("td")[heads.indexOf("Description")].click();
+        return heads.indexOf("Description");
+      })()`);
+      await new Promise((r) => setTimeout(r, 400));
+      check("в Description тоже можно выбрать заготовку",
+        (await call(`!!document.querySelector(".cat-editor-pick")`)) === true, String(вDescription));
+      await call(`[...document.querySelectorAll(".cat-editor-actions button")].find(b => /Отмена/.test(b.textContent)).click()`);
+
+      console.log("\nвариации из выгрузки видно в настройке");
+      await call(`[...document.querySelectorAll(".cat-tabs .vs-tab")].find(b => /Настройка/.test(b.textContent)).click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      const вариацииВидны = await call(`(() => {
+        const box = document.querySelector(".cat-variants");
+        return box ? [...box.querySelectorAll(".cat-variant")].map(b => b.textContent) : null;
+      })()`);
+      check("список вариаций показан в настройке",
+        Array.isArray(вариацииВидны) && вариацииВидны.length > 0, JSON.stringify(вариацииВидны));
+      const былоЗаготовок = (await call(`window.api.catalogLibrary()`)).length;
+      await call(`[...document.querySelectorAll(".cat-variant")].find(b => !b.disabled).click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      const сталоЗаготовок = await call(`window.api.catalogLibrary()`);
+      check("нажатие на вариацию заводит заготовку под неё",
+        сталоЗаготовок.length === былоЗаготовок + 1, `${былоЗаготовок} → ${сталоЗаготовок.length}`);
+      const новая = сталоЗаготовок[сталоЗаготовок.length - 1];
+      check("у заведённой заготовки проставлены метраж и облицовка",
+        новая.area > 0 && !!новая.cladding, JSON.stringify(новая));
 
       console.log("\nотмена правки");
       await call(`window.api.catalogSaveEdits({})`);
@@ -523,7 +755,7 @@ app.whenReady().then(async () => {
   } finally {
     console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
     cleanup();
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });
 

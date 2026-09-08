@@ -10,6 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 const docflow = require("./docflow.cjs");
 const word = require("./word.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -224,7 +225,7 @@ FILENAME: Договор оказания услуг
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish(failures, (c) => process.exit(c));
 }
 
 main().catch((e) => {

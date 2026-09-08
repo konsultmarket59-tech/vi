@@ -11,6 +11,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-conn-ud-"));
 const repo = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-conn-repo-"));
@@ -179,6 +180,6 @@ async function run() {
     server.close();
     fs.rmSync(userData, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 }

@@ -11,6 +11,7 @@ const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-ud-"));
 const repo = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-repo-"));
@@ -380,6 +381,6 @@ app.whenReady().then(async () => {
     console.log("Скриншоты:", os.tmpdir() + "/personal-code-*.png");
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(userData, { recursive: true, force: true });
-    app.exit(failures === 0 ? 0 : 1);
+    finish(failures, (c) => app.exit(c));
   }
 });

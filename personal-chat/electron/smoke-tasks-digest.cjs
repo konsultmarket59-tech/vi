@@ -19,6 +19,7 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const tasks = require("./tasks.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -114,7 +115,7 @@ async function main() {
 
   await fs.rm(root, { recursive: true, force: true });
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
-  process.exit(failures === 0 ? 0 : 1);
+  finish(failures, (c) => process.exit(c));
 }
 
 main();
