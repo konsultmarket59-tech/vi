@@ -354,15 +354,36 @@ app.whenReady().then(async () => {
     console.log("\nфайл для магазина");
     const csv = catalog.toCsv(built.rows);
     const back = catalog.parseCsv(csv);
-    check("колонки те же и в том же порядке",
+    // Колонки ищем по имени: состав зависит от того, переносятся ли номера
+    // позиций, и жёсткий номер колонки разъехался бы молча.
+    const поле = (row, name) => row[back[0].indexOf(name)];
+    check("номера позиций перенеслись — значит колонки-ключи на месте",
       back[0].join(";") === catalog.TILDA_COLUMNS.join(";"), back[0].slice(0, 5).join(";"));
     check("строк столько же", back.length === built.rows.length + 1, `${back.length - 1} из ${built.rows.length}`);
     // Точка с запятой внутри категории обязана пережить запись и чтение.
-    const cat = back.find((r) => r[2] === "00:00:0000001:1001");
+    const cat = back.find((r) => поле(r, "SKU") === "00:00:0000001:1001");
     check("точка с запятой внутри поля не разорвала строку",
-      cat && cat[4] === "Метраж дома>>>дом 100 м2;Поселки>>>Ромашки", cat && cat[4]);
+      cat && поле(cat, "Category") === "Метраж дома>>>дом 100 м2;Поселки>>>Ромашки", cat && поле(cat, "Category"));
+    const сКавычками = catalog.parseCsv(
+      catalog.toCsv([{ ...built.rows[0], Text: 'он сказал "да"; и ушёл' }])
+    );
     check("длинный текст с кавычками пережил запись",
-      catalog.parseCsv(catalog.toCsv([{ ...built.rows[0], Text: 'он сказал "да"; и ушёл' }]))[1][7] === 'он сказал "да"; и ушёл');
+      сКавычками[1][сКавычками[0].indexOf("Text")] === 'он сказал "да"; и ушёл',
+      JSON.stringify(сКавычками[1][сКавычками[0].indexOf("Text")]));
+
+    // Заливка заново: номеров позиций нет, и пустые колонки-ключи в файл не
+    // попадают — иначе магазин выбирает пустую колонку уникальной и отвергает
+    // каждую строку («Empty Uniq column: uid» на всех 186 позициях).
+    const заново2 = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous, carryIds: false,
+    });
+    const шапкаЗаново = catalog.parseCsv(catalog.toCsv(заново2.rows))[0];
+    check("при заливке заново пустых колонок-ключей в файле нет",
+      !шапкаЗаново.includes("Tilda UID") && !шапкаЗаново.includes("External ID"),
+      шапкаЗаново.slice(0, 3).join(";"));
+    check("остальные колонки на месте и в прежнем порядке",
+      шапкаЗаново.join(";") === catalog.TILDA_COLUMNS.filter((c2) => !catalog.ID_COLUMNS.includes(c2)).join(";"),
+      шапкаЗаново.join(";").slice(0, 80));
 
     console.log("\nраздел в приложении");
     require("./main.cjs");
@@ -509,10 +530,44 @@ app.whenReady().then(async () => {
       check("оба файла сохранены",
         fs.existsSync(result.csvFile) && fs.existsSync(result.xlsxFile), `${result.csvFile} | ${result.xlsxFile}`);
       const written = fs.readFileSync(result.csvFile, "utf-8");
-      check("файл начинается с метки кодировки", written.charCodeAt(0) === 0xfeff);
       check("кириллица читается", written.includes("Ромашки"));
       check("в файле все позиции", catalog.parseCsv(written).length === 11, String(catalog.parseCsv(written).length));
       check("правка попала в CSV", written.includes("Правленое название"));
+
+      console.log("\nфайл ровно того вида, в каком его отдаёт сам магазин");
+      // Магазин отверг первый собранный каталог: «Empty Uniq column: uid» на
+      // каждой из 186 позиций. Колонка-ключ в файле была, но пустая — при
+      // заливке заново взять её значения неоткуда, их выдаёт сам магазин.
+      // Поэтому правила формата сняты с ЕГО СОБСТВЕННОЙ выгрузки и закреплены
+      // здесь: другого способа проверить, что файл примут, у нас нет.
+      check("метки кодировки в начале НЕТ — её нет и у магазина",
+        written.charCodeAt(0) !== 0xfeff, `первый знак ${written.charCodeAt(0)}`);
+      check("переводы строк LF, не CRLF", !written.includes("\r"));
+      check("файл кончается переводом строки", written.endsWith("\n"));
+      const шапка = written.split("\n")[0].split(";");
+      check("пустых колонок-ключей в файле нет",
+        !шапка.includes("Tilda UID") && !шапка.includes("External ID"), шапка.slice(0, 3).join(";"));
+      check("выгрузка сама говорит, какие колонки убрала",
+        Array.isArray(result.dropped) && result.dropped.length === 2, JSON.stringify(result.dropped));
+      check("имена с пробелом в шапке взяты в кавычки, как у магазина",
+        шапка.includes('"Price Old"') && шапка.includes("Quantity"), шапка.join(";").slice(0, 90));
+      // Ключом остаётся SKU: он заполнен всегда и уникален — иначе выбрасывать
+      // колонки-ключи было бы нельзя.
+      const разобрано = catalog.parseCsv(written);
+      const колонки = разобрано[0];
+      const skuАт = колонки.indexOf("SKU");
+      const все = разобрано.slice(1).map((r2) => r2[skuАт]);
+      check("SKU заполнен у всех позиций", все.every(Boolean), JSON.stringify(все.slice(0, 3)));
+      check("SKU уникален", new Set(все).size === все.length, `${new Set(все).size} из ${все.length}`);
+      check("все строки той же ширины, что шапка",
+        разобрано.slice(1).every((r2) => r2.length === колонки.length),
+        JSON.stringify(разобрано.slice(1).map((r2) => r2.length).slice(0, 5)));
+      // Тот же писатель, которым воспроизводится выгрузка магазина: если наш
+      // файл написан её диалектом, повторный проход ничего не изменит.
+      const какМагазин = (v) => (/[ ;"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+      const заново = разобрано.map((r2) => r2.map(какМагазин).join(";")).join("\n") + "\n";
+      check("написан диалектом магазина байт в байт", заново === written,
+        `наш ${written.length} знаков, пересобранный ${заново.length}`);
 
       const ExcelJS = require("exceljs");
       const wb = new ExcelJS.Workbook();
@@ -521,10 +576,16 @@ app.whenReady().then(async () => {
       check("книга Excel читается", !!sheet && sheet.rowCount === 11, sheet && String(sheet.rowCount));
       const header = [];
       sheet.getRow(1).eachCell({ includeEmpty: true }, (c2, i2) => (header[i2 - 1] = String(c2.value || "")));
-      check("в книге те же колонки", header.join(";") === catalog.TILDA_COLUMNS.join(";"), header.slice(0, 4).join(";"));
+      // Книга и CSV об одном каталоге не должны расходиться составом колонок:
+      // иначе непонятно, который из двух файлов поедет в магазин.
+      check("в книге те же колонки, что в CSV", header.join(";") === колонки.join(";"),
+        `книга: ${header.slice(0, 3).join(";")} | CSV: ${колонки.slice(0, 3).join(";")}`);
       check("шапка закреплена", sheet.views && sheet.views[0] && sheet.views[0].ySplit === 1);
+      // Колонку ищем по имени, а не по номеру: состав колонок зависит от того,
+      // переносятся ли номера позиций, и жёсткий номер разъехался бы молча.
+      const titleАт = header.indexOf("Title") + 1;
       let нашлось = false;
-      sheet.eachRow((r2) => { if (String(r2.getCell(6).value || "") === "Правленое название") нашлось = true; });
+      sheet.eachRow((r2) => { if (String(r2.getCell(titleАт).value || "") === "Правленое название") нашлось = true; });
       check("правка попала и в книгу Excel", нашлось);
 
       console.log("\nправка настроек не должна ломать кнопки");
@@ -544,6 +605,15 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => /Пересобрать/.test(b.textContent)).click()`);
       await new Promise((r) => setTimeout(r, 2500));
       check("после сборки открылась таблица", (await call(`!!document.querySelector(".cat-table")`)) === true);
+
+      // Выгрузка кнопкой: в окне должно быть сказано, что колонки-ключи убраны и
+      // что уникальной колонкой в окне импорта надо выбрать SKU. Проверка через
+      // прямой вызов обработчика прошла бы и тогда, когда в окне пусто.
+      await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => /Выгрузить/.test(b.textContent)).click()`);
+      await new Promise((r) => setTimeout(r, 1500));
+      const подсказка = await call(`(document.querySelector(".cat-uniq") || {}).textContent || ""`);
+      check("в окне объяснено, что выбрать уникальной колонкой",
+        /SKU/.test(подсказка) && /Empty Uniq column/.test(подсказка), подсказка.slice(0, 200) || "в окне пусто");
       await call(`[...document.querySelectorAll(".cat-tabs button")].find(b => /Настройка/.test(b.textContent)).click()`);
       await new Promise((r) => setTimeout(r, 400));
       const typed = await call(`(async () => {

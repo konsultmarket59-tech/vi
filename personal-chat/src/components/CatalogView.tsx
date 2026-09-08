@@ -38,6 +38,9 @@ export default function CatalogView() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  // Какие колонки-ключи не попали в файл: от этого зависит, что выбрать
+  // «уникальной колонкой» в окне импорта магазина.
+  const [dropped, setDropped] = useState<string[]>([]);
 
   useEffect(() => {
     window.api.catalogConfig().then(setConfig);
@@ -104,6 +107,7 @@ export default function CatalogView() {
     try {
       const result = await window.api.catalogBuild();
       setSaved(`${result.rows} позиций · ${result.csvFile} · ${result.xlsxFile}`);
+      setDropped(result.dropped || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -192,7 +196,20 @@ export default function CatalogView() {
           </div>
         </div>
         {error && <p className="vs-warn cat-bar-note">{error}</p>}
-        {saved && <div className="vs-saved cat-bar-note">Сохранено: {saved}</div>}
+        {saved && (
+          <div className="vs-saved cat-bar-note">
+            Сохранено: {saved}
+            {!!dropped.length && (
+              <div className="cat-uniq">
+                Каталог заливается заново, номеров позиций магазина ещё нет — колонки{" "}
+                {dropped.map((d) => `«${d}»`).join(" и ")} в файл не попали. Так и нужно: если
+                оставить их пустыми, магазин выберет пустую колонку уникальной и отклонит все
+                позиции («Empty Uniq column: uid»). В окне импорта уникальной колонкой выберите{" "}
+                <b>SKU</b> — там кадастровый номер, он заполнен у всех и не повторяется.
+              </div>
+            )}
+          </div>
+        )}
 
         {tab === "table" && preview && (
           <CatalogTable

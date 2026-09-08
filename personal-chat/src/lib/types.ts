@@ -1271,7 +1271,14 @@ export interface ElectronAPI {
   catalogTable(): Promise<CatalogTable>;
   catalogEdits(): Promise<CatalogEdits>;
   catalogSaveEdits(edits: CatalogEdits): Promise<CatalogEdits>;
-  catalogBuild(): Promise<{ csvFile: string; xlsxFile: string; rows: number; problems: string[] }>;
+  catalogBuild(): Promise<{
+    csvFile: string;
+    xlsxFile: string;
+    rows: number;
+    problems: string[];
+    /** Пустые колонки-ключи, которые не попали в файл. */
+    dropped: string[];
+  }>;
 
   // видеотека
   libraryConfig(): Promise<LibraryConfig>;
