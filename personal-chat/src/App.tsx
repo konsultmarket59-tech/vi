@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { CrashEntry, LicenceStatus, PluginConfig, Project, Settings, Skill } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
+import Splitter from "./components/Splitter";
 import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
 import ExcelView from "./components/ExcelView";
@@ -146,6 +147,15 @@ export default function App() {
         productName={licence?.displayName || plugins.productName}
         onSelectView={setView}
         onProjectsChange={setProjects}
+      />
+      <Splitter
+        id="боковая-колонка"
+        variable="--sidebar-width"
+        fallback={260}
+        min={180}
+        max={520}
+        side="left"
+        label="Граница боковой колонки"
       />
       <main className="main-area">
         {crash && (

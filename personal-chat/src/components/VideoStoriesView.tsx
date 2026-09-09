@@ -19,6 +19,7 @@ import type {
 } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import ChatView from "./ChatView";
+import Splitter from "./Splitter";
 
 interface Props {
   settings: Settings;
@@ -1151,6 +1152,15 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
             {error && <div className="vs-error">{error}</div>}
           </div>
 
+          <Splitter
+            id="сторис-агент"
+            variable="--vs-right-width"
+            fallback={340}
+            min={240}
+            max={760}
+            side="right"
+            label="Граница окна агента"
+          />
           <div className={conv ? "vs-right vs-right-agent" : "vs-right"}>
             <div className="vs-preview-head">
               <strong>Предпросмотр</strong>

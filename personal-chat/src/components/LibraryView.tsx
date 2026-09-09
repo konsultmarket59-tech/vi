@@ -11,6 +11,7 @@ import type {
 } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import ChatView from "./ChatView";
+import Splitter from "./Splitter";
 
 /**
  * Видеотека: разговор с содержимым своих записей.
@@ -356,6 +357,15 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
             </section>
           </div>
 
+          <Splitter
+            id="видеотека-агент"
+            variable="--vs-right-width"
+            fallback={340}
+            min={240}
+            max={760}
+            side="right"
+            label="Граница окна агента"
+          />
           <div className="vs-right vs-right-agent">
             <section className="vs-block">
               <h3>Спросить у записей</h3>

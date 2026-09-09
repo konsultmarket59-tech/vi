@@ -266,6 +266,24 @@ async function extractDocText(filePath) {
   return text;
 }
 
+/**
+ * Источник описания для каталога — вместе с оформлением.
+ *
+ * Обычное извлечение отдаёт голый текст: для чата это то, что нужно, а для
+ * каталога — потеря. Описание дома пишут в Word подзаголовками и списками, и
+ * ровно в таком виде оно должно оказаться на витрине. Поэтому .docx читается
+ * как HTML, а приведением к набору тегов магазина занимается catalog.cjs.
+ */
+async function extractCatalogSource(filePath) {
+  if (path.extname(filePath).toLowerCase() === ".docx") {
+    const mammoth = require("mammoth");
+    const buffer = await fs.readFile(filePath);
+    const result = await mammoth.convertToHtml({ buffer });
+    return result.value;
+  }
+  return extractDocText(filePath);
+}
+
 async function extractDocTextUncached(filePath) {
   const ext = path.extname(filePath).toLowerCase();
 
@@ -3343,6 +3361,9 @@ async function loadCatalogConfig() {
       previousPath: "",
       outputDir: "",
       villages: {},
+      // Тип септика на посёлок: заготовка описания одна на вариацию дома, а
+      // септик в посёлках разный.
+      septics: {},
       // Исключения по улицам: в одном посёлке 1С бывает несколько кварталов с
       // разными названиями на витрине.
       streetNames: [],
@@ -3416,7 +3437,7 @@ async function assembleCatalog() {
   }
   Object.assign(villages, config.villages || {});
 
-  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractCatalogSource);
   const result = catalog.buildCatalog({
     houses: source.houses,
     plots: source.plots,
@@ -3426,6 +3447,7 @@ async function assembleCatalog() {
     previous,
     photoMode: config.photoMode,
     photoSource: config.photoSource || "tilda",
+    septics: config.septics || {},
     carryIds: !!config.carryIds,
   });
   for (const item of library) if (item.error) result.problems.unshift(item.error);
@@ -3470,7 +3492,7 @@ ipcMain.handle("catalog:table", async () => {
     if (!item.street) continue;
     (streets[item.village] = streets[item.village] || new Set()).add(item.street);
   }
-  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractCatalogSource);
   // Сколько домов подходит каждой заготовке. Без этого числа промах по паре
   // «метраж + облицовка» выглядит как «программа не подтягивает описания»:
   // всё работает, просто ни один дом не совпал, и сказать об этом было некому.

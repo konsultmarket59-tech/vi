@@ -439,7 +439,13 @@ app.whenReady().then(async () => {
       const домИзФайла = сФайлом.rows.find((r) => r.SKU === "00:00:0000001:1001");
       check("описание подтянулось из файла по пути",
         /Фундамент: монолитная плита/.test(домИзФайла.Text), `«${домИзФайла.Text}»`);
-      check("абзацы сохранились", /\n\n/.test(домИзФайла.Text), JSON.stringify(домИзФайла.Text));
+      // Абзац из файла становится пустой строкой в разметке магазина: перевода
+      // строки он не понимает, а <br /><br /> — понимает. Проверять здесь \n\n
+      // было бы проверкой прежнего поведения, а не нужного.
+      check("абзац из файла стал пустой строкой на витрине",
+        /плита\.<br \/><br \/>Стены/.test(домИзФайла.Text), JSON.stringify(домИзФайла.Text));
+      check("переводов строк в разметке не осталось",
+        !/[\n\r]/.test(домИзФайла.Text), JSON.stringify(домИзФайла.Text));
       check("подставлено там, где облицовка совпала", сФайлом.counts.described >= 1,
         String(сФайлом.counts.described));
       // Битый путь не должен молчать.
@@ -450,6 +456,74 @@ app.whenReady().then(async () => {
       check("нечитаемый файл описания попадает в замечания",
         битый.problems.some((p2) => /Не прочитан файл описания/.test(p2)),
         JSON.stringify(битый.problems.slice(0, 2)));
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека)})`);
+
+      console.log("\nоформление описания доезжает до витрины");
+      // Описания пишут в Word подзаголовками и списками, и ровно в таком виде
+      // они должны оказаться на сайте. Раньше сюда доезжал сплошной текст, и
+      // после каждой выгрузки описание переверстывали в магазине руками.
+      const { Document, Packer, Paragraph, TextRun } = require("docx");
+      const док = new Document({ sections: [{ children: [
+        new Paragraph({ children: [new TextRun({ text: "Одноэтажный дом из газобетона.", bold: true })] }),
+        new Paragraph({
+          children: [new TextRun({ text: "Наружная отделка. ", bold: true }), new TextRun("Штукатурка с планкеном.")],
+          bullet: { level: 0 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: "Планировка. ", bold: true }),
+            new TextRun("Три спальни. Предусмотрен дополнительный канализационный выход."),
+          ],
+          bullet: { level: 0 },
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: "Канализация. ", bold: true }), new TextRun("Септик — по посёлку.")],
+          bullet: { level: 0 },
+        }),
+      ]}] });
+      const docxПуть = path.join(описанияDir, "дом 100 кирпич.docx");
+      fs.writeFileSync(docxПуть, await Packer.toBuffer(док));
+      await call(`window.api.catalogSaveLibrary(${JSON.stringify([
+        { id: "ф", name: "", area: 100, cladding: "кирпич", textPath: docxПуть, renderUrls: [], renderPaths: [] },
+      ])})`);
+      const сОформлением = await call(`window.api.catalogTable()`);
+      const домОформ = сОформлением.rows.find((r) => r.SKU === "00:00:0000001:1001");
+      check("полужирный подзаголовок сохранился",
+        /<strong>Одноэтажный дом из газобетона\.<\/strong>/.test(домОформ.Text), домОформ.Text.slice(0, 120));
+      check("список стал списком магазина",
+        /<ul><li data-list="bullet">/.test(домОформ.Text), домОформ.Text.slice(0, 200));
+      check("пунктов списка столько же, сколько в документе",
+        (домОформ.Text.match(/<li data-list="bullet">/g) || []).length === 3,
+        String((домОформ.Text.match(/<li data-list="bullet">/g) || []).length));
+      check("чужих тегов в описании нет",
+        !/<(?!\/?(?:strong|br|ul|li)\b)[a-zA-Z]/.test(домОформ.Text), домОформ.Text.slice(0, 200));
+      // Разметка обязана пережить запись в файл и чтение обратно: иначе она
+      // теряется ровно там, где её никто не проверяет.
+      const csvСОформлением = catalog.toCsv([домОформ]);
+      const назад = catalog.parseCsv(csvСОформлением);
+      check("разметка пережила запись в файл и чтение",
+        назад[1][назад[0].indexOf("Text")] === домОформ.Text,
+        JSON.stringify(назад[1][назад[0].indexOf("Text")] || "").slice(0, 120));
+
+      console.log("\nтип септика подставляется по посёлку");
+      await call(`window.api.catalogSaveConfig(${JSON.stringify({
+        septics: { Ромашкино: "Станция биологической очистки «Топас-5»." },
+      })})`);
+      const сСептиком = await call(`window.api.catalogTable()`);
+      const домСептик = сСептиком.rows.find((r) => r.SKU === "00:00:0000001:1001");
+      check("тип септика встал в пункт «Канализация»",
+        /<strong>Канализация\. <\/strong>\s*Станция биологической очистки «Топас-5»\./.test(домСептик.Text),
+        домСептик.Text.slice(-200));
+      check("прежний текст про септик убран",
+        !/по посёлку/.test(домСептик.Text), домСептик.Text.slice(-200));
+      // Главная ловушка: в пункте «Планировка» тоже есть слово «канализационный».
+      check("планировка не затронута",
+        /дополнительный канализационный выход/.test(домСептик.Text), домСептик.Text.slice(0, 300));
+      // Посёлок без заданного септика описание не меняет.
+      const домДругогоПосёлка = сСептиком.rows.find((r) => r.SKU === "00:00:0000002:2002");
+      check("посёлку без septic описание не трогается",
+        !/Топас/.test(домДругогоПосёлка.Text || ""), (домДругогоПосёлка.Text || "").slice(0, 120));
+      await call(`window.api.catalogSaveConfig(${JSON.stringify({ septics: {} })})`);
       await call(`window.api.catalogSaveLibrary(${JSON.stringify(библиотека)})`);
 
       console.log("\nтаблица в виде магазина");

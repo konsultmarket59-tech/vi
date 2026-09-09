@@ -116,8 +116,9 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 260px;
-  min-width: 260px;
+  /* Ширину двигает разделитель (см. Splitter.tsx); 260px — исходное значение. */
+  width: var(--sidebar-width, 260px);
+  min-width: var(--sidebar-width, 260px);
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;
@@ -1552,7 +1553,7 @@ button.fin-row-x:hover { color: var(--accent); }
    рядом с кадром видно, читается ли текст поверх именно этой картинки. */
 .vs-body { display: flex; flex: 1; min-height: 0; gap: 20px; padding: 14px 16px; }
 .vs-form { flex: 1 1 480px; min-width: 340px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding-right: 4px; }
-.vs-right { flex: 0 0 340px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.vs-right { flex: 0 0 var(--vs-right-width, 340px); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 .vs-lead { font-size: 13px; color: var(--text-dim); margin: 0; }
 .vs-block { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .vs-block h3 { margin: 0 0 10px; font-size: 14px; }
@@ -1889,3 +1890,63 @@ button.fin-row-x:hover { color: var(--accent); }
 }
 .cat-variant:hover { border-color: var(--accent); color: var(--accent); }
 .cat-variant.on { border-color: var(--accent); background: var(--bg-hover); }
+
+
+/* Раздвижные границы блоков.
+   Полоса узкая, чтобы не съедать место, но с широкой зоной захвата через
+   ::before: попасть в четыре пикселя мышью трудно, а промах выглядит как
+   «не работает». */
+.splitter {
+  flex: 0 0 4px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  align-self: stretch;
+  touch-action: none;
+}
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: 0 auto;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.12s, width 0.12s;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter.dragging::after {
+  background: var(--accent);
+  width: 3px;
+}
+.splitter:focus-visible { outline: none; }
+/* Пока границу тянут, выделение текста только мешает. */
+body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
+
+/* Excel и Word: агент рядом с таблицей.
+   Классы excel-split / excel-grid-pane / excel-agent-pane стояли в разметке, но
+   правил у них не было ни одного — «рядом» получалось только на словах, панели
+   шли одна под другой. */
+.excel-split { flex-direction: row; align-items: stretch; }
+.excel-grid-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.excel-agent-pane {
+  flex: 0 0 var(--dock-agent-width, 380px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+}

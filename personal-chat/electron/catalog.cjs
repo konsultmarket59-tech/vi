@@ -426,6 +426,7 @@ function buildCatalog({
   photoMode = "all",
   photoSource = "tilda",
   carryIds = false,
+  septics = {},
 }) {
   const problems = [];
   const rows = [];
@@ -548,6 +549,17 @@ function buildCatalog({
     if (!photos.length) {
       problems.push(`«${village}, ${item.street}, ${item.house}» — нет ни одного фото ни в выгрузке, ни в прошлом каталоге, ни в заготовке.`);
     }
+    // Тип септика у посёлка свой; в заготовке описания он общий.
+    let описание = doc?.text || "";
+    const septic = str(septics[item.village]);
+    if (описание && septic) {
+      const итог = applySeptic(описание, septic);
+      описание = итог.text;
+      if (итог.added) {
+        const note = `В заготовке описания нет пункта про канализацию — для посёлка «${village}» он дописан в конец перечня.`;
+        if (!problems.includes(note)) problems.push(note);
+      }
+    }
     const seo = buildSeo(item, village, parsed.claddingLabel);
 
     rows.push({
@@ -558,7 +570,7 @@ function buildCatalog({
       Category: `Метраж дома>>>дом ${area} м2;Поселки>>>${village}`,
       Title: titleOf(item, village),
       Description: shortDescription(parsed),
-      Text: doc?.text || "",
+      Text: описание,
       Photo: photos.join(" "),
       Price: num(item.price).toFixed(2),
       Quantity: "",
@@ -760,6 +772,164 @@ async function writeLibrary(root, items) {
  * Форматы простые: обычный текст и Markdown. Word сюда тоже приходит — его
  * читает общий извлекатель текста приложения, он передаётся снаружи.
  */
+// ---------- разметка описаний ----------
+//
+// Магазин принимает не любой HTML, а узкий набор: полужирный, перенос строки и
+// маркированный список. Набор снят с его собственной выгрузки — там ровно
+// четыре тега: strong, br, ul и li с признаком data-list="bullet". Всё
+// остальное магазин либо выбросит, либо покажет как есть, текстом.
+//
+// Поэтому описание не «передаётся как есть», а ПРИВОДИТСЯ к этому набору:
+// заголовки и курсив становятся полужирным, абзацы — переносами, списки любой
+// глубины — плоским маркированным списком. Тогда описание, набранное в Word,
+// на витрине выглядит так же, как в файле, а не сплошной строкой.
+
+/** Теги, которые магазин понимает. */
+const TILDA_TAGS = ["strong", "br", "ul", "li"];
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * HTML из документа → разметка магазина.
+ *
+ * Работает на выводе mammoth (он же — то, что даёт Word): p, ul/ol/li, strong,
+ * b, em, i, h1…h6. Всё прочее теряет теги, но сохраняет текст: потерять
+ * оформление не страшно, потерять слова — страшно.
+ */
+function htmlToTilda(html) {
+  let out = String(html || "");
+
+  // Заголовки и курсив — тем же полужирным: своих тегов для них у магазина нет,
+  // а выделение смыслово то же самое.
+  out = out.replace(/<\/?(?:h[1-6]|b|em|i)(\s[^>]*)?>/gi, (m) => (m[1] === "/" ? "</strong>" : "<strong>"));
+
+  // Список: нумерованный тоже становится маркированным — другого у магазина нет.
+  out = out.replace(/<ol(\s[^>]*)?>/gi, "<ul>").replace(/<\/ol>/gi, "</ul>");
+  out = out.replace(/<li(\s[^>]*)?>/gi, '<li data-list="bullet">');
+
+  // Абзац — строка с переносом после неё. Пустых абзацев магазин не любит:
+  // они дают лишние отступы, которых в файле не было.
+  out = out.replace(/<p(\s[^>]*)?>/gi, "").replace(/<\/p>/gi, "<br />");
+  out = out.replace(/<br\s*\/?>/gi, "<br />");
+
+  // Всё, что осталось и не входит в набор магазина, — снять, текст оставить.
+  out = out.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*)?\/?>/g, (m, tag) =>
+    TILDA_TAGS.includes(tag.toLowerCase()) ? m : ""
+  );
+
+  return tidyTilda(out);
+}
+
+/**
+ * Обычный текст → разметка магазина.
+ *
+ * Строка, начинающаяся с дефиса или точки — пункт списка: так списки и пишут в
+ * блокноте. Пустая строка разделяет блоки. Остальное — просто строки.
+ */
+function textToTilda(text) {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const parts = [];
+  let inList = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    const bullet = /^[-–—•*]\s+/.test(line);
+    if (bullet && !inList) {
+      parts.push("<ul>");
+      inList = true;
+    }
+    if (!bullet && inList) {
+      parts.push("</ul>");
+      inList = false;
+    }
+    if (bullet) {
+      parts.push(`<li data-list="bullet">${escapeHtml(line.replace(/^[-–—•*]\s+/, ""))}</li>`);
+    } else if (line) {
+      parts.push(escapeHtml(line) + "<br />");
+    } else {
+      parts.push("<br />");
+    }
+  }
+  if (inList) parts.push("</ul>");
+  return tidyTilda(parts.join(""));
+}
+
+/** Убирает то, что даёт на витрине лишние пустоты. */
+function tidyTilda(html) {
+  return String(html)
+    .replace(/\s+/g, " ")
+    // Пустой пункт списка — след от пустой строки в файле, на витрине это дыра.
+    .replace(/<li data-list="bullet">\s*<\/li>/g, "")
+    .replace(/<ul>\s*<\/ul>/g, "")
+    // Переносы вокруг списка магазин ставит сам.
+    .replace(/(<br \/>\s*)+<ul>/g, "<br /><ul>")
+    .replace(/<\/ul>\s*(<br \/>\s*)+/g, "</ul>")
+    // Больше двух переносов подряд — всегда лишние.
+    .replace(/(?:<br \/>\s*){3,}/g, "<br /><br />")
+    .replace(/(?:<br \/>\s*)+$/, "")
+    .replace(/^(?:\s*<br \/>)+/, "")
+    .trim();
+}
+
+/** Есть ли в тексте разметка магазина — тогда приводить его уже не нужно. */
+function looksLikeHtml(text) {
+  return /<(?:strong|br|ul|li|p|h[1-6]|b|em|i)\b[^>]*>/i.test(String(text || ""));
+}
+
+// ---------- тип септика по посёлкам ----------
+//
+// Заготовка описания одна на вариацию дома, а септик стоит разный: в одном
+// посёлке станция биологической очистки, в другом переливные кольца. В текстах
+// это выглядело как отговорка вида «такой септик либо такой — смотря по
+// посёлку», то есть покупателю предлагали догадаться самому. Поэтому тип
+// септика задаётся посёлку отдельно и подставляется в описание при сборке.
+//
+// Подменяется ПУНКТ ПО ЕГО ЗАГОЛОВКУ, а не по слову «канализация» в тексте.
+// Разница существенная: в пункте «Планировка» сказано про дополнительный
+// канализационный выход, и подмена по слову затёрла бы планировку дома.
+
+/** Заголовки пункта, который считается пунктом про септик. */
+const SEPTIC_LABELS = /^\s*(?:канализац|септик|водоотвед)/i;
+
+/**
+ * Ставит в описание тип септика, заданный посёлку.
+ *
+ * Возвращает {text, replaced, added}: сколько пунктов подменено и был ли пункт
+ * дописан. Числа нужны наверху — чтобы было видно, сработала подстановка или
+ * молча прошла мимо.
+ */
+function applySeptic(html, septic) {
+  const value = str(septic);
+  if (!value) return { text: String(html || ""), replaced: 0, added: false };
+  const safe = looksLikeHtml(value) ? value : escapeHtml(value);
+  let replaced = 0;
+
+  const text = String(html || "").replace(
+    /<li data-list="bullet">\s*(<strong>([^<]*)<\/strong>)?([\s\S]*?)<\/li>/g,
+    (whole, boldTag, label) => {
+      // Без заголовка судить не по чему: такой пункт не трогаем.
+      if (!boldTag || !SEPTIC_LABELS.test(label)) return whole;
+      replaced += 1;
+      return `<li data-list="bullet">${boldTag} ${safe}</li>`;
+    }
+  );
+
+  if (replaced) return { text, replaced, added: false };
+
+  // Пункта про септик в описании нет. Дописываем его в конец последнего списка:
+  // угадывать место посреди текста хуже, чем поставить в конец перечня.
+  const lastList = text.lastIndexOf("</ul>");
+  const item = `<li data-list="bullet"><strong>Канализация.</strong> ${safe}</li>`;
+  if (lastList >= 0) {
+    return { text: text.slice(0, lastList) + item + text.slice(lastList), replaced: 0, added: true };
+  }
+  return { text: `${text}<br /><ul>${item}</ul>`.replace(/^<br \/>/, ""), replaced: 0, added: true };
+}
+
 async function loadLibraryTexts(items, extractText) {
   const loaded = [];
   for (const item of items) {
@@ -776,13 +946,14 @@ async function loadLibraryTexts(items, extractText) {
         error = `Не прочитан файл описания «${path.basename(item.textPath)}»: ${e.message}`;
       }
     }
-    // Разбивка на абзацы сохраняется как есть: описание дома — не одна строка,
-    // и склеенное в сплошной кусок оно на витрине не читается. Убираются только
-    // пустые края и лишние переводы строк подряд.
-    const kept = String(text || "")
-      .replace(/\r\n?/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    // Оформление описания доезжает до витрины, а не теряется по дороге.
+    //
+    // Раньше здесь сохранялись только абзацы: полужирные подзаголовки и списки,
+    // набранные в Word, приходили на сайт сплошным текстом, и его приходилось
+    // переверстывать руками в магазине после каждой выгрузки. Теперь документ
+    // читается вместе с разметкой и приводится к тому набору тегов, который
+    // магазин понимает.
+    const kept = looksLikeHtml(text) ? htmlToTilda(text) : textToTilda(text);
     loaded.push({ ...item, text: kept, error });
   }
   return loaded;
@@ -940,6 +1111,11 @@ module.exports = {
   readLibrary,
   writeLibrary,
   loadLibraryTexts,
+  htmlToTilda,
+  textToTilda,
+  looksLikeHtml,
+  applySeptic,
+  SEPTIC_LABELS,
   readEdits,
   writeEdits,
   applyEdits,

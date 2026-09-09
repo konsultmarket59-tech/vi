@@ -140,6 +140,105 @@ app.whenReady().then(async () => {
     console.log(`     (было: колонка выше окна на ${before.barOverflow} px и без прокрутки)`);
     await call(`document.getElementById("as-before").remove()`);
 
+    console.log("\nграница колонки двигается мышью");
+    // Окна у всех разные: то нужен широкий список проектов, то весь экран под
+    // таблицу. Граница между колонкой и рабочей областью — подвижная.
+    const тянем = await call(`(async () => {
+      const bar = document.querySelector(".splitter");
+      if (!bar) return { нет: true };
+      const колонка = document.querySelector(".sidebar");
+      const было = Math.round(колонка.getBoundingClientRect().width);
+      const r = bar.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      const опции = { bubbles: true, clientY: y, pointerId: 1, isPrimary: true, button: 0 };
+      bar.dispatchEvent(new PointerEvent("pointerdown", { ...опции, clientX: x }));
+      bar.dispatchEvent(new PointerEvent("pointermove", { ...опции, clientX: x + 120 }));
+      bar.dispatchEvent(new PointerEvent("pointerup", { ...опции, clientX: x + 120 }));
+      await new Promise(r2 => setTimeout(r2, 60));
+      return {
+        было,
+        стало: Math.round(колонка.getBoundingClientRect().width),
+        // Сохранённое значение — то, что переживёт перезапуск.
+        запомнено: localStorage.getItem("граница:боковая-колонка"),
+      };
+    })()`);
+    check("разделитель на месте", !тянем.нет, JSON.stringify(тянем));
+    if (!тянем.нет) {
+      check("колонка стала шире после перетаскивания",
+        тянем.стало - тянем.было > 100, `${тянем.было} → ${тянем.стало} px`);
+      check("новая ширина запомнена", Number(тянем.запомнено) === тянем.стало,
+        `${тянем.запомнено} против ${тянем.стало}`);
+      console.log(`     (${тянем.было} → ${тянем.стало} px, запомнено ${тянем.запомнено})`);
+
+      // Шире окна колонку не растянуть: иначе рабочая область исчезнет совсем.
+      const предел = await call(`(async () => {
+        const bar = document.querySelector(".splitter");
+        const колонка = document.querySelector(".sidebar");
+        const r = bar.getBoundingClientRect();
+        const опции = { bubbles: true, clientY: r.top + 5, pointerId: 2, isPrimary: true, button: 0 };
+        bar.dispatchEvent(new PointerEvent("pointerdown", { ...опции, clientX: r.left }));
+        bar.dispatchEvent(new PointerEvent("pointermove", { ...опции, clientX: r.left + 5000 }));
+        bar.dispatchEvent(new PointerEvent("pointerup", { ...опции, clientX: r.left + 5000 }));
+        await new Promise(r2 => setTimeout(r2, 60));
+        return { ширина: Math.round(колонка.getBoundingClientRect().width), окно: window.innerWidth };
+      })()`);
+      check("колонка не съедает всё окно", предел.ширина <= 520, JSON.stringify(предел));
+      check("рабочей области осталось место",
+        предел.окно - предел.ширина > 300, JSON.stringify(предел));
+
+      // Двойной щелчок возвращает исходную ширину — и забывает запомненную.
+      const сброс = await call(`(async () => {
+        const bar = document.querySelector(".splitter");
+        bar.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        await new Promise(r2 => setTimeout(r2, 60));
+        return {
+          ширина: Math.round(document.querySelector(".sidebar").getBoundingClientRect().width),
+          запомнено: localStorage.getItem("граница:боковая-колонка"),
+        };
+      })()`);
+      check("двойной щелчок вернул исходную ширину", сброс.ширина === 260, JSON.stringify(сброс));
+      check("и запомненное значение забыто", сброс.запомнено === null, JSON.stringify(сброс));
+
+      // Запомненная ширина должна пережить перезапуск окна.
+      await call(`localStorage.setItem("граница:боковая-колонка", "410")`);
+      await call(`location.reload()`);
+      await new Promise((resolve) => win.webContents.once("did-finish-load", resolve));
+      await new Promise((r) => setTimeout(r, 1500));
+      const после = await call(`Math.round(document.querySelector(".sidebar").getBoundingClientRect().width)`);
+      check("запомненная ширина пережила перезапуск", после === 410, String(после));
+    }
+
+    console.log("\nагент рядом с таблицей в Excel и Word");
+    // Классы excel-split / excel-grid-pane / excel-agent-pane стояли в разметке
+    // этих разделов, а правил у них не было ни одного: «рядом» получалось
+    // только на словах, панели шли одна под другой. Проверяем саму раскладку.
+    const рядом = await call(`(() => {
+      const box = document.createElement("div");
+      box.className = "ops-app-body excel-split";
+      box.style.cssText = "position:fixed;left:0;top:0;width:900px;height:300px";
+      box.innerHTML = '<div class="excel-grid-pane"></div><div class="excel-agent-pane"></div>';
+      document.body.appendChild(box);
+      const таблица = box.querySelector(".excel-grid-pane").getBoundingClientRect();
+      const агент = box.querySelector(".excel-agent-pane").getBoundingClientRect();
+      const итог = {
+        рядом: Math.abs(таблица.top - агент.top) < 2 && агент.left >= таблица.right - 2,
+        ширинаАгента: Math.round(агент.width),
+        ширинаТаблицы: Math.round(таблица.width),
+      };
+      // И граница двигает именно эту панель.
+      document.documentElement.style.setProperty("--dock-agent-width", "520px");
+      итог.послеГраницы = Math.round(box.querySelector(".excel-agent-pane").getBoundingClientRect().width);
+      document.documentElement.style.removeProperty("--dock-agent-width");
+      box.remove();
+      return итог;
+    })()`);
+    check("панели стоят рядом, а не одна под другой", рядом.рядом === true, JSON.stringify(рядом));
+    check("таблице досталась вся оставшаяся ширина",
+      рядом.ширинаТаблицы + рядом.ширинаАгента >= 898, JSON.stringify(рядом));
+    check("граница двигает окно агента", рядом.послеГраницы === 520, JSON.stringify(рядом));
+    console.log(`     (таблица ${рядом.ширинаТаблицы} px, агент ${рядом.ширинаАгента} px → ${рядом.послеГраницы} px)`);
+
     console.log("\nвысокое окно");
     win.setBounds({ width: 1180, height: 1000 });
     await new Promise((r) => setTimeout(r, 500));
