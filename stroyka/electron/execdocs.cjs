@@ -26,7 +26,7 @@
 
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { ныне } = require("./workspace.cjs");
+const { ныне } = require("./common.cjs");
 
 /**
  * Комплект. `метки` — что этот документ умеет подставить, они же показываются

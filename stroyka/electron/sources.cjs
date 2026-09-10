@@ -22,7 +22,8 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const { ныне, readJson, writeJson } = require("./workspace.cjs");
+const { ныне } = require("./common.cjs");
+const { readJson, writeJson } = require("./workspace.cjs");
 
 /**
  * Виды источников. `ктоУказывает` — не украшение: на экране источников роль

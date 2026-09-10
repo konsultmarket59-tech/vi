@@ -1,0 +1,185 @@
+name: Стройка — проверки, демо и сборка
+
+# Три задания под три разных вопроса.
+#
+#   «не сломалось ли»  — проверки: движки, типы, линт, сборка. Идут всегда.
+#   «как это выглядит» — демонстрация в браузере: артефакт, который скачивают
+#                        и открывают, плюс публикация на Pages по желанию.
+#   «дайте программу»  — установщик для Windows. Отдельно и по требованию:
+#                        сборка Electron долгая, гонять её на каждый коммит
+#                        незачем.
+
+on:
+  workflow_dispatch:
+    inputs:
+      демо_на_pages:
+        description: "Опубликовать демонстрацию на GitHub Pages (Pages должны быть включены в настройках репозитория)"
+        type: boolean
+        default: false
+      сборка_windows:
+        description: "Собрать установщик для Windows (несколько минут)"
+        type: boolean
+        default: false
+  push:
+    paths:
+      - "stroyka/**"
+      - ".github/workflows/stroyka.yml"
+  pull_request:
+    paths:
+      - "stroyka/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: стройка-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  проверки:
+    name: Проверки движков и сборка
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stroyka
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: stroyka/package-lock.json
+
+      - run: npm ci
+
+      # Главная проверка: расчёты. Electron для неё не нужен — модули от него
+      # не зависят, поэтому она идёт на обычной ubuntu и занимает секунды.
+      - name: Проверки движков
+        run: npm run check
+
+      - name: Типы
+        run: npx tsc -b --force
+
+      - name: Линт
+        run: npm run lint
+
+      - name: Сборка окна
+        run: npm run build
+
+  демо:
+    name: Демонстрация в браузере
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stroyka
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: stroyka/package-lock.json
+
+      - run: npm ci
+
+      - name: Сборка демонстрации
+        run: npm run demo:build
+
+      # Демонстрация собрана из модульных скриптов, а по схеме file:// браузер
+      # их не подключает. Без инструкции человек скачает архив, откроет
+      # demo.html двойным кликом и увидит белый экран, решив, что не работает.
+      - name: Положить в архив инструкцию по запуску
+        run: |
+          cat > dist-demo/ЗАПУСТИТЬ.md <<'КОНЕЦ'
+          # Как открыть демонстрацию
+
+          Файлы этой папки — обычная веб-страница, но открывать `demo.html`
+          двойным кликом нельзя: браузер запрещает подключать модули со схемы
+          `file://`, и страница останется пустой.
+
+          Нужен локальный сервер — одна команда в этой папке:
+
+              python3 -m http.server 8000
+
+          (на Windows обычно `py -m http.server 8000`), после чего открыть в
+          браузере `http://localhost:8000/demo.html`.
+
+          Если стоит Node.js, подойдёт и `npx serve .`
+
+          Данные демонстрации лежат в самом браузере и никуда не уходят.
+          КОНЕЦ
+
+      - name: Отдать демонстрацию артефактом
+        uses: actions/upload-artifact@v4
+        with:
+          name: стройка-демо
+          path: stroyka/dist-demo
+          retention-days: 30
+
+      - name: Подготовить публикацию на Pages
+        if: inputs.демо_на_pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: stroyka/dist-demo
+
+  публикация:
+    name: Опубликовать демонстрацию
+    needs: демо
+    if: inputs.демо_на_pages
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.развернуть.outputs.page_url }}
+    steps:
+      - id: развернуть
+        uses: actions/deploy-pages@v4
+
+  windows:
+    name: Установщик для Windows
+    if: inputs.сборка_windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: stroyka
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: stroyka/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # --publish never: иначе electron-builder на CI пробует выложить сборку
+      # сам, требует токен и падает уже после того, как установщик собран.
+      - run: npx electron-builder --win --publish never
+
+      - name: Выложить сборку
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: stroyka-desktop
+          name: "Стройка — сборка для Windows"
+          body: |
+            Автоматическая сборка приложения «Стройка» из ветки ${{ github.ref_name }}.
+
+            Скачайте `.exe` ниже и запустите: portable-версия не требует
+            установки, Setup-версия — обычный установщик. При первом запуске
+            Windows может показать предупреждение SmartScreen (файл не подписан
+            цифровой подписью) — «Подробнее» → «Выполнить в любом случае».
+
+            Данные приложение хранит обычными файлами в папке «Документы\Стройка»;
+            путь меняется в настройках.
+          prerelease: true
+          files: |
+            stroyka/release/*.exe

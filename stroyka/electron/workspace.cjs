@@ -31,7 +31,7 @@
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const path = require("node:path");
-const crypto = require("node:crypto");
+const { id, ныне } = require("./common.cjs");
 
 /** Разделы дома, каждый в своём файле. Ключ — имя файла без расширения. */
 const РАЗДЕЛЫ_ДОМА = ["смета", "график", "снабжение", "приёмка", "чат"];
@@ -44,14 +44,6 @@ const ПУСТО = {
   приёмка: { приёмки: [] },
   чат: { сообщения: [], отклонения: [], уведомления: [] },
 };
-
-function id() {
-  return crypto.randomUUID().slice(0, 8);
-}
-
-function ныне() {
-  return new Date().toISOString();
-}
 
 /**
  * Имя папки из названия. Кириллицу оставляем: папку открывают в проводнике
