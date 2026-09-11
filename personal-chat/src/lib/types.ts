@@ -230,6 +230,78 @@ export interface CrashEntry {
 
 // ---------- каталог для Тильды ----------
 
+/** Материалы сайта: папка на компьютере под каждый вид. */
+export interface SiteSources {
+  text: string;
+  images: string;
+  references: string;
+  design: string;
+  logos: string;
+}
+
+export interface SitesConfig {
+  sources: Partial<SiteSources>;
+  outputDir: string;
+  /**
+   * Ключи API Тильды (тариф Business, Настройки сайта → Экспорт → API).
+   * Секретный наружу отдаётся меткой «сохранён», а не значением.
+   */
+  publickey: string;
+  secretkey: string;
+  hasSecret?: boolean;
+  projectId: string;
+}
+
+export interface SiteFile {
+  path: string;
+  name: string;
+  kind: "image" | "text";
+  size: number;
+  folder: string;
+}
+
+/** Один смысловой экран сайта — то, что переносится в блок «HTML-код» Тильды. */
+export interface SiteBlock {
+  id: string;
+  title: string;
+  page: string;
+  purpose: string;
+  html: string;
+  css: string;
+  js: string;
+}
+
+/**
+ * Задание на форму. Формы не вёрстаются: приём заявок в Тильде работает только
+ * через её собственные блоки формы.
+ */
+export interface SiteForm {
+  id: string;
+  spec: string;
+}
+
+export interface Site {
+  id: string;
+  title: string;
+  kind: string;
+  plan: string;
+  pages: string[];
+  blocks: SiteBlock[];
+  forms: SiteForm[];
+  notes: string[];
+  problems?: string[];
+  updated: string;
+  raw?: string;
+}
+
+export interface SiteSummary {
+  id: string;
+  title: string;
+  kind: string;
+  blocks: number;
+  updated: string;
+}
+
 export interface CatalogConfig {
   exportPath: string;
   previousPath: string;
@@ -1268,6 +1340,34 @@ export interface ElectronAPI {
   clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
 
   // каталог для Тильды
+  // сайты
+  sitesConfig(): Promise<SitesConfig>;
+  sitesSaveConfig(changes: Partial<SitesConfig>): Promise<SitesConfig>;
+  sitesPickFolder(title?: string): Promise<string>;
+  sitesScan(): Promise<{ files: Record<string, SiteFile[]>; problems: string[] }>;
+  sitesList(): Promise<SiteSummary[]>;
+  sitesGet(id: string): Promise<Site | null>;
+  sitesSave(site: Site): Promise<Site>;
+  sitesGenerate(brief: {
+    id?: string;
+    title?: string;
+    kind?: string;
+    goal?: string;
+    audience?: string;
+    extra?: string;
+    skill?: string;
+    tilda?: { pages: { title: string; alias: string }[] } | null;
+  }): Promise<Site>;
+  sitesBlockHtml(block: SiteBlock): Promise<string>;
+  sitesCheck(site: Site): Promise<string[]>;
+  sitesExport(site: Site): Promise<{ blocks: string[]; previewFile: string; readmeFile: string }>;
+  /** Методы API Тильды — только чтение, метода записи у Тильды нет. */
+  sitesTilda(
+    method: "projects" | "project" | "pages" | "page" | "pageFull" | "pageExport" | "pageFullExport",
+    params?: { projectid?: string; pageid?: string }
+  ): Promise<unknown>;
+  sitesTildaLimit(): Promise<{ left: number; limit: number }>;
+
   catalogConfig(): Promise<CatalogConfig>;
   catalogSaveConfig(config: Partial<CatalogConfig>): Promise<CatalogConfig>;
   catalogLibrary(): Promise<CatalogDescription[]>;

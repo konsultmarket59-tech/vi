@@ -1950,3 +1950,19 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
   overflow-y: auto;
   border-left: 1px solid var(--border);
 }
+
+/* Сайты: список блоков и просмотр. */
+.site-plan {
+  margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px;
+  line-height: 1.5; max-height: 340px; overflow-y: auto;
+}
+.site-block { border-top: 1px solid var(--border); padding: 8px 0; }
+.site-block:first-of-type { border-top: none; }
+.site-block.on { background: var(--bg-hover); }
+.site-block-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.site-block-head .link-btn { font-weight: 600; }
+.site-preview { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+/* Блок смотрим в отдельном документе: свои стили и скрипт не должны драться
+   с оформлением самого приложения, иначе увиденное не совпадёт с сайтом. */
+.site-frame { flex: 1; min-height: 320px; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.site-code { flex: 1; min-height: 320px; width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }

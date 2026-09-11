@@ -2846,6 +2846,7 @@ const finmodel = require("./finmodel.cjs");
 const videostories = require("./videostories.cjs");
 const library = require("./library.cjs");
 const catalog = require("./catalog.cjs");
+const sites = require("./sites.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -3547,6 +3548,145 @@ ipcMain.handle("catalog:build", async () => {
   await catalog.toXlsx(rows, xlsxFile, columns);
   const dropped = catalog.ID_COLUMNS.filter((c) => !columns.includes(c));
   return { csvFile, xlsxFile, rows: rows.length, problems: result.problems, dropped };
+});
+
+// ---------- сайты ----------
+//
+// Материалы лежат на компьютере, сайт собирается блоками под Тильду, а ключи
+// API Тильды хранятся рядом с остальными настройками пользователя и в
+// репозиторий не попадают.
+//
+// Отдельно про перенос: API Тильды работает ТОЛЬКО НА ЧТЕНИЕ — в документации
+// семь методов, все get. Кнопки «залить сайт на Тильду» здесь нет и быть не
+// может; ключи нужны, чтобы посмотреть, что уже есть в проекте.
+
+function sitesConfigFile(root) {
+  return path.join(root, "sites", "config.json");
+}
+
+async function loadSitesConfig() {
+  const root = await getRootPath();
+  try {
+    const stored = JSON.parse(await fs.readFile(sitesConfigFile(root), "utf-8"));
+    return { sources: {}, outputDir: "", publickey: "", secretkey: "", projectId: "", ...stored };
+  } catch {
+    return { sources: {}, outputDir: "", publickey: "", secretkey: "", projectId: "" };
+  }
+}
+
+/** Счётчик запросов к Тильде живёт на время работы приложения. */
+const tildaLimiter = sites.createLimiter();
+
+ipcMain.handle("sites:config", async () => {
+  const config = await loadSitesConfig();
+  // Секретный ключ наружу не отдаём — окну достаточно знать, что он задан.
+  return { ...config, secretkey: config.secretkey ? "сохранён" : "", hasSecret: !!config.secretkey };
+});
+
+ipcMain.handle("sites:saveConfig", async (_e, changes) => {
+  const root = await getRootPath();
+  const current = await loadSitesConfig();
+  const next = { ...current, ...(changes || {}) };
+  // «сохранён» — это метка для окна, а не ключ: по ней настоящий не затираем.
+  if (next.secretkey === "сохранён") next.secretkey = current.secretkey;
+  await fs.mkdir(path.dirname(sitesConfigFile(root)), { recursive: true });
+  await fs.writeFile(sitesConfigFile(root), JSON.stringify(next, null, 2), "utf-8");
+  return { ...next, secretkey: next.secretkey ? "сохранён" : "", hasSecret: !!next.secretkey };
+});
+
+ipcMain.handle("sites:pickFolder", async (_e, title) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const r = await dialog.showOpenDialog(win, {
+    title: title || "Выберите папку",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return r.canceled ? "" : r.filePaths[0];
+});
+
+ipcMain.handle("sites:scan", async () => {
+  const config = await loadSitesConfig();
+  return sites.collectSources(config.sources);
+});
+
+ipcMain.handle("sites:list", async () => sites.listSites(await getRootPath()));
+ipcMain.handle("sites:get", async (_e, id) => sites.readSite(await getRootPath(), id));
+ipcMain.handle("sites:save", async (_e, site) =>
+  sites.writeSite(await getRootPath(), { ...site, updated: new Date().toISOString() })
+);
+
+ipcMain.handle("sites:blockHtml", (_e, block) => sites.buildBlockHtml(block));
+ipcMain.handle("sites:check", (_e, site) => sites.checkSite(site));
+
+/** Сколько запросов к Тильде осталось в этом часе. */
+ipcMain.handle("sites:tildaLimit", () => ({ left: tildaLimiter.left(), limit: sites.RATE_LIMIT }));
+
+ipcMain.handle("sites:tilda", async (_e, method, params) => {
+  const config = await loadSitesConfig();
+  return sites.tildaCall(
+    method,
+    { ...(params || {}), publickey: config.publickey, secretkey: config.secretkey },
+    { limiter: tildaLimiter, fetchImpl: proxyAwareFetch }
+  );
+});
+
+/**
+ * Сборка сайта агентом.
+ *
+ * Текстовые материалы читаются целиком и уходят в задание: сайт пишется по ним,
+ * а не по названиям файлов. Картинки перечисляются именами — их агент не видит,
+ * и обещать обратное нельзя.
+ */
+ipcMain.handle("sites:generate", async (_e, brief) => {
+  const settings = await loadSettings();
+  const config = await loadSitesConfig();
+  const { files, problems } = await sites.collectSources(config.sources);
+
+  const texts = [];
+  let budget = 60000;
+  for (const file of files.text || []) {
+    if (budget <= 0) break;
+    try {
+      const text = (await extractDocText(file.path)).slice(0, budget);
+      if (text.trim()) {
+        texts.push({ name: file.name, text });
+        budget -= text.length;
+      }
+    } catch (e) {
+      problems.push(`Не прочитан файл «${file.name}»: ${e.message}`);
+    }
+  }
+
+  const task = sites.buildSiteBrief({
+    kind: brief?.kind || "лендинг",
+    goal: brief?.goal || "",
+    audience: brief?.audience || "",
+    sources: files,
+    texts,
+    tilda: brief?.tilda || null,
+  });
+
+  const system = sites.SITE_AGENT_PROMPT + (brief?.skill ? `\n\n=== НАВЫК ===\n${brief.skill}` : "");
+  const reply = await callModelOnce(settings, [
+    { role: "system", content: system },
+    { role: "user", content: task + (brief?.extra ? `\n\nДополнительно: ${brief.extra}` : "") },
+  ]);
+
+  const site = sites.parseSite(reply);
+  site.id = brief?.id || "s" + Date.now().toString(36);
+  site.title = brief?.title || "Новый сайт";
+  site.kind = brief?.kind || "лендинг";
+  site.updated = new Date().toISOString();
+  site.problems = problems.concat(sites.checkSite(site));
+  site.raw = reply;
+  await sites.writeSite(await getRootPath(), site);
+  return site;
+});
+
+ipcMain.handle("sites:export", async (_e, site) => {
+  const config = await loadSitesConfig();
+  if (!config.outputDir) throw new Error("Не выбрана папка, куда выгрузить сайт.");
+  const dir = path.join(config.outputDir, String(site.title || site.id).replace(/[^\wа-яёА-ЯЁ -]/gi, "").trim() || site.id);
+  return sites.exportSite(site, dir);
 });
 
 // ---------- видеотека ----------

@@ -164,6 +164,21 @@ contextBridge.exposeInMainWorld("api", {
   clearCache: () => ipcRenderer.invoke("storage:clearCache"),
 
   // каталог для Тильды
+  // сайты
+  sitesConfig: () => ipcRenderer.invoke("sites:config"),
+  sitesSaveConfig: (changes) => ipcRenderer.invoke("sites:saveConfig", changes),
+  sitesPickFolder: (title) => ipcRenderer.invoke("sites:pickFolder", title),
+  sitesScan: () => ipcRenderer.invoke("sites:scan"),
+  sitesList: () => ipcRenderer.invoke("sites:list"),
+  sitesGet: (id) => ipcRenderer.invoke("sites:get", id),
+  sitesSave: (site) => ipcRenderer.invoke("sites:save", site),
+  sitesGenerate: (brief) => ipcRenderer.invoke("sites:generate", brief),
+  sitesBlockHtml: (block) => ipcRenderer.invoke("sites:blockHtml", block),
+  sitesCheck: (site) => ipcRenderer.invoke("sites:check", site),
+  sitesExport: (site) => ipcRenderer.invoke("sites:export", site),
+  sitesTilda: (method, params) => ipcRenderer.invoke("sites:tilda", method, params),
+  sitesTildaLimit: () => ipcRenderer.invoke("sites:tildaLimit"),
+
   catalogConfig: () => ipcRenderer.invoke("catalog:config"),
   catalogSaveConfig: (config) => ipcRenderer.invoke("catalog:saveConfig", config),
   catalogLibrary: () => ipcRenderer.invoke("catalog:library"),
