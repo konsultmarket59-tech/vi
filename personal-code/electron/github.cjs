@@ -281,6 +281,56 @@ async function setBranch(token, owner, repo, branch, sha, { force = false } = {}
   return sha;
 }
 
+/** Коммит целиком: нужен его tree, чтобы класть правки поверх, а не вместо. */
+async function commitInfo(token, owner, repo, sha) {
+  const json = await apiRequest(token, "GET", `/repos/${owner}/${repo}/git/commits/${sha}`);
+  return { sha: json.sha, tree: json.tree?.sha || "", message: json.message || "" };
+}
+
+/**
+ * Дерево поверх существующего: `base` оставляет нетронутым всё, чего нет в
+ * `entries`. Запись со `sha: null` удаляет файл — иначе удалить его через API
+ * нечем.
+ */
+async function createTreeOn(token, owner, repo, base, entries) {
+  const json = await apiRequest(token, "POST", `/repos/${owner}/${repo}/git/trees`, {
+    base_tree: base || undefined,
+    tree: entries.map((e) =>
+      e.sha === null
+        ? { path: e.path, mode: e.mode || "100644", type: "blob", sha: null }
+        : { path: e.path, mode: e.mode || "100644", type: "blob", sha: e.sha }
+    ),
+  });
+  return json.sha;
+}
+
+/** Новая ветка от указанного коммита. */
+async function createBranch(token, owner, repo, name, fromSha) {
+  await apiRequest(token, "POST", `/repos/${owner}/${repo}/git/refs`, {
+    ref: `refs/heads/${name}`,
+    sha: fromSha,
+  });
+  return { name, sha: fromSha };
+}
+
+/** Запрос на слияние. Уже открытый на ту же ветку возвращается как есть. */
+async function createPullRequest(token, owner, repo, { head, base, title, body }) {
+  try {
+    const json = await apiRequest(token, "POST", `/repos/${owner}/${repo}/pulls`, { head, base, title, body });
+    return { number: json.number, url: json.html_url, created: true };
+  } catch (e) {
+    if (/already exists/i.test(String(e.message))) {
+      const open = await apiRequest(
+        token,
+        "GET",
+        `/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(`${owner}:${head}`)}&state=open`
+      );
+      if (open?.[0]) return { number: open[0].number, url: open[0].html_url, created: false };
+    }
+    throw e;
+  }
+}
+
 // ---------- GitHub Actions ----------
 
 /** Workflows defined in the repo (.github/workflows/*.yml). */
@@ -359,6 +409,10 @@ module.exports = {
   createBlob,
   createTree,
   createCommit,
+  commitInfo,
+  createTreeOn,
+  createBranch,
+  createPullRequest,
   branchHead,
   setBranch,
   commitFile,

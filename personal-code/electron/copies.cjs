@@ -34,14 +34,26 @@ const MAX_TOKENS_LIMIT = 128000;
 const BASE_MODULES = ["projects", "skills"];
 const OFFICE_MODULES = ["excel", "word"];
 
+/**
+ * Плагины, которые можно включить копии. Список и порядок — как в самом чате
+ * (его боковое меню), чтобы «Документооборот» здесь и там означало одно и то же.
+ *
+ * Появился новый раздел в чате — его нужно добавить и сюда: иначе выбрать его
+ * для копии нельзя, и тестировщик получит сборку без него.
+ */
 const PLUGINS = [
   { id: "docflow", name: "📁 Документооборот" },
   { id: "dataviz", name: "📊 Визуализация" },
   { id: "finmodel", name: "💹 Финмодель" },
+  { id: "stories", name: "🎬 Видео-сторис" },
+  { id: "library", name: "🎙 Видеотека" },
+  { id: "catalog", name: "🏠 Каталог" },
+  { id: "sites", name: "🌐 Сайты" },
   { id: "cleanup", name: "🧹 Клининг" },
   { id: "media", name: "🎨 Медиа" },
   { id: "cloud", name: "☁️ Облако" },
   { id: "direct", name: "📣 Директ" },
+  { id: "github", name: "🐙 GitHub" },
   { id: "chatbots", name: "🤖 Чат-боты" },
 ];
 

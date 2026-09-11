@@ -516,6 +516,35 @@ function writeSample(rel, content) {
     /уже занят/
   );
 
+  console.log("\nсписок плагинов не отстаёт от чата");
+  // Появился раздел в чате — его нужно добавить и в «Личный код», иначе выбрать
+  // его для копии нельзя, а тестировщик получит сборку без него. Сверяем со
+  // списком самого чата, а не с памятью.
+  const chatModules = require("../../personal-chat/electron/plugins.cjs").MODULE_IDS;
+  const builderModules = blueprints.MODULES.map((m) => m.id);
+  const office = ["excel", "word"];
+  check(
+    "все разделы чата известны сборщику",
+    chatModules.every((id) => builderModules.includes(id)),
+    "нет: " + chatModules.filter((id) => !builderModules.includes(id)).join(", ")
+  );
+  check(
+    "и лишних, которых в чате нет, не предлагается",
+    builderModules.every((id) => chatModules.includes(id)),
+    "лишние: " + builderModules.filter((id) => !chatModules.includes(id)).join(", ")
+  );
+  const offered = copies.PLUGINS.map((p) => p.id);
+  check(
+    "в форме копии отмечается каждый плагин чата",
+    chatModules
+      .filter((id) => !copies.BASE_MODULES.includes(id) && !office.includes(id))
+      .every((id) => offered.includes(id)),
+    "нет в форме: " +
+      chatModules
+        .filter((id) => !copies.BASE_MODULES.includes(id) && !office.includes(id) && !offered.includes(id))
+        .join(", ")
+  );
+
   console.log("\nрабочий процесс сборки копии");
   // Первая настоящая сборка копии дошла до готового установщика и упала на
   // последнем шаге: electron-builder на CI сам полез публиковать релиз и
