@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
@@ -3636,11 +3636,46 @@ ipcMain.handle("sites:tilda", async (_e, method, params) => {
  * а не по названиям файлов. Картинки перечисляются именами — их агент не видит,
  * и обещать обратное нельзя.
  */
+/**
+ * Уменьшенная копия картинки для показа модели.
+ *
+ * Показывать референс в исходном размере незачем и дорого: снимок с телефона —
+ * это миллионы точек, а приёмы вёрстки (сетка, плотность, типографика) читаются
+ * и с 900 px. nativeImage уже есть в Electron, отдельной библиотеки не нужно.
+ */
+async function siteImagePart(filePath, width = 900) {
+  const buf = await fs.readFile(filePath);
+  const image = nativeImage.createFromBuffer(buf);
+  if (image.isEmpty()) {
+    // SVG и повреждённые файлы nativeImage не читает — отдаём как есть, если он
+    // не слишком велик, иначе пропускаем.
+    if (buf.length > 400 * 1024) return null;
+    const ext = path.extname(filePath).toLowerCase().replace(".", "") || "png";
+    return `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buf.toString("base64")}`;
+  }
+  const size = image.getSize();
+  const small = size.width > width ? image.resize({ width, quality: "good" }) : image;
+  return `data:image/jpeg;base64,${small.toJPEG(78).toString("base64")}`;
+}
+
+/**
+ * Сборка сайта агентом.
+ *
+ * Текстовые материалы читаются целиком. Референсы, логотипы и картинки
+ * дизайн-системы УХОДЯТ КАРТИНКАМИ — агент на них смотрит, а не читает имена
+ * файлов. Работает это, если выбранная модель понимает изображения; если нет,
+ * запрос вернётся ошибкой, и об этом честнее узнать сразу.
+ *
+ * Фотографии в блоки агент не вставляет: он ставит метки, а приложение
+ * подставляет настоящие адреса со стока. Прототип без изображений оценить
+ * нельзя, а придуманные моделью адреса не открываются.
+ */
 ipcMain.handle("sites:generate", async (_e, brief) => {
   const settings = await loadSettings();
   const config = await loadSitesConfig();
   const { files, problems } = await sites.collectSources(config.sources);
 
+  // Текст проекта.
   const texts = [];
   let budget = 60000;
   for (const file of files.text || []) {
@@ -3656,6 +3691,39 @@ ipcMain.handle("sites:generate", async (_e, brief) => {
     }
   }
 
+  // Дизайн-система: из текстовых файлов вынимаем конкретные значения.
+  let designText = "";
+  for (const file of files.design || []) {
+    if (file.kind !== "text" || designText.length > 40000) continue;
+    try {
+      designText += "\n" + (await extractDocText(file.path));
+    } catch {
+      // Нечитаемый файл дизайн-системы не повод останавливать сборку.
+    }
+  }
+  const tokens = sites.extractTokens(designText);
+
+  // Картинки, на которые агент смотрит. Порядок важен: сперва референсы — ради
+  // них всё и затевалось, — потом логотипы, потом образцы дизайн-системы.
+  const maxImages = Number(brief?.maxImages) || 6;
+  const shown = [];
+  const queue = [
+    ...(files.references || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "референс" })),
+    ...(files.logos || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "логотип" })),
+    ...(files.design || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "дизайн-система" })),
+  ];
+  for (const file of queue.slice(0, maxImages)) {
+    try {
+      const url = await siteImagePart(file.path);
+      if (url) shown.push({ ...file, url });
+    } catch (e) {
+      problems.push(`Не прочитана картинка «${file.name}»: ${e.message}`);
+    }
+  }
+  if (queue.length > maxImages) {
+    problems.push(`Показано агенту ${maxImages} картинок из ${queue.length} — остальные в задание не попали.`);
+  }
+
   const task = sites.buildSiteBrief({
     kind: brief?.kind || "лендинг",
     goal: brief?.goal || "",
@@ -3664,17 +3732,53 @@ ipcMain.handle("sites:generate", async (_e, brief) => {
     texts,
     tilda: brief?.tilda || null,
   });
+  const tokensText = sites.describeTokens(tokens);
+  const full =
+    task +
+    (tokensText ? `\n\n=== ДИЗАЙН-СИСТЕМА (использовать именно эти значения) ===\n${tokensText}` : "") +
+    (brief?.extra ? `\n\nДополнительно: ${brief.extra}` : "") +
+    (shown.length ? `\n\nНиже приложены картинки: ${shown.map((f) => `${f.role} «${f.name}»`).join(", ")}.` : "");
+
+  const content = shown.length
+    ? [{ type: "text", text: full }, ...shown.map((f) => ({ type: "image_url", image_url: { url: f.url } }))]
+    : full;
 
   const system = sites.SITE_AGENT_PROMPT + (brief?.skill ? `\n\n=== НАВЫК ===\n${brief.skill}` : "");
   const reply = await callModelOnce(settings, [
     { role: "system", content: system },
-    { role: "user", content: task + (brief?.extra ? `\n\nДополнительно: ${brief.extra}` : "") },
+    { role: "user", content },
   ]);
 
   const site = sites.parseSite(reply);
+
+  // Метки фотографий → настоящие адреса со стока.
+  const marks = sites.collectPhotoMarks(site.blocks);
+  const byQuery = {};
+  if (marks.length && settings.pexelsKey) {
+    for (const mark of marks) {
+      try {
+        const found = await sites.searchPhotos(mark.query, settings.pexelsKey, { fetchImpl: proxyAwareFetch });
+        if (found[0]) byQuery[mark.query] = found[0];
+      } catch (e) {
+        problems.push(`Сток не ответил на «${mark.query}»: ${e.message}`);
+      }
+    }
+  } else if (marks.length) {
+    problems.push(
+      `В блоках ${marks.length} мест под фотографии, но не задан ключ Pexels в настройках — ` +
+        "прототип останется с пустыми метками вместо снимков."
+    );
+  }
+  const applied = sites.applyPhotos(site.blocks, byQuery);
+  site.blocks = applied.blocks;
+  site.photos = applied.used;
+  for (const q of applied.missing) problems.push(`Не нашлось фото по запросу «${q}» — метка осталась в блоке.`);
+
   site.id = brief?.id || "s" + Date.now().toString(36);
   site.title = brief?.title || "Новый сайт";
   site.kind = brief?.kind || "лендинг";
+  site.tokens = tokens;
+  site.shownImages = shown.map((f) => ({ name: f.name, role: f.role }));
   site.updated = new Date().toISOString();
   site.problems = problems.concat(sites.checkSite(site));
   site.raw = reply;

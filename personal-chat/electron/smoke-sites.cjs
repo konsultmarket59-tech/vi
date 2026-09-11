@@ -70,10 +70,14 @@ async function main() {
   check("стили внутри html — замечание",
     sites.checkBlock({ html: "<style>h2{color:red}</style><h2>x</h2>" })
       .some((p) => /отдельными полями/.test(p)));
-  // Самое дорогое: форма выглядит рабочей, а заявки пропадают.
-  const форма = sites.checkBlock({ html: '<form><input name="phone"><button>Отправить</button></form>' });
-  check("свёрстанная форма названа ловушкой", форма.some((p) => /заявки из неё никуда не уйдут/.test(p)),
-    JSON.stringify(форма));
+  // Форма — часть прототипа, но без пометки она молча теряет заявки.
+  const безПометки = sites.checkBlock({ html: '<form><input name="phone"><button>Отправить</button></form>' });
+  check("форма без пометки для ИИ Тильды — замечание",
+    безПометки.some((p) => /ТИЛЬДА-ФОРМА/.test(p)), JSON.stringify(безПометки));
+  const сПометкой = sites.checkBlock({
+    html: '<!-- ТИЛЬДА-ФОРМА: поля имя и телефон, заявка на почту --><form><input name="phone"></form>',
+  });
+  check("форма с пометкой замечаний не вызывает", сПометкой.length === 0, JSON.stringify(сПометкой));
   check("путь с компьютера — замечание",
     sites.checkBlock({ html: '<img src="/home/user/фото/дом.jpg">' })
       .some((p) => /на сайте она не откроется/.test(p)));
@@ -134,6 +138,68 @@ async function main() {
     site.forms.length === 1 && /T702/.test(site.forms[0].spec), JSON.stringify(site.forms));
   check("заметки разобраны построчно", site.notes.length === 2, JSON.stringify(site.notes));
   check("страницы собраны", site.pages.join(",") === "главная", JSON.stringify(site.pages));
+
+  console.log("\nдизайн-система как закон, а не пожелание");
+  // «Сделай в нашем стиле» без конкретных значений превращается в «сделай
+  // красиво по-своему». Поэтому значения вынимаются и уходят ограничением.
+  const токены = sites.extractTokens(
+    ":root { --accent: #FF6600; --ink: #1A1A1A; } body { font-family: Inter, sans-serif } .a { color: rgba(0,0,0,.5) }"
+  );
+  check("переменные вынуты с именами",
+    токены.vars.length === 2 && токены.vars[0].name === "--accent", JSON.stringify(токены.vars));
+  check("цвета собраны", токены.colours.includes("#ff6600"), JSON.stringify(токены.colours));
+  check("шрифт найден", токены.fonts[0] === "Inter, sans-serif", JSON.stringify(токены.fonts));
+  const описание = sites.describeTokens(токены);
+  check("описание содержит именно значения, а не общие слова",
+    /--accent: #FF6600/.test(описание) && /Inter/.test(описание), описание);
+  check("пустая дизайн-система не даёт пустых указаний",
+    sites.describeTokens(sites.extractTokens("просто текст без цветов")) === "", "");
+
+  console.log("\nфотографии: метки превращаются в настоящие адреса");
+  // Прототип без изображений оценить нельзя, а придуманные моделью адреса не
+  // открываются. Поэтому агент ставит метку, а адрес подставляет приложение.
+  const сМетками = [
+    { id: "1", html: '<img src="[ФОТО: brick house winter]" alt="">', css: ".hero { background: url([ФОТО: pine forest]) }" },
+    { id: "2", html: '<img src="[ФОТО: brick house winter]">', css: "" },
+  ];
+  const метки = sites.collectPhotoMarks(сМетками);
+  check("метки собраны без повторов", метки.length === 2, JSON.stringify(метки.map((m) => m.query)));
+  check("одна метка в двух блоках учтена один раз",
+    метки.find((m) => m.query === "brick house winter").blockIds.join(",") === "1,2", JSON.stringify(метки));
+  check("метка в CSS тоже найдена", метки.some((m) => m.query === "pine forest"), JSON.stringify(метки));
+
+  const подставлено = sites.applyPhotos(сМетками, {
+    "brick house winter": { url: "https://images.example/house.jpg", thumb: "t", author: "A", page: "p" },
+  });
+  check("адрес встал в html",
+    подставлено.blocks[0].html.includes("https://images.example/house.jpg"), подставлено.blocks[0].html);
+  check("тот же адрес встал и во втором блоке",
+    подставлено.blocks[1].html.includes("https://images.example/house.jpg"), подставлено.blocks[1].html);
+  check("ненайденное фото названо, а не оставлено молча",
+    подставлено.missing.join(",") === "pine forest", JSON.stringify(подставлено.missing));
+  check("метка ненайденного осталась в блоке",
+    /\[ФОТО: pine forest\]/.test(подставлено.blocks[0].css), подставлено.blocks[0].css);
+  check("снимок записан один раз, а не дважды",
+    подставлено.used.length === 1, JSON.stringify(подставлено.used));
+
+  // Поиск по стоку: ключ обязателен, адрес собирается по документации Pexels.
+  let стокАдрес = "";
+  const фото = await sites.searchPhotos("brick house", "КЛЮЧ", {
+    fetchImpl: async (url, opts) => {
+      стокАдрес = url;
+      check("ключ ушёл заголовком", opts.headers.Authorization === "КЛЮЧ", JSON.stringify(opts.headers));
+      return { ok: true, json: async () => ({ photos: [{ id: 1, src: { large2x: "https://p/1.jpg", medium: "m" }, photographer: "Иван", url: "page" }] }) };
+    },
+  });
+  check("снимок разобран", фото[0].url === "https://p/1.jpg", JSON.stringify(фото[0]));
+  check("запрос закодирован", /query=brick%20house/.test(стокАдрес), стокАдрес);
+  let безКлюча = "";
+  try {
+    await sites.searchPhotos("дом", "", { fetchImpl: async () => { throw new Error("не должно вызваться"); } });
+  } catch (e) {
+    безКлюча = e.message;
+  }
+  check("без ключа сток не дёргается", /ключ Pexels/.test(безКлюча), безКлюча);
 
   console.log("\nлимит запросов к Тильде");
   // В документации сказано прямо: за нагрузку аккаунт блокируют и API отключают.
@@ -230,6 +296,16 @@ async function main() {
   check("недоступная папка названа, а не пропущена молча",
     битое.problems.some((p) => /не открывается/.test(p)), JSON.stringify(битое.problems));
 
+  console.log("\nчто требует доктрина агента");
+  const D = sites.SITE_AGENT_PROMPT;
+  check("формы вёрстаются, а не отдаются заданием", /ВЁРСТАЙ, НО ПОМЕЧАЙ/.test(D));
+  check("пометка для ИИ Тильды описана", /ТИЛЬДА-ФОРМА/.test(D));
+  check("картинки только метками", /\[ФОТО:/.test(D) && /ни ссылками, ни путями/.test(D));
+  check("дизайн-система названа законом", /ДИЗАЙН-СИСТЕМА — ЗАКОН/.test(D));
+  check("требуется отзывчивость", /@media на узкий экран/.test(D));
+  check("движение ограничено transform и opacity", /только transform и opacity/.test(D));
+  check("уважение к prefers-reduced-motion обязательно", /prefers-reduced-motion/.test(D));
+
   console.log("\nвыгрузка в папку");
   const out = path.join(dir, "выгрузка");
   const полный = { ...site, id: "s1", title: "Дом у леса", forms: site.forms, notes: site.notes };
@@ -240,8 +316,10 @@ async function main() {
   check("страница просмотра сохранена", fs.existsSync(written.previewFile));
   const памятка = fs.readFileSync(written.readmeFile, "utf-8");
   check("в памятке сказано, как переносить", /блок «HTML-код»/.test(памятка));
-  check("в памятке названо ограничение по формам",
-    /только через её собственные блоки формы/.test(памятка), памятка.slice(0, 200));
+  check("в памятке сказано, что формы пока не отправляют заявки",
+    /НЕ ОТПРАВЛЯЮТ/.test(памятка) && /ТИЛЬДА-ФОРМА/.test(памятка), памятка.slice(0, 300));
+  check("в памятке сказано, что фото со стока надо заменить",
+    /подставлены со стока/i.test(памятка) && /замените их своими/i.test(памятка), памятка.slice(0, 300));
   // Условие из пользовательского соглашения Тильды при экспорте на свой сервер.
   check("в памятке есть условие «Made on Tilda»",
     /Made on Tilda/.test(памятка) && /tilda\.cc/.test(памятка));

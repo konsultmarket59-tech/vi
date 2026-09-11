@@ -290,6 +290,12 @@ export interface Site {
   forms: SiteForm[];
   notes: string[];
   problems?: string[];
+  /** Значения дизайн-системы, вынутые из материалов и заданные агенту законом. */
+  tokens?: { colours: string[]; fonts: string[]; vars: { name: string; value: string }[] };
+  /** Снимки со стока, подставленные вместо меток [ФОТО: …]. */
+  photos?: { query: string; url: string; thumb: string; author: string; page: string }[];
+  /** Какие картинки агент видел: референсы, логотипы, образцы дизайн-системы. */
+  shownImages?: { name: string; role: string }[];
   updated: string;
   raw?: string;
 }
@@ -1350,6 +1356,8 @@ export interface ElectronAPI {
   sitesSave(site: Site): Promise<Site>;
   sitesGenerate(brief: {
     id?: string;
+    /** Сколько картинок показать агенту: референсы дороги в токенах. */
+    maxImages?: number;
     title?: string;
     kind?: string;
     goal?: string;

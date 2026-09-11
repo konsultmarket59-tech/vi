@@ -33,7 +33,7 @@ export default function SitesView() {
   const [limit, setLimit] = useState<{ left: number; limit: number } | null>(null);
   const [tildaPages, setTildaPages] = useState<{ title: string; alias: string }[] | null>(null);
 
-  const [brief, setBrief] = useState({ title: "", kind: "лендинг", goal: "", audience: "", extra: "" });
+  const [brief, setBrief] = useState({ title: "", kind: "лендинг", goal: "", audience: "", extra: "", maxImages: 6 });
 
   useEffect(() => {
     window.api.sitesConfig().then(setConfig);
@@ -191,8 +191,24 @@ export default function SitesView() {
                 </ul>
               )}
               <p className="vs-hint">
-                Текстовые материалы агент читает целиком. Изображения он <b>не видит</b> — они попадают в
-                задание списком имён, чтобы он знал, что у вас есть, и сослался на нужное.
+                Текстовые материалы агент читает целиком. <b>Референсы, логотипы и образцы дизайн-системы
+                он видит</b> — они уходят картинками, и приёмы берутся с них. Нужна модель, которая
+                понимает изображения; если выбранная не понимает, запрос вернётся ошибкой.
+              </p>
+              <label className="vs-field">
+                Сколько картинок показать агенту: {brief.maxImages}
+                <input
+                  type="range"
+                  min={0}
+                  max={12}
+                  value={brief.maxImages}
+                  onChange={(e) => setBrief({ ...brief, maxImages: Number(e.target.value) })}
+                />
+              </label>
+              <p className="vs-hint">
+                Каждая картинка — это примерно тысяча токенов. Референсы идут первыми, потом логотипы,
+                потом образцы дизайн-системы. Фотографии для самих страниц сюда не входят: их подставляет
+                сток.
               </p>
             </section>
 
@@ -369,15 +385,53 @@ export default function SitesView() {
                 <section className="vs-block">
                   <h3>Формы</h3>
                   <p className="vs-hint">
-                    Формы не свёрстаны намеренно: приём заявок в Тильде работает только через её
-                    собственные блоки формы. Форма в HTML-блоке выглядит рабочей, но заявки из неё никуда
-                    не уходят. Ниже — задание, какой блок взять и что в нём завести.
+                    Формы свёрстаны и оформлены — это часть прототипа. Но заявки они пока не отправляют:
+                    приём в Тильде работает через её собственные блоки формы. В коде рядом с каждой формой
+                    стоит пометка <b>ТИЛЬДА-ФОРМА</b> — по ней ИИ Тильды переподключит форму, сохранив вид.
                   </p>
                   {site.forms.map((f) => (
                     <pre key={f.id} className="site-plan">
                       {f.spec}
                     </pre>
                   ))}
+                </section>
+              )}
+
+              {!!site.shownImages?.length && (
+                <section className="vs-block">
+                  <h3>Что агент видел</h3>
+                  <p className="vs-hint">
+                    {site.shownImages.map((im) => `${im.role}: ${im.name}`).join(" · ")}
+                  </p>
+                </section>
+              )}
+
+              {!!site.tokens?.vars?.length && (
+                <section className="vs-block">
+                  <h3>Дизайн-система</h3>
+                  <p className="vs-hint">
+                    Из материалов взято {site.tokens.vars.length} переменных
+                    {site.tokens.colours.length ? `, ${site.tokens.colours.length} цветов` : ""}
+                    {site.tokens.fonts.length ? `, шрифты: ${site.tokens.fonts.join(" · ")}` : ""}. Агенту
+                    они заданы как обязательные, а не как пожелание.
+                  </p>
+                </section>
+              )}
+
+              {!!site.photos?.length && (
+                <section className="vs-block">
+                  <h3>Фотографии со стока</h3>
+                  <p className="vs-hint">
+                    Подставлены вместо меток, чтобы прототип можно было оценить. В Тильде замените их
+                    своими — адреса видны в коде блока.
+                  </p>
+                  <div className="site-photos">
+                    {site.photos.map((ph) => (
+                      <a key={ph.url} href={ph.page} target="_blank" rel="noreferrer" title={`${ph.query} · ${ph.author}`}>
+                        <img src={ph.thumb} alt={ph.query} />
+                      </a>
+                    ))}
+                  </div>
                 </section>
               )}
 
