@@ -195,28 +195,35 @@ export default function CreateView({ onOpenCode }: Props) {
           onChange={(e) => setPluginTask(e.target.value)}
         />
 
-        <label className="field-label">Ветка</label>
         <div className="row">
-          <select
-            className="input"
-            value={pluginBranchMode}
-            onChange={(e) => setPluginBranchMode(e.target.value as "new" | "existing")}
-          >
-            <option value="new">Новая — от main</option>
-            <option value="existing">Продолжить начатую</option>
-          </select>
-          {pluginBranchMode === "existing" ? (
-            <select className="input" value={pluginBranch} onChange={(e) => setPluginBranch(e.target.value)}>
-              <option value="">выберите ветку</option>
-              {branches.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.name}
-                </option>
-              ))}
+          <div className="col">
+            <label className="field-label">Ветка</label>
+            <select
+              className="input"
+              value={pluginBranchMode}
+              onChange={(e) => setPluginBranchMode(e.target.value as "new" | "existing")}
+            >
+              <option value="new">Новая — от main</option>
+              <option value="existing">Продолжить начатую</option>
             </select>
-          ) : (
-            <code className="folder-path">{branchNameFrom(pluginName, "plugin") || "plugin/…"}</code>
-          )}
+          </div>
+          <div className="col">
+            <label className="field-label">
+              {pluginBranchMode === "existing" ? "Какую продолжаем" : "Название ветки"}
+            </label>
+            {pluginBranchMode === "existing" ? (
+              <select className="input" value={pluginBranch} onChange={(e) => setPluginBranch(e.target.value)}>
+                <option value="">выберите ветку</option>
+                {branches.map((b) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <code className="folder-path branch-name">{branchNameFrom(pluginName, "plugin") || "plugin/…"}</code>
+            )}
+          </div>
         </div>
 
         <div className="sticky-actions">

@@ -471,3 +471,5 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 
 /* Выбор источника правки: копия тестировщика или ветка на GitHub. */
 .radio-line { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+/* Название будущей ветки читается как путь и не сжимается в столбик. */
+.branch-name { display: block; padding: 8px 10px; white-space: nowrap; overflow-x: auto; }
