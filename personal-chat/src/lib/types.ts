@@ -112,6 +112,8 @@ export interface Conversation {
 
 export type TaskRecurrence = "once" | "daily" | "weekly";
 
+export type TaskFormat = "digest" | "free";
+
 export interface ScheduledTask {
   id: string;
   projectId: string;
@@ -122,8 +124,18 @@ export interface ScheduledTask {
   date?: string; // "YYYY-MM-DD" — only for recurrence "once"
   weekday?: number; // 0 (Sun) – 6 (Sat) — only for recurrence "weekly"
   enabled: boolean;
+  /**
+   * «digest» — ответ раскладывается по темам задания с периодом и честным
+   * «за такой-то срок ничего не произошло»; «free» — задание уходит модели как есть.
+   */
+  format?: TaskFormat;
   lastRunAt?: number;
   lastConversationId?: string;
+  /** Почему сорвался прошлый запуск. Пусто, если всё прошло штатно. */
+  lastError?: string;
+  lastErrorAt?: number | null;
+  /** Момент, когда запуск начался. Слот занимается до обращения к модели. */
+  runStartedAt?: number | null;
   nextRunAt: number | null; // epoch ms; null once a "once" task has fired
   createdAt: number;
   updatedAt: number;
@@ -171,6 +183,8 @@ export interface Settings {
    * который у проектов с документами составляет основную часть счёта.
    */
   promptCache?: boolean;
+  /** Ключ Pexels — нужен только разделу «Видео-сторис» для поиска по стоку. */
+  pexelsKey?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -201,6 +215,246 @@ export interface StorageReport {
   folders: StorageEntry[];
   /** Chats whose history is long enough to be worth folding down. */
   heavyChats: { projectId: string; projectName: string; convId: string; title: string; messages: number; chars: number }[];
+  /** Служебный кэш Chromium: не данные человека, чистится без последствий. */
+  cache: { bytes: number; files: number; path: string };
+  /** Падения окна в прошлых запусках — пусто, если приложение не падало. */
+  crashes: CrashEntry[];
+}
+
+export interface CrashEntry {
+  at: string;
+  что: string;
+  причина: string;
+  код: number | null;
+}
+
+// ---------- каталог для Тильды ----------
+
+/** Материалы сайта: папка на компьютере под каждый вид. */
+export interface SiteSources {
+  text: string;
+  images: string;
+  references: string;
+  design: string;
+  logos: string;
+}
+
+export interface SitesConfig {
+  sources: Partial<SiteSources>;
+  outputDir: string;
+  /**
+   * Ключи API Тильды (тариф Business, Настройки сайта → Экспорт → API).
+   * Секретный наружу отдаётся меткой «сохранён», а не значением.
+   */
+  publickey: string;
+  secretkey: string;
+  hasSecret?: boolean;
+  projectId: string;
+}
+
+export interface SiteFile {
+  path: string;
+  name: string;
+  kind: "image" | "text";
+  size: number;
+  folder: string;
+}
+
+/** Один смысловой экран сайта — то, что переносится в блок «HTML-код» Тильды. */
+export interface SiteBlock {
+  id: string;
+  title: string;
+  page: string;
+  purpose: string;
+  html: string;
+  css: string;
+  js: string;
+}
+
+/**
+ * Задание на форму. Формы не вёрстаются: приём заявок в Тильде работает только
+ * через её собственные блоки формы.
+ */
+export interface SiteForm {
+  id: string;
+  spec: string;
+}
+
+export interface Site {
+  id: string;
+  title: string;
+  kind: string;
+  plan: string;
+  pages: string[];
+  blocks: SiteBlock[];
+  forms: SiteForm[];
+  notes: string[];
+  problems?: string[];
+  /** Значения дизайн-системы, вынутые из материалов и заданные агенту законом. */
+  tokens?: { colours: string[]; fonts: string[]; vars: { name: string; value: string }[] };
+  /** Снимки со стока, подставленные вместо меток [ФОТО: …]. */
+  photos?: { query: string; url: string; thumb: string; author: string; page: string }[];
+  /** Какие картинки агент видел: референсы, логотипы, образцы дизайн-системы. */
+  shownImages?: { name: string; role: string }[];
+  updated: string;
+  raw?: string;
+}
+
+export interface SiteSummary {
+  id: string;
+  title: string;
+  kind: string;
+  blocks: number;
+  updated: string;
+}
+
+export interface CatalogConfig {
+  exportPath: string;
+  previousPath: string;
+  outputDir: string;
+  /** Имя посёлка в 1С → имя на витрине. Из прошлого каталога берётся подсказка. */
+  villages: Record<string, string>;
+  /**
+   * Имя посёлка в 1С → тип септика. Заготовка описания одна на вариацию дома, а
+   * септик в посёлках разный, и в общем тексте он превращался в отговорку
+   * «по посёлку».
+   */
+  septics: Record<string, string>;
+  /**
+   * Исключения по улицам: в одном посёлке 1С бывает несколько кварталов, у
+   * которых на витрине разные названия.
+   */
+  streetNames: { village: string; street: string; name: string }[];
+  /** «all» — все фото из выгрузки, «first» — только первое. */
+  photoMode: "all" | "first";
+  /**
+   * Откуда брать фото при совпадении по кадастровому номеру: «tilda» — из
+   * прошлого каталога магазина (они там уже загружены), «export» — из 1С.
+   */
+  photoSource: "tilda" | "export";
+  /**
+   * Переносить ли номера позиций магазина из прошлого каталога. Нужно только
+   * при обновлении существующего каталога; при заливке заново старые номера
+   * указывали бы на удалённые товары.
+   */
+  carryIds: boolean;
+}
+
+/** Заготовка описания: одна на вариацию «площадь + облицовка». */
+export interface CatalogDescription {
+  id: string;
+  name: string;
+  area: number;
+  cladding: string;
+  /** Путь к файлу описания на компьютере — читается при каждой сборке. */
+  textPath: string;
+  /** Ссылки на рендеры. Именно ссылки: в каталог нельзя положить файл с диска. */
+  renderUrls: string[];
+  /** Локальные пути к рендерам — напоминание, что их надо загрузить на сайт. */
+  renderPaths: string[];
+}
+
+/** Ручные правки: кадастровый номер → колонка → значение. */
+export type CatalogEdits = Record<string, Record<string, string>>;
+
+export interface CatalogTable {
+  columns: string[];
+  rows: Record<string, string>[];
+  edited: { sku: string; column: string }[];
+  problems: string[];
+  counts: { houses: number; plots: number; gone: number; described: number; photosCarried: number };
+  villages: Record<string, string>;
+  streets: Record<string, string[]>;
+  /** Заготовки описаний — для выбора прямо в ячейке. */
+  library: { id: string; label: string; text: string; fits: number; error: string }[];
+  /** Вариации домов в выгрузке: подо что нужны заготовки. */
+  variants: { area: number; cladding: string; claddingLabel: string; count: number }[];
+}
+
+export interface CatalogPreview {
+  problems: string[];
+  counts: { houses: number; plots: number; gone: number; described: number; photosCarried: number };
+  villages: Record<string, string>;
+  /** Улицы по посёлкам — чтобы исключение выбиралось списком, а не печаталось. */
+  streets: Record<string, string[]>;
+  sample: Record<string, string>[];
+  total: number;
+}
+
+// ---------- видеотека ----------
+
+export interface LibraryConfig {
+  /** Папка с записями. Файлы читаются на месте и никуда не копируются. */
+  folderPath: string;
+  /** «local» — расшифровка на этом компьютере; «remote» — платный сервис. */
+  engine: "local" | "remote";
+  binPath: string;
+  modelPath: string;
+  threads: number;
+  remoteModel: string;
+  language: string;
+}
+
+export interface LibraryFile {
+  path: string;
+  name: string;
+  folder: string;
+  kind: string;
+  bytes: number;
+  modified: number;
+  transcribed: boolean;
+  seconds: number;
+  chunks: number;
+  transcribedAt: number;
+  engine: string;
+}
+
+export interface LibraryScan {
+  files: LibraryFile[];
+  orphans?: { path: string; name: string }[];
+  missing: boolean;
+}
+
+export interface LibraryEngineStatus {
+  ready: boolean;
+  bin: boolean;
+  model: boolean;
+  reason: string;
+}
+
+/** Кусок расшифровки — то, на что ссылается ответ. */
+export interface LibraryHit {
+  file: string;
+  name: string;
+  from: number;
+  to: number;
+  text: string;
+}
+
+export interface LibraryQuestion {
+  prompt: string;
+  hits: LibraryHit[];
+  searched: number;
+  files: number;
+}
+
+export interface LibraryCheck {
+  problems: string[];
+  /** Сколько утверждений в ответе остались без ссылки на источник. */
+  unsupported: number;
+  used: number[];
+}
+
+export interface LibraryProgress {
+  stage: "file" | "audio" | "transcribe" | "failed" | "done";
+  index?: number;
+  total?: number;
+  name?: string;
+  progress?: number;
+  done?: number;
+  failed?: number;
+  error?: string;
+  stopped?: boolean;
 }
 
 export interface AppConfig {
@@ -746,6 +1000,126 @@ export interface FinParams {
   comment: string;
 }
 
+export interface StoryPreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface StoryLayerKind {
+  id: string;
+  name: string;
+}
+
+/** Слой ролика. Поля различаются по kind — общие лежат здесь. */
+export interface StoryLayer {
+  id: string;
+  kind: "pill" | "timeline" | "icon" | "svg" | "image" | "head" | "graphics" | "backdrop";
+  start: number;
+  duration: number;
+  appear: string;
+  appearDur: number;
+  exit: string;
+  exitDur: number;
+  /** Положение в процентах холста: ролик бывает любого формата. */
+  x: number;
+  y: number;
+  width: number;
+  /** Общий масштаб слоя: 1 — как есть, 1.5 — в полтора раза крупнее. */
+  scale: number;
+  /** К какой сцене принадлежит слой. Пусто — слой поверх всех сцен и склейками не задет. */
+  sceneId?: string;
+  /** Части слоя влетают каскадом одна за другой, а не появляются разом. */
+  waterfall?: boolean;
+  /** Сдвиг уже сложившейся группы по кривой «медленно — быстро — медленно». */
+  nudge?: { at: number; dur: number; dx: number; dy: number } | null;
+  [extra: string]: unknown;
+}
+
+/** Каким приёмом склеены две сцены. */
+export type StorySeamKind = "cut-the-curve" | "zoom-through" | "inverse-zoom" | "rack-focus" | "none";
+export type StorySeamDirection = "left" | "right" | "up" | "down";
+
+export interface StorySeam {
+  kind: StorySeamKind;
+  direction?: StorySeamDirection;
+  blur?: number;
+  exitDur?: number;
+  entryDur?: number;
+}
+
+export interface StoryScene {
+  id: string;
+  title: string;
+  start: number;
+  duration: number;
+  /** Шов, которым эта сцена ПРИХОДИТ. Он же ведёт уход предыдущей. */
+  seam?: StorySeam;
+}
+
+export interface StorySpec {
+  title: string;
+  presetId: string;
+  width: number;
+  height: number;
+  fps: number;
+  /** «none» — моушн-дизайн без съёмки: подложка рисуется цветом. */
+  source: { kind: "file" | "stock" | "none"; path: string; query: string; trimStart: number };
+  bgColor: string;
+  /**
+   * Сцены и швы между ними. Пусто — ролик работает как раньше, слои живут сами
+   * по себе; со сценами появляется склейка, ведущая взгляд от кадра к кадру.
+   */
+  scenes: StoryScene[];
+  /** Акцентные цвета ролика: из них берут умолчания плашки, иконки, шкалы, графики. */
+  accentColor: string;
+  accent2Color: string;
+  musicPath: string;
+  musicVolume: number;
+  duration: number;
+  fonts: { family: string; path: string }[];
+  /** Пути к картинкам-референсам: по ним агент повторяет вашу графику. */
+  references: string[];
+  layers: StoryLayer[];
+}
+
+export interface StoryFont {
+  family: string;
+  path: string;
+}
+
+export interface StoryProbe {
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+  hasAudio: boolean;
+}
+
+export interface StoryStockVideo {
+  id: string;
+  preview: string;
+  duration: number;
+  width: number;
+  height: number;
+  url: string;
+  author: string;
+}
+
+export interface StoryProgress {
+  stage: "download" | "frames" | "encode" | "upload" | "done";
+  done?: number;
+  total?: number;
+  path?: string;
+  remote?: string;
+}
+
+export interface StoryCloudFolder {
+  name: string;
+  path: string;
+}
+
 /** Операция плана уборки. Команды удаления нет намеренно — см. cleanup.cjs. */
 export type CleanupOp =
   | { op: "mkdir"; target: string }
@@ -969,6 +1343,73 @@ export interface ElectronAPI {
     messages: ChatMessage[]
   ): Promise<{ path: string }>;
   getStorageReport(): Promise<StorageReport>;
+  clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
+
+  // каталог для Тильды
+  // сайты
+  sitesConfig(): Promise<SitesConfig>;
+  sitesSaveConfig(changes: Partial<SitesConfig>): Promise<SitesConfig>;
+  sitesPickFolder(title?: string): Promise<string>;
+  sitesScan(): Promise<{ files: Record<string, SiteFile[]>; problems: string[] }>;
+  sitesList(): Promise<SiteSummary[]>;
+  sitesGet(id: string): Promise<Site | null>;
+  sitesSave(site: Site): Promise<Site>;
+  sitesGenerate(brief: {
+    id?: string;
+    /** Сколько картинок показать агенту: референсы дороги в токенах. */
+    maxImages?: number;
+    title?: string;
+    kind?: string;
+    goal?: string;
+    audience?: string;
+    extra?: string;
+    skill?: string;
+    tilda?: { pages: { title: string; alias: string }[] } | null;
+  }): Promise<Site>;
+  sitesBlockHtml(block: SiteBlock): Promise<string>;
+  sitesCheck(site: Site): Promise<string[]>;
+  sitesExport(site: Site): Promise<{ blocks: string[]; previewFile: string; readmeFile: string }>;
+  /** Методы API Тильды — только чтение, метода записи у Тильды нет. */
+  sitesTilda(
+    method: "projects" | "project" | "pages" | "page" | "pageFull" | "pageExport" | "pageFullExport",
+    params?: { projectid?: string; pageid?: string }
+  ): Promise<unknown>;
+  sitesTildaLimit(): Promise<{ left: number; limit: number }>;
+
+  catalogConfig(): Promise<CatalogConfig>;
+  catalogSaveConfig(config: Partial<CatalogConfig>): Promise<CatalogConfig>;
+  catalogLibrary(): Promise<CatalogDescription[]>;
+  catalogSaveLibrary(items: CatalogDescription[]): Promise<CatalogDescription[]>;
+  catalogPick(what: "export" | "previous" | "outputDir" | "text" | "render"): Promise<string>;
+  catalogPreview(): Promise<CatalogPreview>;
+  catalogTable(): Promise<CatalogTable>;
+  catalogEdits(): Promise<CatalogEdits>;
+  catalogSaveEdits(edits: CatalogEdits): Promise<CatalogEdits>;
+  catalogBuild(): Promise<{
+    csvFile: string;
+    xlsxFile: string;
+    rows: number;
+    problems: string[];
+    /** Пустые колонки-ключи, которые не попали в файл. */
+    dropped: string[];
+  }>;
+
+  // видеотека
+  libraryConfig(): Promise<LibraryConfig>;
+  librarySaveConfig(config: Partial<LibraryConfig>): Promise<LibraryConfig>;
+  libraryPickFolder(): Promise<string>;
+  libraryPickFile(title?: string): Promise<string>;
+  libraryEngineStatus(): Promise<LibraryEngineStatus>;
+  libraryScan(): Promise<LibraryScan>;
+  libraryTranscribe(paths: string[]): Promise<{ done: number; failed: { path: string; error: string }[]; stopped: boolean }>;
+  libraryStop(): Promise<boolean>;
+  libraryForget(filePath: string): Promise<boolean>;
+  libraryAsk(question: string): Promise<LibraryQuestion>;
+  libraryRetell(filePath: string): Promise<LibraryQuestion>;
+  libraryVerify(answer: string, hits: LibraryHit[]): Promise<LibraryCheck>;
+  onLibraryProgress(handler: (payload: LibraryProgress) => void): () => void;
+  pastCrashes(): Promise<CrashEntry[]>;
+  onCrashed(handler: (entry: CrashEntry) => void): () => void;
   saveConversation(projectId: string, conv: Conversation): Promise<Conversation>;
   deleteConversation(projectId: string, convId: string): Promise<void>;
 
@@ -1184,6 +1625,52 @@ export interface ElectronAPI {
     advice?: string;
     sources?: { inflation?: string; minWage?: string };
   }): Promise<string>;
+
+  // видео-сторис
+  storiesOptions(): Promise<{
+    presets: StoryPreset[];
+    appear: StoryLayerKind[];
+    kinds: StoryLayerKind[];
+    graphics: StoryLayerKind[];
+    seams: StoryLayerKind[];
+    seamDirections: StoryLayerKind[];
+    brand: Record<string, string>;
+  }>;
+  storiesFonts(): Promise<StoryFont[]>;
+  storiesProbe(file: string): Promise<StoryProbe>;
+  storiesValidate(spec: Partial<StorySpec>): Promise<string[]>;
+  storiesNormalize(spec: Partial<StorySpec>): Promise<StorySpec>;
+  storiesSearchIcons(query: string): Promise<{ id: string; url: string }[]>;
+  storiesIcon(id: string, color?: string): Promise<string>;
+  storiesReadSvg(file: string): Promise<string>;
+  storiesSearchStock(query: string, orientation?: string): Promise<StoryStockVideo[]>;
+  storiesScene(spec: Partial<StorySpec>): Promise<string>;
+  storiesPoster(file: string, at: number, width: number): Promise<string>;
+  prepareStoriesScript(request: {
+    spec: Partial<StorySpec>;
+    text: string;
+  }): Promise<{
+    prompt: string;
+    info: StoryProbe | null;
+    /** Референсы уходят агенту картинками — словами набросок не пересказать. */
+    images: ChatAttachment[];
+    problems: string[];
+  }>;
+  parseStoriesScript(text: string): Promise<{ duration: number; scenes?: StoryScene[]; layers: StoryLayer[] } | null>;
+  prepareStoriesMotion(request: {
+    spec: Partial<StorySpec>;
+    text: string;
+    assetPaths?: string[];
+  }): Promise<{ prompt: string; images: ChatAttachment[]; problems: string[] }>;
+  storiesCloudFolders(folder?: string): Promise<StoryCloudFolder[]>;
+  uploadStory(localPath: string, remoteFolder: string): Promise<string>;
+  renderStory(payload: {
+    spec: Partial<StorySpec>;
+    outputDir: string;
+    /** Папка на Яндекс-Диске: задана — ролик уедет туда сразу после сборки. */
+    uploadTo?: string;
+  }): Promise<string>;
+  onStoriesProgress(cb: (data: StoryProgress) => void): () => void;
 
   // клининг
   pickCleanupFolder(): Promise<string | null>;

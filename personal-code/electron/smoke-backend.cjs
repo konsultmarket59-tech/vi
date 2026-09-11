@@ -15,6 +15,7 @@ const demoAccess = require("./demoAccess.cjs");
 const buildPipeline = require("./build.cjs");
 const pluginArchive = require("./pluginArchive.cjs");
 const copies = require("./copies.cjs");
+const { finish } = require("./smoke-finish.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {
@@ -569,7 +570,7 @@ function writeSample(rel, content) {
 
   console.log(failures === 0 ? "\nВсе проверки пройдены." : `\nПровалено проверок: ${failures}`);
   fs.rmSync(root, { recursive: true, force: true });
-  process.exit(failures === 0 ? 0 : 1);
+  finish(failures, (c) => process.exit(c));
 })().catch((e) => {
   console.error("Тест упал:", e);
   fs.rmSync(root, { recursive: true, force: true });

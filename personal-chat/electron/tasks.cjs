@@ -74,6 +74,63 @@ function computeNextRun(task, fromTime = Date.now()) {
   return new Date(y, mo - 1, d, hh, mm, 0, 0).getTime();
 }
 
+// ---------- период и разметка дайджеста ----------
+
+const MONTHS_GEN = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря",
+];
+
+function formatDay(ms) {
+  const d = new Date(ms);
+  return `${d.getDate()} ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
+ * За какой промежуток задача отчитывается.
+ *
+ * Считается здесь, а не моделью: «за неделю с такого по такое» — это факт, и
+ * выдумывать его нельзя. Первый запуск отсчитывает назад один период
+ * повторения, дальше — от прошлого запуска, чтобы между выпусками не
+ * образовалось дырки и ни одна новость не потерялась дважды.
+ */
+function coveredPeriod(task, now = Date.now()) {
+  const span = task.recurrence === "weekly" ? 7 * 24 : task.recurrence === "daily" ? 24 : 24;
+  const fallback = now - span * 60 * 60 * 1000;
+  const from = task.lastRunAt && task.lastRunAt < now ? task.lastRunAt : fallback;
+  return { from, to: now, fromText: formatDay(from), toText: formatDay(now) };
+}
+
+/**
+ * Что именно просят у модели в задаче-дайджесте.
+ *
+ * Разметка родилась из живой жалобы: задача возвращала две ссылки и ни слова
+ * пояснений, а по темам, где новостей не нашлось, просто молчала — и было не
+ * понять, то ли ничего не произошло, то ли поиск не сработал. Поэтому здесь
+ * три жёстких требования: назвать период словами, разобрать каждую тему из
+ * задания отдельно и про пустую тему сказать вслух, что нового нет, приложив
+ * самое свежее близкое по смыслу.
+ */
+function buildDigestPrompt(task, period) {
+  return [
+    task.prompt,
+    "",
+    "---",
+    `Сегодня ${formatDay(period.to)}. Отчёт за период с ${period.fromText} по ${period.toText}.`,
+    "",
+    "Как оформить ответ:",
+    `1. Начни строкой «Период: с ${period.fromText} по ${period.toText}».`,
+    "2. Разбери КАЖДУЮ тему из задания отдельным подзаголовком — даже те, по которым ничего не нашлось.",
+    "3. Внутри темы — список новостей, свежие сверху. Каждый пункт: дата, что произошло, одно-два",
+    "   предложения, почему это важно, и ссылка на источник. Одной ссылки без пояснения недостаточно.",
+    "4. Если по теме за период ничего заметного не произошло — так и напиши: «за период с",
+    `   ${period.fromText} по ${period.toText} ничего заметного не произошло», и следом дай самое`,
+    "   свежее и близкое по смыслу, что удалось найти, с датой — чтобы было видно, насколько оно старое.",
+    "5. В конце — короткий вывод: на что обратить внимание на следующей неделе.",
+    "6. Ничего не выдумывай. Если источник не открылся, скажи об этом прямо, а не пересказывай наугад.",
+  ].join("\n");
+}
+
 async function save(root, projectId, task) {
   const dir = tasksDir(root, projectId);
   await ensureDir(dir);
@@ -92,8 +149,14 @@ async function save(root, projectId, task) {
     date: merged.date,
     weekday: merged.weekday,
     enabled,
+    // «Дайджест» просит разложить новости по темам с периодом и честным «ничего
+    // нового»; «свободный» отдаёт задание модели как есть — для напоминаний и
+    // всего, чему разметка дайджеста только мешает.
+    format: merged.format === "free" ? "free" : "digest",
     lastRunAt: merged.lastRunAt,
     lastConversationId: merged.lastConversationId,
+    lastError: merged.lastError || "",
+    lastErrorAt: merged.lastErrorAt || null,
     nextRunAt: enabled ? computeNextRun(merged, now) : null,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -118,6 +181,34 @@ async function findDueTasks(root, now = Date.now()) {
     }
   }
   return due;
+}
+
+/**
+ * Занять слот ДО запуска задачи.
+ *
+ * Иначе один запуск давал два ответа. Раньше время следующего запуска сдвигалось
+ * только после того, как задача досчиталась, а дайджест с поиском по сети идёт
+ * минутами. Стоило приложению за это время закрыться или перезапуститься — при
+ * следующем старте задача снова оказывалась просроченной и выполнялась второй
+ * раз. Защита в памяти процесса такой случай не ловит по определению: память
+ * умирает вместе с процессом. Поэтому слот занимается на диске сразу, и любой
+ * исход — успех, ошибка, падение — оставляет ровно один ответ на один срок.
+ */
+async function claim(root, projectId, task, now = Date.now()) {
+  const dir = tasksDir(root, projectId);
+  await ensureDir(dir);
+  const file = path.join(dir, task.id + ".json");
+  const existing = (await readJson(file, null)) || task;
+  const enabled = task.recurrence === "once" ? false : existing.enabled;
+  const record = {
+    ...existing,
+    enabled,
+    runStartedAt: now,
+    nextRunAt: enabled ? computeNextRun(existing, now) : null,
+    updatedAt: now,
+  };
+  await writeJson(file, record);
+  return record;
 }
 
 let schedulerTimer = null;
@@ -163,4 +254,16 @@ function startScheduler(getRoot, onDue) {
   schedulerTimer = setInterval(() => tick(getRoot, onDue), 30000);
 }
 
-module.exports = { list, save, remove, computeNextRun, findDueTasks, startScheduler, _tick: tick };
+module.exports = {
+  list,
+  save,
+  remove,
+  computeNextRun,
+  findDueTasks,
+  startScheduler,
+  claim,
+  coveredPeriod,
+  buildDigestPrompt,
+  formatDay,
+  _tick: tick,
+};

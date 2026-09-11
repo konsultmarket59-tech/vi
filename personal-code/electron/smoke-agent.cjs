@@ -12,6 +12,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
+const { finish } = require("./smoke-finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-agent-ud-"));
 const repo = fs.mkdtempSync(path.join(os.tmpdir(), "personal-code-agent-repo-"));
@@ -311,7 +312,7 @@ server.listen(0, "127.0.0.1", () => {
       server.close();
       fs.rmSync(repo, { recursive: true, force: true });
       fs.rmSync(userData, { recursive: true, force: true });
-      app.exit(failures === 0 ? 0 : 1);
+      finish(failures, (c) => app.exit(c));
     }
   });
 });

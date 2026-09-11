@@ -109,6 +109,29 @@ contextBridge.exposeInMainWorld("api", {
   prepareFinmodelAdvice: (input) => ipcRenderer.invoke("finmodel:prepareAdvice", input),
   saveFinmodel: (payload) => ipcRenderer.invoke("finmodel:save", payload),
 
+  storiesOptions: () => ipcRenderer.invoke("stories:options"),
+  storiesFonts: () => ipcRenderer.invoke("stories:fonts"),
+  storiesProbe: (file) => ipcRenderer.invoke("stories:probe", file),
+  storiesValidate: (spec) => ipcRenderer.invoke("stories:validate", spec),
+  storiesNormalize: (spec) => ipcRenderer.invoke("stories:normalize", spec),
+  storiesSearchIcons: (query) => ipcRenderer.invoke("stories:searchIcons", query),
+  storiesIcon: (id, color) => ipcRenderer.invoke("stories:icon", id, color),
+  storiesReadSvg: (file) => ipcRenderer.invoke("stories:readSvg", file),
+  storiesSearchStock: (query, orientation) => ipcRenderer.invoke("stories:searchStock", query, orientation),
+  storiesScene: (spec) => ipcRenderer.invoke("stories:scene", spec),
+  storiesPoster: (file, at, width) => ipcRenderer.invoke("stories:poster", file, at, width),
+  prepareStoriesScript: (request) => ipcRenderer.invoke("stories:prepareScript", request),
+  parseStoriesScript: (text) => ipcRenderer.invoke("stories:parseScript", text),
+  prepareStoriesMotion: (request) => ipcRenderer.invoke("stories:prepareMotion", request),
+  storiesCloudFolders: (folder) => ipcRenderer.invoke("stories:cloudFolders", folder),
+  uploadStory: (localPath, remoteFolder) => ipcRenderer.invoke("stories:upload", localPath, remoteFolder),
+  renderStory: (payload) => ipcRenderer.invoke("stories:render", payload),
+  onStoriesProgress: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("stories-progress", handler);
+    return () => ipcRenderer.removeListener("stories-progress", handler);
+  },
+
   // клининг
   pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
   prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),
@@ -138,6 +161,59 @@ contextBridge.exposeInMainWorld("api", {
   archiveConversationMessages: (projectId, conv, messages) =>
     ipcRenderer.invoke("chats:archiveMessages", projectId, conv, messages),
   getStorageReport: () => ipcRenderer.invoke("storage:report"),
+  clearCache: () => ipcRenderer.invoke("storage:clearCache"),
+
+  // каталог для Тильды
+  // сайты
+  sitesConfig: () => ipcRenderer.invoke("sites:config"),
+  sitesSaveConfig: (changes) => ipcRenderer.invoke("sites:saveConfig", changes),
+  sitesPickFolder: (title) => ipcRenderer.invoke("sites:pickFolder", title),
+  sitesScan: () => ipcRenderer.invoke("sites:scan"),
+  sitesList: () => ipcRenderer.invoke("sites:list"),
+  sitesGet: (id) => ipcRenderer.invoke("sites:get", id),
+  sitesSave: (site) => ipcRenderer.invoke("sites:save", site),
+  sitesGenerate: (brief) => ipcRenderer.invoke("sites:generate", brief),
+  sitesBlockHtml: (block) => ipcRenderer.invoke("sites:blockHtml", block),
+  sitesCheck: (site) => ipcRenderer.invoke("sites:check", site),
+  sitesExport: (site) => ipcRenderer.invoke("sites:export", site),
+  sitesTilda: (method, params) => ipcRenderer.invoke("sites:tilda", method, params),
+  sitesTildaLimit: () => ipcRenderer.invoke("sites:tildaLimit"),
+
+  catalogConfig: () => ipcRenderer.invoke("catalog:config"),
+  catalogSaveConfig: (config) => ipcRenderer.invoke("catalog:saveConfig", config),
+  catalogLibrary: () => ipcRenderer.invoke("catalog:library"),
+  catalogSaveLibrary: (items) => ipcRenderer.invoke("catalog:saveLibrary", items),
+  catalogPick: (what) => ipcRenderer.invoke("catalog:pick", what),
+  catalogPreview: () => ipcRenderer.invoke("catalog:preview"),
+  catalogTable: () => ipcRenderer.invoke("catalog:table"),
+  catalogEdits: () => ipcRenderer.invoke("catalog:edits"),
+  catalogSaveEdits: (edits) => ipcRenderer.invoke("catalog:saveEdits", edits),
+  catalogBuild: () => ipcRenderer.invoke("catalog:build"),
+
+  // видеотека
+  libraryConfig: () => ipcRenderer.invoke("library:config"),
+  librarySaveConfig: (config) => ipcRenderer.invoke("library:saveConfig", config),
+  libraryPickFolder: () => ipcRenderer.invoke("library:pickFolder"),
+  libraryPickFile: (title) => ipcRenderer.invoke("library:pickFile", title),
+  libraryEngineStatus: () => ipcRenderer.invoke("library:engineStatus"),
+  libraryScan: () => ipcRenderer.invoke("library:scan"),
+  libraryTranscribe: (paths) => ipcRenderer.invoke("library:transcribe", paths),
+  libraryStop: () => ipcRenderer.invoke("library:stop"),
+  libraryForget: (filePath) => ipcRenderer.invoke("library:forget", filePath),
+  libraryAsk: (question) => ipcRenderer.invoke("library:ask", question),
+  libraryRetell: (filePath) => ipcRenderer.invoke("library:retell", filePath),
+  libraryVerify: (answer, hits) => ipcRenderer.invoke("library:verify", answer, hits),
+  onLibraryProgress: (handler) => {
+    const listener = (_e, payload) => handler(payload);
+    ipcRenderer.on("library-progress", listener);
+    return () => ipcRenderer.removeListener("library-progress", listener);
+  },
+  pastCrashes: () => ipcRenderer.invoke("app:pastCrashes"),
+  onCrashed: (handler) => {
+    const listener = (_e, entry) => handler(entry);
+    ipcRenderer.on("app:crashed", listener);
+    return () => ipcRenderer.removeListener("app:crashed", listener);
+  },
 
   // Яндекс Директ
   getDirectSettings: () => ipcRenderer.invoke("direct:getSettings"),

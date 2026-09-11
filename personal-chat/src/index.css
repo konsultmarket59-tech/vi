@@ -116,14 +116,17 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 260px;
-  min-width: 260px;
+  /* Ширину двигает разделитель (см. Splitter.tsx); 260px — исходное значение. */
+  width: var(--sidebar-width, 260px);
+  min-width: var(--sidebar-width, 260px);
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 12px;
-  overflow-y: auto;
+  /* Прокручиваются части по отдельности, а не колонка целиком: иначе список
+     разделов уезжает вместе с проектами и до настроек не добраться. */
+  overflow: hidden;
 }
 
 .sidebar-title {
@@ -141,7 +144,15 @@ body {
 
 .sidebar-section { margin-bottom: 16px; }
 
-.sidebar-projects { flex: 1; overflow-y: auto; }
+/* Проекты и разделы делят высоту и прокручиваются каждый сам по себе.
+   Раньше список разделов просто рос вниз и выдавливал проекты за край окна:
+   с каждым новым разделом их становилось видно всё меньше, а на невысоком
+   экране — не видно вовсе. */
+.sidebar-projects {
+  flex: 1 1 auto;
+  min-height: 90px;
+  overflow-y: auto;
+}
 
 .sidebar-label {
   font-size: 11px;
@@ -224,6 +235,12 @@ body {
 .sidebar-footer {
   border-top: 1px solid var(--border);
   padding-top: 10px;
+  /* Разделам отводится не больше половины колонки: их много, и они не должны
+     съедать место у проектов. Что не поместилось — прокручивается. */
+  flex: 0 1 auto;
+  max-height: 52%;
+  overflow-y: auto;
+  margin-bottom: 0;
 }
 
 .seed-menu {
@@ -1532,6 +1549,96 @@ button.fin-row-x:hover { color: var(--accent); }
 .fin-agent-head strong { flex: 1; }
 .fin-agent > .chat-view { flex: 1; min-height: 0; }
 
+/* Видео-сторис. Слева — сборка ролика, справа — предпросмотр и кнопка сборки:
+   рядом с кадром видно, читается ли текст поверх именно этой картинки. */
+.vs-body { display: flex; flex: 1; min-height: 0; gap: 20px; padding: 14px 16px; }
+.vs-form { flex: 1 1 480px; min-width: 340px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding-right: 4px; }
+.vs-right { flex: 0 0 var(--vs-right-width, 340px); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.vs-lead { font-size: 13px; color: var(--text-dim); margin: 0; }
+.vs-block { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.vs-block h3 { margin: 0 0 10px; font-size: 14px; }
+.vs-block textarea, .vs-block > input { width: 100%; }
+.vs-field { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.vs-field input, .vs-field select, .vs-field textarea { width: 100%; margin-top: 4px; }
+.vs-field input[type="color"] { height: 32px; padding: 2px; }
+.vs-pair { display: flex; gap: 10px; }
+.vs-pair .vs-field { flex: 1; }
+.vs-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vs-row input { flex: 1; min-width: 140px; }
+.vs-hint { font-size: 12px; color: var(--text-dim); margin: 6px 0 0; }
+.vs-path { font-size: 11px; color: var(--text-dim); margin: 6px 0 0; word-break: break-all; }
+.vs-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; margin-bottom: 8px; }
+.vs-check input { width: auto; flex: 0 0 auto; margin-top: 2px; }
+.vs-chip { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.vs-chip button { border: 0; background: none; cursor: pointer; color: var(--text-dim); margin-left: 4px; }
+
+.vs-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.vs-tab { border: 1px solid var(--border); background: none; border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
+.vs-tab.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.vs-stock { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.vs-stock-item { border: 2px solid transparent; border-radius: 8px; padding: 0; background: none; cursor: pointer; overflow: hidden; }
+.vs-stock-item.on { border-color: var(--accent); }
+.vs-stock-item img { width: 100%; height: 72px; object-fit: cover; display: block; }
+
+.vs-add { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.vs-layers { display: flex; flex-direction: column; gap: 4px; }
+.vs-layer { display: flex; align-items: center; gap: 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; cursor: pointer; }
+.vs-layer.on { border-color: var(--accent); }
+.vs-layer b { flex: 0 0 auto; }
+.vs-layer span { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-layer em { font-style: normal; color: var(--text-dim); }
+.vs-layer button { border: 0; background: none; cursor: pointer; color: var(--text-dim); }
+
+.vs-preview-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+/* Коробка уже уменьшена: transform не меняет разметку, и без этого сцена
+   заняла бы полные 1080×1920 и вытолкнула бы всё остальное за край окна. */
+.vs-preview { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #111; flex: 0 0 auto; }
+.vs-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.vs-scene { position: absolute; left: 0; top: 0; border: 0; transform-origin: top left; background: transparent; }
+.vs-scrub { width: 100%; margin: 8px 0; }
+
+.vs-problems { font-size: 12px; border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.vs-problems ul { margin: 6px 0 0 16px; }
+.vs-actions { display: flex; gap: 8px; }
+.vs-applied, .vs-saved, .vs-error { font-size: 12px; border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+.vs-applied { border: 1px solid var(--border); }
+.vs-saved { border: 1px solid var(--accent); }
+.vs-error { border: 1px solid var(--accent); color: var(--accent); }
+
+.vs-agent { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; min-height: 300px; }
+.vs-agent-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.vs-agent-head strong { flex: 1; }
+.vs-agent > .chat-view { flex: 1; min-height: 0; }
+
+/* Смещение и масштаб выбранного слоя. Крестовина и «−  100%  +» — чтобы
+   двигать и увеличивать элемент, не считая проценты в уме. */
+.vs-move { display: flex; align-items: center; gap: 18px; margin-bottom: 8px; }
+.vs-pad { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.vs-pad > div { display: flex; gap: 2px; }
+.vs-pad button {
+  width: 28px; height: 24px; border: 1px solid var(--border); background: none;
+  border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1;
+}
+.vs-pad button:hover, .vs-zoom button:hover { border-color: var(--accent); color: var(--accent); }
+.vs-zoom { display: flex; align-items: center; gap: 6px; }
+.vs-zoom button {
+  width: 28px; height: 24px; border: 1px solid var(--border); background: none;
+  border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1;
+}
+.vs-zoom b { min-width: 46px; text-align: center; font-size: 12px; }
+.vs-zoom button.vs-reset { width: auto; padding: 0 8px; font-size: 11px; }
+
+/* Куда сохранять: папка на компьютере и папка на Яндекс-Диске рядом. */
+.vs-save { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.vs-save strong { display: block; font-size: 13px; margin-bottom: 8px; }
+.vs-save .vs-row { margin-bottom: 6px; }
+.vs-folders { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.vs-folder {
+  border: 1px solid var(--border); background: none; border-radius: 6px;
+  padding: 3px 8px; cursor: pointer; font-size: 11px;
+}
+.vs-folder:hover { border-color: var(--accent); color: var(--accent); }
 /* Статус подключения: успех и ошибка не должны выглядеть одинаково. Зелёный и
    красный берутся из палитры, а не назначаются здесь заново. */
 .conn-status {
@@ -1582,3 +1689,282 @@ button.fin-row-x:hover { color: var(--accent); }
   background: var(--bg); border: 1px solid var(--border);
   font-family: var(--mono); font-size: 12px; word-break: break-all;
 }
+
+/* Служебный кэш и история падений в «Обслуживании». */
+.cache-box { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
+.cache-box .settings-actions { margin-top: 8px; }
+
+/* Окно перезапустилось само — молчать об этом нельзя. */
+.crash-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid #f0c2be;
+  background: #fdefee; color: #8a2018; font-size: 13px; line-height: 1.5;
+}
+.crash-banner .link-btn { flex: none; color: inherit; }
+
+/* «Агент думает»: видно, что работа идёт, сколько она идёт и на какой стадии. */
+.thinking {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px; font-size: 13px; color: var(--text-dim);
+}
+.thinking-spinner {
+  width: 13px; height: 13px; flex: none;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  border-radius: 50%; animation: thinking-spin 0.9s linear infinite;
+}
+@keyframes thinking-spin { to { transform: rotate(360deg); } }
+.thinking-clock {
+  font-family: var(--mono); font-size: 12px;
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px;
+}
+.thinking-slow { flex-basis: 100%; font-size: 12px; color: #8a6d18; }
+@media (prefers-reduced-motion: reduce) {
+  .thinking-spinner { animation: none; border-top-color: var(--accent); }
+}
+
+/* Задача по времени: формат ответа и причина сорвавшегося запуска. */
+.task-format-hint { margin: -4px 0 2px; font-size: 12px; line-height: 1.45; }
+.task-error {
+  display: block; margin-top: 2px; font-size: 11px; line-height: 1.4;
+  color: var(--danger); word-break: break-word;
+}
+
+/* Цвета моушн-дизайна: фон и два акцента стоят рядом, их сравнивают глазами. */
+.vs-colors { display: flex; gap: 12px; flex-wrap: wrap; }
+.vs-colors .vs-field { margin-bottom: 6px; }
+.vs-colors input[type="color"] { width: 64px; height: 34px; padding: 2px; }
+
+/* Когда в правой колонке работает агент, колонка перестаёт быть узкой полоской:
+   в 340 пикселях не видно ни вставленного текста, ни того, что агент отвечает. */
+.vs-right-agent { flex: 1 1 620px; min-width: 460px; }
+.vs-agent { display: flex; flex-direction: column; min-height: 420px; flex: 1; }
+.vs-agent > .chat-view { flex: 1; min-height: 0; }
+.vs-agent-note { margin-left: auto; }
+
+/* Поле ввода агента внутри разделов: три строки — это полторы фразы, а сюда
+   вставляют целый текст ролика. */
+.vs-agent .chat-input-bar textarea,
+.fin-agent .chat-input-bar textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+/* Сцены и швы: строка на сцену, чтобы порядок и переходы читались сверху вниз. */
+.vs-scenes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* Имя vs-scene уже занято рамкой предпросмотра — строка сцены зовётся иначе,
+   иначе эти правила поехали бы по самому предпросмотру. */
+.vs-scene-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px;
+}
+.vs-scene-row > input { flex: 1 1 120px; min-width: 90px; }
+.vs-scene-row label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); }
+.vs-scene-row label input { width: 56px; }
+.vs-scene-row select { font-size: 12px; }
+.vs-scene-row > button {
+  margin-left: auto; border: none; background: none; cursor: pointer;
+  color: var(--text-dim); font-size: 14px; line-height: 1;
+}
+.vs-scene-row > button:hover { color: var(--danger); }
+.vs-scene-pick { flex-direction: column; align-items: stretch; gap: 6px; }
+
+/* Видеотека: список записей и источники ответа. */
+.lib-files { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.lib-file {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.lib-file-name { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-file-meta { color: var(--text-dim); font-size: 11px; }
+.lib-badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  background: #eef8f1; color: #14602f; border: 1px solid #b7dfc2;
+}
+
+/* Источники нумерованы так же, как ссылки в ответе: [2] — второй пункт. */
+.lib-hits { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+.lib-hits li { font-size: 12px; line-height: 1.45; }
+.lib-hits b { display: block; color: var(--accent); }
+.lib-hits span { color: var(--text-dim); }
+
+/* Замечания к ответу: проверить должно быть проще, чем поверить. */
+.lib-check {
+  border: 1px solid #f0c2be; background: #fdefee; color: #8a2018;
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; line-height: 1.5;
+}
+.lib-check strong { display: block; margin-bottom: 4px; }
+.lib-check p { margin: 2px 0; }
+
+/* Каталог: соответствие посёлков, заготовки описаний, предпросмотр строк. */
+.cat-village { align-items: center; gap: 8px; }
+.cat-village > span:first-child { flex: 1 1 120px; font-size: 12px; }
+.cat-arrow { color: var(--text-dim); }
+.cat-village input { flex: 1 1 140px; }
+
+.cat-card {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+}
+.cat-card .vs-field { flex: 1 1 120px; }
+
+.cat-problems ul { max-height: 260px; overflow-y: auto; }
+.cat-problems li { font-size: 12px; line-height: 1.45; }
+
+.cat-rows { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.cat-row {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.cat-title { font-weight: 600; }
+.cat-meta { color: var(--text-dim); font-size: 11px; }
+/* Ярлык стадии: готовые дома должны опознаваться с одного взгляда. */
+.cat-mark {
+  flex: none; font-size: 10px; padding: 1px 7px; border-radius: 6px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.cat-mark-готов { background: #eef8f1; color: #14602f; border-color: #b7dfc2; }
+.cat-mark-стройка { background: #fdf6e3; color: #8a6d18; border-color: #e8d9a8; }
+.cat-mark-план { background: var(--bg-hover); }
+
+/* Таблица каталога: вид Тильды с правкой любой ячейки. */
+.cat-tabs {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); flex: none;
+}
+.cat-tabs-actions { margin-left: auto; display: flex; gap: 8px; }
+.cat-bar-note { margin: 8px 16px 0; }
+
+.cat-table-wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.cat-table-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 8px 16px; flex: none;
+}
+.cat-table-scroll { flex: 1; overflow: auto; padding: 0 16px 16px; }
+.cat-table { border-collapse: collapse; font-size: 12px; }
+.cat-table th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  padding: 6px 8px; text-align: left; white-space: nowrap; font-weight: 600;
+}
+/* Ячейка показывает текст, а не поле ввода: полей на пять тысяч ячеек
+   браузер не выдержит, да и читать такую таблицу было бы нечем. */
+.cat-cell {
+  border: 1px solid var(--border); padding: 4px 8px; cursor: text;
+  max-width: 280px; vertical-align: top; position: relative;
+}
+.cat-cell:hover { background: var(--bg-hover); }
+.cat-cell-text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: break-word;
+}
+.cat-cell-edited { background: #fdf6e3; }
+.cat-cell-active { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cat-cell-reset {
+  position: absolute; top: 2px; right: 2px; border: none; background: none;
+  cursor: pointer; font-size: 11px; color: var(--text-dim); line-height: 1;
+}
+.cat-cell-reset:hover { color: var(--accent); }
+
+.cat-editor-panel {
+  margin: 0 16px 10px; padding: 10px 12px;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--bg-hover);
+}
+.cat-editor-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.cat-editor textarea { width: 100%; font-family: inherit; font-size: 13px; }
+.cat-editor-pick { margin-bottom: 6px; }
+.cat-editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cat-render-note { margin-top: -2px; }
+
+/* Пустое описание — приглашение, а не пустота: иначе не видно, что с ячейкой
+   можно что-то сделать. */
+.cat-cell-pick { color: var(--accent); font-size: 12px; border-bottom: 1px dashed var(--accent); }
+.cat-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cat-fill select { max-width: 320px; }
+.cat-uniq { margin-top: 6px; font-size: 12px; line-height: 1.45; opacity: 0.9; }
+
+.cat-variants { margin-top: 10px; }
+.cat-variant {
+  display: inline-block; margin: 0 6px 6px 0; padding: 3px 9px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--bg);
+  font-size: 12px; cursor: pointer;
+}
+.cat-variant:hover { border-color: var(--accent); color: var(--accent); }
+.cat-variant.on { border-color: var(--accent); background: var(--bg-hover); }
+
+
+/* Раздвижные границы блоков.
+   Полоса узкая, чтобы не съедать место, но с широкой зоной захвата через
+   ::before: попасть в четыре пикселя мышью трудно, а промах выглядит как
+   «не работает». */
+.splitter {
+  flex: 0 0 4px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  align-self: stretch;
+  touch-action: none;
+}
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: 0 auto;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.12s, width 0.12s;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter.dragging::after {
+  background: var(--accent);
+  width: 3px;
+}
+.splitter:focus-visible { outline: none; }
+/* Пока границу тянут, выделение текста только мешает. */
+body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
+
+/* Excel и Word: агент рядом с таблицей.
+   Классы excel-split / excel-grid-pane / excel-agent-pane стояли в разметке, но
+   правил у них не было ни одного — «рядом» получалось только на словах, панели
+   шли одна под другой. */
+.excel-split { flex-direction: row; align-items: stretch; }
+.excel-grid-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.excel-agent-pane {
+  flex: 0 0 var(--dock-agent-width, 380px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+}
+
+/* Сайты: список блоков и просмотр. */
+.site-plan {
+  margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px;
+  line-height: 1.5; max-height: 340px; overflow-y: auto;
+}
+.site-block { border-top: 1px solid var(--border); padding: 8px 0; }
+.site-block:first-of-type { border-top: none; }
+.site-block.on { background: var(--bg-hover); }
+.site-block-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.site-block-head .link-btn { font-weight: 600; }
+.site-preview { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+/* Блок смотрим в отдельном документе: свои стили и скрипт не должны драться
+   с оформлением самого приложения, иначе увиденное не совпадёт с сайтом. */
+.site-frame { flex: 1; min-height: 320px; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.site-code { flex: 1; min-height: 320px; width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.site-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.site-photos img { width: 84px; height: 60px; object-fit: cover; border-radius: 6px; display: block; }

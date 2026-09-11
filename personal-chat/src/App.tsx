@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { LicenceStatus, PluginConfig, Project, Settings, Skill } from "./lib/types";
+import type { CrashEntry, LicenceStatus, PluginConfig, Project, Settings, Skill } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
+import Splitter from "./components/Splitter";
 import ProjectPanel from "./components/ProjectPanel";
 import SkillsView from "./components/SkillsView";
 import ExcelView from "./components/ExcelView";
@@ -9,6 +10,10 @@ import WordView from "./components/WordView";
 import DocFlowView from "./components/DocFlowView";
 import DataVizView from "./components/DataVizView";
 import FinModelView from "./components/FinModelView";
+import VideoStoriesView from "./components/VideoStoriesView";
+import LibraryView from "./components/LibraryView";
+import CatalogView from "./components/CatalogView";
+import SitesView from "./components/SitesView";
 import CleanupView from "./components/CleanupView";
 import DirectView from "./components/DirectView";
 import CloudView from "./components/CloudView";
@@ -33,6 +38,12 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [startupSlow, setStartupSlow] = useState(false);
+  // Окно может умереть и перезагрузиться само. Молчать об этом нельзя: человек
+  // видит, что «всё вдруг перезапустилось», и не понимает, потерял он работу
+  // или нет. Поэтому — прямая строка о том, что случилось и что делать.
+  const [crash, setCrash] = useState<CrashEntry | null>(null);
+
+  useEffect(() => window.api.onCrashed(setCrash), []);
 
   useEffect(() => {
     const slowTimer = setTimeout(() => setStartupSlow(true), STARTUP_SLOW_MS);
@@ -138,7 +149,29 @@ export default function App() {
         onSelectView={setView}
         onProjectsChange={setProjects}
       />
+      <Splitter
+        id="боковая-колонка"
+        variable="--sidebar-width"
+        fallback={260}
+        min={180}
+        max={520}
+        side="left"
+        label="Граница боковой колонки"
+      />
       <main className="main-area">
+        {crash && (
+          <div className="crash-banner">
+            <span>
+              Окно приложения закрылось само и было перезапущено
+              {crash.причина === "oom" ? " — не хватило оперативной памяти" : ""}. Всё, что было
+              сохранено, на месте; несохранённый текст в поле ввода пропал. Если это повторяется,
+              зайдите в «Настройки → Обслуживание»: там видно историю и есть кнопка очистки кэша.
+            </span>
+            <button className="link-btn" onClick={() => setCrash(null)}>
+              скрыть
+            </button>
+          </div>
+        )}
         {licence?.gated && licence.ok && <DemoBanner status={licence} />}
         {activeView.kind === "project" && activeProject && (
           <ProjectPanel
@@ -175,6 +208,14 @@ export default function App() {
         {activeView.kind === "finmodel" && (
           <FinModelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
+        {activeView.kind === "stories" && (
+          <VideoStoriesView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "library" && (
+          <LibraryView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+        )}
+        {activeView.kind === "catalog" && <CatalogView />}
+        {activeView.kind === "sites" && <SitesView />}
         {activeView.kind === "cleanup" && (
           <CleanupView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}

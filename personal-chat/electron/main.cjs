@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const { proxyAwareFetch, setProxyCredentials } = require("./netFetch.cjs");
 
 // Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, web
@@ -263,6 +264,24 @@ async function extractDocText(filePath) {
     extractCache.set(key, text);
   }
   return text;
+}
+
+/**
+ * Источник описания для каталога — вместе с оформлением.
+ *
+ * Обычное извлечение отдаёт голый текст: для чата это то, что нужно, а для
+ * каталога — потеря. Описание дома пишут в Word подзаголовками и списками, и
+ * ровно в таком виде оно должно оказаться на витрине. Поэтому .docx читается
+ * как HTML, а приведением к набору тегов магазина занимается catalog.cjs.
+ */
+async function extractCatalogSource(filePath) {
+  if (path.extname(filePath).toLowerCase() === ".docx") {
+    const mammoth = require("mammoth");
+    const buffer = await fs.readFile(filePath);
+    const result = await mammoth.convertToHtml({ buffer });
+    return result.value;
+  }
+  return extractDocText(filePath);
 }
 
 async function extractDocTextUncached(filePath) {
@@ -1094,6 +1113,10 @@ async function callModelOnce(settings, messages) {
 // "once" task after it fires).
 async function runScheduledTask(root, task) {
   const now = Date.now();
+  // Слот занимается первым делом: см. tasks.claim — это и есть гарантия
+  // «один запуск = один ответ» даже если приложение закроется на середине.
+  const claimed = await tasks.claim(root, task.projectId, task, now);
+  const period = tasks.coveredPeriod(task, now);
   const systemPrompt = await buildSystemPrompt(task.projectId);
   const settings = await loadSettings();
 
@@ -1103,19 +1126,36 @@ async function runScheduledTask(root, task) {
   // search/fetch it requests, feed the result back, repeat until it answers in
   // plain text or we hit the round limit.
   const webOn = settings.searchEnabled !== false;
+  const request = task.format === "free" ? task.prompt : tasks.buildDigestPrompt(task, period);
   const messages = [
     buildSystemMessage(systemPrompt + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), settings),
-    { role: "user", content: task.prompt },
+    { role: "user", content: request },
   ];
-  let reply = await callModelOnce(settings, messages);
-  if (webOn) {
-    for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
-      const toolOutput = await websearch.runTools(reply, settings);
-      if (toolOutput == null) break;
-      messages.push({ role: "assistant", content: reply });
-      messages.push({ role: "user", content: toolOutput });
-      reply = await callModelOnce(settings, messages);
+  let reply;
+  try {
+    reply = await callModelOnce(settings, messages);
+    if (webOn) {
+      for (let round = 0; round < websearch.TOOL_ROUND_LIMIT; round++) {
+        const toolOutput = await websearch.runTools(reply, settings);
+        if (toolOutput == null) break;
+        messages.push({ role: "assistant", content: reply });
+        messages.push({ role: "user", content: toolOutput });
+        reply = await callModelOnce(settings, messages);
+      }
     }
+  } catch (e) {
+    // Сорвавшаяся задача больше не повторяется каждые полминуты до победного:
+    // слот уже занят, поэтому здесь остаётся записать причину так, чтобы она
+    // была видна в списке задач, а не только в журнале.
+    const text = e instanceof Error ? e.message : String(e);
+    const failed = await tasks.save(root, task.projectId, {
+      ...claimed,
+      runStartedAt: null,
+      lastError: text,
+      lastErrorAt: Date.now(),
+    });
+    broadcast("tasks:ran", { projectId: task.projectId, task: failed, runId: "" });
+    throw e;
   }
 
   const conv = {
@@ -1134,7 +1174,10 @@ async function runScheduledTask(root, task) {
   // те чаты, которые человек вёл руками.
   await saveTaskRun(task.projectId, { ...conv, taskId: task.id, taskTitle: task.title });
   const updated = await tasks.save(root, task.projectId, {
-    ...task,
+    ...claimed,
+    runStartedAt: null,
+    lastError: "",
+    lastErrorAt: null,
     lastRunAt: now,
     lastConversationId: conv.id,
     enabled: task.recurrence === "once" ? false : task.enabled,
@@ -1454,6 +1497,27 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  // Окно может умереть само — чаще всего от нехватки памяти на длинной работе.
+  // Раньше это выглядело как «приложение вдруг перезапустилось»: Electron молча
+  // показывал пустой экран, журнал ошибок исчезал вместе с процессом, и в отчёте
+  // о проблеме не оставалось ни строчки. Теперь причина записывается на диск
+  // ДО перезагрузки и попадает в отчёт, а человек видит, что именно случилось.
+  win.webContents.on("render-process-gone", (_event, details) => {
+    const entry = report.recordCrash({
+      kind: "окно приложения",
+      reason: details?.reason || "",
+      exitCode: details?.exitCode,
+    });
+    if (win.isDestroyed()) return;
+    win.reload();
+    win.webContents.once("did-finish-load", () => {
+      if (!win.isDestroyed()) win.webContents.send("app:crashed", entry);
+    });
+  });
+  win.webContents.on("unresponsive", () => {
+    report.record("main", "warn", "окно перестало отвечать");
+  });
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     win.loadURL(devUrl);
@@ -1528,6 +1592,9 @@ function scheduleDemoReport(status) {
 
 app.whenReady().then(async () => {
   await applyProxySettings(await loadSettings());
+  // Падения прошлых запусков нужны раньше окна: приложение сообщает о них само,
+  // не дожидаясь, пока человек догадается открыть отчёт о проблеме.
+  await report.loadCrashes();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -2084,8 +2151,65 @@ ipcMain.handle("storage:report", async () => {
     }
   }
   heavyChats.sort((a, b) => b.chars - a.chars);
-  return { rootPath: root, totalBytes, folders, heavyChats: heavyChats.slice(0, 20) };
+  return {
+    rootPath: root,
+    totalBytes,
+    folders,
+    heavyChats: heavyChats.slice(0, 20),
+    cache: await cacheStats(),
+    crashes: report.pastCrashes(),
+  };
 });
+
+// ---------- служебный кэш ----------
+//
+// Это НЕ данные человека. Здесь Chromium складывает загруженные картинки,
+// превью стоковых роликов, иконки и скомпилированный код страницы. Папка растёт
+// сама и никогда не убирается: у активного пользователя она добирается до
+// сотен мегабайт и заметно замедляет и запуск, и работу. Проекты, переписки,
+// сгенерированные файлы и настройки лежат в другом месте и здесь не трогаются
+// вообще — поэтому очистка безопасна и не спрашивает подтверждений.
+const CACHE_DIRS = [
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "DawnCache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+  "Shared Dictionary",
+  "blob_storage",
+  "Service Worker",
+];
+
+async function cacheStats() {
+  const base = app.getPath("userData");
+  let bytes = 0;
+  let files = 0;
+  for (const dir of CACHE_DIRS) {
+    const stat = await dirStats(path.join(base, dir));
+    bytes += stat.bytes;
+    files += stat.files;
+  }
+  return { bytes, files, path: base };
+}
+
+ipcMain.handle("storage:clearCache", async () => {
+  const before = await cacheStats();
+  const ses = session.defaultSession;
+  // Сначала штатными средствами: так Chromium закрывает свои файлы сам и не
+  // держит то, что мы собираемся удалить.
+  await ses.clearCache().catch(() => {});
+  await ses.clearCodeCaches({}).catch(() => {});
+  const base = app.getPath("userData");
+  for (const dir of CACHE_DIRS) {
+    await fs.rm(path.join(base, dir), { recursive: true, force: true }).catch(() => {});
+  }
+  const after = await cacheStats();
+  return { freedBytes: Math.max(0, before.bytes - after.bytes), before: before.bytes, after: after.bytes };
+});
+
+/** Падения прошлых запусков — приложение показывает их само при старте. */
+ipcMain.handle("app:pastCrashes", () => report.pastCrashes());
 
 // Folding a chat down must never destroy anything: the original messages are written
 // out first, under the chat's own folder, before the conversation keeps only a summary.
@@ -2719,6 +2843,10 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
 
 const dataviz = require("./dataviz.cjs");
 const finmodel = require("./finmodel.cjs");
+const videostories = require("./videostories.cjs");
+const library = require("./library.cjs");
+const catalog = require("./catalog.cjs");
+const sites = require("./sites.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -2853,6 +2981,1042 @@ ipcMain.handle("dataviz:save", async (_e, payload) => {
     }
   );
 });
+
+// ---------- видео-сторис ----------
+
+/**
+ * Путь к ffmpeg. В собранном приложении бинарник лежит рядом с asar-архивом:
+ * запускать исполняемый файл изнутри asar нельзя, поэтому он распакован.
+ */
+function ffmpegPath() {
+  let bin;
+  try {
+    bin = require("ffmpeg-static");
+  } catch {
+    return "ffmpeg";
+  }
+  return app.isPackaged ? String(bin).replace("app.asar", "app.asar.unpacked") : bin;
+}
+
+// Одно скрытое окно на все снимки. Второе окно с прозрачностью и offscreen
+// поверх первого не создаётся — проверено опытом, страница просто не грузится.
+let sceneWin = null;
+async function sceneWindow() {
+  if (sceneWin && !sceneWin.isDestroyed()) return sceneWin;
+  sceneWin = new BrowserWindow({
+    show: false,
+    width: 640,
+    height: 480,
+    transparent: true,
+    frame: false,
+    backgroundColor: "#00000000",
+    webPreferences: { offscreen: true },
+  });
+  return sceneWin;
+}
+
+/** Загружает страницу сцены и ждёт, пока она объявит себя готовой. */
+async function loadScene(html, width, height) {
+  const win = await sceneWindow();
+  const file = path.join(
+    app.getPath("temp"),
+    `story-scene-${Date.now()}-${Math.random().toString(36).slice(2)}.html`
+  );
+  await fs.writeFile(file, html, "utf-8");
+  await win.loadFile(file);
+  // Размер задаётся ПОСЛЕ загрузки: при создании окна он обрезается по экрану,
+  // и кадр 1080×1920 на обычном мониторе выходил бы обрезанным по высоте.
+  win.setContentSize(width, height);
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const ready = await win.webContents
+      .executeJavaScript("window.__ready === true")
+      .catch(() => false);
+    if (ready) break;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  return { win, file };
+}
+
+/**
+ * Снимок кадра сцены.
+ *
+ * capturePage() под нагрузкой возвращает то, что было НА ЭКРАНЕ, а не то, что
+ * уже посчитано: проверено — первый снимок после перехода отдавал предыдущий
+ * кадр. Ожидания кадра анимации тоже мало. Поэтому берём картинку из события
+ * paint, которое приходит ровно тогда, когда содержимое перерисовалось.
+ *
+ * Если за отведённое время события нет — значит, рисовать было нечего и на
+ * экране остался прежний кадр; он и есть правильный.
+ */
+function makeGrabber(win) {
+  let painted = 0;
+  let last = null;
+  let lastSignature = null;
+  win.webContents.on("paint", (_event, _dirty, image) => {
+    painted += 1;
+    last = image;
+  });
+  return async function grab(js, timeout = 700) {
+    const before = painted;
+    const signature = await win.webContents.executeJavaScript(js);
+    // Ничего не изменилось — новый кадр не придёт, и ждать его нечего. Без этой
+    // проверки каждый статичный кадр стоил полного таймаута.
+    if (last && typeof signature === "string" && signature === lastSignature) return last;
+    lastSignature = typeof signature === "string" ? signature : null;
+    const deadline = Date.now() + timeout;
+    while (painted === before && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 4));
+    }
+    if (last) return last;
+    // Ни одного paint с начала работы — окно ещё ничего не рисовало.
+    return win.webContents.capturePage();
+  };
+}
+
+/**
+ * Подставляет в слои-картинки их содержимое строкой data:.
+ *
+ * Скрытое окно не читает файлы с диска по ссылке, а логотип и фотографии живут
+ * у человека в папках — копировать их внутрь приложения нельзя, значит вшиваем
+ * в саму страницу сцены и после рендера ничего не остаётся.
+ */
+async function inlineStoryAssets(spec) {
+  const layers = [];
+  for (const layer of spec.layers) {
+    if (layer.kind !== "image" || !layer.sourcePath) {
+      layers.push(layer);
+      continue;
+    }
+    try {
+      const buf = await fs.readFile(layer.sourcePath);
+      const ext = path.extname(layer.sourcePath).slice(1).toLowerCase();
+      const mime = ext === "svg" ? "image/svg+xml" : ext === "jpg" ? "image/jpeg" : `image/${ext || "png"}`;
+      layers.push({ ...layer, dataUri: `data:${mime};base64,${buf.toString("base64")}` });
+    } catch {
+      // Файл не открылся — слой останется пустым, но ролик соберётся.
+      layers.push({ ...layer, dataUri: "" });
+    }
+  }
+  return { ...spec, layers };
+}
+
+/** Кадры оверлея: по одному PNG с прозрачностью на кадр ролика. */
+async function renderStoryFrames(spec, dir, onProgress) {
+  const fonts = [];
+  for (const f of spec.fonts || []) {
+    try {
+      fonts.push({ family: f.family, dataUri: await videostories.fontDataUri(f.path) });
+    } catch {
+      /* шрифт не прочитался — сцена возьмёт запасной */
+    }
+  }
+  const withAssets = await inlineStoryAssets(spec);
+  const { win, file } = await loadScene(
+    videostories.buildSceneHtml(withAssets, fonts),
+    spec.width,
+    spec.height
+  );
+  await fs.mkdir(dir, { recursive: true });
+  const total = videostories.frameCount(spec);
+  const grab = makeGrabber(win);
+  try {
+    for (let i = 0; i < total; i++) {
+      const image = await grab(`window.seekAndSettle(${(i / spec.fps).toFixed(4)})`);
+      await fs.writeFile(path.join(dir, String(i + 1).padStart(5, "0") + ".png"), image.toPNG());
+      if (onProgress && i % 5 === 0) onProgress({ done: i + 1, total });
+    }
+  } finally {
+    await fs.rm(file, { force: true }).catch(() => {});
+  }
+  return total;
+}
+
+/** Круглая маска для головы — её тоже рисует браузер, ради сглаженного края. */
+async function renderStoryMask(size, dest) {
+  const { win, file } = await loadScene(videostories.maskHtml(size), size, size);
+  const grab = makeGrabber(win);
+  try {
+    const image = await grab("document.body.dataset.mask = '1'");
+    await fs.writeFile(dest, image.toPNG());
+  } finally {
+    await fs.rm(file, { force: true }).catch(() => {});
+  }
+  return dest;
+}
+
+ipcMain.handle("stories:options", () => ({
+  presets: videostories.CANVAS_PRESETS,
+  appear: videostories.APPEAR,
+  kinds: videostories.LAYER_KINDS,
+  graphics: videostories.GRAPHICS_KINDS,
+  seams: videostories.SEAM_KINDS,
+  seamDirections: videostories.SEAM_DIRECTIONS,
+  brand: videostories.BRAND,
+}));
+
+ipcMain.handle("stories:fonts", () => videostories.listFonts());
+ipcMain.handle("stories:probe", (_e, file) => videostories.probe(ffmpegPath(), file));
+ipcMain.handle("stories:validate", (_e, spec) => videostories.validateSpec(spec));
+ipcMain.handle("stories:normalize", (_e, spec) => videostories.normalizeSpec(spec));
+ipcMain.handle("stories:searchIcons", (_e, query) => videostories.searchIcons(query));
+ipcMain.handle("stories:icon", (_e, id, color) => videostories.fetchIconSvg(id, color));
+ipcMain.handle("stories:readSvg", (_e, file) => fs.readFile(file, "utf-8"));
+ipcMain.handle("stories:searchStock", async (_e, query, orientation) => {
+  const settings = await loadSettings();
+  return videostories.searchStock(query, settings.pexelsKey, orientation);
+});
+
+// Предпросмотр отдаётся строкой и живёт в <iframe sandbox>: разметка сцены не
+// должна выполняться в окне самого приложения.
+ipcMain.handle("stories:scene", async (_e, spec) => {
+  const normalized = videostories.normalizeSpec(spec);
+  const fonts = [];
+  for (const f of normalized.fonts || []) {
+    try {
+      fonts.push({ family: f.family, dataUri: await videostories.fontDataUri(f.path) });
+    } catch {
+      /* пропускаем нечитаемый шрифт */
+    }
+  }
+  return videostories.buildSceneHtml(await inlineStoryAssets(normalized), fonts);
+});
+
+ipcMain.handle("stories:prepareScript", async (_e, request) => {
+  const { spec, text } = request || {};
+  const normalized = videostories.normalizeSpec(spec);
+  let info = null;
+  if (normalized.source.kind === "file" && normalized.source.path) {
+    info = await videostories.probe(ffmpegPath(), normalized.source.path).catch(() => null);
+  }
+  // Референсы уходят агенту картинками: описать словами чужой набросок нельзя,
+  // а по картинке он повторяет и расположение, и вид графики.
+  const images = [];
+  const problems = [];
+  for (const filePath of normalized.references) {
+    const ref = await docflow.readReference(filePath, extractDocText);
+    if (ref.error) problems.push(`${ref.name}: ${ref.error}`);
+    else if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+    else problems.push(`${ref.name}: это не картинка — референсом может быть только изображение.`);
+  }
+  return {
+    prompt:
+      videostories.buildScriptPrompt({
+        spec: normalized,
+        sourceInfo: info,
+        text,
+        referenceCount: images.length,
+      }) + (await userContextDigest()),
+    info,
+    images,
+    problems,
+  };
+});
+
+ipcMain.handle("stories:prepareMotion", async (_e, request) => {
+  const { spec, text, assetPaths } = request || {};
+  const normalized = videostories.normalizeSpec(spec);
+  const assets = (assetPaths || []).filter(Boolean).map((p2) => ({
+    name: p2,
+    kind: /\.svg$/i.test(p2) ? "svg" : "image",
+  }));
+  const images = [];
+  const problems = [];
+  for (const filePath of normalized.references) {
+    const ref = await docflow.readReference(filePath, extractDocText);
+    if (ref.error) problems.push(`${ref.name}: ${ref.error}`);
+    else if (ref.image) images.push({ name: ref.name, path: ref.path, kind: "image", size: 0 });
+  }
+  return {
+    prompt:
+      videostories.buildMotionPrompt({
+        spec: normalized,
+        text,
+        assets,
+        referenceCount: images.length,
+      }) + (await userContextDigest()),
+    images,
+    problems,
+  };
+});
+
+ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));
+
+// Кадр исходника под предпросмотр. Показать сцену на пустом месте мало: важно
+// видеть, читается ли текст поверх именно этой картинки.
+ipcMain.handle("stories:poster", async (_e, file, at, width) => {
+  if (!file) return "";
+  const dest = path.join(app.getPath("temp"), `story-poster-${Date.now()}.jpg`);
+  try {
+    await videostories.runFfmpeg(ffmpegPath(), [
+      "-y", "-hide_banner", "-loglevel", "error",
+      "-ss", String(Math.max(0, Number(at) || 0)), "-i", file,
+      "-frames:v", "1", "-vf", `scale=${Math.round(width) || 360}:-1`, dest,
+    ]);
+    const buf = await fs.readFile(dest);
+    return `data:image/jpeg;base64,${buf.toString("base64")}`;
+  } catch {
+    return "";
+  } finally {
+    await fs.rm(dest, { force: true }).catch(() => {});
+  }
+});
+
+// Папки Яндекс-Диска — чтобы выбрать, куда именно класть, а не только в корень.
+ipcMain.handle("stories:cloudFolders", async (_e, folder) => {
+  const entries = await cloud.list("yandex", await currentProviderToken("yandex"), folder || "disk:/");
+  return entries.filter((e) => e.isFolder).map((e) => ({ name: e.name, path: e.path }));
+});
+
+/**
+ * Кладёт готовый ролик на Яндекс-Диск. Файл при этом остаётся и на диске
+ * человека: выгрузка — это копия, а не переезд.
+ */
+ipcMain.handle("stories:upload", async (_e, localPath, remoteFolder) => {
+  if (!localPath) throw new Error("Нечего выгружать — ролик ещё не собран.");
+  const remote = `${(remoteFolder || "disk:/").replace(/\/$/, "")}/${path.basename(localPath)}`;
+  await cloud.upload("yandex", await currentProviderToken("yandex"), localPath, remote);
+  return remote;
+});
+
+ipcMain.handle("stories:render", async (event, payload) => {
+  const { spec: rawSpec, outputDir } = payload || {};
+  if (!outputDir) throw new Error("Не выбрана папка, куда сохранять.");
+  const spec = videostories.normalizeSpec(rawSpec);
+  const bin = ffmpegPath();
+  const send = (stage, data) => event.sender.send("stories-progress", { stage, ...data });
+
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "story-"));
+  try {
+    // Моушн-дизайн собирается без съёмки: подложка — ровный цвет. Раньше сборка
+    // до него просто не доходила — общая проверка «выбрано ли исходное видео»
+    // срабатывала и в этом режиме, и весь режим падал с сообщением про видео,
+    // которого в нём и не должно быть.
+    const noVideo = spec.source.kind === "none";
+    let basePath = spec.source.path;
+    if (spec.source.kind === "stock") {
+      if (!spec.source.path) throw new Error("Не выбран ролик со стока.");
+      send("download", {});
+      basePath = await videostories.downloadTo(spec.source.path, path.join(work, "base.mp4"));
+    }
+    if (!noVideo && !basePath) throw new Error("Не выбрано исходное видео.");
+
+    send("frames", { done: 0, total: videostories.frameCount(spec) });
+    const framesDir = path.join(work, "frames");
+    await renderStoryFrames(spec, framesDir, (p) => send("frames", p));
+
+    let maskPath = null;
+    const head = spec.layers.find((l) => l.kind === "head");
+    // Голова в кружке вырезается из исходного видео — без него маска не нужна.
+    if (head && !noVideo) {
+      maskPath = await renderStoryMask(
+        Math.max(2, Math.round(head.size - head.ringWidth * 2)),
+        path.join(work, "mask.png")
+      );
+    }
+
+    send("encode", {});
+    const info = noVideo
+      ? { duration: spec.duration, width: spec.width, height: spec.height, fps: spec.fps, hasAudio: false }
+      : await videostories.probe(bin, basePath);
+    const safe = spec.title.replace(/[\\/:*?"<>|]/g, " ").trim() || "Ролик";
+    const outPath = path.join(outputDir, `${safe}.mp4`);
+    await fs.mkdir(outputDir, { recursive: true });
+    await videostories.runFfmpeg(
+      bin,
+      videostories.buildFfmpegArgs(
+        spec,
+        { basePath, framesPattern: path.join(framesDir, "%05d.png"), maskPath, outPath },
+        info
+      )
+    );
+    if (payload.uploadTo) {
+      send("upload", {});
+      const remote = `${String(payload.uploadTo).replace(/\/$/, "")}/${path.basename(outPath)}`;
+      await cloud.upload("yandex", await currentProviderToken("yandex"), outPath, remote);
+      send("done", { path: outPath, remote });
+      return outPath;
+    }
+    send("done", { path: outPath });
+    return outPath;
+  } finally {
+    // Кадры и скачанный сток живут только на время сборки: в приложении после
+    // сохранения не остаётся ничего, иначе папка распухала бы от каждой пробы.
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+// ---------- каталог для Тильды ----------
+
+function catalogConfigFile(root) {
+  return path.join(root, "catalog", "config.json");
+}
+
+async function loadCatalogConfig() {
+  const root = await getRootPath();
+  try {
+    return JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+  } catch {
+    return {
+      exportPath: "",
+      previousPath: "",
+      outputDir: "",
+      villages: {},
+      // Тип септика на посёлок: заготовка описания одна на вариацию дома, а
+      // септик в посёлках разный.
+      septics: {},
+      // Исключения по улицам: в одном посёлке 1С бывает несколько кварталов с
+      // разными названиями на витрине.
+      streetNames: [],
+      // Все фото из выгрузки. У домов их до семи, и терять шесть из них,
+      // отдавая витрине одно, незачем.
+      photoMode: "all",
+      // При совпадении по кадастровому номеру фото берутся из прошлого каталога
+      // магазина: они там уже загружены и заведомо открываются на витрине, чего
+      // про ссылки на сторонний сайт из 1С сказать нельзя.
+      photoSource: "tilda",
+      // Каталог на сайте заливается заново: старые номера позиций указывали бы
+      // на удалённые товары, поэтому по умолчанию они не переносятся.
+      carryIds: false,
+    };
+  }
+}
+
+async function saveCatalogConfig(config) {
+  const root = await getRootPath();
+  await fs.mkdir(path.join(root, "catalog"), { recursive: true });
+  const merged = { ...(await loadCatalogConfig()), ...config };
+  await fs.writeFile(catalogConfigFile(root), JSON.stringify(merged, null, 2), "utf-8");
+  return merged;
+}
+
+ipcMain.handle("catalog:config", () => loadCatalogConfig());
+ipcMain.handle("catalog:saveConfig", (_e, config) => saveCatalogConfig(config));
+ipcMain.handle("catalog:library", async () => catalog.readLibrary(await getRootPath()));
+ipcMain.handle("catalog:saveLibrary", async (_e, items) => catalog.writeLibrary(await getRootPath(), items));
+
+ipcMain.handle("catalog:pick", async (_e, what) => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (what === "outputDir") {
+    const r = await dialog.showOpenDialog(win, { title: "Куда сохранить каталог", properties: ["openDirectory", "createDirectory"] });
+    return r.canceled ? "" : r.filePaths[0];
+  }
+  const filters =
+    what === "export"
+      ? [{ name: "Выгрузка 1С", extensions: ["xlsx", "xlsm"] }]
+      : what === "previous"
+        ? [{ name: "Файл каталога", extensions: ["csv"] }]
+        : what === "render"
+        ? [{ name: "Изображение", extensions: ["png", "jpg", "jpeg", "webp", "avif"] }]
+        : [{ name: "Описание", extensions: ["txt", "md", "docx", "doc", "rtf"] }];
+  const r = await dialog.showOpenDialog(win, { title: "Выберите файл", properties: ["openFile"], filters });
+  return r.canceled ? "" : r.filePaths[0];
+});
+
+/**
+ * Сборка каталога. Один путь и для предпросмотра, и для записи файла: показать
+ * человеку одно, а сохранить другое — самый простой способ его подвести.
+ */
+async function assembleCatalog() {
+  const config = await loadCatalogConfig();
+  if (!config.exportPath) throw new Error("Не выбрана выгрузка из 1С.");
+  const root = await getRootPath();
+  const source = await catalog.readExport(config.exportPath);
+  const previous = config.previousPath ? await catalog.readPrevious(config.previousPath) : null;
+
+  // Соответствие имён посёлков достаётся из прошлого каталога: как посёлок
+  // назван на витрине, там уже решено. Ручные правки из настроек важнее.
+  // Имена посёлков из прошлого каталога — только ПОДСКАЗКА, а не истина: в
+  // нынешнем файле они местами неверны (весь КРП лежит в «Самоцветах», хотя к
+  // этому кварталу относится одна улица). Ручные настройки перекрывают их.
+  const villages = {};
+  if (previous) {
+    for (const item of [...source.houses, ...source.plots]) {
+      const name = previous.villages.get(item.cadastral);
+      if (name) villages[item.village] = name;
+    }
+  }
+  Object.assign(villages, config.villages || {});
+
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractCatalogSource);
+  const result = catalog.buildCatalog({
+    houses: source.houses,
+    plots: source.plots,
+    library,
+    villages,
+    streetNames: config.streetNames || [],
+    previous,
+    photoMode: config.photoMode,
+    photoSource: config.photoSource || "tilda",
+    septics: config.septics || {},
+    carryIds: !!config.carryIds,
+  });
+  for (const item of library) if (item.error) result.problems.unshift(item.error);
+  return { ...result, villages, config, source };
+}
+
+ipcMain.handle("catalog:preview", async () => {
+  const result = await assembleCatalog();
+  // Список улиц по посёлкам нужен окну, чтобы исключение можно было выбрать, а
+  // не печатать название улицы вручную и промахиваться в опечатке.
+  const streets = {};
+  for (const item of [...result.source.houses, ...result.source.plots]) {
+    if (!item.street) continue;
+    (streets[item.village] = streets[item.village] || new Set()).add(item.street);
+  }
+  return {
+    problems: result.problems,
+    counts: result.counts,
+    villages: result.villages,
+    streets: Object.fromEntries(Object.entries(streets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "ru"))])),
+    // Первые двадцать строк — увидеть порядок и заполненность, не пересылая
+    // в окно весь каталог.
+    sample: result.rows.slice(0, 20),
+    total: result.rows.length,
+  };
+});
+
+/**
+ * Вся таблица в том виде, в каком её ждёт магазин, — плюс ручные правки.
+ *
+ * Отдаётся целиком: человек смотрит и правит именно то, что уедет в файл, а не
+ * образец из двадцати строк. Двести позиций на двадцать семь колонок окно
+ * выдерживает; резать здесь было бы враньём — правка ушла бы в невидимую часть.
+ */
+ipcMain.handle("catalog:table", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const edits = await catalog.readEdits(root);
+  const applied = catalog.applyEdits(result.rows, edits);
+  const streets = {};
+  for (const item of [...result.source.houses, ...result.source.plots]) {
+    if (!item.street) continue;
+    (streets[item.village] = streets[item.village] || new Set()).add(item.street);
+  }
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractCatalogSource);
+  // Сколько домов подходит каждой заготовке. Без этого числа промах по паре
+  // «метраж + облицовка» выглядит как «программа не подтягивает описания»:
+  // всё работает, просто ни один дом не совпал, и сказать об этом было некому.
+  const fits = catalog.countMatches(result.source.houses, library);
+  return {
+    columns: catalog.TILDA_COLUMNS,
+    rows: applied.rows,
+    edited: applied.touched,
+    problems: result.problems.concat(
+      applied.orphaned.length
+        ? [`Правки к ${applied.orphaned.length} позиц. остались от прошлой выгрузки — этих позиций в текущей нет.`]
+        : []
+    ),
+    counts: result.counts,
+    villages: result.villages,
+    streets: Object.fromEntries(Object.entries(streets).map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "ru"))])),
+    // Список заготовок для выбора описания прямо в ячейке.
+    library: library.map((item) => ({
+      id: item.id,
+      label: catalog.describeLibraryItem(item),
+      text: item.text || "",
+      fits: fits[item.id] || 0,
+      error: item.error || "",
+    })),
+    // Какие вариации есть в выгрузке — чтобы было видно, подо что заводить
+    // заготовку, и не подбирать метраж наугад.
+    variants: catalog.listVariants(result.source.houses),
+  };
+});
+
+ipcMain.handle("catalog:edits", async () => catalog.readEdits(await getRootPath()));
+ipcMain.handle("catalog:saveEdits", async (_e, edits) => catalog.writeEdits(await getRootPath(), edits || {}));
+
+/**
+ * Выгрузка. Два файла рядом: CSV забирает магазин, книгу Excel смотрит человек.
+ */
+ipcMain.handle("catalog:build", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const dir = result.config.outputDir;
+  if (!dir) throw new Error("Не выбрана папка, куда сохранить каталог.");
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
+  await fs.mkdir(dir, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const csvFile = path.join(dir, `каталог-${stamp}.csv`);
+  const xlsxFile = path.join(dir, `каталог-${stamp}.xlsx`);
+  // Без метки кодировки: её нет и в выгрузке самого магазина, а образец —
+  // единственное, что здесь можно проверить. Смотреть каталог глазами
+  // предназначена книга Excel рядом.
+  const columns = catalog.csvColumns(rows);
+  await fs.writeFile(csvFile, catalog.toCsv(rows, columns), "utf-8");
+  await catalog.toXlsx(rows, xlsxFile, columns);
+  const dropped = catalog.ID_COLUMNS.filter((c) => !columns.includes(c));
+  return { csvFile, xlsxFile, rows: rows.length, problems: result.problems, dropped };
+});
+
+// ---------- сайты ----------
+//
+// Материалы лежат на компьютере, сайт собирается блоками под Тильду, а ключи
+// API Тильды хранятся рядом с остальными настройками пользователя и в
+// репозиторий не попадают.
+//
+// Отдельно про перенос: API Тильды работает ТОЛЬКО НА ЧТЕНИЕ — в документации
+// семь методов, все get. Кнопки «залить сайт на Тильду» здесь нет и быть не
+// может; ключи нужны, чтобы посмотреть, что уже есть в проекте.
+
+function sitesConfigFile(root) {
+  return path.join(root, "sites", "config.json");
+}
+
+async function loadSitesConfig() {
+  const root = await getRootPath();
+  try {
+    const stored = JSON.parse(await fs.readFile(sitesConfigFile(root), "utf-8"));
+    return { sources: {}, outputDir: "", publickey: "", secretkey: "", projectId: "", ...stored };
+  } catch {
+    return { sources: {}, outputDir: "", publickey: "", secretkey: "", projectId: "" };
+  }
+}
+
+/** Счётчик запросов к Тильде живёт на время работы приложения. */
+const tildaLimiter = sites.createLimiter();
+
+ipcMain.handle("sites:config", async () => {
+  const config = await loadSitesConfig();
+  // Секретный ключ наружу не отдаём — окну достаточно знать, что он задан.
+  return { ...config, secretkey: config.secretkey ? "сохранён" : "", hasSecret: !!config.secretkey };
+});
+
+ipcMain.handle("sites:saveConfig", async (_e, changes) => {
+  const root = await getRootPath();
+  const current = await loadSitesConfig();
+  const next = { ...current, ...(changes || {}) };
+  // «сохранён» — это метка для окна, а не ключ: по ней настоящий не затираем.
+  if (next.secretkey === "сохранён") next.secretkey = current.secretkey;
+  await fs.mkdir(path.dirname(sitesConfigFile(root)), { recursive: true });
+  await fs.writeFile(sitesConfigFile(root), JSON.stringify(next, null, 2), "utf-8");
+  return { ...next, secretkey: next.secretkey ? "сохранён" : "", hasSecret: !!next.secretkey };
+});
+
+ipcMain.handle("sites:pickFolder", async (_e, title) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const r = await dialog.showOpenDialog(win, {
+    title: title || "Выберите папку",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return r.canceled ? "" : r.filePaths[0];
+});
+
+ipcMain.handle("sites:scan", async () => {
+  const config = await loadSitesConfig();
+  return sites.collectSources(config.sources);
+});
+
+ipcMain.handle("sites:list", async () => sites.listSites(await getRootPath()));
+ipcMain.handle("sites:get", async (_e, id) => sites.readSite(await getRootPath(), id));
+ipcMain.handle("sites:save", async (_e, site) =>
+  sites.writeSite(await getRootPath(), { ...site, updated: new Date().toISOString() })
+);
+
+ipcMain.handle("sites:blockHtml", (_e, block) => sites.buildBlockHtml(block));
+ipcMain.handle("sites:check", (_e, site) => sites.checkSite(site));
+
+/** Сколько запросов к Тильде осталось в этом часе. */
+ipcMain.handle("sites:tildaLimit", () => ({ left: tildaLimiter.left(), limit: sites.RATE_LIMIT }));
+
+ipcMain.handle("sites:tilda", async (_e, method, params) => {
+  const config = await loadSitesConfig();
+  return sites.tildaCall(
+    method,
+    { ...(params || {}), publickey: config.publickey, secretkey: config.secretkey },
+    { limiter: tildaLimiter, fetchImpl: proxyAwareFetch }
+  );
+});
+
+/**
+ * Сборка сайта агентом.
+ *
+ * Текстовые материалы читаются целиком и уходят в задание: сайт пишется по ним,
+ * а не по названиям файлов. Картинки перечисляются именами — их агент не видит,
+ * и обещать обратное нельзя.
+ */
+/**
+ * Уменьшенная копия картинки для показа модели.
+ *
+ * Показывать референс в исходном размере незачем и дорого: снимок с телефона —
+ * это миллионы точек, а приёмы вёрстки (сетка, плотность, типографика) читаются
+ * и с 900 px. nativeImage уже есть в Electron, отдельной библиотеки не нужно.
+ */
+async function siteImagePart(filePath, width = 900) {
+  const buf = await fs.readFile(filePath);
+  const image = nativeImage.createFromBuffer(buf);
+  if (image.isEmpty()) {
+    // SVG и повреждённые файлы nativeImage не читает — отдаём как есть, если он
+    // не слишком велик, иначе пропускаем.
+    if (buf.length > 400 * 1024) return null;
+    const ext = path.extname(filePath).toLowerCase().replace(".", "") || "png";
+    return `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buf.toString("base64")}`;
+  }
+  const size = image.getSize();
+  const small = size.width > width ? image.resize({ width, quality: "good" }) : image;
+  return `data:image/jpeg;base64,${small.toJPEG(78).toString("base64")}`;
+}
+
+/**
+ * Сборка сайта агентом.
+ *
+ * Текстовые материалы читаются целиком. Референсы, логотипы и картинки
+ * дизайн-системы УХОДЯТ КАРТИНКАМИ — агент на них смотрит, а не читает имена
+ * файлов. Работает это, если выбранная модель понимает изображения; если нет,
+ * запрос вернётся ошибкой, и об этом честнее узнать сразу.
+ *
+ * Фотографии в блоки агент не вставляет: он ставит метки, а приложение
+ * подставляет настоящие адреса со стока. Прототип без изображений оценить
+ * нельзя, а придуманные моделью адреса не открываются.
+ */
+ipcMain.handle("sites:generate", async (_e, brief) => {
+  const settings = await loadSettings();
+  const config = await loadSitesConfig();
+  const { files, problems } = await sites.collectSources(config.sources);
+
+  // Текст проекта.
+  const texts = [];
+  let budget = 60000;
+  for (const file of files.text || []) {
+    if (budget <= 0) break;
+    try {
+      const text = (await extractDocText(file.path)).slice(0, budget);
+      if (text.trim()) {
+        texts.push({ name: file.name, text });
+        budget -= text.length;
+      }
+    } catch (e) {
+      problems.push(`Не прочитан файл «${file.name}»: ${e.message}`);
+    }
+  }
+
+  // Дизайн-система: из текстовых файлов вынимаем конкретные значения.
+  let designText = "";
+  for (const file of files.design || []) {
+    if (file.kind !== "text" || designText.length > 40000) continue;
+    try {
+      designText += "\n" + (await extractDocText(file.path));
+    } catch {
+      // Нечитаемый файл дизайн-системы не повод останавливать сборку.
+    }
+  }
+  const tokens = sites.extractTokens(designText);
+
+  // Картинки, на которые агент смотрит. Порядок важен: сперва референсы — ради
+  // них всё и затевалось, — потом логотипы, потом образцы дизайн-системы.
+  const maxImages = Number(brief?.maxImages) || 6;
+  const shown = [];
+  const queue = [
+    ...(files.references || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "референс" })),
+    ...(files.logos || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "логотип" })),
+    ...(files.design || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "дизайн-система" })),
+  ];
+  for (const file of queue.slice(0, maxImages)) {
+    try {
+      const url = await siteImagePart(file.path);
+      if (url) shown.push({ ...file, url });
+    } catch (e) {
+      problems.push(`Не прочитана картинка «${file.name}»: ${e.message}`);
+    }
+  }
+  if (queue.length > maxImages) {
+    problems.push(`Показано агенту ${maxImages} картинок из ${queue.length} — остальные в задание не попали.`);
+  }
+
+  const task = sites.buildSiteBrief({
+    kind: brief?.kind || "лендинг",
+    goal: brief?.goal || "",
+    audience: brief?.audience || "",
+    sources: files,
+    texts,
+    tilda: brief?.tilda || null,
+  });
+  const tokensText = sites.describeTokens(tokens);
+  const full =
+    task +
+    (tokensText ? `\n\n=== ДИЗАЙН-СИСТЕМА (использовать именно эти значения) ===\n${tokensText}` : "") +
+    (brief?.extra ? `\n\nДополнительно: ${brief.extra}` : "") +
+    (shown.length ? `\n\nНиже приложены картинки: ${shown.map((f) => `${f.role} «${f.name}»`).join(", ")}.` : "");
+
+  const content = shown.length
+    ? [{ type: "text", text: full }, ...shown.map((f) => ({ type: "image_url", image_url: { url: f.url } }))]
+    : full;
+
+  const system = sites.SITE_AGENT_PROMPT + (brief?.skill ? `\n\n=== НАВЫК ===\n${brief.skill}` : "");
+  const reply = await callModelOnce(settings, [
+    { role: "system", content: system },
+    { role: "user", content },
+  ]);
+
+  const site = sites.parseSite(reply);
+
+  // Метки фотографий → настоящие адреса со стока.
+  const marks = sites.collectPhotoMarks(site.blocks);
+  const byQuery = {};
+  if (marks.length && settings.pexelsKey) {
+    for (const mark of marks) {
+      try {
+        const found = await sites.searchPhotos(mark.query, settings.pexelsKey, { fetchImpl: proxyAwareFetch });
+        if (found[0]) byQuery[mark.query] = found[0];
+      } catch (e) {
+        problems.push(`Сток не ответил на «${mark.query}»: ${e.message}`);
+      }
+    }
+  } else if (marks.length) {
+    problems.push(
+      `В блоках ${marks.length} мест под фотографии, но не задан ключ Pexels в настройках — ` +
+        "прототип останется с пустыми метками вместо снимков."
+    );
+  }
+  const applied = sites.applyPhotos(site.blocks, byQuery);
+  site.blocks = applied.blocks;
+  site.photos = applied.used;
+  for (const q of applied.missing) problems.push(`Не нашлось фото по запросу «${q}» — метка осталась в блоке.`);
+
+  site.id = brief?.id || "s" + Date.now().toString(36);
+  site.title = brief?.title || "Новый сайт";
+  site.kind = brief?.kind || "лендинг";
+  site.tokens = tokens;
+  site.shownImages = shown.map((f) => ({ name: f.name, role: f.role }));
+  site.updated = new Date().toISOString();
+  site.problems = problems.concat(sites.checkSite(site));
+  site.raw = reply;
+  await sites.writeSite(await getRootPath(), site);
+  return site;
+});
+
+ipcMain.handle("sites:export", async (_e, site) => {
+  const config = await loadSitesConfig();
+  if (!config.outputDir) throw new Error("Не выбрана папка, куда выгрузить сайт.");
+  const dir = path.join(config.outputDir, String(site.title || site.id).replace(/[^\wа-яёА-ЯЁ -]/gi, "").trim() || site.id);
+  return sites.exportSite(site, dir);
+});
+
+// ---------- видеотека ----------
+//
+// Записи не копируются: человек указывает папку, приложение читает файлы на
+// месте и хранит только расшифровку. Двадцать часов записей — это гигабайты
+// видео и примерно мегабайт текста.
+
+function libraryConfigFile(root) {
+  return path.join(root, "library", "config.json");
+}
+
+async function loadLibraryConfig() {
+  const root = await getRootPath();
+  try {
+    return JSON.parse(await fs.readFile(libraryConfigFile(root), "utf-8"));
+  } catch {
+    return {
+      folderPath: "",
+      // Локально по умолчанию: материал не покидает компьютер. Платный путь
+      // включается только руками — на записях бывают клиентские дела.
+      engine: "local",
+      binPath: "",
+      modelPath: "",
+      threads: Math.max(2, Math.min(8, os.cpus().length - 1)),
+      remoteModel: "whisper-1",
+      language: "ru",
+    };
+  }
+}
+
+async function saveLibraryConfig(config) {
+  const root = await getRootPath();
+  await fs.mkdir(path.join(root, "library"), { recursive: true });
+  const merged = { ...(await loadLibraryConfig()), ...config };
+  await fs.writeFile(libraryConfigFile(root), JSON.stringify(merged, null, 2), "utf-8");
+  return merged;
+}
+
+ipcMain.handle("library:config", () => loadLibraryConfig());
+ipcMain.handle("library:saveConfig", (_e, config) => saveLibraryConfig(config));
+
+ipcMain.handle("library:pickFolder", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Папка с записями",
+    properties: ["openDirectory"],
+  });
+  return result.canceled ? "" : result.filePaths[0];
+});
+
+ipcMain.handle("library:pickFile", async (_e, title) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, { title: title || "Выберите файл", properties: ["openFile"] });
+  return result.canceled ? "" : result.filePaths[0];
+});
+
+ipcMain.handle("library:engineStatus", async () => {
+  const config = await loadLibraryConfig();
+  return library.localEngineStatus(config);
+});
+
+/** Что лежит в папке и что из этого уже расшифровано. */
+ipcMain.handle("library:scan", async () => {
+  const config = await loadLibraryConfig();
+  if (!config.folderPath) return { files: [], missing: false };
+  const root = await getRootPath();
+  let files;
+  try {
+    files = await library.scanFolder(config.folderPath);
+  } catch {
+    return { files: [], missing: true };
+  }
+  const docs = await library.listDocs(root);
+  const byPath = new Map(docs.map((d) => [d.path, d]));
+  return {
+    files: files.map((f) => {
+      const doc = byPath.get(f.path);
+      return {
+        ...f,
+        transcribed: !!doc,
+        seconds: doc?.seconds || 0,
+        chunks: doc?.chunks?.length || 0,
+        transcribedAt: doc?.transcribedAt || 0,
+        engine: doc?.engine || "",
+      };
+    }),
+    // Расшифровки записей, которых в папке больше нет: файл переименовали или
+    // унесли. Молча держать их в поиске нельзя — по ссылке будет некуда пойти.
+    orphans: docs.filter((d) => !files.some((f) => f.path === d.path)).map((d) => ({ path: d.path, name: d.name })),
+    missing: false,
+  };
+});
+
+// Очередь расшифровки живёт в главном процессе: она идёт часами, и переживать
+// перерисовки окна ей нельзя.
+let libraryQueue = null;
+
+ipcMain.handle("library:transcribe", async (event, paths) => {
+  if (libraryQueue) throw new Error("Расшифровка уже идёт.");
+  const config = await loadLibraryConfig();
+  const root = await getRootPath();
+  const bin = ffmpegPath();
+  const settings = await loadSettings();
+  const send = (payload) => event.sender.send("library-progress", payload);
+
+  if (config.engine === "local") {
+    const status = library.localEngineStatus(config);
+    if (!status.ready) throw new Error(status.reason);
+  }
+
+  const queue = { stopped: false };
+  libraryQueue = queue;
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "library-"));
+  const done = [];
+  const failed = [];
+
+  try {
+    for (let i = 0; i < paths.length; i++) {
+      if (queue.stopped) break;
+      const filePath = paths[i];
+      const name = path.basename(filePath);
+      send({ stage: "file", index: i, total: paths.length, name, done: done.length });
+      try {
+        const seconds = await library.probeDuration(bin, filePath);
+        let segments;
+        if (config.engine === "local") {
+          const wav = path.join(work, "audio.wav");
+          send({ stage: "audio", index: i, total: paths.length, name });
+          await library.extractAudio(bin, filePath, wav);
+          send({ stage: "transcribe", index: i, total: paths.length, name, progress: 0 });
+          segments = await library.transcribeLocal({
+            binPath: config.binPath,
+            modelPath: config.modelPath,
+            wavPath: wav,
+            language: config.language || "ru",
+            threads: config.threads,
+            onProgress: (progress) =>
+              send({ stage: "transcribe", index: i, total: paths.length, name, progress }),
+          });
+          await fs.rm(wav, { force: true });
+          await fs.rm(wav.replace(/\.wav$/, ".srt"), { force: true });
+        } else {
+          const audio = path.join(work, "audio.opus");
+          send({ stage: "audio", index: i, total: paths.length, name });
+          await library.extractAudioCompressed(bin, filePath, audio);
+          send({ stage: "transcribe", index: i, total: paths.length, name, progress: 0 });
+          segments = await library.transcribeRemote({
+            baseUrl: settings.baseUrl,
+            apiKey: settings.apiKey,
+            model: config.remoteModel || "whisper-1",
+            audioPath: audio,
+            language: config.language || "ru",
+          });
+          await fs.rm(audio, { force: true });
+        }
+
+        const chunks = library.buildChunks(segments);
+        await library.writeDoc(root, {
+          path: filePath,
+          name,
+          kind: library.kindOf(name),
+          seconds,
+          engine: config.engine,
+          transcribedAt: Date.now(),
+          segments,
+          chunks,
+        });
+        done.push(filePath);
+      } catch (e) {
+        // Одна сорвавшаяся запись не должна останавливать всю ночь работы.
+        failed.push({ path: filePath, error: e instanceof Error ? e.message : String(e) });
+        send({ stage: "failed", index: i, total: paths.length, name, error: String(e && e.message) });
+      }
+    }
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+    libraryQueue = null;
+  }
+  send({ stage: "done", done: done.length, failed: failed.length, stopped: queue.stopped });
+  return { done: done.length, failed, stopped: queue.stopped };
+});
+
+ipcMain.handle("library:stop", () => {
+  if (libraryQueue) libraryQueue.stopped = true;
+  return true;
+});
+
+ipcMain.handle("library:forget", async (_e, filePath) => {
+  await library.removeDoc(await getRootPath(), filePath);
+  return true;
+});
+
+/** Поиск по расшифровкам и задание для модели — строго по источникам. */
+ipcMain.handle("library:ask", async (_e, question) => {
+  const root = await getRootPath();
+  const docs = await library.listDocs(root);
+  const index = library.buildIndex(docs);
+  const hits = library.search(index, question, 14);
+  return {
+    prompt: library.buildAnswerPrompt({ question, hits }),
+    hits,
+    searched: index.total,
+    files: docs.length,
+  };
+});
+
+/** Пересказ одной записи целиком: в модель уходит вся её расшифровка. */
+ipcMain.handle("library:retell", async (_e, filePath) => {
+  const root = await getRootPath();
+  const doc = await library.readDoc(root, filePath);
+  if (!doc) throw new Error("Эта запись ещё не расшифрована.");
+  const hits = (doc.chunks || []).map((c) => ({ ...c, name: doc.name, file: doc.path }));
+  return {
+    prompt: library.buildAnswerPrompt({
+      question: `Перескажи запись «${doc.name}» целиком.`,
+      hits,
+      mode: "retell",
+    }),
+    hits,
+    searched: hits.length,
+    files: 1,
+  };
+});
+
+ipcMain.handle("library:verify", (_e, answer, hits) => library.verifyCitations(answer, hits));
 
 // ---------- финмодель ----------
 
