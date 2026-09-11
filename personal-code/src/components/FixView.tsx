@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ChatCopy, WorkspaceInfo } from "../lib/types";
+import { errorText } from "./ConnectionStatus";
 
 interface Props {
   /** Открыть вкладку «Код»: там агент показывает правки и там их подтверждают. */
@@ -18,6 +19,15 @@ interface Props {
 export default function FixView({ onOpenCode }: Props) {
   const [copies, setCopies] = useState<ChatCopy[]>([]);
   const [selected, setSelected] = useState("");
+  // Второй источник правки: любая ветка на GitHub — код плагина, канонический
+  // чат, чужая доработка. Папку на компьютере искать не нужно, и git не нужен.
+  const [source, setSource] = useState<"copy" | "branch">("copy");
+  const [repos, setRepos] = useState<{ fullName: string }[]>([]);
+  const [repo, setRepo] = useState("");
+  const [branches, setBranches] = useState<{ name: string }[]>([]);
+  const [branch, setBranch] = useState("");
+  const [subdir, setSubdir] = useState("");
+  const [log, setLog] = useState<string[]>([]);
   const [reportText, setReportText] = useState("");
   const [reportName, setReportName] = useState("");
   const [description, setDescription] = useState("");
@@ -38,6 +48,49 @@ export default function FixView({ onOpenCode }: Props) {
 
   const copy = copies.find((c) => c.id === selected) || null;
 
+  useEffect(() => {
+    // Канонический репозиторий — первый в списке: чаще всего правят именно его.
+    window.api
+      .copySource()
+      .then((s) => {
+        setRepo((prev) => prev || s.repo);
+        setSubdir((prev) => prev || "personal-chat");
+      })
+      .catch(() => {});
+    window.api
+      .listBranchRepos()
+      .then(setRepos)
+      .catch(() => setRepos([]));
+  }, []);
+
+  useEffect(() => {
+    if (!repo) return;
+    window.api
+      .listBranches(repo)
+      .then((all) => {
+        setBranches(all);
+        setBranch((prev) => (all.some((b) => b.name === prev) ? prev : all[0]?.name || ""));
+      })
+      .catch(() => setBranches([]));
+  }, [repo]);
+
+  useEffect(() => window.api.onBranchLog((line) => setLog((prev) => [...prev, line])), []);
+
+  /** Выкачивает ветку и открывает её как рабочую папку. */
+  async function openBranch(handOverTask = "") {
+    if (!repo || !branch) {
+      setError("Выберите репозиторий и ветку.");
+      return;
+    }
+    setLog([]);
+    await act(async () => {
+      const workspace = await window.api.openBranch({ repo, branch, subdir: subdir.trim() });
+      if (handOverTask) await window.api.agentSend(handOverTask, {});
+      onOpenCode(workspace);
+      return workspace;
+    }, handOverTask ? "Ветка выкачана, агент разбирается — вкладка «Код»." : "Ветка открыта — вкладка «Код».");
+  }
+
   async function act<T>(fn: () => Promise<T>, success = ""): Promise<T | null> {
     setBusy(true);
     setError("");
@@ -47,7 +100,7 @@ export default function FixView({ onOpenCode }: Props) {
       if (success) setNotice(success);
       return value;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
       return null;
     } finally {
       setBusy(false);
@@ -94,12 +147,94 @@ export default function FixView({ onOpenCode }: Props) {
     <div className="settings-view">
       <h2 className="view-title">Фикс</h2>
       <p className="hint">
-        Что-то сломалось у человека, которому вы выдали копию. Здесь его копия открывается как
-        обычная рабочая папка: репозиторий выкачивается на компьютер, агент разбирается в коде
-        именно этой копии и предлагает правку — вы её смотрите диффом и подтверждаете, как везде.
+        Что-то сломалось у человека, которому вы выдали копию, — или в плагине, который вы делаете.
+        Здесь нужный код открывается как рабочая папка: он выкачивается из GitHub (git на этом
+        компьютере не нужен), агент разбирается и предлагает правку — вы её смотрите диффом и
+        подтверждаете, как везде. Отправляет правку обратно вкладка «Git».
       </p>
 
-      {copies.length === 0 && (
+      <section className="card">
+        <h3 className="card-title">Что правим</h3>
+        <div className="row">
+          <label className="radio-line">
+            <input
+              type="radio"
+              checked={source === "copy"}
+              onChange={() => setSource("copy")}
+            />{" "}
+            Копию тестировщика
+          </label>
+          <label className="radio-line">
+            <input
+              type="radio"
+              checked={source === "branch"}
+              onChange={() => setSource("branch")}
+            />{" "}
+            Ветку на GitHub — чат или плагин
+          </label>
+        </div>
+      </section>
+
+      {source === "branch" && (
+        <section className="card">
+          <h3 className="card-title">Ветка</h3>
+          <div className="row">
+            <select className="input" value={repo} onChange={(e) => setRepo(e.target.value)}>
+              {!repos.some((r) => r.fullName === repo) && repo && <option value={repo}>{repo}</option>}
+              {repos.map((r) => (
+                <option key={r.fullName} value={r.fullName}>
+                  {r.fullName}
+                </option>
+              ))}
+            </select>
+            <select className="input" value={branch} onChange={(e) => setBranch(e.target.value)}>
+              {branches.map((b) => (
+                <option key={b.name} value={b.name}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="field-label">Папка внутри репозитория (необязательно)</label>
+          <input
+            className="input"
+            placeholder="personal-chat"
+            value={subdir}
+            onChange={(e) => setSubdir(e.target.value)}
+          />
+          <p className="hint">
+            В общем репозитории чат лежит в <code>personal-chat</code> — тогда в рабочей папке будет
+            только он. У копии тестировщика код лежит в корне: поле оставьте пустым.
+          </p>
+          <div className="row">
+            <button type="button" className="btn btn-primary" onClick={() => openBranch()} disabled={busy}>
+              {busy ? "Выкачиваю…" : "Подтянуть и открыть"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() =>
+                openBranch(
+                  [
+                    `Ветка ${branch} репозитория ${repo}${subdir.trim() ? `, папка ${subdir.trim()}` : ""}.`,
+                    description.trim() ? `Что не так:\n${description.trim()}` : "",
+                    reportText.trim() ? `Отчёт о проблеме (${reportName}):\n\n${reportText.trim().slice(0, 20000)}` : "",
+                    "Разберись по коду и предложи правку. Сначала прочитай нужные файлы.",
+                  ]
+                    .filter(Boolean)
+                    .join("\n\n")
+                )
+              }
+              disabled={busy || (!description.trim() && !reportText.trim())}
+            >
+              Отдать агенту
+            </button>
+          </div>
+          {log.length > 0 && <pre className="build-log">{log.slice(-8).join("\n")}</pre>}
+        </section>
+      )}
+
+      {source === "copy" && copies.length === 0 && (
         <section className="card">
           <p className="hint">
             Собранных копий пока нет. Соберите копию во вкладке «Демо» или «Чистовая сборка» — после
@@ -108,7 +243,7 @@ export default function FixView({ onOpenCode }: Props) {
         </section>
       )}
 
-      {copies.length > 0 && (
+      {source === "copy" && copies.length > 0 && (
         <>
           <section className="card">
             <h3 className="card-title">Чья копия</h3>

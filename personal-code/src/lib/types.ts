@@ -67,6 +67,8 @@ export interface OpenedFile {
 export interface WorkspaceInfo {
   root: string;
   isRepo: boolean;
+  /** Папка выкачана из ветки GitHub — отправлять правки будет панель ветки. */
+  branch?: { repo: string; branch: string; subdir: string } | null;
   recent?: string[];
 }
 
@@ -222,6 +224,25 @@ export interface ChatCopy {
   updatedAt: number;
 }
 
+/** Что изменилось в папке, выкачанной из ветки GitHub. */
+export interface BranchChanges {
+  manifest: { repo: string; branch: string; subdir: string; head: string; pulledAt: string };
+  added: string[];
+  changed: string[];
+  removed: string[];
+  total: number;
+}
+
+export interface BranchPushResult {
+  ok: boolean;
+  message?: string;
+  commit?: string;
+  branch?: string;
+  repo?: string;
+  files?: number;
+  url?: string;
+}
+
 export interface CopySource {
   /** Репозиторий с каноническим «Личным чатом», вида «владелец/репозиторий». */
   repo: string;
@@ -309,6 +330,34 @@ declare global {
 
       copyPlugins(): Promise<{ id: string; name: string }[]>;
       copySource(): Promise<CopySource>;
+
+      listBranchRepos(): Promise<{ fullName: string; name: string; owner: string }[]>;
+      listBranches(repo: string): Promise<{ name: string; sha: string }[]>;
+      openBranch(options: { repo: string; branch: string; subdir?: string }): Promise<WorkspaceInfo>;
+      branchChanges(): Promise<BranchChanges | null>;
+      pushBranch(message: string): Promise<BranchPushResult>;
+      openPullRequest(options: { base?: string; title?: string; body?: string }): Promise<{
+        number: number;
+        url: string;
+        created: boolean;
+      }>;
+      createBranch(options: { repo: string; from?: string; name: string }): Promise<{
+        name: string;
+        sha: string;
+        created: boolean;
+      }>;
+      runBranchWorkflow(options: { repo: string; branch: string; workflow?: string }): Promise<{
+        started: boolean;
+        workflow: string;
+        url: string;
+      }>;
+      createApp(options: { name: string; description: string; start: "blank" | "chat" }): Promise<{
+        repo: string;
+        branch: string;
+        url: string;
+        created: boolean;
+      }>;
+      onBranchLog(handler: (line: string) => void): () => void;
       listCopies(): Promise<ChatCopy[]>;
       saveCopy(copy: Partial<ChatCopy>): Promise<{ all: ChatCopy[]; saved: ChatCopy }>;
       deleteCopy(

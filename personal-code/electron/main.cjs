@@ -24,6 +24,7 @@ const github = require("./github.cjs");
 const copies = require("./copies.cjs");
 const publish = require("./publish.cjs");
 const sources = require("./sources.cjs");
+const branches = require("./branches.cjs");
 
 let mainWindow = null;
 
@@ -66,7 +67,15 @@ async function openWorkspace(dir) {
   if (!stat.isDirectory()) throw new Error(`«${dir}» — это не папка.`);
   currentRoot = path.resolve(dir);
   const recent = await rememberWorkspace(currentRoot);
-  return { root: currentRoot, isRepo: git.isRepo(currentRoot), recent };
+  // Папка может быть веткой с GitHub, выкачанной без git: тогда отправляет
+  // изменения не вкладка «Git», а панель ветки.
+  const branch = await branches.readManifest(currentRoot);
+  return {
+    root: currentRoot,
+    isRepo: git.isRepo(currentRoot),
+    branch: branch ? { repo: branch.repo, branch: branch.branch, subdir: branch.subdir || "" } : null,
+    recent,
+  };
 }
 
 // ---------- data folder ----------
@@ -542,6 +551,161 @@ function registerHandlers() {
     await settingsStore.writeSection("copies", next);
     return { all: next, repo, retired: retired.size };
   });
+  // ---------- ветки GitHub как рабочие папки ----------
+  //
+  // Всё, что раньше требовало git на компьютере: подтянуть ветку, отправить
+  // правки, открыть запрос на слияние. Папка лежит в папке с данными, рядом с
+  // копиями и плагинами.
+
+  /** Куда выкачивать ветку: «Документы\Личный код\Ветки\владелец-репозиторий-ветка». */
+  async function branchDir(repo, branch) {
+    const slug = `${repo}-${branch}`.replace(/[^\wа-яёА-ЯЁ.-]+/gi, "-").slice(0, 80);
+    return path.join(await appDataDir(), "Ветки", slug);
+  }
+
+  async function requireToken() {
+    const account = await github.getAccount(await appDataDir());
+    if (!account.token) throw new Error("Не задан токен GitHub — вкладка «Настройки».");
+    return account.token;
+  }
+
+  /** Репозитории и ветки, из которых можно выбирать. */
+  ipcMain.handle("branches:repos", async () => {
+    const token = await requireToken();
+    const repos = await github.listRepos(token);
+    return repos.map((r) => ({ fullName: r.fullName, name: r.name, owner: r.owner }));
+  });
+  ipcMain.handle("branches:list", async (_e, repo) => {
+    const token = await requireToken();
+    const { owner, name } = branches.splitRepo(repo);
+    return github.listBranches(token, owner, name);
+  });
+
+  /** Выкачать ветку и открыть её как рабочую папку. */
+  ipcMain.handle("branches:open", async (event, options) => {
+    const token = await requireToken();
+    const repo = String(options?.repo || "").trim();
+    const branch = String(options?.branch || "").trim();
+    const subdir = String(options?.subdir || "").trim();
+    const send = (line) => {
+      if (!event.sender.isDestroyed()) event.sender.send("branches:log", line);
+    };
+    const dir = await branchDir(repo, branch);
+    await branches.pull(token, { repo, branch, dir, subdir, onLog: send });
+    return openWorkspace(dir);
+  });
+
+  /** Что изменилось в открытой папке-ветке. */
+  ipcMain.handle("branches:changes", async () => {
+    if (!currentRoot) return null;
+    return branches.changes(currentRoot);
+  });
+
+  /** Отправить правки одним коммитом. */
+  ipcMain.handle("branches:push", async (event, message) => {
+    const token = await requireToken();
+    const send = (line) => {
+      if (!event.sender.isDestroyed()) event.sender.send("branches:log", line);
+    };
+    return branches.push(token, currentRoot, { message, onLog: send });
+  });
+
+  /** Запрос на слияние для открытой ветки. */
+  ipcMain.handle("branches:pullRequest", async (_e, options) => {
+    const token = await requireToken();
+    return branches.pullRequest(token, currentRoot, {
+      base: options?.base || "main",
+      title: options?.title,
+      body: options?.body || "",
+    });
+  });
+
+  /** Новая ветка от другой — чтобы правки шли не в главную. */
+  ipcMain.handle("branches:create", async (_e, options) => {
+    const token = await requireToken();
+    return branches.branchFrom(token, {
+      repo: options?.repo,
+      from: options?.from || "main",
+      name: options?.name,
+    });
+  });
+
+  /** Запустить сборку ветки на GitHub — тот же рабочий процесс, что у копий. */
+  ipcMain.handle("branches:runWorkflow", async (_e, options) => {
+    const token = await requireToken();
+    const { owner, name } = branches.splitRepo(options?.repo);
+    const workflows = await github.listWorkflows(token, owner, name);
+    const wanted = workflows.find((w) => w.path.endsWith(String(options?.workflow || "")) || w.name === options?.workflow);
+    const chosen = wanted || workflows[0];
+    if (!chosen) throw new Error(`В репозитории ${owner}/${name} нет рабочих процессов сборки.`);
+    await github.runWorkflow(token, owner, name, chosen.id, options?.branch || "main");
+    return { started: true, workflow: chosen.name, url: `https://github.com/${owner}/${name}/actions` };
+  });
+
+  /**
+   * Новое приложение: свой закрытый репозиторий, не связанный с копиями чата.
+   *
+   * «С чистого листа» — README и рабочий процесс сборки, чтобы было куда расти.
+   * «С кода чата» — снимок personal-chat как отправная точка: быстрее, но тащит
+   * за собой всё, что в чате есть.
+   */
+  ipcMain.handle("apps:create", async (event, options) => {
+    const token = await requireToken();
+    const send = (line) => {
+      if (!event.sender.isDestroyed()) event.sender.send("branches:log", line);
+    };
+    const name = String(options?.name || "").trim();
+    if (!name) throw new Error("Нужно название приложения.");
+    const repoName = copies.repoNameFor(name);
+    const description = String(options?.description || "").trim();
+    const fromChat = options?.start === "chat";
+
+    const account = await github.testConnection(token);
+    if (!account.ok) throw new Error(`GitHub не принял токен: ${account.error}`);
+    const owner = account.login;
+
+    const existing = (await github.listRepos(token).catch(() => [])).find((r) => r.name === repoName);
+    let repo = existing;
+    if (repo) send(`Репозиторий уже есть: ${repo.fullName} — продолжаю в нём.`);
+    else {
+      send(`Создаю закрытый репозиторий ${repoName}…`);
+      repo = await github.createRepo(token, { name: repoName, description: description.slice(0, 200), private: true });
+    }
+
+    const settings = await settingsStore.load();
+    const sourceRepo = (settings.sourceRepo || "").trim() || sources.DEFAULT_SOURCE_REPO;
+    const sourceBranch = (settings.sourceBranch || "").trim() || "main";
+
+    const head = await github.branchHead(token, owner, repo.name, "main");
+    if (!head) {
+      if (fromChat) {
+        send("Кладу код «Личного чата» как отправную точку…");
+        const canonical = await sources.canonicalFiles(token, { repo: sourceRepo, branch: sourceBranch });
+        await sources.publishSnapshot(token, {
+          from: canonical,
+          to: repo.fullName,
+          message: `${name}: отправная точка — код «Личного чата»`,
+          extraFiles: [{ path: "ЗАДУМКА.md", content: `# ${name}\n\n${description}\n` }],
+          onLog: send,
+        });
+      } else {
+        send("Кладу описание задумки…");
+        await github.commitFile(
+          token,
+          owner,
+          repo.name,
+          "ЗАДУМКА.md",
+          `# ${name}\n\n${description}\n\nПриложение только начато: код пишется во вкладке «Код» «Личного кода».\n`,
+          `${name}: начало`,
+          undefined,
+          "main"
+        );
+      }
+    }
+
+    return { repo: repo.fullName, branch: "main", url: `https://github.com/${repo.fullName}`, created: !existing };
+  });
+
   /** Откуда берётся код копий — показывается на вкладках сборки. */
   ipcMain.handle("copies:source", async () => {
     const settings = await settingsStore.load();

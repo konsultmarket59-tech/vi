@@ -269,7 +269,30 @@ app.whenReady().then(async () => {
     );
     await waitFor(win, `!!document.querySelector(".view-title")`, "страница фикса открылась");
     const fixText = await win.webContents.executeJavaScript(text(".settings-view"));
-    check("объясняет, что чинится код самой копии", fixText.includes("как обычная рабочая папка"), "");
+    check("объясняет, что чинится код самой копии", fixText.includes("как рабочая папка"), fixText.slice(0, 200));
+    // Папку на компьютере искать не нужно: правится либо копия, либо любая ветка
+    // на GitHub — и git для этого не требуется.
+    check("можно править и ветку на GitHub", fixText.includes("Ветку на GitHub"), fixText.slice(0, 300));
+    check("сказано, что git не нужен", /git на этом компьютере не нужен/i.test(fixText), fixText.slice(0, 300));
+
+    console.log("\nвкладка Создать");
+    await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll(".tab")].find(t=>t.textContent==="Создать").click()`
+    );
+    await waitFor(win, `!!document.querySelector(".view-title")`, "страница «Создать» открылась");
+    const createText = await win.webContents.executeJavaScript(text(".settings-view"));
+    check("предлагает новый плагин", createText.includes("Новый плагин для «Личного чата»"), createText.slice(0, 200));
+    check("и новое приложение", createText.includes("Новое приложение"), createText.slice(0, 200));
+    check(
+      "у плагина спрашивают ветку: новую или начатую",
+      createText.includes("Новая — от main") || createText.includes("Продолжить начатую"),
+      createText.slice(0, 400)
+    );
+    check(
+      "у приложения спрашивают, с чего начать",
+      createText.includes("С чистого листа"),
+      createText.slice(0, 400)
+    );
     check(
       "без собранных копий не притворяется, что готова чинить",
       fixText.includes("Собранных копий пока нет"),

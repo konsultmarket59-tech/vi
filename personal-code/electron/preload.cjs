@@ -19,6 +19,22 @@ contextBridge.exposeInMainWorld("api", {
 
   copyPlugins: () => ipcRenderer.invoke("copies:plugins"),
   copySource: () => ipcRenderer.invoke("copies:source"),
+
+  // ветки GitHub как рабочие папки — без git на компьютере
+  listBranchRepos: () => ipcRenderer.invoke("branches:repos"),
+  listBranches: (repo) => ipcRenderer.invoke("branches:list", repo),
+  openBranch: (options) => ipcRenderer.invoke("branches:open", options),
+  branchChanges: () => ipcRenderer.invoke("branches:changes"),
+  pushBranch: (message) => ipcRenderer.invoke("branches:push", message),
+  openPullRequest: (options) => ipcRenderer.invoke("branches:pullRequest", options),
+  createBranch: (options) => ipcRenderer.invoke("branches:create", options),
+  runBranchWorkflow: (options) => ipcRenderer.invoke("branches:runWorkflow", options),
+  createApp: (options) => ipcRenderer.invoke("apps:create", options),
+  onBranchLog: (handler) => {
+    const listener = (_e, line) => handler(line);
+    ipcRenderer.on("branches:log", listener);
+    return () => ipcRenderer.removeListener("branches:log", listener);
+  },
   listCopies: () => ipcRenderer.invoke("copies:list"),
   saveCopy: (copy) => ipcRenderer.invoke("copies:save", copy),
   deleteCopy: (id, options) => ipcRenderer.invoke("copies:delete", id, options),

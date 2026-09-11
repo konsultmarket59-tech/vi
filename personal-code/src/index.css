@@ -459,3 +459,15 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .agent-model-input { flex: 1; min-width: 0; font-size: 12px; padding: 4px 8px; }
 .agent-model .hint { margin: 0; font-size: 12px; }
 .agent-model .link-like { font-size: 12px; flex: none; }
+
+/* Панель ветки: что изменилось в папке, выкачанной из GitHub. */
+.branch-panel { padding: 12px; overflow: auto; }
+.branch-files { margin: 8px 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+.branch-files code { font-family: var(--mono); word-break: break-all; }
+.branch-file-mark {
+  display: inline-block; min-width: 62px;
+  color: var(--text-dim); font-size: 11px;
+}
+
+/* Выбор источника правки: копия тестировщика или ветка на GitHub. */
+.radio-line { display: flex; align-items: center; gap: 6px; font-size: 13px; }

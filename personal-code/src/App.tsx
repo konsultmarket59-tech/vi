@@ -8,10 +8,12 @@ import GitPanel from "./components/GitPanel";
 import SettingsView from "./components/SettingsView";
 import CopiesView from "./components/CopiesView";
 import FixView from "./components/FixView";
+import CreateView from "./components/CreateView";
+import BranchPanel from "./components/BranchPanel";
 import PluginArchiveView from "./components/PluginArchiveView";
 import Prompt from "./components/Prompt";
 
-type Tab = "code" | "git" | "demo" | "release" | "plugins" | "fix" | "settings";
+type Tab = "code" | "git" | "demo" | "release" | "plugins" | "fix" | "create" | "settings";
 
 /** The tail of a path is what identifies a project; the full path is in the tooltip. */
 function shortenPath(full: string): string {
@@ -189,6 +191,13 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={tab === "create" ? "tab tab-active" : "tab"}
+            onClick={() => setTab("create")}
+          >
+            Создать
+          </button>
+          <button
+            type="button"
             className={tab === "settings" ? "tab tab-active" : "tab"}
             onClick={() => setTab("settings")}
           >
@@ -289,13 +298,26 @@ export default function App() {
         )}
 
         {tab === "git" && !hasWorkspace && <div className="empty-state">Сначала откройте папку.</div>}
-        {tab === "git" && hasWorkspace && <GitPanel isRepo={workspace.isRepo} onChanged={refreshTree} />}
+        {/* Папка, выкачанная из ветки GitHub, отправляет правки не через git, а
+            через GitHub: панель ветки вместо обычной панели Git. */}
+        {tab === "git" && hasWorkspace && workspace.branch && <BranchPanel workspace={workspace} />}
+        {tab === "git" && hasWorkspace && !workspace.branch && (
+          <GitPanel isRepo={workspace.isRepo} onChanged={refreshTree} />
+        )}
 
         {tab === "demo" && <CopiesView kind="demo" />}
         {tab === "release" && <CopiesView kind="paid" />}
         {tab === "plugins" && <PluginArchiveView />}
         {tab === "fix" && (
           <FixView
+            onOpenCode={(next) => {
+              setWorkspace(next);
+              setTab("code");
+            }}
+          />
+        )}
+        {tab === "create" && (
+          <CreateView
             onOpenCode={(next) => {
               setWorkspace(next);
               setTab("code");
