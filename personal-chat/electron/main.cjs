@@ -2702,6 +2702,30 @@ ipcMain.handle("media:scriptPrompt", async (_e, request) => {
   return { prompt: prompt + (await userContextDigest()) };
 });
 
+/**
+ * Сценарий одним вызовом: приложение само спрашивает модель.
+ *
+ * Задание при этом остаётся доступным для копирования: сценарий иногда хочется
+ * написать в другом чате, с другой моделью или с навыком. Но заставлять
+ * человека носить текст туда-сюда, когда ключ уже настроен, — лишняя работа.
+ */
+ipcMain.handle("media:writeScript", async (_e, request) => {
+  const { kind, source, minutes, notes, names, design, model } = request || {};
+  if (!String(source || "").trim()) throw new Error("Пустой источник — писать сценарий не о чем.");
+  const settings = await loadSettings();
+  const prompt =
+    kind === "podcast"
+      ? mediascript.buildPodcastPrompt({ source, minutes, names, notes })
+      : mediascript.buildPresentationPrompt({ source, minutes, notes, design });
+  const answer = await callModelOnce(
+    { ...settings, model: model || settings.model },
+    [{ role: "user", content: prompt + (await userContextDigest()) }]
+  );
+  const parsed =
+    kind === "podcast" ? mediascript.parsePodcast(answer) : mediascript.parsePresentation(answer);
+  return { text: answer, ...parsed };
+});
+
 ipcMain.handle("media:parseScript", (_e, kind, text) =>
   kind === "podcast" ? mediascript.parsePodcast(text) : mediascript.parsePresentation(text)
 );

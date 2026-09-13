@@ -290,7 +290,9 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".media-mode-tabs .tab")].find(b => b.textContent.includes("Презентация")).click()`);
       await new Promise((r) => setTimeout(r, 400));
       check("режим презентаций и подкастов открывается",
-        (await call(`document.body.textContent.includes("Скопировать задание для модели")`)) === true);
+        (await call(`document.body.textContent.includes("Написать сценарий")`)) === true);
+      check("задание можно и скопировать — сценарий пишут и в другом чате",
+        (await call(`document.body.textContent.includes("скопировать задание")`)) === true);
       check("подкаст есть отдельным видом",
         (await call(`document.body.textContent.includes("Подкаст на двоих")`)) === true);
 
@@ -299,6 +301,18 @@ app.whenReady().then(async () => {
       })})`);
       check("задание на подкаст собирается через окно",
         заданиеИзОкна.prompt.includes("Смета выросла") && /НЕ СОГЛАСИТЬСЯ/.test(заданиеИзОкна.prompt));
+      // Сценарий можно и заказать одним нажатием — ключ уже настроен, носить
+      // текст туда-сюда незачем. Модели в тесте нет, поэтому проверяем, что
+      // вызов доходит до неё и пустой источник отсекается до обращения.
+      const пустой = await call(`window.api.mediaWriteScript({ kind: "podcast", source: "  " })
+        .then(() => "", e => e.message)`);
+      check("пустой источник отсекается до обращения к модели",
+        /писать сценарий не о чем/.test(пустой), пустой);
+      const доМодели = await call(`window.api.mediaWriteScript({ kind: "podcast", source: "Смета выросла." })
+        .then(() => "", e => e.message)`);
+      check("с источником вызов доходит до модели",
+        доМодели !== "" && !/не о чем/.test(доМодели), доМодели);
+
       const разбор = await call(`window.api.mediaParseScript("podcast", ${JSON.stringify(
         "=== РЕПЛИКА 1 ===\n--- КТО ---\nА\n--- ТЕКСТ ---\nраз\n=== РЕПЛИКА 2 ===\n--- КТО ---\nБ\n--- ТЕКСТ ---\nдва"
       )})`);

@@ -1668,6 +1668,15 @@ export interface ElectronAPI {
     names?: { a?: string; b?: string };
     design?: StoriesDesign | null;
   }): Promise<{ prompt: string }>;
+  mediaWriteScript(request: {
+    kind: string;
+    source: string;
+    minutes?: number;
+    notes?: string;
+    names?: { a?: string; b?: string };
+    design?: StoriesDesign | null;
+    model?: string;
+  }): Promise<{ text: string; scenes?: MediaScene[]; lines?: MediaLine[]; problems: string[] }>;
   mediaParseScript(
     kind: string,
     text: string

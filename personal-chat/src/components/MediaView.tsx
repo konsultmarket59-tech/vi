@@ -157,7 +157,34 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
     }
   }
 
-  /** Задание модели на сценарий. Ответ вставляется руками — и это нарочно. */
+  /** Сценарий одним нажатием: приложение само спрашивает модель. */
+  async function askForScript() {
+    setError(null);
+    setBuilt("");
+    setGenerating(true);
+    setStatus("Модель пишет сценарий…");
+    try {
+      const written = await window.api.mediaWriteScript({
+        kind: scriptKind,
+        source,
+        minutes: Number(minutes) || 3,
+        notes,
+        names: { a: nameA, b: nameB },
+        design,
+      });
+      setScriptText(written.text);
+      setScenes(written.scenes || []);
+      setLines(written.lines || []);
+      setScriptProblems(written.problems);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGenerating(false);
+      setStatus("");
+    }
+  }
+
+  /** То же задание, но в буфер: сценарий иногда пишут в другом чате. */
   async function copyScriptPrompt() {
     setError(null);
     try {
@@ -373,12 +400,18 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                 надо прочитать и поправить ДО того, как потрачены деньги на
                 картинки и озвучку.
               */}
-              <button className="btn btn-secondary" onClick={copyScriptPrompt} disabled={!source.trim()}>
-                Скопировать задание для модели
-              </button>
+              <div className="folder-row">
+                <button className="btn btn-secondary" onClick={askForScript} disabled={generating || !source.trim()}>
+                  {generating && status ? status : "Написать сценарий"}
+                </button>
+                <button className="link-btn" onClick={copyScriptPrompt} disabled={!source.trim()}>
+                  скопировать задание
+                </button>
+              </div>
               <p className="hint">
-                Задание вставляется в любой чат с моделью, ответ приносится сюда. Так сценарий можно
-                прочитать и поправить до того, как потрачены деньги на кадры и озвучку.
+                Сценарий пишет модель, а кадры и голоса заказываются только после того, как вы его
+                прочитаете и поправите: так деньги тратятся на то, что уже одобрено. Задание можно и
+                скопировать — если сценарий хочется написать в другом чате или с навыком.
               </p>
 
               <label>Ответ модели — сценарий</label>
