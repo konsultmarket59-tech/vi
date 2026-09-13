@@ -480,6 +480,28 @@ app.whenReady().then(async () => {
       check("в моушне есть фон и два акцента",
         (await call(`document.querySelectorAll('.vs-colors input[type="color"]').length`)) === 3);
 
+      // Кадры сцены прозрачные нарочно, фон подкладывает ffmpeg при сборке. Но
+      // в предпросмотре подкладывать некому, и коробка красилась наглухо в
+      // #111: человек выбирал цвет фона и не видел его нигде, пока не соберёт
+      // ролик целиком. Проверяем ровно это — что выбранный цвет виден сразу.
+      await call(`(() => {
+        const input = document.querySelectorAll('.vs-colors input[type="color"]')[0];
+        const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        set.call(input, "#f5f0e8");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await new Promise((r) => setTimeout(r, 400));
+      const превью = await call(`getComputedStyle(document.querySelector(".vs-preview")).backgroundColor`);
+      check("выбранный цвет фона виден в предпросмотре сразу",
+        превью.replace(/\s/g, "") === "rgb(245,240,232)", превью);
+
+      // А кадры при этом обязаны остаться прозрачными: иначе фон закрасит
+      // съёмку в тех роликах, где она есть.
+      check("кадры сцены остались прозрачными",
+        /background:\s*transparent/.test(vs.buildSceneHtml(vs.normalizeSpec({
+          title: "П", source: { kind: "none" }, bgColor: "#f5f0e8", layers: [],
+        }))));
+
       const motionOutDir = path.join(outDir, "motion-ipc");
       fs.mkdirSync(motionOutDir, { recursive: true });
       const built = await call(`window.api.renderStory(${JSON.stringify({
@@ -504,6 +526,57 @@ app.whenReady().then(async () => {
         check("ролик настоящий, нужного размера", info2.width === 1080 && info2.height === 1920, JSON.stringify(info2));
         check("длительность как заказана", Math.abs(info2.duration - 2) < 0.3, String(info2.duration));
       }
+
+      console.log("\nдизайн-система и разговор с агентом");
+      // Дизайн-система: цвета и переменные должны доехать до задания агенту как
+      // обязательный набор. «Ориентируйся на стиль» модель понимает как
+      // разрешение придумать свой.
+      const designDir = path.join(outDir, "дизайн-система");
+      fs.mkdirSync(designDir, { recursive: true });
+      fs.writeFileSync(path.join(designDir, "токены.css"),
+        ":root{--фон:#101820;--акцент:#C6362F;--акцент2:#1B7F4B;}\nbody{font-family: Onest, sans-serif;}");
+      fs.writeFileSync(path.join(designDir, "заметки.md"), "Второй цвет кнопок #F5F0E8.");
+      fs.writeFileSync(path.join(designDir, "картинка.png"), "не токены");
+      const система = await call(`window.api.readStoriesDesign(${JSON.stringify(designDir)})`);
+      check("файлы дизайн-системы прочитаны, картинка пропущена",
+        система.files.length === 2 && !система.files.some((f) => f.endsWith(".png")),
+        JSON.stringify(система.files));
+      check("цвета вытащены из всех файлов, а не только из первого",
+        система.colours.includes("#101820") && система.colours.includes("#f5f0e8"),
+        JSON.stringify(система.colours));
+      check("именованные переменные сохранены",
+        система.vars.some((v) => v.name === "--акцент" && v.value === "#C6362F"), JSON.stringify(система.vars));
+      check("шрифт найден", система.fonts.some((f) => /Onest/.test(f)), JSON.stringify(система.fonts));
+
+      const сЗаданием = await call(`window.api.prepareStoriesMotion(${JSON.stringify({
+        spec: { title: "Т", presetId: "story", fps: 24, duration: 2,
+          source: { kind: "none", path: "", query: "", trimStart: 0 }, layers: [] },
+        text: "текст",
+      })})`);
+      check("без дизайн-системы в задании её и нет", !/ДИЗАЙН-СИСТЕМА/.test(сЗаданием.prompt));
+      const сСистемой = await call(`window.api.prepareStoriesMotion(${JSON.stringify({
+        spec: { title: "Т", presetId: "story", fps: 24, duration: 2,
+          source: { kind: "none", path: "", query: "", trimStart: 0 }, layers: [] },
+        text: "текст",
+        design: система,
+      })})`);
+      check("дизайн-система доехала до задания агенту",
+        /ДИЗАЙН-СИСТЕМА/.test(сСистемой.prompt) && сСистемой.prompt.includes("--акцент"),
+        сСистемой.prompt.slice(-300));
+      check("и сказано, что набор обязательный, а не пример",
+        /не выдумывай новый/.test(сСистемой.prompt) && /ТОЛЬКО/.test(сСистемой.prompt));
+
+      const битая = await call(`window.api.readStoriesDesign(${JSON.stringify(path.join(outDir, "нет-такой"))})`);
+      check("несуществующая папка названа прямо, а не молча пуста",
+        !!битая.problem && /не открывается/.test(битая.problem), JSON.stringify(битая));
+
+      // Окно агента должно открываться само по себе, а не только раскладкой.
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Обсудить с агентом").click()`);
+      await new Promise((r) => setTimeout(r, 900));
+      check("разговор с агентом открывается отдельной кнопкой",
+        (await call(`!!document.querySelector(".vs-agent")`)) === true);
+      check("и в нём есть выбор модели, как в обычном чате",
+        (await call(`!!document.querySelector(".vs-agent select, .vs-agent input[list]")`)) === true);
 
       console.log("\nшвы между сценами");
       // Ошибка в шве не видна на статичном кадре: она живёт ровно в момент

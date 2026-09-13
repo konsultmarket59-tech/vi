@@ -415,8 +415,12 @@ function extractTokens(text) {
     if (value && !fonts.includes(value)) fonts.push(value);
   }
   // Именованные переменные — самое ценное: у них есть смысл, а не только значение.
+  //
+  // Имена бывают и русскими: приложение русское, и дизайн-систему в Фигме
+  // называют по-русски не реже, чем по-английски. Прежний набор букв был только
+  // латинским, и такая система разбиралась в ноль переменных — молча.
   const vars = [];
-  for (const m of body.matchAll(/(--[a-zA-Z0-9_-]+)\s*:\s*([^;{}\n]+)/g)) {
+  for (const m of body.matchAll(/(--[a-zA-Z0-9\u0400-\u04FF_-]+)\s*:\s*([^;{}\n]+)/g)) {
     const name = m[1];
     if (!vars.some((v) => v.name === name)) vars.push({ name, value: m[2].trim() });
   }

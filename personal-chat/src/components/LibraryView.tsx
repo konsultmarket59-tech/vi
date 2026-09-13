@@ -6,6 +6,7 @@ import type {
   LibraryFile,
   LibraryHit,
   LibraryProgress,
+  LibraryReading,
   Settings,
   Skill,
 } from "../lib/types";
@@ -56,11 +57,23 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
   const [files, setFiles] = useState<LibraryFile[]>([]);
   const [orphans, setOrphans] = useState<{ path: string; name: string }[]>([]);
   const [missing, setMissing] = useState(false);
+  // Опись обхода: сколько файлов просмотрено и что пропущено. Без неё пустой
+  // список неотличим от сломанного обхода.
+  const [survey, setSurvey] = useState<{
+    seen: number;
+    folders: number;
+    other: { ext: string; count: number }[];
+    missingSources: string[];
+    unreadable: { dir: string; error: string }[];
+    vault: string;
+  }>({ seen: 0, folders: 0, other: [], missingSources: [], unreadable: [], vault: "" });
+  const [reading, setReading] = useState<LibraryReading | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<LibraryProgress | null>(null);
   const [error, setError] = useState("");
   const [question, setQuestion] = useState("");
   const [hits, setHits] = useState<LibraryHit[]>([]);
+  const [narrowed, setNarrowed] = useState<{ narrowed: boolean; titles: string[] } | null>(null);
   const [checked, setChecked] = useState<{ problems: string[]; unsupported: number } | null>(null);
   const [conv, setConv] = useState<Conversation | null>(null);
   const [prefill, setPrefill] = useState<{ text: string; nonce: number; autoSend?: boolean }>();
@@ -71,6 +84,14 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
     setFiles(scan.files);
     setOrphans(scan.orphans || []);
     setMissing(scan.missing);
+    setSurvey({
+      seen: scan.seen || 0,
+      folders: scan.folders || 0,
+      other: scan.other || [],
+      missingSources: scan.missingSources || [],
+      unreadable: scan.unreadable || [],
+      vault: scan.vault || "",
+    });
   }, []);
 
   useEffect(() => {
@@ -88,6 +109,7 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
 
   const pending = useMemo(() => files.filter((f) => !f.transcribed), [files]);
   const ready = useMemo(() => files.filter((f) => f.transcribed), [files]);
+  const unmarked = useMemo(() => files.filter((f) => f.transcribed && !f.polished), [files]);
   const readySeconds = useMemo(() => ready.reduce((s, f) => s + f.seconds, 0), [ready]);
 
   async function patchConfig(changes: Partial<LibraryConfig>) {
@@ -97,17 +119,39 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
     if (changes.folderPath !== undefined) void refresh();
   }
 
-  async function transcribe(paths: string[]) {
+  async function transcribe(paths: string[], options?: { force?: boolean }) {
     if (!paths.length) return;
     setError("");
     setBusy(true);
     setProgress({ stage: "file", index: 0, total: paths.length });
     try {
-      const result = await window.api.libraryTranscribe(paths);
+      const result = await window.api.libraryTranscribe(paths, options);
       if (result.failed.length) {
+        // Причина важнее списка имён: «не найдена программа расшифровки» и
+        // «файл повреждён» требуют разных действий, а раньше было видно только
+        // то, что что-то не вышло.
+        const причины = [...new Set(result.failed.map((f) => f.error))];
         setError(
-          `Не удалось расшифровать: ${result.failed.map((f) => f.path.split(/[\\/]/).pop()).join(", ")}`
+          `Не удалось расшифровать ${result.failed.length} из ${paths.length}: ${причины.join("; ")}`
         );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+    await refresh();
+  }
+
+  /** Разбор второй моделью для того, что уже расшифровано. */
+  async function polish(paths: string[]) {
+    if (!paths.length) return;
+    setError("");
+    setBusy(true);
+    setProgress({ stage: "polish", index: 0, total: paths.length });
+    try {
+      const result = await window.api.libraryPolish(paths);
+      if (result.failed.length) {
+        setError(`Не удалось разобрать: ${result.failed.map((f) => f.error).join("; ")}`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -124,6 +168,10 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
     try {
       const prepared = await window.api.libraryAsk(text);
       setHits(prepared.hits);
+      setNarrowed({
+        narrowed: !!prepared.narrowed,
+        titles: (prepared.marks || []).map((m) => m.title),
+      });
       if (!conv) {
         setConv({
           id: uid(),
@@ -148,6 +196,7 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
     try {
       const prepared = await window.api.libraryRetell(filePath);
       setHits(prepared.hits);
+      setNarrowed(null);
       if (!conv) {
         setConv({
           id: uid(),
@@ -201,33 +250,140 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
             </p>
 
             <section className="vs-block">
-              <h3>Папка с записями</h3>
+              <h3>Откуда брать записи</h3>
               <div className="vs-row">
                 <button
                   className="btn btn-secondary btn-small"
                   onClick={async () => {
-                    const folder = await window.api.libraryPickFolder();
-                    if (folder) await patchConfig({ folderPath: folder });
+                    const next = await window.api.libraryAddSources("folder");
+                    if (next) {
+                      setConfig(next);
+                      await refresh();
+                    }
                   }}
                 >
-                  Выбрать папку
+                  Добавить папку
                 </button>
-                <span className="vs-path">{config?.folderPath || "не выбрана"}</span>
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const next = await window.api.libraryAddSources("file");
+                    if (next) {
+                      setConfig(next);
+                      await refresh();
+                    }
+                  }}
+                >
+                  Добавить запись
+                </button>
               </div>
-              {missing && <p className="vs-warn">Папка недоступна — возможно, диск отключён.</p>}
-              {!!files.length && (
+              {config?.sources?.length ? (
+                <ul className="lib-sources">
+                  {config.sources.map((src) => (
+                    <li key={src}>
+                      <span className="vs-path" title={src}>
+                        {src}
+                      </span>
+                      <button
+                        className="link-btn"
+                        onClick={async () => {
+                          const next = await window.api.libraryRemoveSource(src);
+                          setConfig(next);
+                          await refresh();
+                        }}
+                      >
+                        Убрать
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="vs-hint">Источников пока нет. Можно указать и папку целиком, и одну запись.</p>
+              )}
+
+              {/*
+                Опись обхода. Раньше при пустом списке приложение молчало, и было
+                не понять, то ли записей нет, то ли их не разглядели. Теперь
+                видно, сколько файлов просмотрено и какие расширения пропущены.
+              */}
+              {!!config?.sources?.length && (
                 <p className="vs-hint">
-                  Записей: {files.length}. Расшифровано: {ready.length}
+                  Просмотрено файлов: {survey.seen}
+                  {survey.folders ? ` в ${survey.folders} папках` : ""}. Записей найдено:{" "}
+                  {files.length}. Расшифровано: {ready.length}
                   {readySeconds ? ` (${formatMinutes(readySeconds)} речи)` : ""}. Ждут очереди:{" "}
                   {pending.length}.
                 </p>
               )}
-              {!!orphans.length && (
+              {!files.length && !!survey.seen && (
                 <p className="vs-warn">
-                  Расшифровок без записи: {orphans.length} — файлы переименованы или унесены из
-                  папки. По ссылкам из них идти будет некуда.
+                  Видео и аудио среди этих файлов нет.{" "}
+                  {survey.other.length
+                    ? "Что попалось: " +
+                      survey.other.map((o) => `${o.ext} — ${o.count}`).join(", ") +
+                      "."
+                    : ""}{" "}
+                  Если запись в этом списке всё-таки есть, напишите — расширение добавим.
                 </p>
               )}
+              {!!files.length && !!survey.other.length && (
+                <p className="vs-hint">
+                  Пропущено не-медиа: {survey.other.map((o) => `${o.ext} — ${o.count}`).join(", ")}.
+                </p>
+              )}
+              {!!survey.missingSources.length && (
+                <p className="vs-warn">
+                  Недоступно: {survey.missingSources.join(", ")} — диск отключён, файл унесён или
+                  выбран файл не того вида.
+                </p>
+              )}
+              {!!survey.unreadable.length && (
+                <p className="vs-warn">
+                  Не удалось заглянуть в {survey.unreadable.length} папок — нет прав доступа.
+                </p>
+              )}
+              {missing && <p className="vs-warn">Источники недоступны — возможно, диск отключён.</p>}
+              {!!orphans.length && (
+                <p className="vs-warn">
+                  Расшифровок без записи: {orphans.length} — файлы унесены или источник убран. По
+                  ссылкам из них идти будет некуда.
+                </p>
+              )}
+            </section>
+
+            <section className="vs-block">
+              <h3>Куда сохранять расшифровки</h3>
+              <p className="vs-hint">
+                Расшифровка часа записи — это час работы, и лежать она должна там, куда вы можете
+                заглянуть: унести на другой компьютер, положить в общую папку. Если папку не
+                указать, расшифровки останутся в данных приложения.
+              </p>
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const next = await window.api.libraryPickVault();
+                    if (next) {
+                      setConfig(next);
+                      await refresh();
+                    }
+                  }}
+                >
+                  Выбрать папку
+                </button>
+                <span className="vs-path" title={survey.vault}>
+                  {survey.vault || "в данных приложения"}
+                </span>
+                {!!survey.vault && (
+                  <button className="link-btn" onClick={() => window.api.libraryOpenVault()}>
+                    Открыть
+                  </button>
+                )}
+              </div>
+              <p className="vs-hint">
+                Уже расшифрованную запись приложение узнаёт по содержимому, а не по имени файла:
+                переименуйте её или перенесите в другую папку — читать заново не станет.
+              </p>
             </section>
 
             <section className="vs-block">
@@ -291,6 +447,49 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
             </section>
 
             <section className="vs-block">
+              <h3>Кто разбирает расшифровку</h3>
+              <p className="vs-hint">
+                Расшифровщик слышит звук и больше ничего: он не знает, что «Фейбл» — это название,
+                не ставит запятых по смыслу и не видит, где кончилась одна тема и началась другая.
+                Это умеет обычная модель — и это вторая, отдельная работа. Она правит расслышанное,
+                приводит текст в читаемый вид и расставляет метки: с какой минуты по какую о чём
+                речь. Дальше вопрос ищет сначала по меткам и читает только нужную тему, а не все
+                двадцать часов.
+              </p>
+              <label className="vs-check">
+                <input
+                  type="checkbox"
+                  checked={config?.polish !== false}
+                  onChange={(e) => patchConfig({ polish: e.target.checked })}
+                />
+                Разбирать сразу после расшифровки
+              </label>
+              <div className="vs-row">
+                <span className="vs-label">Модель разбора</span>
+                <input
+                  type="text"
+                  value={config?.polishModel || ""}
+                  placeholder={settings.model || "как в общих настройках"}
+                  onChange={(e) => setConfig(config ? { ...config, polishModel: e.target.value } : config)}
+                  onBlur={(e) => patchConfig({ polishModel: e.target.value.trim() })}
+                />
+              </div>
+              <p className="vs-hint">
+                Сырая расшифровка при этом не выбрасывается: ссылки в ответах проверяются по ней —
+                отвечать надо за то, что вы услышите, открыв запись на этой минуте.
+              </p>
+              {!!unmarked.length && (
+                <button
+                  className="btn btn-secondary btn-small"
+                  disabled={busy}
+                  onClick={() => polish(unmarked.map((f) => f.path))}
+                >
+                  Разобрать без меток ({unmarked.length})
+                </button>
+              )}
+            </section>
+
+            <section className="vs-block">
               <h3>Записи</h3>
               <div className="vs-row">
                 <button
@@ -314,6 +513,12 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
                       progress.progress ? ` — ${Math.round(progress.progress * 100)}%` : ""
                     }`}
                   {progress.stage === "file" && `Запись ${(progress.index || 0) + 1} из ${progress.total}`}
+                  {progress.stage === "reused" && `Уже расшифровано, читаю готовое: ${progress.name}`}
+                  {progress.stage === "polish" &&
+                    `Разбираю расшифровку ${progress.name}${
+                      progress.progress ? ` — ${Math.round(progress.progress * 100)}%` : ""
+                    }`}
+                  {progress.stage === "polishFailed" && `Разбор не вышел: ${progress.name}`}
                   {progress.stage === "failed" && `Не вышло: ${progress.name}`}
                 </p>
               )}
@@ -331,9 +536,40 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
                     </span>
                     {f.transcribed ? (
                       <>
-                        <span className="lib-badge">расшифровано</span>
+                        <span className="lib-badge">
+                          {f.polished ? `меток: ${f.marks || 0}` : "расшифровано"}
+                        </span>
+                        {f.moved && (
+                          <span className="lib-badge lib-badge-moved" title="Запись узнана по содержимому">
+                            узнана по содержимому
+                          </span>
+                        )}
+                        <button
+                          className="link-btn"
+                          onClick={async () => {
+                            try {
+                              setReading(await window.api.libraryRead(f.path));
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : String(e));
+                            }
+                          }}
+                        >
+                          Читать
+                        </button>
+                        {!f.polished && (
+                          <button className="link-btn" disabled={busy} onClick={() => polish([f.path])}>
+                            Разобрать
+                          </button>
+                        )}
                         <button className="link-btn" onClick={() => retell(f.path)}>
                           Пересказать
+                        </button>
+                        <button
+                          className="link-btn"
+                          disabled={busy}
+                          onClick={() => transcribe([f.path], { force: true })}
+                        >
+                          Заново
                         </button>
                         <button
                           className="link-btn"
@@ -352,7 +588,7 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
                     )}
                   </div>
                 ))}
-                {!files.length && <p className="vs-hint">Записей нет — выберите папку.</p>}
+                {!files.length && <p className="vs-hint">Записей нет — добавьте папку или отдельную запись.</p>}
               </div>
             </section>
           </div>
@@ -406,6 +642,12 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
               </div>
             )}
 
+            {narrowed?.narrowed && !!narrowed.titles.length && (
+              <p className="vs-hint">
+                Искали не по всем записям, а по найденным темам: {narrowed.titles.join("; ")}.
+              </p>
+            )}
+
             {!!hits.length && (
               <section className="vs-block">
                 <h3>Источники ответа</h3>
@@ -447,6 +689,38 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
           </div>
         </div>
       </div>
+
+      {reading && (
+        <div className="lib-reader-back" onClick={() => setReading(null)}>
+          <div className="lib-reader" onClick={(e) => e.stopPropagation()}>
+            <div className="lib-reader-head">
+              <strong>{reading.name}</strong>
+              <span className="vs-hint">
+                {reading.polishedAt
+                  ? `разобрано моделью ${reading.polishModel || "по умолчанию"}`
+                  : "сырая расшифровка — разбор ещё не делался"}
+              </span>
+              <button className="btn btn-secondary btn-small" onClick={() => setReading(null)}>
+                Закрыть
+              </button>
+            </div>
+            {!!reading.marks.length && (
+              <ol className="lib-outline">
+                {reading.marks.map((m) => (
+                  <li key={`${m.from}-${m.title}`}>
+                    <b>
+                      {stamp(m.from)}–{stamp(m.to)}
+                    </b>{" "}
+                    {m.title}
+                    {m.keywords.length ? <span className="vs-hint"> · {m.keywords.join(", ")}</span> : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+            <pre className="lib-reader-text">{reading.text}</pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

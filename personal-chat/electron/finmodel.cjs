@@ -114,6 +114,117 @@ const num = (v, fallback = 0) => {
 };
 
 /** Приводит форму к тому виду, на который рассчитан расчёт: без дыр и NaN. */
+/**
+ * Виды погашения займа.
+ *
+ * Разница между ними не косметическая: на одной и той же сумме и ставке
+ * аннуитет и «равными долями тела» дают разный график денег, и проект,
+ * сходящийся при одном, может не сходиться при другом — платёж в первые месяцы
+ * различается в полтора раза.
+ */
+const LOAN_KINDS = [
+  { id: "annuity", name: "Равный платёж (аннуитет)", hint: "Каждый месяц одна и та же сумма. Так выдаёт большинство банков." },
+  { id: "equal", name: "Равными долями тела", hint: "Тело делится поровну, проценты убывают. Платёж в начале больше, переплата меньше." },
+  { id: "interestOnly", name: "Только проценты, тело в конце", hint: "Лёгкие платежи и один большой в конце срока. Удобно на раскрутку, опасно, если к сроку денег нет." },
+];
+
+/**
+ * График платежей по займу.
+ *
+ * Всё считается по месяцам проекта, потому что модель помесячная. Отсрочка
+ * («кредитные каникулы») гасит только тело: проценты банк начисляет и в
+ * каникулы, и не учитывать их — распространённая ошибка, из-за которой модель
+ * сходится на бумаге и не сходится в жизни.
+ *
+ * `startMonth`: 0 — деньги приходят вместе с вложениями, до старта продаж;
+ * число k — в k-м месяце проекта. Платежи начинаются со следующего месяца.
+ */
+function loanSchedule(loan, totalMonths) {
+  const months = Array.from({ length: totalMonths }, () => ({
+    receipt: 0, interest: 0, principal: 0, payment: 0, debt: 0,
+  }));
+  const atStart = loan.startMonth === 0 ? loan.amount : 0;
+  if (loan.startMonth > 0 && loan.startMonth <= totalMonths) {
+    months[loan.startMonth - 1].receipt += loan.amount;
+  }
+  const rate = num(loan.rate) / 12;
+  const first = loan.startMonth === 0 ? 0 : loan.startMonth;
+  const grace = Math.max(0, Math.min(loan.graceMonths, loan.termMonths - 1));
+  const paying = Math.max(1, loan.termMonths - grace);
+
+  let debt = loan.amount;
+  // Аннуитетный платёж по формуле сложного процента. При нулевой ставке она
+  // вырождается в деление — отдельная ветка нужна, иначе деление на ноль.
+  const annuity = rate > 0
+    ? (debt * rate) / (1 - Math.pow(1 + rate, -paying))
+    : debt / paying;
+
+  for (let k = 0; k < loan.termMonths; k++) {
+    const t = first + k;
+    if (t >= totalMonths) break;
+    const interest = debt * rate;
+    let principal = 0;
+    if (k < grace) {
+      principal = 0;
+    } else if (loan.kind === "equal") {
+      principal = loan.amount / paying;
+    } else if (loan.kind === "interestOnly") {
+      principal = k === loan.termMonths - 1 ? debt : 0;
+    } else {
+      principal = Math.max(0, annuity - interest);
+    }
+    // Последний платёж добирает остаток: округления за годы копятся, и без
+    // этого в конце висел бы хвост в несколько рублей.
+    if (k === loan.termMonths - 1 || principal > debt) principal = debt;
+    debt = Math.max(0, debt - principal);
+    months[t].interest += interest;
+    months[t].principal += principal;
+    months[t].payment += interest + principal;
+    months[t].debt += debt;
+  }
+  // Долг в месяцы до начала выплат и после срока — чтобы строка остатка в
+  // таблице не обрывалась.
+  let running = 0;
+  for (let t = 0; t < totalMonths; t++) {
+    if (t === first && loan.termMonths > 0) running = loan.amount;
+    if (months[t].principal) running = months[t].debt;
+    months[t].debt = t < first ? (loan.startMonth === 0 ? loan.amount : 0) : running;
+  }
+  return { months, atStart, total: months.reduce((s2, m) => s2 + m.payment, 0) };
+}
+
+/** Все займы разом: помесячные суммы и что пришло к старту. */
+function loanPlan(loans, totalMonths) {
+  const months = Array.from({ length: totalMonths }, () => ({
+    receipt: 0, interest: 0, principal: 0, payment: 0, debt: 0,
+  }));
+  let atStart = 0;
+  let borrowed = 0;
+  const schedules = [];
+  for (const loan of loans || []) {
+    if (!loan.amount) continue;
+    const schedule = loanSchedule(loan, totalMonths);
+    schedules.push({ loan, ...schedule });
+    atStart += schedule.atStart;
+    borrowed += loan.amount;
+    for (let t = 0; t < totalMonths; t++) {
+      months[t].receipt += schedule.months[t].receipt;
+      months[t].interest += schedule.months[t].interest;
+      months[t].principal += schedule.months[t].principal;
+      months[t].payment += schedule.months[t].payment;
+      months[t].debt += schedule.months[t].debt;
+    }
+  }
+  return {
+    months,
+    schedules,
+    atStart,
+    borrowed,
+    interest: months.reduce((s2, m) => s2 + m.interest, 0),
+    payments: months.reduce((s2, m) => s2 + m.payment, 0),
+  };
+}
+
 function normalizeInput(raw = {}) {
   const horizonYears = Math.min(10, Math.max(1, Math.round(num(raw.horizonYears, 5))));
   const startMonth = Math.min(12, Math.max(1, Math.round(num(raw.startMonth, 1))));
@@ -185,6 +296,20 @@ function normalizeInput(raw = {}) {
     investments: (Array.isArray(raw.investments) ? raw.investments : [])
       .map((c) => ({ name: String(c.name || "").trim(), amount: num(c.amount) }))
       .filter((c) => c.name || c.amount),
+    // Заёмные деньги: откуда взяты и на каких условиях. Без них модель
+    // отвечает на вопрос «окупится ли проект», а с ними — на тот, который
+    // задают на самом деле: «вытянем ли мы платежи и что останется нам».
+    loans: (Array.isArray(raw.loans) ? raw.loans : [])
+      .map((l) => ({
+        name: String(l.name || "").trim(),
+        amount: num(l.amount),
+        rate: num(l.rate),
+        termMonths: Math.max(1, Math.round(num(l.termMonths, 12))),
+        startMonth: Math.max(0, Math.round(num(l.startMonth, 0))),
+        graceMonths: Math.max(0, Math.round(num(l.graceMonths, 0))),
+        kind: LOAN_KINDS.some((k) => k.id === l.kind) ? l.kind : "annuity",
+      }))
+      .filter((l) => l.name || l.amount),
     rates,
     notes: String(raw.notes || "").trim(),
   };
@@ -215,7 +340,11 @@ function monthlyTax(input, m) {
   const regime = regimeById(input.tax.regime);
   const rates = input.rates;
   const revenue = m.revenue;
-  const expenses = m.cogs + m.payroll + m.percentPay + m.insurance + m.fixed + m.variable;
+  // Проценты по займу — внереализационный расход: на «доходах минус расходах»
+  // и на общей системе они уменьшают налог, на «доходах» — нет. Тело долга
+  // расходом не является нигде: это возврат своих же денег.
+  const expenses =
+    m.cogs + m.payroll + m.percentPay + m.insurance + m.fixed + m.variable + (m.interest || 0);
 
   switch (regime.id) {
     case "usn6": {
@@ -261,6 +390,11 @@ function computeScenario(input, multiplier) {
   // измеряется календарными годами, поэтому первый год короче на месяцы до старта.
   const totalMonths = input.horizonYears * 12 - (input.startMonth - 1);
   const investment = input.investments.reduce((s, i) => s + i.amount, 0);
+  const loans = loanPlan(input.loans, totalMonths);
+  // Своих денег в проекте — вложения минус то, что дал заём к старту. Именно
+  // на них и считаются окупаемость с доходностью: вопрос «когда вернутся мои
+  // деньги» — про свои, а не про банковские.
+  const ownInvestment = Math.max(0, investment - loans.atStart);
 
   const salaryFund = input.payroll.reduce((s, p) => s + p.count * p.salary, 0);
   const salesPercent = input.payroll.reduce((s, p) => s + p.percentOfSales, 0);
@@ -307,11 +441,21 @@ function computeScenario(input, multiplier) {
       label: `${MONTHS[calMonth]} ${input.startYear + y}`,
       units, revenue, cogs, gross, payroll, percentPay, insurance, fixed, variable,
     };
+    // EBITDA — «до процентов» по определению, поэтому проценты вычитаются
+    // после неё: иначе показатель перестанет быть сравнимым с чужими моделями.
     row.ebitda = gross - payroll - percentPay - insurance - fixed - variable;
+    row.interest = loans.months[t].interest;
+    row.loanPrincipal = loans.months[t].principal;
+    row.loanPayment = loans.months[t].payment;
+    row.loanReceipt = loans.months[t].receipt;
+    row.debt = loans.months[t].debt;
     const { tax, vat } = monthlyTax(input, row);
     row.tax = tax;
     row.vat = vat;
-    row.net = row.ebitda - tax - vat;
+    row.net = row.ebitda - row.interest - tax - vat;
+    // Деньги на счёте: тело долга прибыль не уменьшает, но со счёта уходит, а
+    // полученный заём в прибыль не входит, но на счёт приходит.
+    row.cash = row.net - row.loanPrincipal + row.loanReceipt;
     months.push(row);
   }
 
@@ -340,6 +484,7 @@ function computeScenario(input, multiplier) {
       last.tax += extraTax;
       last.vat += vatExtra;
       last.net -= extraTax + vatExtra;
+      last.cash -= extraTax + vatExtra;
     }
     years.push({
       year: input.startYear + y,
@@ -353,23 +498,29 @@ function computeScenario(input, multiplier) {
       fixed: sum("fixed"),
       variable: sum("variable"),
       ebitda: sum("ebitda"),
+      interest: sum("interest"),
+      loanPrincipal: sum("loanPrincipal"),
+      loanPayment: sum("loanPayment"),
       tax: sum("tax"),
       vat: sum("vat"),
       net: sum("net"),
+      cash: sum("cash"),
       minTaxTopUp: extraTax,
       vatOnThreshold: vatExtra,
     });
   }
 
-  // Денежный поток: инвестиции — нулевым месяцем, до старта продаж.
-  let acc = -investment;
+  // Денежный поток: свои деньги — нулевым месяцем, до старта продаж. Дальше
+  // считается то, что реально остаётся на счёте: прибыль минус тело долга плюс
+  // полученные транши.
+  let acc = -ownInvestment;
   for (const m of months) {
-    acc += m.net;
+    acc += m.cash;
     m.cumulative = acc;
   }
 
   const paybackIndex = months.findIndex((m) => m.cumulative >= 0);
-  const flows = [-investment, ...months.map((m) => m.net)];
+  const flows = [-ownInvestment, ...months.map((m) => m.cash)];
 
   // Точка безубыточности — на первый месяц выхода на мощность, чтобы не мерить
   // её по стартовому месяцу, когда продаж почти нет.
@@ -380,17 +531,46 @@ function computeScenario(input, multiplier) {
     input.fixedCosts.reduce((s, c) => s + c.monthly, 0) +
     input.variableCosts.filter((c) => c.kind === "month").reduce((s, c) => s + c.value, 0);
 
+  // Месяцы, в которые денег на счёте не хватило. Их надо разделить, иначе
+  // предупреждение врёт: декабрьский минус от годового добора НДС — не вина
+  // займа, и «уменьшить платёж» его не вылечит. Поэтому к займу относятся
+  // только те месяцы, которые без платежа вышли бы в плюс.
+  const negative = months.filter((m) => m.cash < 0);
+  const tight = negative.filter((m) => m.loanPayment > 0 && m.cash + m.loanPayment >= 0);
+  // Сколько надо продавать, чтобы хватало и на жизнь, и на платежи по займу.
+  const firstYearPayments = months.filter((m) => m.year === 0);
+  const monthlyDebtService = firstYearPayments.length
+    ? firstYearPayments.reduce((s2, m) => s2 + m.loanPayment, 0) / firstYearPayments.length
+    : 0;
+
   return {
     months,
     years,
     investment,
+    ownInvestment,
+    borrowed: loans.borrowed,
+    loanInterest: loans.interest,
+    loanPayments: loans.payments,
+    loanSchedules: loans.schedules,
+    monthlyDebtService,
+    debtTight: tight.length
+      ? { count: tight.length, first: tight[0].label, worst: Math.min(...tight.map((m) => m.cash)) }
+      : null,
+    cashNegative: negative.length
+      ? { count: negative.length, first: negative[0].label, worst: Math.min(...negative.map((m) => m.cash)) }
+      : null,
     payback: paybackIndex >= 0 ? { months: paybackIndex + 1, label: months[paybackIndex].label } : null,
     npv: npv(flows, input.rates.discountRate / 12),
     irr: irr(flows),
     breakEvenUnits: marginPerUnit > 0 ? monthlyFixed / marginPerUnit : null,
     breakEvenRevenue: marginPerUnit > 0 ? (monthlyFixed / marginPerUnit) * input.price : null,
+    breakEvenUnitsWithDebt:
+      marginPerUnit > 0 && monthlyDebtService > 0
+        ? (monthlyFixed + monthlyDebtService) / marginPerUnit
+        : null,
     marginPerUnit,
     totalNet: months.reduce((s, m) => s + m.net, 0),
+    totalCash: months.reduce((s, m) => s + m.cash, 0),
     totalRevenue: months.reduce((s, m) => s + m.revenue, 0),
   };
 }
@@ -472,6 +652,9 @@ module.exports = {
   TAX_REGIMES,
   DEFAULT_RATES,
   COST_KINDS,
+  LOAN_KINDS,
+  loanSchedule,
+  loanPlan,
   normalizeInput,
   compute,
   computeScenario,
@@ -711,6 +894,41 @@ function writeInputs(wb, input) {
   ref.investTotal = `$B$${r}`;
   r += 2;
 
+  // Заёмные деньги. Ставка в книге показана в процентах, как её называет банк,
+  // а не долей: человек сверяет её с договором, а не с кодом.
+  r = title(ws, r, "ЗАЁМНЫЕ ДЕНЬГИ");
+  r = header(ws, r, ["Источник", "Сумма, ₽", "Ставка годовых", "Срок, мес", "Приход, мес", "Каникулы, мес", "Погашение"]);
+  const loanFirst = r;
+  ref.loanFirst = loanFirst;
+  const loanList = input.loans.length ? input.loans : [{ name: "—", amount: 0, rate: 0, termMonths: 0, startMonth: 0, graceMonths: 0, kind: "annuity" }];
+  for (const l of loanList) {
+    ws.getCell(r, 1).value = l.name || "—";
+    editable(ws, r, 2, l.amount, MONEY);
+    editable(ws, r, 3, l.rate, PCT);
+    editable(ws, r, 4, l.termMonths, "0");
+    editable(ws, r, 5, l.startMonth, "0");
+    editable(ws, r, 6, l.graceMonths, "0");
+    ws.getCell(r, 7).value = (LOAN_KINDS.find((k) => k.id === l.kind) || LOAN_KINDS[0]).name;
+    r += 1;
+  }
+  ws.getCell(r, 1).value = "ИТОГО заём";
+  ws.getCell(r, 1).font = { bold: true };
+  ws.getCell(r, 2).value = { formula: `SUM($B$${loanFirst}:$B$${r - 1})` };
+  ws.getCell(r, 2).numFmt = MONEY;
+  ws.getCell(r, 2).fill = TOTAL_FILL;
+  ref.loanTotal = `$B$${r}`;
+  r += 1;
+  // Своих денег — главное число этого блока: окупаемость считается на них.
+  ws.getCell(r, 1).value = "Своих денег в проекте";
+  ws.getCell(r, 1).font = { bold: true };
+  ws.getCell(r, 2).value = { formula: `MAX(0,${ref.investTotal}-${ref.loanTotal})` };
+  ws.getCell(r, 2).numFmt = MONEY;
+  ws.getCell(r, 2).fill = TOTAL_FILL;
+  ref.ownInvest = `$B$${r}`;
+  r += 1;
+  note(ws, r, "Приход «0» — деньги пришли вместе с вложениями, до старта продаж. Каникулы откладывают только тело: проценты банк начисляет и в каникулы.");
+  r += 2;
+
   r = title(ws, r, "РАСКРУТКА (доля от базового объёма по месяцам проекта)");
   r = header(ws, r, ["Месяц проекта", "Доля"]);
   ref.rampFirst = r;
@@ -807,6 +1025,7 @@ function writeRates(wb, input, sources) {
 // иначе две копии формулы однажды разойдутся, и никто не заметит, какая права.
 
 const SHEET_INVEST = "Инвестиции";
+const SHEET_LOAN = "Кредит";
 const SHEET_CONTENTS = "Что в книге";
 const SHEET_FC = "Прогноз продаж";
 const SHEET_PROFIT = "Прибыль";
@@ -1562,6 +1781,102 @@ function writeInvest(wb, input, inRef) {
   ws.getCell(r, 2).numFmt = MONEY;
 }
 
+/**
+ * Лист «Кредит» — график платежей по месяцам.
+ *
+ * Числа здесь посчитаны приложением и записаны значениями, а не формулами.
+ * Причина простая: аннуитет с каникулами, несколькими траншами и добором
+ * остатка в последнем платеже выражается формулой листа так, что проверить её
+ * глазами уже невозможно, а неверную формулу в книге хуже, чем никакой.
+ * Условия займа при этом лежат на листе «Исходные» и видны рядом с графиком.
+ */
+function writeLoans(wb, input, computed) {
+  const ws = wb.addWorksheet(SHEET_LOAN);
+  ws.getColumn(1).width = 18;
+  ws.getColumn(2).width = 28;
+  for (let c = 3; c <= 7; c++) ws.getColumn(c).width = 16;
+
+  const scenario = computed.base;
+  let r = 1;
+  ws.getCell(r, 1).value = `Заёмные деньги — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  r += 2;
+  r = note(
+    ws, r,
+    "Проценты уменьшают прибыль; тело долга расходом не является — это возврат своих же денег, " +
+      "поэтому оно уходит из денег на счёте, но не из прибыли."
+  );
+  r += 1;
+
+  r = title(ws, r, "УСЛОВИЯ");
+  r = header(ws, r, ["Источник", "Сумма, ₽", "Ставка годовых", "Срок, мес", "Переплата, ₽", "Всего выплат, ₽"]);
+  for (const item of scenario.loanSchedules) {
+    ws.getCell(r, 1).value = item.loan.name || "—";
+    ws.getCell(r, 2).value = item.loan.amount;
+    ws.getCell(r, 2).numFmt = MONEY;
+    ws.getCell(r, 3).value = item.loan.rate;
+    ws.getCell(r, 3).numFmt = PCT;
+    ws.getCell(r, 4).value = item.loan.termMonths;
+    ws.getCell(r, 5).value = Math.max(0, item.total - item.loan.amount);
+    ws.getCell(r, 5).numFmt = MONEY;
+    ws.getCell(r, 6).value = item.total;
+    ws.getCell(r, 6).numFmt = MONEY;
+    r += 1;
+  }
+  if (!scenario.loanSchedules.length) {
+    ws.getCell(r, 1).value = "Займов нет";
+    r += 1;
+  }
+  r += 1;
+
+  r = title(ws, r, "ГРАФИК ПО МЕСЯЦАМ");
+  r = header(ws, r, ["Месяц", "Получено, ₽", "Проценты, ₽", "Тело, ₽", "Платёж, ₽", "Остаток долга, ₽", "Деньги за месяц, ₽"]);
+  const first = r;
+  for (const m of scenario.months) {
+    if (!m.loanPayment && !m.loanReceipt && !m.debt) continue;
+    ws.getCell(r, 1).value = m.label;
+    ws.getCell(r, 2).value = m.loanReceipt;
+    ws.getCell(r, 3).value = m.interest;
+    ws.getCell(r, 4).value = m.loanPrincipal;
+    ws.getCell(r, 5).value = m.loanPayment;
+    ws.getCell(r, 6).value = m.debt;
+    ws.getCell(r, 7).value = m.cash;
+    for (let c = 2; c <= 7; c++) ws.getCell(r, c).numFmt = MONEY;
+    // Месяц, в который платёж больше заработанного, красится сам: это и есть
+    // тот кассовый разрыв, ради которого график и смотрят.
+    if (m.loanPayment > 0 && m.cash < 0) {
+      for (let c = 1; c <= 7; c++) ws.getCell(r, c).fill = TOTAL_FILL;
+    }
+    r += 1;
+  }
+  if (r > first) {
+    ws.getCell(r, 1).value = "ИТОГО";
+    ws.getCell(r, 1).font = { bold: true };
+    for (const c of [2, 3, 4, 5]) {
+      const cell = ws.getCell(r, c);
+      cell.value = { formula: `SUM(${L(c)}${first}:${L(c)}${r - 1})` };
+      cell.numFmt = MONEY;
+      cell.font = { bold: true };
+      cell.fill = TOTAL_FILL;
+    }
+    r += 2;
+  }
+
+  ws.getCell(r, 1).value = "Своих денег в проекте";
+  ws.getCell(r, 2).value = scenario.ownInvestment;
+  ws.getCell(r, 2).numFmt = MONEY;
+  r += 1;
+  note(
+    ws, r,
+    scenario.debtTight
+      ? `Внимание: в базовом сценарии ${scenario.debtTight.count} мес. платёж больше, чем проект в ` +
+        `этот месяц заработал (первый раз в ${scenario.debtTight.first}). Нужен запас на счёте, ` +
+        "отсрочка по телу или срок длиннее."
+      : "Платежи проект вытягивает в каждом месяце базового сценария."
+  );
+  return ws;
+}
+
 /** Оглавление: что на каком листе и в каком порядке это читать. */
 function writeContents(wb, input) {
   const ws = wb.addWorksheet(SHEET_CONTENTS);
@@ -1794,6 +2109,7 @@ async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) 
   const inRef = writeInputs(wb, input);
   const ratesRef = writeRates(wb, input, sources);
   writeInvest(wb, input, inRef);
+  if (input.loans.length) writeLoans(wb, input, computed);
 
   const marks = {};
   for (const key of SCEN_ORDER) {
@@ -1807,7 +2123,7 @@ async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) 
 
   // Листы движка ставим в конец: они нужны для проверки, но читают книгу не с них.
   const order = [
-    SHEET_CONTENTS, SHEET_INVEST, SHEET_IN, SHEET_RATES, SHEET_FC, SHEET_PROFIT,
+    SHEET_CONTENTS, SHEET_INVEST, SHEET_LOAN, SHEET_IN, SHEET_RATES, SHEET_FC, SHEET_PROFIT,
     MODEL_SHEETS.pess, MODEL_SHEETS.base, MODEL_SHEETS.opt,
     SHEET_SUM, SHEET_ADVICE,
     CALC_SHEETS.pess, CALC_SHEETS.base, CALC_SHEETS.opt,
@@ -1827,6 +2143,8 @@ async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) 
 }
 
 module.exports.writeInputs = writeInputs;
+module.exports.writeLoans = writeLoans;
+module.exports.SHEET_LOAN = SHEET_LOAN;
 module.exports.writeRates = writeRates;
 module.exports.writeScenarioSheet = writeScenarioSheet;
 module.exports.writeSummary = writeSummary;
@@ -1963,6 +2281,12 @@ function parseParams(text, input) {
 }
 
 /** Второй проход: заключение по уже посчитанным числам. */
+/** Штук в месяц. На дорогом товаре безубыточность дробная, и «0» тут — ложь. */
+function units(n) {
+  if (n === null || !Number.isFinite(n)) return "—";
+  return n >= 10 ? money(n) : n.toFixed(2);
+}
+
 function buildAdvicePrompt(computed) {
   const input = computed.input;
   const regime = regimeById(input.tax.regime);
@@ -1974,8 +2298,21 @@ function buildAdvicePrompt(computed) {
       `  первый год: выручка ${money(y1.revenue)} ₽, EBITDA ${money(y1.ebitda)} ₽, налоги ${money(y1.tax + y1.vat)} ₽, чистая ${money(y1.net)} ₽`,
       `  окупаемость: ${r.payback ? `${r.payback.months} мес. (${r.payback.label})` : "за горизонт не наступает"}`,
       `  NPV ${money(r.npv)} ₽, IRR ${r.irr === null ? "не определяется" : (r.irr * 100).toFixed(1) + "%"}`,
-      `  точка безубыточности: ${r.breakEvenUnits === null ? "не достигается — маржа не покрывает переменные расходы" : `${money(r.breakEvenUnits)} ед./мес (${money(r.breakEvenRevenue)} ₽)`}`,
-    ].join("\n");
+      `  точка безубыточности: ${r.breakEvenUnits === null ? "не достигается — маржа не покрывает переменные расходы" : `${units(r.breakEvenUnits)} ед./мес (${money(r.breakEvenRevenue)} ₽)`}`,
+      r.borrowed
+        ? `  заём: проценты за горизонт ${money(r.loanInterest)} ₽, платежи ${money(r.loanPayments)} ₽, ` +
+          `денег на счёте ${money(r.totalCash)} ₽` +
+          (r.debtTight
+            ? `; В ${r.debtTight.count} мес. платёж больше заработанного за месяц, первый раз в ${r.debtTight.first}`
+            : "; платежи вытягиваются в каждом месяце")
+        : "",
+      r.cashNegative && !r.debtTight
+        ? `  денег на счёте не хватает в ${r.cashNegative.count} мес., первый раз в ${r.cashNegative.first} ` +
+          `(минус ${money(Math.abs(r.cashNegative.worst))} ₽) — но не из-за платежа по займу`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   };
 
   return [
@@ -1987,6 +2324,20 @@ function buildAdvicePrompt(computed) {
     `Маржа после переменных расходов: ${money(computed.base.marginPerUnit)} ₽ с единицы.`,
     `Система налогообложения: ${regime.name}.`,
     `Инвестиции: ${money(computed.base.investment)} ₽.`,
+    // Заёмные деньги меняют вопрос: не «окупится ли проект», а «вытянем ли мы
+    // платежи и что останется нам». Без этих строк экономист будет хвалить
+    // выросшую доходность на чужие деньги, не заметив риска.
+    computed.base.borrowed
+      ? `Из них заёмных: ${money(computed.base.borrowed)} ₽. Своих денег в проекте: ` +
+        `${money(computed.base.ownInvestment)} ₽ — окупаемость, NPV и IRR посчитаны на них. ` +
+        `Условия: ${input.loans
+          .map((l) => `${l.name || "заём"} — ${money(l.amount)} ₽ под ${(l.rate * 100).toFixed(1)}% на ${l.termMonths} мес.` +
+            (l.graceMonths ? `, каникулы ${l.graceMonths} мес.` : "") +
+            (l.startMonth ? `, приход в ${l.startMonth}-й месяц` : ""))
+          .join("; ")}. ` +
+        `Среднемесячный платёж в первый год ${money(computed.base.monthlyDebtService)} ₽; чтобы хватало ` +
+        `и на расходы, и на платежи, надо продавать ${units(computed.base.breakEvenUnitsWithDebt)} ед./мес.`
+      : "",
     input.notes ? `\nОсобенности бизнес-модели: ${input.notes}` : "",
     "",
     scen("ПЕССИМИСТИЧНЫЙ", computed.pess),
@@ -2001,6 +2352,11 @@ function buildAdvicePrompt(computed) {
     "ЧТО ИЗМЕНИТЬ — конкретные рычаги с числами: на сколько поднять цену, срезать расходы,",
     "  ускорить раскрутку, чтобы окупаемость уложилась в разумный срок.",
     "ЧЕГО НЕ ХВАТАЕТ В ДАННЫХ — что человек не задал и из-за чего расчёт может врать.",
+    computed.base.borrowed
+      ? "ЗАЁМ — вытягивает ли проект платежи и что будет в пессимистичном сценарии. Помни, что\n" +
+        "  рост доходности на заёмных деньгах — это не улучшение проекта, а перенос риска на\n" +
+        "  собственника: при недоборе выручки платить всё равно придётся."
+      : "",
     "",
     "Оперируй числами из расчёта, а не общими словами. Если модель убыточна — скажи это прямо",
     "и посчитай, при каком объёме или цене она выходит в ноль.",

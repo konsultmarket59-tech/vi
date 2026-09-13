@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type {
   Conversation,
   CostKind,
+  LoanKind,
   FinComputed,
   FinModelInput,
   FinRates,
@@ -31,6 +32,14 @@ const money = (v: number | null | undefined) =>
     : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.round(v));
 
 const pct = (v: number | null) => (v === null ? "не определяется" : `${(v * 100).toFixed(1)}%`);
+
+/**
+ * Штук в месяц. На дорогом товаре безубыточность дробная: округлить 0,04 дома
+ * до нуля значит соврать, а прежняя подпись «постоянных расходов нет» врала
+ * прямо — расходы есть, их просто покрывает доля одной продажи.
+ */
+const units = (v: number | null | undefined) =>
+  v === null || v === undefined || !Number.isFinite(v) ? "—" : v >= 10 ? money(v) : v.toFixed(2);
 
 const fileName = (p: string) => (p ? p.split(/[\\/]/).pop() || p : "");
 
@@ -68,6 +77,10 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
   const [fixedCosts, setFixedCosts] = useState([{ name: "", monthly: "" }]);
   const [variableCosts, setVariableCosts] = useState([{ name: "", kind: "month", value: "" }]);
   const [investments, setInvestments] = useState([{ name: "", amount: "" }]);
+  const [loanKinds, setLoanKinds] = useState<LoanKind[]>([]);
+  const [loans, setLoans] = useState([
+    { name: "", amount: "", rate: "", termMonths: "", startMonth: "0", graceMonths: "0", kind: "annuity" },
+  ]);
 
   const [dataPaths, setDataPaths] = useState<string[]>([]);
   const [outputDir, setOutputDir] = useState("");
@@ -87,6 +100,7 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
     window.api.finmodelOptions().then((o) => {
       setRegimes(o.regimes);
       setCostKinds(o.costKinds);
+      setLoanKinds(o.loanKinds || []);
       setDefaultRates(o.rates);
       setMinWage(String(o.rates.minWage));
       setInflationText(String(o.rates.inflation * 100));
@@ -131,6 +145,19 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
         value: Number(c.value) || 0,
       })),
       investments: investments.map((c) => ({ name: c.name, amount: Number(c.amount) || 0 })),
+      loans: loans
+        .map((l) => ({
+          name: l.name,
+          amount: Number(l.amount) || 0,
+          // Ставку вводят в процентах — так её и называет банк. Внутри модели
+          // она доля, поэтому делится здесь, а не остаётся на совести человека.
+          rate: (Number(String(l.rate).replace(",", ".")) || 0) / 100,
+          termMonths: Number(l.termMonths) || 12,
+          startMonth: Number(l.startMonth) || 0,
+          graceMonths: Number(l.graceMonths) || 0,
+          kind: l.kind,
+        }))
+        .filter((l) => l.name || l.amount),
       rates: defaultRates ? { ...defaultRates, minWage: Number(minWage) || defaultRates.minWage } : undefined,
       notes,
     } as Partial<FinModelInput>;
@@ -267,7 +294,14 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
     rows: T[],
     setRows: (r: T[]) => void,
     blank: T,
-    fields: { key: keyof T; label: string; width?: number; kind?: "select" }[]
+    fields: {
+      key: keyof T;
+      label: string;
+      width?: number;
+      kind?: "select";
+      /** Чем заполнить список. По умолчанию — виды переменных расходов. */
+      options?: { id: string; name: string }[];
+    }[]
   ) => (
     <div className="fin-rows">
       <div className="fin-row fin-row-head">
@@ -292,7 +326,7 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
                   setRows(next);
                 }}
               >
-                {costKinds.map((k) => (
+                {(f.options || costKinds).map((k) => (
                   <option key={k.id} value={k.id}>
                     {k.name}
                   </option>
@@ -494,6 +528,39 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
           </section>
 
           <section className="fin-block">
+            <h3>Заёмные деньги</h3>
+            <p className="fin-hint">
+              Если часть старта берётся в долг. Ставка — годовая, в процентах, как её называет
+              банк. «Приход» — в каком месяце проекта деньги пришли: 0 значит вместе с вложениями,
+              до старта продаж. «Каникулы» откладывают только тело долга — проценты банк начисляет
+              и в каникулы.
+            </p>
+            {rowsEditor(
+              loans,
+              setLoans,
+              { name: "", amount: "", rate: "", termMonths: "", startMonth: "0", graceMonths: "0", kind: "annuity" },
+              [
+                { key: "name", label: "Источник", width: 2 },
+                { key: "amount", label: "Сумма, ₽" },
+                { key: "rate", label: "Ставка, %" },
+                { key: "termMonths", label: "Срок, мес" },
+                { key: "startMonth", label: "Приход, мес" },
+                { key: "graceMonths", label: "Каникулы, мес" },
+                { key: "kind", label: "Погашение", width: 2, kind: "select", options: loanKinds },
+              ]
+            )}
+            {!!loanKinds.length && (
+              <ul className="fin-loan-kinds">
+                {loanKinds.map((k) => (
+                  <li key={k.id}>
+                    <b>{k.name}.</b> {k.hint}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="fin-block">
             <h3>Спрос</h3>
             <label>
               Сезонность по месяцам
@@ -593,21 +660,78 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
                         ? "инвестиций нет"
                         : `${s.payback.months} мес. — ${s.payback.label}`
                   )}
+                  {!!computed.base.borrowed && (
+                    <>
+                      {scenarioRow("Проценты за горизонт, ₽", (s) => money(s.loanInterest))}
+                      {scenarioRow("Платежи по займу, ₽", (s) => money(s.loanPayments))}
+                      {scenarioRow("Денег на счёте за горизонт, ₽", (s) => money(s.totalCash))}
+                    </>
+                  )}
                   {scenarioRow("NPV, ₽", (s) => money(s.npv))}
                   {scenarioRow("IRR годовая", (s) => pct(s.irr))}
                   {scenarioRow("Точка безубыточности, ед./мес", (s) =>
-                    s.breakEvenUnits === null
-                      ? "не достигается"
-                      : s.breakEvenUnits < 1
-                        ? "постоянных расходов нет"
-                        : money(s.breakEvenUnits)
+                    s.breakEvenUnits === null ? "не достигается" : units(s.breakEvenUnits)
                   )}
+                  {!!computed.base.borrowed &&
+                    scenarioRow("Безубыточность с платежами, ед./мес", (s) => units(s.breakEvenUnitsWithDebt))}
                 </tbody>
               </table>
               <p className="fin-hint">
                 Инвестиции: {money(computed.base.investment)} ₽. Маржа после переменных расходов:{" "}
                 {money(computed.base.marginPerUnit)} ₽ с единицы.
               </p>
+
+              {!!computed.base.borrowed && (
+                <>
+                  <p className="fin-hint">
+                    Взято в долг: {money(computed.base.borrowed)} ₽, из них к старту —{" "}
+                    {money(computed.base.investment - computed.base.ownInvestment)} ₽. Своих денег в
+                    проекте: <b>{money(computed.base.ownInvestment)} ₽</b>. Окупаемость, NPV и IRR
+                    считаются на свои деньги — вопрос «когда вернутся мои» про свои, а не про
+                    банковские. Проценты уменьшают прибыль
+                    {activeRegime && /усн15|osno|ausn20/.test(activeRegime.id)
+                      ? " и налог"
+                      : ", но налог на выбранном режиме не уменьшают"}
+                    ; тело долга расходом не является нигде — это возврат своих же денег.
+                  </p>
+                  {/*
+                    Кассовый разрыв — главное, о чём должна предупредить модель с
+                    займом: прибыль на бумаге есть, а платить в этом месяце нечем.
+                  */}
+                  {computed.base.debtTight ? (
+                    <p className="fin-warn">
+                      В базовом сценарии {computed.base.debtTight.count} мес. платёж больше, чем
+                      проект в этот месяц заработал — первый раз в{" "}
+                      {computed.base.debtTight.first}, худший минус{" "}
+                      {money(Math.abs(computed.base.debtTight.worst))} ₽. Нужен запас на счёте,
+                      отсрочка по телу или срок длиннее.
+                    </p>
+                  ) : (
+                    <p className="fin-hint">
+                      Платежи по займу проект вытягивает из своих же денег в каждом месяце базового
+                      сценария. В пессимистичном —{" "}
+                      {computed.pess.debtTight
+                        ? `нет: ${computed.pess.debtTight.count} мес. в минусе, первый раз в ${computed.pess.debtTight.first}`
+                        : "тоже вытягивает"}
+                      .
+                    </p>
+                  )}
+                  {/*
+                    Минус на счёте бывает и не от займа — например, в декабре от
+                    годового добора НДС. Смешивать эти две беды нельзя: «уменьшить
+                    платёж» вторую не лечит.
+                  */}
+                  {!computed.base.debtTight && computed.base.cashNegative && (
+                    <p className="fin-warn">
+                      Платёж по займу проект вытягивает, но денег на счёте всё равно не хватает в{" "}
+                      {computed.base.cashNegative.count} мес. — первый раз в{" "}
+                      {computed.base.cashNegative.first}, минус{" "}
+                      {money(Math.abs(computed.base.cashNegative.worst))} ₽. Причина не в займе:
+                      смотрите годовой добор налога и месяцы с низкими продажами.
+                    </p>
+                  )}
+                </>
+              )}
 
               <div className="fin-actions">
                 <button className="btn btn-secondary" onClick={askAdvice} disabled={busy}>

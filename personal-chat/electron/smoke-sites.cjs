@@ -202,6 +202,13 @@ async function main() {
   const токены = sites.extractTokens(
     ":root { --accent: #FF6600; --ink: #1A1A1A; } body { font-family: Inter, sans-serif } .a { color: rgba(0,0,0,.5) }"
   );
+  // Приложение русское, и переменные в Фигме называют по-русски не реже, чем
+  // по-английски. Прежний набор букв был только латинским, и такая система
+  // разбиралась в ноль переменных — молча.
+  const поРусски = sites.extractTokens(":root{--фон-страницы:#101820;--акцент:#C6362F;}");
+  check("русские имена переменных не теряются",
+    поРусски.vars.length === 2 && поРусски.vars[0].name === "--фон-страницы",
+    JSON.stringify(поРусски.vars));
   check("переменные вынуты с именами",
     токены.vars.length === 2 && токены.vars[0].name === "--accent", JSON.stringify(токены.vars));
   check("цвета собраны", токены.colours.includes("#ff6600"), JSON.stringify(токены.colours));

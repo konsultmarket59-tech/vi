@@ -4,6 +4,7 @@ import type {
   Conversation,
   Settings,
   Skill,
+  StoriesDesign,
   StoryFont,
   StoryLayer,
   StoryLayerKind,
@@ -79,6 +80,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
   const [error, setError] = useState<string | null>(null);
 
   const [conv, setConv] = useState<Conversation | null>(null);
+  const [design, setDesign] = useState<StoriesDesign | null>(null);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [applied, setApplied] = useState("");
   const [scriptText, setScriptText] = useState("");
@@ -303,7 +305,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
     setError(null);
     setBusy(true);
     try {
-      const prepared = await window.api.prepareStoriesScript({ spec, text: scriptText });
+      const prepared = await window.api.prepareStoriesScript({ spec, text: scriptText, design });
       setSystemPrompt(prepared.prompt);
       setConv({ id: uid(), projectId: "", title: "Раскладка по сценам", messages: [], createdAt: Date.now(), updatedAt: Date.now() });
       // Референс — картинка, её нельзя пересказать словами: отдаём вложением.
@@ -313,6 +315,35 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
           : undefined
       );
       setApplied("");
+      if (prepared.problems.length) setError(prepared.problems.join("; "));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Разговор с агентом сам по себе, без кнопки «разложить».
+   *
+   * Раньше окно агента появлялось только после раскладки и закрывалось вместе с
+   * ней: спросить «а сделай второй вариант покороче» было негде. Задание берётся
+   * то же самое, что и у раскладки, — агент должен видеть текст, длительность и
+   * дизайн-систему, о чём бы его ни спросили.
+   */
+  async function openAgent() {
+    setError(null);
+    setBusy(true);
+    try {
+      const prepared =
+        sourceKind === "none"
+          ? await window.api.prepareStoriesMotion({ spec, text: scriptText, assetPaths, design })
+          : await window.api.prepareStoriesScript({ spec, text: scriptText, design });
+      setSystemPrompt(prepared.prompt);
+      setConv({
+        id: uid(), projectId: "", title: "Разговор о ролике",
+        messages: [], createdAt: Date.now(), updatedAt: Date.now(),
+      });
       if (prepared.problems.length) setError(prepared.problems.join("; "));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -338,7 +369,7 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
     setError(null);
     setBusy(true);
     try {
-      const prepared = await window.api.prepareStoriesMotion({ spec, text: scriptText, assetPaths });
+      const prepared = await window.api.prepareStoriesMotion({ spec, text: scriptText, assetPaths, design });
       setSystemPrompt(prepared.prompt);
       setConv({ id: uid(), projectId: "", title: "Моушн-дизайн", messages: [], createdAt: Date.now(), updatedAt: Date.now() });
       setPrefill(
@@ -633,8 +664,92 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                     Разложить по сценам
                   </button>
                 )}
+                {/*
+                  Разговор отдельной кнопкой. Раньше окно агента открывалось
+                  только раскладкой и уходило вместе с ней: спросить «а сделай
+                  второй вариант покороче» было негде.
+                */}
+                <button className="btn btn-secondary btn-small" onClick={openAgent} disabled={busy}>
+                  Обсудить с агентом
+                </button>
               </div>
+              <p className="vs-hint">
+                В окне агента можно выбрать модель и подключить навык — как в обычном чате. Раскладка
+                подставляется в ролик, когда агент присылает блок со сценами; всё остальное — обычный
+                разговор, и ролик от него не меняется.
+              </p>
               {applied && <div className="vs-applied">{applied}</div>}
+            </section>
+
+            <section className="vs-block">
+              <h3>Дизайн-система</h3>
+              <p className="vs-hint">
+                Папка с дизайн-системой — из Figma, Pixso или Claude Design. Приложение вытащит из
+                неё цвета, шрифты и переменные и отдаст агенту как обязательный набор, а не как
+                пожелание.
+              </p>
+              <div className="vs-row">
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={async () => {
+                    const dir = await window.api.sitesPickFolder("Папка с дизайн-системой");
+                    if (!dir) return;
+                    setBusy(true);
+                    try {
+                      setDesign(await window.api.readStoriesDesign(dir));
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Выбрать папку
+                </button>
+                {design && (
+                  <button className="link-btn" onClick={() => setDesign(null)}>
+                    Убрать
+                  </button>
+                )}
+              </div>
+              {design && (
+                <>
+                  <p className="vs-path">{design.dir}</p>
+                  {design.problem ? (
+                    <p className="vs-warn">{design.problem}</p>
+                  ) : (
+                    <p className="vs-hint">
+                      Файлов прочитано: {design.files.length}. Цветов: {design.colours.length}, шрифтов:{" "}
+                      {design.fonts.length}, переменных: {design.vars.length}.
+                    </p>
+                  )}
+                  {!!design.colours.length && (
+                    <>
+                      {/*
+                        Цвета кликабельны: смысл дизайн-системы в том, чтобы не
+                        набирать её цвета руками по одному.
+                      */}
+                      <div className="vs-swatches">
+                        {design.colours.slice(0, 16).map((c) => (
+                          <button
+                            key={c}
+                            className="vs-swatch"
+                            style={{ background: c }}
+                            title={`${c} — нажмите, чтобы взять фоном; с Alt — акцентом`}
+                            onClick={(e) => (e.altKey ? setAccentColor(c) : setBgColor(c))}
+                          >
+                            <span>{c}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="vs-hint">
+                        Нажатие ставит цвет фоном, с Alt — акцентом. Работает только для шестизначных
+                        цветов: выбор цвета в системе других не принимает.
+                      </p>
+                    </>
+                  )}
+                </>
+              )}
             </section>
 
             <section className="vs-block">
@@ -1171,6 +1286,12 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
               style={{
                 width: PREVIEW_W,
                 height: Math.round((preset?.height || 1920) * scale),
+                // Кадры сцены прозрачные нарочно: фон подкладывает ffmpeg при
+                // сборке, иначе съёмку было бы не видно из-под слоёв. Но в
+                // предпросмотре подкладывать некому, и коробка красилась
+                // наглухо в #111 — выбранный цвет фона просто не появлялся
+                // нигде, пока не соберёшь ролик целиком.
+                background: sourceKind === "none" ? bgColor : undefined,
               }}
             >
               {poster && <img className="vs-poster" src={poster} alt="" />}

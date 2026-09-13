@@ -334,6 +334,159 @@ async function workbookChecks() {
   );
 }
 
+/**
+ * Заёмные деньги. Здесь проверяется не «код не падает», а три вещи, из-за
+ * которых модель с кредитом обычно врёт: график платежей, что именно считается
+ * своими деньгами и попадают ли проценты в налог.
+ */
+async function loanChecks() {
+  console.log("\nзаёмные деньги");
+
+  // Аннуитет: миллион двести под 24% на год. Платёж считается по формуле
+  // сложного процента, и сверять его надо с банковским калькулятором, а не с
+  // самим собой: 1 200 000 × 0.02 / (1 − 1.02^−12).
+  const базовый = { amount: 1200000, rate: 0.24, termMonths: 12, startMonth: 0, graceMonths: 0, kind: "annuity" };
+  const ан = fm.loanSchedule(базовый, 24);
+  const платежи = ан.months.filter((m) => m.payment > 0);
+  check("платежей ровно столько, сколько месяцев срока", платежи.length === 12, String(платежи.length));
+  check("аннуитетный платёж совпадает с банковской формулой",
+    near(платежи[0].payment, 113472, 5), платежи[0].payment);
+  check("платёж не меняется от месяца к месяцу",
+    near(платежи[0].payment, платежи[11].payment, 1), `${платежи[0].payment} и ${платежи[11].payment}`);
+  check("долг гасится до нуля", near(платежи[11].debt, 0, 1), платежи[11].debt);
+  check("сумма тела равна взятому", near(платежи.reduce((s2, m) => s2 + m.principal, 0), 1200000, 1));
+
+  const рав = fm.loanSchedule({ ...базовый, kind: "equal" }, 24).months.filter((m) => m.payment > 0);
+  check("равными долями: платёж убывает", рав[0].payment > рав[11].payment, `${рав[0].payment} → ${рав[11].payment}`);
+  check("равными долями переплата меньше, чем аннуитетом",
+    рав.reduce((s2, m) => s2 + m.interest, 0) < платежи.reduce((s2, m) => s2 + m.interest, 0));
+
+  const хвост = fm.loanSchedule({ ...базовый, kind: "interestOnly" }, 24).months.filter((m) => m.payment > 0);
+  check("только проценты: тело уходит одним платежом в конце",
+    near(хвост[0].principal, 0) && near(хвост[11].principal, 1200000, 1), хвост[11].principal);
+  check("только проценты — самый дорогой способ",
+    хвост.reduce((s2, m) => s2 + m.interest, 0) > платежи.reduce((s2, m) => s2 + m.interest, 0));
+
+  // Каникулы гасят тело, но не проценты. Обратное — частая и дорогая ошибка.
+  const кан = fm.loanSchedule({ ...базовый, graceMonths: 3 }, 24).months.filter((m) => m.payment > 0);
+  check("в каникулы тело не гасится", кан.slice(0, 3).every((m) => m.principal === 0));
+  check("а проценты в каникулы начисляются", кан.slice(0, 3).every((m) => m.interest > 0));
+  check("из-за каникул переплата растёт",
+    кан.reduce((s2, m) => s2 + m.interest, 0) > платежи.reduce((s2, m) => s2 + m.interest, 0));
+  check("долг всё равно гасится до нуля", near(кан[кан.length - 1].debt, 0, 1), кан[кан.length - 1].debt);
+
+  // Транш не к старту, а в середине проекта.
+  const позже = fm.loanSchedule({ ...базовый, startMonth: 6 }, 24);
+  check("деньги приходят в указанный месяц",
+    позже.months.findIndex((m) => m.receipt > 0) === 5, String(позже.months.findIndex((m) => m.receipt > 0)));
+  check("платежи начинаются со следующего месяца",
+    позже.months.findIndex((m) => m.payment > 0) === 6);
+  check("такой транш к старту денег не даёт", позже.atStart === 0);
+  check("беспроцентный заём переплаты не даёт",
+    near(fm.loanSchedule({ ...базовый, rate: 0 }, 24).total, 1200000, 1));
+
+  // Теперь то же в целой модели.
+  const проект = {
+    projectName: "С займом", price: 9000000, unitCost: 6200000, baseVolume: 0.5,
+    startYear: 2026, startMonth: 1, horizonYears: 3, tax: { regime: "usn15" },
+    fixedCosts: [{ name: "Аренда", monthly: 120000 }],
+    investments: [{ name: "Техника", amount: 3000000 }],
+  };
+  const заём = { name: "Банк", amount: 2000000, rate: 0.22, termMonths: 24, startMonth: 0, kind: "annuity" };
+  const без = fm.compute(проект).base;
+  const с = fm.compute({ ...проект, loans: [заём] }).base;
+
+  check("без займа своих денег ровно столько, сколько вложено",
+    без.ownInvestment === без.investment && без.borrowed === 0);
+  check("заём к старту уменьшает свои деньги, а не вложения",
+    с.investment === 3000000 && с.ownInvestment === 1000000, `${с.investment} / ${с.ownInvestment}`);
+  check("проценты посчитаны", с.loanInterest > 0 && near(с.loanInterest, 490151, 100), с.loanInterest);
+  // Прибыль падает не на всю сумму процентов: проценты — расход, и на «доходах
+  // минус расходах» они же снимают 15 % налога. Падение обязано быть ровно
+  // 85 % от процентов, иначе где-то потерян или задвоен налоговый эффект.
+  check("прибыль падает на проценты за вычетом сэкономленного налога",
+    near(без.totalNet - с.totalNet, с.loanInterest * 0.85, 1),
+    `${(без.totalNet - с.totalNet).toFixed(0)} против ${(с.loanInterest * 0.85).toFixed(0)}`);
+  // Тело долга — возврат своих же денег: со счёта уходит, прибыль не трогает.
+  check("тело долга уходит из денег, но не из прибыли",
+    near(с.totalNet - с.totalCash, 2000000, 1), (с.totalNet - с.totalCash).toFixed(2));
+  check("EBITDA процентами не трогается — она до них по определению",
+    near(с.years[0].ebitda, без.years[0].ebitda, 1), `${с.years[0].ebitda} и ${без.years[0].ebitda}`);
+
+  // Налог. На «доходах минус расходах» проценты его уменьшают, на «доходах» — нет.
+  const дохРасх = fm.compute({ ...проект, loans: [заём] }).base;
+  const дохРасхБез = fm.compute(проект).base;
+  check("на «доходах минус расходах» проценты уменьшают налог",
+    дохРасх.years[0].tax < дохРасхБез.years[0].tax,
+    `${дохРасх.years[0].tax} против ${дохРасхБез.years[0].tax}`);
+  const дох = fm.compute({ ...проект, tax: { regime: "usn6" }, loans: [заём] }).base;
+  const дохБез = fm.compute({ ...проект, tax: { regime: "usn6" } }).base;
+  check("на «доходах» налог от процентов не зависит",
+    near(дох.years[0].tax, дохБез.years[0].tax, 1), `${дох.years[0].tax} против ${дохБез.years[0].tax}`);
+
+  // Кассовый разрыв. Проект прибыльный сам по себе — 104 000 ₽ в первый месяц, —
+  // но платёж 274 691 ₽ он не вытягивает. Это и есть тот случай, о котором
+  // модель обязана предупредить: прибыль на бумаге есть, а платить нечем.
+  const мастерская = {
+    projectName: "Мастерская", price: 200000, unitCost: 120000, baseVolume: 3,
+    startYear: 2026, startMonth: 1, horizonYears: 3, tax: { regime: "usn6" },
+    fixedCosts: [{ name: "Аренда", monthly: 100000 }],
+    investments: [{ name: "Оборудование", amount: 4000000 }],
+  };
+  const своими = fm.compute(мастерская).base;
+  const вДолг = fm.compute({
+    ...мастерская,
+    loans: [{ name: "Банк", amount: 4000000, rate: 0.28, termMonths: 18, startMonth: 0, kind: "annuity" }],
+  }).base;
+  check("на свои деньги проект в плюсе каждый месяц", своими.cashNegative === null, JSON.stringify(своими.cashNegative));
+  check("модель предупреждает о месяцах, когда платить нечем",
+    !!вДолг.debtTight && вДолг.debtTight.count === 18, JSON.stringify(вДолг.debtTight));
+  check("и называет первый такой месяц и худший минус",
+    !!вДолг.debtTight && /\d{4}/.test(вДолг.debtTight.first) && вДолг.debtTight.worst < -100000,
+    JSON.stringify(вДолг.debtTight));
+  check("без займа предупреждения нет", без.debtTight === null);
+
+  // Минус в декабре от годового добора НДС — не вина займа, и «уменьшить
+  // платёж» его не вылечит. Предупреждения обязаны различаться, иначе первое
+  // из них врёт.
+  const сНдс = fm.compute({ ...проект, loans: [заём] }).opt;
+  check("декабрьский минус от НДС к займу не приписывается",
+    сНдс.debtTight === null && !!сНдс.cashNegative && /декабрь/.test(сНдс.cashNegative.first),
+    `${JSON.stringify(сНдс.debtTight)} / ${JSON.stringify(сНдс.cashNegative)}`);
+  check("безубыточность с платежами выше обычной",
+    с.breakEvenUnitsWithDebt > с.breakEvenUnits, `${с.breakEvenUnits} → ${с.breakEvenUnitsWithDebt}`);
+  check("и считается от настоящего платежа, а не от процентов",
+    near(вДолг.breakEvenUnitsWithDebt - своими.breakEvenUnits, вДолг.monthlyDebtService / вДолг.marginPerUnit, 0.01),
+    `${вДолг.breakEvenUnitsWithDebt} и ${своими.breakEvenUnits}`);
+
+  // Ставка задаётся долей: 22 — это не 2200%.
+  const нормализован = fm.normalizeInput({ ...проект, loans: [{ name: "Б", amount: 100, rate: 0.22 }] });
+  check("умолчания займа проставлены",
+    нормализован.loans[0].termMonths === 12 && нормализован.loans[0].kind === "annuity" &&
+      нормализован.loans[0].startMonth === 0, JSON.stringify(нормализован.loans[0]));
+  check("пустые строки займа отбрасываются",
+    fm.normalizeInput({ ...проект, loans: [{ name: "", amount: 0 }] }).loans.length === 0);
+
+  // И то же самое в книге: без листа с графиком человек не сможет сверить
+  // платежи с договором, а именно это он и будет делать.
+  const { path: сЗаймом } = await fm.save({ ...проект, loans: [заём] }, { destDir: outDir, fileName: "с-займом" });
+  const книга = await excel.loadWorkbook(сЗаймом);
+  const лист = книга.sheets.find((sh) => sh.name === "Кредит");
+  check("в книге есть лист «Кредит»", !!лист, книга.sheets.map((sh) => sh.name).join(", "));
+  const текст = лист ? Object.values(лист.cells).map((c) => String(c.value || "")).join(" | ") : "";
+  check("на листе видны условия займа", текст.includes("Банк") && текст.includes("2000000"), текст.slice(0, 200));
+  check("и график по месяцам", /январь 2026/.test(текст), текст.slice(0, 200));
+  const исходные = книга.sheets.find((sh) => sh.name === "Исходные");
+  const исхТекст = Object.values(исходные.cells).map((c) => String(c.value || "")).join(" | ");
+  check("заём попал и в «Исходные»", /ЗАЁМНЫЕ ДЕНЬГИ/.test(исхТекст));
+  check("и там же сказано, сколько своих денег", /Своих денег в проекте/.test(исхТекст));
+
+  const { path: безЗайма } = await fm.save(проект, { destDir: outDir, fileName: "без-займа" });
+  const книга2 = await excel.loadWorkbook(безЗайма);
+  check("без займа лишнего листа в книге нет",
+    !книга2.sheets.some((sh) => sh.name === "Кредит"), книга2.sheets.map((sh) => sh.name).join(", "));
+}
+
 function promptChecks() {
   console.log("\nагент");
   const input = fm.normalizeInput(SAMPLE);
@@ -378,6 +531,7 @@ server.listen(0, "127.0.0.1", () => {
   app.whenReady().then(async () => {
     try {
       await mathChecks();
+      await loanChecks();
       await workbookChecks();
       promptChecks();
 
