@@ -14,7 +14,7 @@ const fs = require("node:fs");
 const usage = require("./usage.cjs");
 const managed = require("./managed.cjs");
 const bundledSkills = require("./bundledSkills.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "managed-ud-"));
 const configFile = path.join(__dirname, "..", "managed-config.json");

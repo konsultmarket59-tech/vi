@@ -44,7 +44,7 @@ function check(label, condition, detail = "") {
 const library = require("./library.cjs");
 const speech = require("./speech.cjs");
 const ffmpeg = require("ffmpeg-static");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 function makeMedia(dest, seconds, withVideo) {
   const args = ["-y", "-hide_banner", "-loglevel", "error"];

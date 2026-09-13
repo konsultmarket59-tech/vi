@@ -2908,6 +2908,33 @@ ipcMain.handle("media:buildPodcast", async (event, request) => {
 });
 
 ipcMain.handle("media:list", async (_e, projectId) => media.list(await getRootPath(), projectId));
+
+/** Заказы, за которые деньги сняты, а результат ещё не забран. */
+ipcMain.handle("media:pending", async () => media.listPending(await getRootPath()));
+
+ipcMain.handle("media:collect", async (_e, id) => {
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  const list = await media.listPending(root);
+  const заказ = list.find((x) => x.id === id);
+  if (!заказ) throw new Error("Такого заказа в журнале нет — возможно, он уже забран.");
+  return media.collect(root, {
+    baseUrl: settings.baseUrl,
+    apiKey: settings.apiKey,
+    id,
+    type: заказ.type,
+    model: заказ.model,
+    prompt: заказ.prompt,
+    projectId: заказ.projectId || undefined,
+    recipe: заказ.recipe || "",
+  });
+});
+
+/** Забыть заказ: он не получится никогда (например, сервис его потерял). */
+ipcMain.handle("media:forgetPending", async (_e, id) => {
+  await media.dropPending(await getRootPath(), id);
+  return true;
+});
 ipcMain.handle("media:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
   const dir = media.mediaDir(root, projectId);

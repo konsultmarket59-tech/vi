@@ -33,7 +33,7 @@ const near = (a, b, tol = 1) => typeof a === "number" && Number.isFinite(a) && M
 const fm = require("./finmodel.cjs");
 const MONTHS_OF = fm.MONTHS;
 const excel = require("./excel.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 // Ответ агента с допущениями — как он приходит из чата.
 const PARAMS_REPLY = `Разобрал выгрузку Вордстата за три года.

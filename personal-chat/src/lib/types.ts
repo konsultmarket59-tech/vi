@@ -1258,6 +1258,17 @@ export interface MediaReference {
   text: string;
 }
 
+/** Заказ, за который деньги сняты, а результат ещё не забран. */
+export interface MediaPending {
+  id: string;
+  type: MediaType;
+  model: string;
+  prompt: string;
+  projectId: string;
+  recipe: string;
+  createdAt: number;
+}
+
 export interface MediaResolvedPrompt {
   prompt: string;
   images: { id: string; name: string; path: string }[];
@@ -1757,6 +1768,9 @@ export interface ElectronAPI {
   onMediaScriptProgress(handler: (payload: MediaScriptProgress) => void): () => void;
   readMediaDesign(dir: string): Promise<StoriesDesign>;
   listMediaGenerations(projectId?: string): Promise<MediaGenerationResult[]>;
+  listPendingMedia(): Promise<MediaPending[]>;
+  collectMedia(id: string): Promise<{ ready: boolean; status?: string; item?: MediaGenerationResult }>;
+  forgetPendingMedia(id: string): Promise<boolean>;
   openMediaFolder(projectId?: string): Promise<void>;
   pickReferenceImage(): Promise<string | null>;
   onMediaProgress(callback: (status: string) => void): () => void;

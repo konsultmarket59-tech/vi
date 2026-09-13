@@ -44,7 +44,7 @@ function check(label, condition, detail = "") {
 
 const vs = require("./videostories.cjs");
 const ffmpeg = require("ffmpeg-static");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 /** Короткий цветной ролик со звуком — исходник для сборки. */
 function makeSource(dest, seconds = 3) {

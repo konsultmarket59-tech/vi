@@ -10,7 +10,7 @@ const { app, BrowserWindow } = require("electron");
 const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "personal-chat-plugins-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "personal-chat-plugins-data-"));

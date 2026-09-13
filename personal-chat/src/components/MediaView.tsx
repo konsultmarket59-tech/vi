@@ -5,6 +5,7 @@ import type {
   MediaKitChoice,
   MediaKitEntry,
   MediaLine,
+  MediaPending,
   MediaReference,
   MediaScene,
   MediaScriptKind,
@@ -60,7 +61,8 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [params, setParams] = useState<Record<string, string>>({});
   const [design, setDesign] = useState<StoriesDesign | null>(null);
   const [openGroup, setOpenGroup] = useState<string>("");
-  const [commandSearch, setCommandSearch] = useState("");
+  const [pending, setPending] = useState<MediaPending[]>([]);
+  const [collecting, setCollecting] = useState("");
 
   // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
   // голоса и сборку делает приложение.
@@ -134,6 +136,32 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
 
   async function refreshHistory() {
     setHistory(await window.api.listMediaGenerations(projectId || undefined));
+    setPending(await window.api.listPendingMedia());
+  }
+
+  /**
+   * Забрать оплаченный, но не дождавшийся результат.
+   *
+   * Ожидание у экрана и судьба заказа — разные вещи: деньги сняты в момент
+   * создания, и результат обязан достаться человеку, сколько бы он ни считался.
+   */
+  async function collect(id: string) {
+    setError(null);
+    setCollecting(id);
+    try {
+      const r = await window.api.collectMedia(id);
+      if (r.ready && r.item) {
+        setResult(r.item);
+        setPreviewUrl(await window.api.readFileAsDataUrl(r.item.localPath));
+      } else {
+        setError("Ещё не готово — модель считает. Попробуйте через минуту.");
+      }
+      await refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCollecting("");
+    }
   }
 
   function selectType(next: MediaType) {
@@ -757,59 +785,6 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
 
           {kit && type !== "audio" && (
             <>
-              {/*
-                Команды формата — не магия и не команды какой-то модели, а
-                короткие обозначения того, В КАКОМ ВИДЕ показать тему. Их сто с
-                лишним, поэтому список закрыт и ищется, а не вываливается сразу.
-              */}
-              <label>Формат</label>
-              <div className="media-kit-group">
-                <button
-                  className="media-kit-head"
-                  onClick={() => setOpenGroup(openGroup === "command" ? "" : "command")}
-                >
-                  <span>Короткая команда</span>
-                  <span className="hint">
-                    {kit.commands.find((c) => c.id === choice.command)?.name || "не выбрана"}
-                  </span>
-                  <span>{openGroup === "command" ? "▾" : "▸"}</span>
-                </button>
-                {openGroup === "command" && (
-                  <div className="media-kit-list">
-                    <input
-                      className="media-kit-search"
-                      value={commandSearch}
-                      placeholder="найти команду или формат…"
-                      onChange={(e) => setCommandSearch(e.target.value)}
-                    />
-                    {kit.commands
-                      .filter((c) => {
-                        const q = commandSearch.trim().toLowerCase();
-                        return (
-                          !q ||
-                          c.name.toLowerCase().includes(q) ||
-                          c.why.toLowerCase().includes(q) ||
-                          (c.aka || "").toLowerCase().includes(q) ||
-                          (c.group || "").toLowerCase().includes(q)
-                        );
-                      })
-                      .slice(0, 40)
-                      .map((c) => (
-                        <button
-                          key={c.id}
-                          className={choice.command === c.id ? "media-kit-item on" : "media-kit-item"}
-                          onClick={() => pick("command", c.id)}
-                        >
-                          <b>
-                            {c.name} <span className="media-kit-why">{c.group}</span>
-                          </b>
-                          <span className="media-kit-why">{c.why}</span>
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </div>
-
               <label>Приёмы</label>
               <p className="hint">
                 Промпт собирается из выбранного: сначала что в кадре, потом стиль, ракурс, свет и
@@ -872,7 +847,7 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               <label>Параметры модели</label>
               <div className="media-params">
                 {(kit.fields[type] || []).map((f) => (
-                  <label key={f.key} className="media-param" title={f.hint || ""}>
+                  <label key={f.key} className="media-param">
                     <span>{f.name}</span>
                     {f.kind === "choice" ? (
                       <select
@@ -902,6 +877,12 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                         onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
                       />
                     )}
+                    {/*
+                      Пояснение видно всегда, а не только во всплывающей
+                      подсказке: настройка, назначение которой надо угадывать,
+                      с тем же успехом могла бы не существовать.
+                    */}
+                    {f.hint && <span className="media-param-hint">{f.hint}</span>}
                   </label>
                 ))}
               </div>
@@ -1013,6 +994,50 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
         </div>
 
         <div className="media-history">
+          {/*
+            Незабранные заказы. Деньги за генерацию снимаются в момент
+            создания заказа, а не в момент, когда картинка доехала до окна.
+            Поэтому заказ записывается на диск сразу и живёт тут, пока его не
+            заберут: ожидание у экрана и судьба оплаченного — разные вещи.
+          */}
+          {!!pending.length && (
+            <div className="media-pending">
+              <h3>Незабранные</h3>
+              <p className="hint">
+                Заказ оплачен, но результат ещё не скачан — обычно потому, что модель считала
+                дольше, чем приложение ждало у экрана. Ничего не пропало: нажмите «Забрать».
+              </p>
+              {pending.map((p2) => (
+                <div key={p2.id} className="media-pending-item">
+                  <span className="media-pending-prompt" title={p2.prompt}>
+                    {p2.prompt.slice(0, 70) || p2.model}
+                  </span>
+                  <span className="hint">
+                    {p2.model} · {new Date(p2.createdAt).toLocaleString("ru-RU")}
+                  </span>
+                  <div className="folder-row">
+                    <button
+                      className="btn btn-primary"
+                      disabled={collecting === p2.id}
+                      onClick={() => collect(p2.id)}
+                    >
+                      {collecting === p2.id ? "Забираю…" : "Забрать"}
+                    </button>
+                    <button
+                      className="link-btn"
+                      onClick={async () => {
+                        await window.api.forgetPendingMedia(p2.id);
+                        await refreshHistory();
+                      }}
+                    >
+                      забыть
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <h3>История</h3>
           {history.length === 0 && <p className="hint">Пока ничего не сгенерировано.</p>}
           <ul className="media-history-list">

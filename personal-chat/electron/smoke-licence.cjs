@@ -17,7 +17,7 @@ const http = require("node:http");
 
 const licence = require("./licence.cjs");
 const demoAccess = require("../../personal-code/electron/demoAccess.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 const configFile = path.join(__dirname, "..", "licence-config.json");
 const hadConfig = fs.existsSync(configFile);
