@@ -10,7 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 const docflow = require("./docflow.cjs");
 const word = require("./word.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {

@@ -11,7 +11,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const demoAccess = require("../../personal-code/electron/demoAccess.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "gate-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gate-data-"));

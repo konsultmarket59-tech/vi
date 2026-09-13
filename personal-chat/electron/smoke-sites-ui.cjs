@@ -10,7 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "sites-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sites-data-"));

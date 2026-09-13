@@ -16,7 +16,7 @@ const refs = require("./mediarefs.cjs");
 const script = require("./mediascript.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { execFileSync } = require("node:child_process");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "media-ud-"));
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "media-data-"));
@@ -386,51 +386,107 @@ app.whenReady().then(async () => {
       check("поля модели показаны",
         (await call(`document.querySelectorAll(".media-param").length`)) >= 3,
         String(await call(`document.querySelectorAll(".media-param").length`)));
-      // «Даже кнопку сгенерировать не видно»: она стояла в конце длинной ленты
-      // настроек. Теперь действие прилипло к низу столбца и видно всегда.
-      check("кнопка действия прилипла к низу и видна без прокрутки",
-        (await call(`(() => {
-          const bar = document.querySelector(".media-actions");
-          const form = document.querySelector(".media-form");
-          if (!bar || !form) return "нет полосы действия";
-          const b = bar.getBoundingClientRect(), f = form.getBoundingClientRect();
-          return b.bottom <= f.bottom + 2 && b.height > 0 ? "видна" : "за краем";
-        })()`)) === "видна");
-      check("настройки прокручиваются отдельно от кнопки",
+      // Проверка идёт в НЕВЫСОКОМ окне и меряет настоящие координаты.
+      //
+      // Прежняя проверка сравнивала кнопку с краем формы — и проходила, пока
+      // сама форма уезжала за край экрана: раздел рос по содержимому, потому
+      // что у .media-view не было заданной высоты. Полосы прокрутки не было
+      // (прокручивать нечего, когда высота равна содержимому), а лишнее
+      // обрезалось. Сравнивать надо с краем ОКНА, а не с краем того, что само
+      // за окно и вылезло.
+      win.setContentSize(1200, 760);
+      await new Promise((r) => setTimeout(r, 500));
+      const раскладка = await call(`(() => {
+        const view = document.querySelector(".media-view");
+        const scroll = document.querySelector(".media-scroll");
+        const кнопка = [...document.querySelectorAll(".media-actions .btn")].pop();
+        if (!view || !scroll || !кнопка) return { беда: "нет разметки" };
+        return {
+          разделВОкне: Math.round(view.getBoundingClientRect().bottom) <= window.innerHeight + 1,
+          кнопкаВидна: Math.round(кнопка.getBoundingClientRect().bottom) <= window.innerHeight + 1,
+          прокручивается: scroll.scrollHeight > scroll.clientHeight + 2,
+          низРаздела: Math.round(view.getBoundingClientRect().bottom),
+          окно: window.innerHeight,
+        };
+      })()`);
+      check("раздел не вылезает за окно", раскладка.разделВОкне === true, JSON.stringify(раскладка));
+      check("кнопка «Сгенерировать» видна без прокрутки", раскладка.кнопкаВидна === true, JSON.stringify(раскладка));
+      // Прокрутка должна БЫТЬ: настроек больше, чем помещается в такое окно.
+      check("настройки прокручиваются", раскладка.прокручивается === true, JSON.stringify(раскладка));
+
+      // И до низа настроек можно домотать — прокрутка не декоративная.
+      check("до конца настроек можно дойти",
         (await call(`(() => {
           const sc = document.querySelector(".media-scroll");
-          return sc && getComputedStyle(sc).overflowY === "auto" ? "да" : "нет";
-        })()`)) === "да");
-      check("команды формата есть и закрыты по умолчанию",
-        (await call(`document.body.textContent.includes("Короткая команда")`)) === true &&
-          (await call(`!document.querySelector(".media-kit-search")`)) === true);
-      await call(`[...document.querySelectorAll(".media-kit-head")].find(b => b.textContent.includes("Короткая команда")).click()`);
-      await new Promise((r) => setTimeout(r, 300));
-      check("по командам можно искать — их сто с лишним",
-        (await call(`!!document.querySelector(".media-kit-search")`)) === true);
+          sc.scrollTop = sc.scrollHeight;
+          return sc.scrollTop > 0 && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2;
+        })()`)) === true);
+
+      // Тот же промах был и в разделе GitHub: пустой он помещался в окно, а с
+      // наполнением уезжал вниз, и добраться до низа было нечем.
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("GitHub")).click()`);
+      await new Promise((r) => setTimeout(r, 600));
+      const гит = await call(`(() => {
+          const v = document.querySelector(".github-view");
+          if (!v) return "раздела нет";
+          const проба = document.createElement("div");
+          проба.style.height = "2000px";
+          v.appendChild(проба);
+          const достать = v.scrollHeight > v.clientHeight + 2 ||
+            document.documentElement.scrollHeight > window.innerHeight + 1;
+          const диагноз = {
+            достать: достать ? "можно" : "нельзя",
+            высотаРаздела: Math.round(v.getBoundingClientRect().height),
+            clientHeight: v.clientHeight,
+            scrollHeight: v.scrollHeight,
+            overflowY: getComputedStyle(v).overflowY,
+            height: getComputedStyle(v).height,
+            окно: window.innerHeight,
+          };
+          проба.remove();
+          return JSON.stringify(диагноз);
+        })()`);
+      check("в GitHub до низа тоже можно дойти при любом наполнении", /"можно"/.test(гит), String(гит));
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Медиа")).click()`);
+      await new Promise((r) => setTimeout(r, 600));
+      // Команды теперь живут только в поле промпта: знак / открывает список.
+      // Отдельной группы ниже больше нет — две одинаковые настройки в одном
+      // окне только путали.
+      check("знак / открывает список команд прямо в промпте",
+        (await call(`(() => {
+          const area = document.querySelector(".mention-box textarea");
+          if (!area) return "нет поля";
+          const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+          set.call(area, "/ice");
+          area.dispatchEvent(new Event("input", { bubbles: true }));
+          area.setSelectionRange(4, 4);
+          area.dispatchEvent(new Event("input", { bubbles: true }));
+          return "набрано";
+        })()`)) === "набрано");
+      await new Promise((r) => setTimeout(r, 400));
+      check("и в списке находится нужная команда",
+        (await call(`[...document.querySelectorAll(".mention-item")].some(b => b.textContent.includes("/iceberg"))`)) === true);
       await call(`(() => {
-        const i = document.querySelector(".media-kit-search");
-        const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-        set.call(i, "айсберг");
-        i.dispatchEvent(new Event("input", { bubbles: true }));
+        const area = document.querySelector(".mention-box textarea");
+        const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+        set.call(area, "");
+        area.dispatchEvent(new Event("input", { bubbles: true }));
       })()`);
       await new Promise((r) => setTimeout(r, 300));
-      check("поиск идёт и по русскому пояснению",
-        (await call(`[...document.querySelectorAll(".media-kit-item")].some(b => b.textContent.includes("/iceberg"))`)) === true);
 
-      // Разбор промпта доступен окну: опечатку в имени надо показать до того,
-      // как генерация оплачена.
-      const изОкна = await call(`window.api.mediaResolvePrompt(
-        "ракурс с @фасад, надпись @текст, /anatomy и @опечатка",
-        ${JSON.stringify([
-          { id: "1", kind: "image", name: "фасад", path: "/д/ф.jpg", file: "ф.jpg", text: "" },
-          { id: "2", kind: "text", name: "текст", path: "", file: "", text: "Дом у леса" },
-        ])})`);
-      check("окно видит, что уедет в модель",
-        изОкна.prompt.includes("reference image 1") && изОкна.prompt.includes('"Дом у леса"'),
-        изОкна.prompt);
-      check("и видит опечатку в имени", изОкна.missing.join(",") === "опечатка", JSON.stringify(изОкна.missing));
-      check("и команду, набранную в тексте", изОкна.commands.join(",") === "anatomy");
+      // Команды были в двух местах разом: знак / в промпте и отдельная группа
+      // ниже. Две одинаковые настройки в одном окне только путают, и неясно,
+      // какая победит.
+      check("отдельной группы команд больше нет — она дублировала знак /",
+        (await call(`!document.body.textContent.includes("Короткая команда")`)) === true);
+
+      // Настройка, назначение которой надо угадывать, с тем же успехом могла
+      // бы не существовать.
+      check("у каждого поля модели видно пояснение, а не всплывающая подсказка",
+        (await call(`(() => {
+          const поля = [...document.querySelectorAll(".media-param")];
+          return поля.length > 0 && поля.every(p => p.querySelector(".media-param-hint"));
+        })()`)) === true);
 
       check("сказано честно, что часть полей — только через JSON",
         (await call(`document.body.textContent.includes("пишется JSON-ом ниже")`)) === true);

@@ -463,27 +463,27 @@ const COMMANDS = FORMAT_COMMANDS.flatMap((g) =>
  */
 const MODEL_FIELDS = {
   image: [
-    { key: "aspect_ratio", name: "Пропорции", kind: "choice", options: ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "21:9"] },
+    { key: "aspect_ratio", name: "Пропорции", kind: "choice", options: ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "21:9"], hint: "Форма кадра. 9:16 — вертикальная история, 1:1 — пост, 16:9 — обложка." },
     { key: "n", name: "Сколько вариантов", kind: "number", min: 1, max: 8, hint: "Больше вариантов — больше и стоимость." },
     { key: "negative_prompt", name: "Чего не должно быть", kind: "text", hint: "Текст, лишние руки, водяные знаки — перечислите через запятую." },
     { key: "seed", name: "Зерно", kind: "number", hint: "Одно и то же зерно с тем же промптом даёт тот же кадр. Пусто — каждый раз новый." },
     { key: "guidance_scale", name: "Строгость к промпту", kind: "number", step: 0.5, min: 1, max: 20, hint: "Выше — ближе к тексту и суше; ниже — вольнее и живее." },
     { key: "steps", name: "Шагов", kind: "number", min: 1, max: 100, hint: "Больше шагов — детальнее и дороже." },
-    { key: "output_format", name: "Формат файла", kind: "choice", options: ["png", "jpeg", "webp"] },
+    { key: "output_format", name: "Формат файла", kind: "choice", options: ["png", "jpeg", "webp"], hint: "png — без потерь и с прозрачностью, jpeg — легче, webp — компромисс." },
   ],
   video: [
-    { key: "aspect_ratio", name: "Пропорции", kind: "choice", options: ["16:9", "9:16", "1:1", "4:3", "21:9"] },
+    { key: "aspect_ratio", name: "Пропорции", kind: "choice", options: ["16:9", "9:16", "1:1", "4:3", "21:9"], hint: "Форма кадра ролика. 9:16 — вертикальное видео." },
     { key: "duration", name: "Длительность, с", kind: "number", min: 1, max: 60, hint: "Модели обычно принимают только несколько значений — 4, 5, 8, 10." },
-    { key: "resolution", name: "Разрешение", kind: "choice", options: ["480p", "720p", "1080p", "4k"] },
-    { key: "fps", name: "Кадров в секунду", kind: "number", min: 8, max: 60 },
-    { key: "negative_prompt", name: "Чего не должно быть", kind: "text" },
+    { key: "resolution", name: "Разрешение", kind: "choice", options: ["480p", "720p", "1080p", "4k"], hint: "Чем выше, тем дороже и дольше. Для соцсетей хватает 1080p." },
+    { key: "fps", name: "Кадров в секунду", kind: "number", min: 8, max: 60, hint: "24–30 — киношно и привычно; больше — плавнее и дороже." },
+    { key: "negative_prompt", name: "Чего не должно быть", kind: "text", hint: "Текст, логотипы, лишние руки — перечислите через запятую." },
     { key: "seed", name: "Зерно", kind: "number", hint: "Повторяет тот же ролик при том же промпте." },
     { key: "with_audio", name: "Со звуком", kind: "flag", hint: "Умеют не все модели; у тех, кто не умеет, поле просто игнорируется." },
   ],
   audio: [
-    { key: "duration", name: "Длительность, с", kind: "number", min: 1, max: 300 },
+    { key: "duration", name: "Длительность, с", kind: "number", min: 1, max: 300, hint: "Сколько секунд звучания заказать." },
     { key: "voice", name: "Голос", kind: "text", hint: "Идентификатор голоса у той модели, которая его поддерживает." },
-    { key: "format", name: "Формат", kind: "choice", options: ["mp3", "wav", "ogg"] },
+    { key: "format", name: "Формат", kind: "choice", options: ["mp3", "wav", "ogg"], hint: "mp3 — везде открывается, wav — без потерь и тяжелее." },
   ],
 };
 

@@ -19,7 +19,7 @@ const fsSync = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const tasks = require("./tasks.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {

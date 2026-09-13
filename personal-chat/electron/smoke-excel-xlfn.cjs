@@ -12,7 +12,7 @@ const os = require("node:os");
 const path = require("node:path");
 const ExcelJS = require("exceljs");
 const { toFileFormula, fromFileFormula, XLFN_FUNCTIONS } = require("./excelFunctions.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 let failures = 0;
 function check(label, condition, detail = "") {

@@ -32,7 +32,7 @@ function check(label, condition, detail = "") {
 }
 
 const catalog = require("./catalog.cjs");
-const { finish } = require("./smoke-finish.cjs");
+const { finish } = require("./finish.cjs");
 
 /** Выгрузка той же формы, что даёт 1С, — со всеми её неровностями. */
 async function makeExport(dest) {
