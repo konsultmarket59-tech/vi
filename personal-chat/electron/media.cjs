@@ -5,8 +5,30 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function mediaDir(root, projectId) {
+/**
+ * Куда класть готовые файлы.
+ *
+ * По умолчанию — внутрь папки данных приложения. Но картинки и особенно ролики
+ * весят много, копятся быстро и никакого отношения к работе приложения не
+ * имеют: держать их внутри — значит раздувать то, что человек носит с собой и
+ * копирует целиком. Поэтому папку можно назвать свою, на своём диске, и тогда
+ * приложение остаётся лёгким, а файлы лежат там, где их и ищут.
+ *
+ * Привязанные к проекту попадают в подпапку с именем проекта: одна общая свалка
+ * из всех проектов — это не «своя папка», а та же куча, только снаружи.
+ */
+function mediaDir(root, projectId, outDir, projectName) {
+  const own = String(outDir || "").trim();
+  if (own) {
+    return projectId ? path.join(own, safeFolderName(projectName || projectId)) : own;
+  }
   return projectId ? path.join(root, "projects", projectId, "media") : path.join(root, "media");
+}
+
+/** Имя подпапки из названия проекта: в именах папок можно не всё. */
+function safeFolderName(name) {
+  const clean = String(name || "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  return clean.slice(0, 60) || "проект";
 }
 
 async function ensureDir(p) {
@@ -63,6 +85,74 @@ function extFromUrlOrContentType(url, contentType) {
   return MIME_TO_EXT[contentType] || ".bin";
 }
 
+/**
+ * Где в ответе лежит результат.
+ *
+ * Раньше приложение искало его ровно в одном месте — `data.url`. У шлюза за
+ * одним адресом стоят десятки моделей разных поставщиков, и отвечают они
+ * по-разному: кто-то кладёт ссылку в `data.url`, кто-то отдаёт список
+ * `data: [{ url }]`, кто-то зовёт поле `output`, `result` или `image_url`, а
+ * кто-то не даёт ссылки вовсе и присылает сам файл строкой base64. Заказ при
+ * этом честно выполнен, и деньги за него сняты — а приложение говорило
+ * «ссылка не получена» и выбрасывало оплаченное. Ровно это и случилось с
+ * GPT-5 Image Mini.
+ *
+ * Поэтому ищем не по известному пути, а по всему ответу: обходим его целиком и
+ * берём первое, что похоже на файл. Порядок предпочтения — от самого надёжного
+ * признака к самому слабому, иначе в ответе легко схватить ссылку на
+ * документацию или на превью вместо самого результата.
+ */
+const MEDIA_EXT = /\.(png|jpe?g|webp|gif|bmp|svg|mp4|mov|webm|mkv|mp3|wav|ogg|m4a|flac|aac)(\?|#|$)/i;
+const MEDIA_KEY = /(^|_)(url|uri|link|file|output|result|image|video|audio|src|asset|download)s?($|_)/i;
+// Служебные ссылки, которые в ответах попадаются рядом с результатом и файлом
+// не являются: на них уходит скачивание, и вместо картинки на диск ложится
+// страница документации.
+const NOT_MEDIA = /(^|\/\/)(docs?|help|support|status|www)\.|\/(docs|pricing|terms|privacy|models)(\/|$)/i;
+
+function scoreUrl(key, value) {
+  if (NOT_MEDIA.test(value)) return 0;
+  if (MEDIA_EXT.test(value)) return 3;
+  if (MEDIA_KEY.test(key)) return 2;
+  return 0;
+}
+
+function resultPayload(result) {
+  let best = null;
+  const seen = new Set();
+  const walk = (value, key) => {
+    if (!value || typeof value === "number" || typeof value === "boolean") return;
+    if (typeof value === "string") {
+      if (/^data:[^;,]+;base64,/.test(value)) {
+        const mime = value.slice(5, value.indexOf(";"));
+        if (!best || best.score < 4) best = { kind: "base64", data: value.split(",")[1], mime, score: 4 };
+        return;
+      }
+      if (/^https?:\/\//.test(value)) {
+        const score = scoreUrl(key, value);
+        if (score && (!best || score > best.score)) best = { kind: "url", url: value, score };
+        return;
+      }
+      // Голый base64 без заголовка — так отдаёт часть моделей изображений
+      // (поле b64_json). Короткие строки сюда не попадают: это идентификаторы
+      // и подписи, а не файл.
+      if (/^(b64|base64)/i.test(key) && value.length > 256 && /^[A-Za-z0-9+/=\s]+$/.test(value)) {
+        if (!best || best.score < 4) best = { kind: "base64", data: value, mime: "", score: 4 };
+      }
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, key);
+      return;
+    }
+    for (const [k, v] of Object.entries(value)) walk(v, k);
+  };
+  walk(result, "");
+  return best;
+}
+
 async function pollUntilDone(baseUrl, apiKey, id, type, onTick) {
   const cfg = POLL_CONFIG[type] || POLL_CONFIG.image;
   const start = Date.now();
@@ -85,8 +175,14 @@ async function pollUntilDone(baseUrl, apiKey, id, type, onTick) {
 // оборвалась сеть. Поэтому номер заказа записывается на диск СРАЗУ после
 // создания, до первого опроса, и снимается только когда файл скачан.
 
+/**
+ * Журнал незабранных всегда лежит в папке данных приложения, а не в той, что
+ * выбрал человек. Он весит килобайты, зато знает про оплаченные заказы: если
+ * положить его на внешний диск и диск отключат, оплаченное перестанет
+ * существовать ровно в тот момент, когда оно нужнее всего.
+ */
 function pendingFile(root) {
-  return path.join(mediaDir(root, undefined), PENDING_FILE);
+  return path.join(root, "media", PENDING_FILE);
 }
 
 async function listPending(root) {
@@ -95,7 +191,7 @@ async function listPending(root) {
 }
 
 async function savePending(root, list) {
-  await ensureDir(mediaDir(root, undefined));
+  await ensureDir(path.join(root, "media"));
   await writeJson(pendingFile(root), list);
   return list;
 }
@@ -118,7 +214,7 @@ async function dropPending(root, id) {
  * создан и оплачен. Если заказ ещё не готов, возвращается его состояние, а не
  * ошибка: ждать дальше — нормальное положение дел, а не сбой.
  */
-async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", prompt = "", projectId, recipe = "" }) {
+async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", prompt = "", projectId, recipe = "", outDir = "", projectName = "" }) {
   const res = await fetch(`${baseUrl}/media/${id}`, { headers: { Authorization: `Bearer ${apiKey}` } });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.error?.message || body?.error || `Ошибка API (${res.status})`);
@@ -127,25 +223,45 @@ async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", 
     throw new Error(body?.error?.message || body?.error || "Генерация завершилась с ошибкой.");
   }
   if (body.status !== "completed") return { ready: false, status: body.status || "pending" };
-  const saved = await download(root, body, { type, model, prompt, projectId, recipe });
+  const saved = await download(root, body, { type, model, prompt, projectId, recipe, outDir, projectName });
   await dropPending(root, id);
   return { ready: true, item: saved };
 }
 
 /** Скачать готовое и записать рядом опись — общее для генерации и дозабора. */
-async function download(root, result, { type, model, prompt, projectId, recipe = "", input = null }) {
-  const mediaUrl = result?.data?.url;
-  if (!mediaUrl) throw new Error("Генерация завершена, но ссылка на результат не получена.");
-  const fileRes = await fetch(mediaUrl);
-  if (!fileRes.ok) throw new Error(`Не удалось скачать результат (${fileRes.status}).`);
-  const contentType = fileRes.headers.get("content-type") || "";
-  const buffer = Buffer.from(await fileRes.arrayBuffer());
-  const ext = extFromUrlOrContentType(mediaUrl, contentType);
-
-  const dir = mediaDir(root, projectId);
+async function download(root, result, { type, model, prompt, projectId, recipe = "", input = null, outDir = "", projectName = "" }) {
+  const dir = mediaDir(root, projectId, outDir, projectName);
   await ensureDir(dir);
   const id = result.id || `media_${Date.now()}`;
-  const fileName = id.replace(/[^a-zA-Z0-9_-]/g, "") + ext;
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "");
+
+  const found = resultPayload(result);
+  if (!found) {
+    // Ответ есть, заказ выполнен, а файла в нём не нашлось. Это не повод
+    // выбросить ответ: он единственное, по чему можно понять, как эта модель
+    // отдаёт результат. Кладём его рядом целиком и называем файл в сообщении —
+    // иначе разбираться не с чем, а деньги уже сняты.
+    const dump = path.join(dir, `ответ-${safeId}.json`);
+    await writeJson(dump, result);
+    throw new Error(
+      "Заказ выполнен, но файла в ответе модели не нашлось. Ответ целиком сохранён рядом с генерациями: " +
+        `${dump}. Заказ остался в «Незабранных» — ничего не потеряно.`
+    );
+  }
+
+  let buffer;
+  let ext;
+  if (found.kind === "base64") {
+    buffer = Buffer.from(found.data.replace(/\s+/g, ""), "base64");
+    ext = MIME_TO_EXT[found.mime] || (type === "video" ? ".mp4" : type === "audio" ? ".mp3" : ".png");
+  } else {
+    const fileRes = await fetch(found.url);
+    if (!fileRes.ok) throw new Error(`Не удалось скачать результат (${fileRes.status}).`);
+    const contentType = fileRes.headers.get("content-type") || "";
+    buffer = Buffer.from(await fileRes.arrayBuffer());
+    ext = extFromUrlOrContentType(found.url, contentType);
+  }
+  const fileName = safeId + ext;
   const filePath = path.join(dir, fileName);
   await fs.writeFile(filePath, buffer);
 
@@ -163,12 +279,14 @@ async function download(root, result, { type, model, prompt, projectId, recipe =
         ? Object.fromEntries(Object.entries(input).filter(([k]) => k !== "prompt" && k !== "images"))
         : undefined,
   };
-  await writeJson(path.join(dir, id.replace(/[^a-zA-Z0-9_-]/g, "") + ".json"), record);
+  await writeJson(path.join(dir, safeId + ".json"), record);
   return { ...record, localPath: filePath };
 }
 
 async function generate(root, opts) {
   const { baseUrl, apiKey, type, model, prompt, referenceImagePath, extraParamsJson, params, projectId, onStatus, meta } = opts;
+  const outDir = String(opts.outDir || "").trim();
+  const projectName = opts.projectName || "";
   if (!apiKey) throw new Error("Не задан API-ключ Polza.ai — откройте Настройки.");
   // Ключ уезжает в заголовок, а заголовки принимают только латиницу. Без этой
   // проверки лишний русский символ в ключе даёт сообщение вида «Cannot convert
@@ -216,6 +334,21 @@ async function generate(root, opts) {
     }
   }
 
+  // Папку проверяем ДО заказа. Внешний диск отключают, папку переименовывают —
+  // и тогда заказ оплачен, а класть результат некуда. Дешевле упереться в это
+  // до списания денег, чем после.
+  if (outDir) {
+    try {
+      await ensureDir(mediaDir(root, projectId, outDir, projectName));
+    } catch (e) {
+      throw new Error(
+        `Папка для готовых файлов недоступна: ${outDir}. ` +
+          "Проверьте, на месте ли диск и та ли это папка — заказ не отправлен, деньги не списаны. " +
+          `(${e && e.message})`
+      );
+    }
+  }
+
   const createRes = await fetch(`${baseUrl}/media`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -243,7 +376,7 @@ async function generate(root, opts) {
 
   // Иногда ответ приходит готовым сразу — тогда опрашивать нечего.
   let result;
-  if (createBody.status === "completed" && createBody?.data?.url) {
+  if (createBody.status === "completed" && resultPayload(createBody)) {
     result = createBody;
   } else {
     try {
@@ -266,7 +399,7 @@ async function generate(root, opts) {
   // тексту уже не вспомнить, что выбиралось, а повторить удачный кадр хочется
   // именно тогда.
   const saved = await download(root, result, {
-    type, model, prompt, projectId, recipe: (meta && meta.recipe) || "", input,
+    type, model, prompt, projectId, recipe: (meta && meta.recipe) || "", input, outDir, projectName,
   });
   await dropPending(root, saved.id);
   return saved;
@@ -286,22 +419,127 @@ function looksLikeItem(value) {
   return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.fileName === "string";
 }
 
-async function list(root, projectId) {
-  const dir = mediaDir(root, projectId);
+/** Расширения, по которым файл в папке считается результатом генерации. */
+const RESULT_EXT = /\.(png|jpe?g|webp|gif|bmp|mp4|mov|webm|mkv|mp3|wav|ogg|m4a|flac|aac)$/i;
+
+/**
+ * Что лежит в папке генераций.
+ *
+ * Раньше список строился только по описям: json есть — запись есть, json нет —
+ * записи нет. Опись маленькая и служебная, а файл — то, ради чего всё делалось,
+ * и вешать видимость файла на судьбу служебного json неправильно. Опись может
+ * не записаться, её могут удалить при уборке, файл могут принести в папку
+ * руками из личного кабинета — и результат пропадал из истории, продолжая
+ * лежать на диске.
+ *
+ * Поэтому идём от ФАЙЛОВ. Опись, если она есть, добавляет к файлу промпт,
+ * модель и стоимость; если её нет, запись всё равно показывается — с тем, что
+ * можно узнать из самого файла. Видеть файл без подписи лучше, чем не видеть
+ * файл.
+ */
+async function list(root, projectId, outDir, projectName) {
+  const dir = mediaDir(root, projectId, outDir, projectName);
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-  const items = [];
+  const files = entries.filter((e) => e.isFile() && RESULT_EXT.test(e.name));
+  const metaByBase = new Map();
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === PENDING_FILE) continue;
     const meta = await readJson(path.join(dir, entry.name), null);
-    if (!looksLikeItem(meta)) continue;
-    items.push({ ...meta, localPath: path.join(dir, meta.fileName) });
+    if (looksLikeItem(meta)) metaByBase.set(meta.fileName, meta);
+  }
+
+  const items = [];
+  for (const entry of files) {
+    const meta = metaByBase.get(entry.name);
+    if (meta) {
+      items.push({ ...meta, localPath: path.join(dir, meta.fileName) });
+      continue;
+    }
+    // Файл без описи: время берём из самого файла, тип — из расширения.
+    const full = path.join(dir, entry.name);
+    const stat = await fs.stat(full).catch(() => null);
+    items.push({
+      id: entry.name.replace(/\.[^.]+$/, ""),
+      type: typeByExt(entry.name),
+      model: "",
+      prompt: "",
+      fileName: entry.name,
+      createdAt: stat ? Math.round(stat.mtimeMs) : 0,
+      localPath: full,
+      // Чтобы в истории было видно: это файл, про который приложение знает
+      // только то, что он лежит в папке.
+      orphan: true,
+    });
   }
   items.sort((a, b) => b.createdAt - a.createdAt);
   return items;
 }
 
+function typeByExt(name) {
+  const ext = path.extname(name).toLowerCase();
+  if (/\.(mp4|mov|webm|mkv)$/i.test(ext)) return "video";
+  if (/\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(ext)) return "audio";
+  return "image";
+}
+
+/**
+ * Перенести уже накопленное в свою папку.
+ *
+ * Без этого выбор папки решает задачу только наполовину: новые файлы уйдут
+ * наружу, а всё, что успело накопиться внутри, так и останется весом
+ * приложения. Переносим файл вместе с его описью — порознь они бесполезны:
+ * файл без описи выпадает из истории, опись без файла ломает её.
+ *
+ * Перенос идёт копированием с последующим удалением, а не переименованием:
+ * своя папка обычно на другом диске, а туда `rename` не умеет. Если файл с
+ * таким именем на месте уже есть, он не трогается — повторный перенос не
+ * должен затирать то, что уже перенесено.
+ */
+async function move(root, projectId, outDir, projectName) {
+  const from = mediaDir(root, projectId);
+  const to = mediaDir(root, projectId, outDir, projectName);
+  if (!String(outDir || "").trim()) throw new Error("Не выбрана папка, куда переносить.");
+  if (path.resolve(from) === path.resolve(to)) return { moved: 0, kept: 0 };
+  await ensureDir(to);
+  const items = await list(root, projectId);
+  let moved = 0;
+  let kept = 0;
+  for (const item of items) {
+    const meta = path.join(from, item.id.replace(/[^a-zA-Z0-9_-]/g, "") + ".json");
+    const pair = [item.localPath, meta];
+    if (pair.every((f) => existsAt(path.join(to, path.basename(f))))) {
+      kept += 1;
+      continue;
+    }
+    for (const file of pair) {
+      const target = path.join(to, path.basename(file));
+      try {
+        await fs.copyFile(file, target);
+        await fs.rm(file, { force: true });
+      } catch {
+        // Файла может не быть вовсе (опись пережила файл) — это не повод
+        // обрывать перенос остальных.
+      }
+    }
+    moved += 1;
+  }
+  return { moved, kept };
+}
+
+function existsAt(file) {
+  try {
+    require("node:fs").accessSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   PENDING_FILE,
+  safeFolderName,
+  move,
+  resultPayload,
   looksLikeItem,
   generate,
   collect,

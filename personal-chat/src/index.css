@@ -2171,3 +2171,26 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
 .site-body .site-stage { flex: 1 1 auto; min-width: 0; }
 .site-stage .site-preview { height: 100%; }
 .site-stage .site-frame { min-height: 480px; }
+
+/*
+ * Заготовка промпта: места для заполнения стоят лесенкой, а не в ряд. Каждое —
+ * это фраза на английском в пару строк, и в узкой колонке рядом они
+ * превращаются в нечитаемую сетку.
+ */
+.media-forms {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.media-form-slot {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+
+.media-form-slot textarea {
+  width: 100%;
+  resize: vertical;
+}

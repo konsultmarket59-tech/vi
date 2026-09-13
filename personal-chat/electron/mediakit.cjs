@@ -522,6 +522,18 @@ function buildParams(type, values = {}) {
  */
 const MORE_STYLES = [
   {
+    id: "luxury-campaign", name: "Кампейн модного дома",
+    why:
+      "Рекламный кадр дорогой марки: одно мягкое направленное освещение, глубокая тёплая тень, плёночное зерно и палитра из трёх цветов — " +
+      "чёрный, шоколадная кожа, жемчуг. Герой не смотрит в камеру, и рядом с ним одно неожиданное существо или предмет — на этом контрасте всё и держится. " +
+      "Формула короткая намеренно: модели изображений на длинных описаниях начинают плыть, и для этого стиля коротко работает лучше, чем подробно.",
+    needsPhoto: false,
+    prompt:
+      "Luxury fashion campaign photograph. [объект], an unusual appearance, not looking at the camera, calm and relaxed. " +
+      "Deep, warm interior shadow behind. Medium format film, single soft directional light, true grain, " +
+      "palette of black, chocolate leather, and pearl. Trust as luxury. Indistinguishable from a real photograph. No lettering.",
+  },
+  {
     id: "dark-noir-deco", name: "Dark Noir Deco",
     why: "Лук мультсериального Бэтмена, скрещённый с нуаром ар-деко сороковых: горячий красный с одной стороны лица, ледяной синий с другой, и всё утопает в сияющем золоте. Работает и с референсом персонажа, и без него.",
     needsPhoto: true,

@@ -185,6 +185,11 @@ export interface Settings {
   promptCache?: boolean;
   /** Ключ Pexels — нужен только разделу «Видео-сторис» для поиска по стоку. */
   pexelsKey?: string;
+  /**
+   * Своя папка для готовых файлов «Медиа». Пусто — файлы лежат внутри папки
+   * данных приложения, как раньше.
+   */
+  mediaFolder?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -702,6 +707,12 @@ export interface MediaGenerationResult {
   /** Из чего собран промпт: стиль, ракурс, свет, движение камеры. */
   recipe?: string;
   params?: Record<string, unknown>;
+  /**
+   * Файл лежит в папке, но описи к нему нет: приложение знает про него только
+   * то, что он есть. Так попадают в историю файлы, принесённые руками, и те,
+   * чья опись потерялась.
+   */
+  orphan?: boolean;
 }
 
 export type CloudProvider = "yandex" | "google";
@@ -1235,7 +1246,28 @@ export interface MediaCommand {
   prompt: string;
 }
 
+/** Место в заготовке, которое заполняют своим. */
+export interface MediaTemplateSlot {
+  key: string;
+  name: string;
+  hint: string;
+  sample: string;
+  /** Необязательный блок: пустым он выкидывается из промпта целиком. */
+  block: boolean;
+}
+
+/** Заготовка промпта — целый сценарий, а не строка стиля. */
+export interface MediaTemplate {
+  id: string;
+  name: string;
+  kind: MediaType;
+  why: string;
+  needsPhoto: boolean;
+  slots: MediaTemplateSlot[];
+}
+
 export interface MediaKit {
+  templates: MediaTemplate[];
   paces: MediaKitEntry[];
   commands: MediaCommand[];
   commandGroups: { group: string; hint: string }[];
@@ -1724,6 +1756,10 @@ export interface ElectronAPI {
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
   mediaKit(): Promise<MediaKit>;
+  mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
+  mediaSweepPending(): Promise<{ collected: number; waiting: number }>;
+  onMediaCollected(cb: (payload: { collected: number }) => void): () => void;
+  mediaFillTemplate(id: string, values: Record<string, string>): Promise<{ prompt: string; empty: string[] }>;
   mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;
   mediaResolvePrompt(prompt: string, references: MediaReference[]): Promise<MediaResolvedPrompt>;
   mediaScriptKinds(): Promise<MediaScriptKind[]>;

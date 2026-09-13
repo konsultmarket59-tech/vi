@@ -16,6 +16,7 @@ const refs = require("./mediarefs.cjs");
 const script = require("./mediascript.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { execFileSync } = require("node:child_process");
+const http = require("node:http");
 const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "media-ud-"));
@@ -231,6 +232,59 @@ app.whenReady().then(async () => {
       опись.includes("Mixed Media") && опись.includes("Эффект Вертиго") && опись.includes("плавно"), опись);
     check("невыбранное в опись не лезет", !kit.describeChoice({}).length);
 
+    console.log("\nзаготовки промптов");
+    const forms = require("./mediaforms.cjs");
+    const путь = forms.byId("camera-path");
+    check("заготовки на месте", forms.TEMPLATES.length >= 4, String(forms.TEMPLATES.length));
+    check("у каждой заготовки сказано, зачем она",
+      forms.TEMPLATES.every((t) => t.why && t.why.length > 60),
+      forms.TEMPLATES.filter((t) => !t.why || t.why.length <= 60).map((t) => t.id).join(", "));
+    check("у каждого места для заполнения есть пояснение",
+      forms.TEMPLATES.every((t) => t.slots.every((sl) => sl.hint && sl.hint.length > 10)),
+      forms.TEMPLATES.flatMap((t) => t.slots.filter((sl) => !sl.hint).map((sl) => `${t.id}/${sl.key}`)).join(", "));
+    // Каждое место должно и правда встречаться в тексте: иначе человек
+    // заполняет поле, которое никуда не уходит, и не понимает, почему модель
+    // его не слушает.
+    check("каждое место встречается в самой заготовке",
+      forms.TEMPLATES.every((t) => t.slots.every((sl) => t.body.includes(`[${sl.key}`))),
+      forms.TEMPLATES.flatMap((t) => t.slots.filter((sl) => !t.body.includes(`[${sl.key}`)).map((sl) => `${t.id}/${sl.key}`)).join(", "));
+    const собран = forms.fill(путь, { DURATION: "8", "MEDIUM AND ERA": "35mm film photograph", SOUND: "wind" });
+    check("заполненное подставилось", /one unbroken 8 second move/.test(собран));
+    check("незаполненного места не осталось видно",
+      !собран.includes("[DURATION]") && !собран.includes("[SOUND]"));
+    // Необязательный блок пустым уходит целиком — иначе в промпте остаётся
+    // дыра из скобок, и модель принимает её за указание.
+    check("пустой необязательный блок выкинут", !/OPTIONAL/.test(собран), собран.slice(-400));
+    check("заполненный необязательный блок дописан к своей подсказке",
+      /EXISTS IN THE SCENE FROM FRAME ONE[\s\S]*фонарь/.test(forms.fill(путь, { "OPTIONAL — ADDED ELEMENT": "фонарь" })));
+    // А вот обязательное незаполненное молча вычищать нельзя: человек отправит
+    // промпт, не заметив, что половина сцены не описана.
+    const наполовину = forms.fill(путь, { DURATION: "8" });
+    check("незаполненное обязательное видно в тексте", наполовину.includes("[MEDIUM AND ERA]"), "");
+    check("и о нём сказано до генерации",
+      forms.emptySlots(путь, { DURATION: "8" }).join(" ").includes("Медиум"),
+      forms.emptySlots(путь, { DURATION: "8" }).join(" | "));
+    check("камера читается с нарисованной линии, а сама линия — нет",
+      /DIRECTOR'S ANNOTATION/.test(путь.body) && /no drawn line/.test(путь.body));
+    check("в пересборке дубля порядок камер задан таблицей, а не на глаз",
+      /ENCLOSED ROUTER/.test(forms.byId("multicam-recut").body)
+        && /MOVING ROUTER/.test(forms.byId("multicam-recut").body));
+    check("имя исходника подставляется во все упоминания",
+      !forms.fill(forms.byId("multicam-recut"), { SOURCE: "@дубль" }).includes("[SOURCE]"));
+    check("в POV-заготовке оба запрета на месте",
+      /never be visible/i.test(forms.byId("pov-throw").body)
+        && /ROTATED 90 DEGREES SIDEWAYS/.test(forms.byId("pov-throw").body));
+    check("в кампейн-ролике свет объявлен неподвижным",
+      /completely static/.test(forms.byId("campaign-film").body));
+    check("заготовки не считаются стилями и наоборот",
+      !kit.KIT.styles.some((x) => forms.TEMPLATES.some((t) => t.id === x.id)));
+
+    console.log("\nстиль кампейна");
+    const кампейн = kit.buildPrompt({ base: "мужчина у зеркала", style: "luxury-campaign", subject: "a male model" });
+    check("формула кампейна уходит целиком",
+      /single soft directional light/.test(кампейн) && /No lettering/.test(кампейн), кампейн.slice(0, 120));
+    check("место под предмет подставлено", !кампейн.includes("[объект]"));
+
     console.log("\nсценарий презентации");
     const сцены = script.parsePresentation([
       "Вот сценарий:",
@@ -365,6 +419,107 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Медиа")).click()`);
       await new Promise((r) => setTimeout(r, 800));
       check("раздел открывается", (await call(`!!document.querySelector(".media-form")`)) === true);
+
+      // Папка для готовых файлов выбирается там же, где смотрят на растущую
+      // историю, — а не в общих настройках, куда за этим не пойдут.
+      check("папка для готовых файлов предлагается прямо в разделе",
+        (await call(`[...document.querySelectorAll("label")].some(l => l.textContent.includes("Папка для готовых файлов"))`)) === true);
+      check("и сказано, где файлы лежат сейчас",
+        (await call(`document.body.textContent.includes("внутри папки данных приложения")`)) === true);
+      // Настройка обязана дойти до главного процесса: выбранная папка, которую
+      // видит только окно, не меняет ничего.
+      const сПапкой = path.join(workDir, "своя-папка");
+      fs.mkdirSync(сПапкой, { recursive: true });
+      const прежние = await call(`window.api.getSettings()`);
+      await call(`window.api.saveSettings(${JSON.stringify({ ...прежние, mediaFolder: сПапкой })})`);
+      const сохранено = await call(`window.api.getSettings()`);
+      check("выбранная папка сохраняется в настройках", сохранено.mediaFolder === сПапкой, String(сохранено.mediaFolder));
+      // И главное: история теперь читается ИЗ ЭТОЙ папки. Настройка, которую
+      // видит только окно, не меняет ничего.
+      fs.writeFileSync(path.join(сПапкой, "abc.json"), JSON.stringify({
+        id: "abc", type: "image", model: "м", prompt: "п", fileName: "abc.png", createdAt: Date.now(),
+      }));
+      fs.writeFileSync(path.join(сПапкой, "abc.png"), "");
+      const изСвоей = await call(`window.api.listMediaGenerations()`);
+      check("история читается из выбранной папки",
+        изСвоей.some((x) => x.id === "abc"), JSON.stringify(изСвоей.map((x) => x.id)));
+      check("перенос накопленного доступен из окна",
+        (await call(`typeof window.api.mediaMoveToFolder`)) === "function");
+
+      // Сторож незабранных: оплаченный заказ должен забираться САМ, без того
+      // чтобы человек зашёл в раздел и заметил блок. Поднимаем подставной
+      // сервер, кладём заказ в журнал руками — как будто ожидание оборвалось, —
+      // и просим приложение проверить журнал.
+      const сервер = http.createServer((req, res) => {
+        if (/\/media\/order-9$/.test(req.url)) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            id: "order-9", status: "completed",
+            data: { url: `http://127.0.0.1:${сервер.address().port}/ready.png` },
+          }));
+          return;
+        }
+        if (req.url.includes("ready.png")) {
+          res.writeHead(200, { "Content-Type": "image/png" });
+          res.end(Buffer.from("89504e470d0a1a0a", "hex"));
+          return;
+        }
+        res.writeHead(404);
+        res.end("{}");
+      });
+      await new Promise((r) => сервер.listen(0, "127.0.0.1", r));
+      const адрес = `http://127.0.0.1:${сервер.address().port}`;
+      await call(`window.api.saveSettings(${JSON.stringify({
+        ...прежние, mediaFolder: сПапкой, baseUrl: "@@BASE@@", apiKey: "ключ",
+      })})`.replace("@@BASE@@", адрес));
+      const корень = dataRoot;
+      fs.mkdirSync(path.join(корень, "media"), { recursive: true });
+      fs.writeFileSync(path.join(корень, "media", "незабранные.json"), JSON.stringify([
+        { id: "order-9", type: "image", model: "м", prompt: "оплачено", projectId: "", recipe: "", createdAt: Date.now() },
+      ]));
+      const итогСторожа = await call(`window.api.mediaSweepPending()`);
+      check("сторож забрал оплаченный заказ сам", итогСторожа.collected === 1, JSON.stringify(итогСторожа));
+      check("и файл лёг в выбранную папку",
+        fs.existsSync(path.join(сПапкой, "order-9.png")), fs.readdirSync(сПапкой).join(", "));
+      check("забранный заказ ушёл из журнала",
+        (await call(`window.api.listPendingMedia()`)).length === 0);
+      // Заказ, которого приложение никогда не видело, тоже должен забираться:
+      // он мог быть сделан в прошлой версии или в личном кабинете.
+      fs.rmSync(path.join(сПапкой, "order-9.png"), { force: true });
+      const поНомеру = await call(`window.api.collectMedia("order-9")`);
+      check("заказ забирается по номеру, даже если его нет в журнале",
+        поНомеру.ready === true && fs.existsSync(path.join(сПапкой, "order-9.png")), JSON.stringify(поНомеру));
+      сервер.close();
+      await call(`window.api.saveSettings(${JSON.stringify({ ...прежние, mediaFolder: сПапкой })})`);
+      await call(`window.api.saveSettings(${JSON.stringify(прежние)})`);
+
+      // Заготовка обязана доехать до ПОЛЯ промпта, а не «внутрь»: тридцать
+      // строк указаний нельзя отправлять не глядя, их надо видеть и править.
+      // Сначала переключаемся на видео: заготовки принадлежат своему типу, и на
+      // вкладке картинки видеосценариев быть не должно.
+      check("на вкладке картинки видеосценариев не предлагают",
+        (await call(`[...document.querySelectorAll("option")].every(o => !o.textContent.includes("Камера по нарисованной"))`)) === true);
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Видео").click()`);
+      await new Promise((r) => setTimeout(r, 500));
+      const выбратьЗаготовку = `(() => {
+        const s = [...document.querySelectorAll("select")].find(n => [...n.options].some(o => o.textContent.includes("Камера по нарисованной")));
+        if (!s) return "нет списка заготовок";
+        s.value = "camera-path";
+        s.dispatchEvent(new Event("change", { bubbles: true }));
+        return "ок";
+      })()`;
+      check("заготовки видны в разделе", (await call(выбратьЗаготовку)) === "ок");
+      await new Promise((r) => setTimeout(r, 300));
+      check("места для заполнения показаны",
+        (await call(`document.querySelectorAll(".media-form-slot").length`)) >= 4,
+        String(await call(`document.querySelectorAll(".media-form-slot").length`)));
+      check("и у каждого видно пояснение",
+        (await call(`[...document.querySelectorAll(".media-form-slot")].every(n => !!n.querySelector(".media-param-hint"))`)) === true);
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Собрать промпт").click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      const вПоле = await call(`(document.querySelector(".mention-box textarea") || {}).value || ""`);
+      check("собранный промпт лёг в поле промпта, где его видно",
+        /DIRECTOR'S ANNOTATION/.test(вПоле), вПоле.slice(0, 80));
       check("группы приёмов есть",
         (await call(`document.querySelectorAll(".media-kit-group").length`)) >= 2,
         String(await call(`document.querySelectorAll(".media-kit-group").length`)));

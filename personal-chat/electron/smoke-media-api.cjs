@@ -51,9 +51,12 @@ function startServer(behaviour) {
         принято.опросов += 1;
         const готово = behaviour.readyAfter !== undefined && принято.опросов >= behaviour.readyAfter;
         res.writeHead(200, { "Content-Type": "application/json" });
+        const порт = server.address().port;
         res.end(JSON.stringify(
           готово
-            ? { id: "order-1", status: "completed", data: { url: `http://127.0.0.1:${server.address().port}/file.png` }, usage: { cost_rub: 5.95 } }
+            ? (behaviour.shape
+                ? behaviour.shape(порт)
+                : { id: "order-1", status: "completed", data: { url: `http://127.0.0.1:${порт}/file.png` }, usage: { cost_rub: 5.95 } })
             : { id: "order-1", status: "processing" }
         ));
         return;
@@ -200,6 +203,109 @@ app.whenReady().then(async () => {
     server.close();
     Object.assign(media.POLL_CONFIG.image, прежние);
 
+    console.log("\nфайл в папке виден в истории даже без описи");
+    // Опись маленькая и служебная, файл — то, ради чего всё делалось. Вешать
+    // видимость файла на судьбу json неправильно: опись могут удалить при
+    // уборке, файл могут принести руками из личного кабинета.
+    const безОписи = fs.mkdtempSync(path.join(os.tmpdir(), "mapi-orph-"));
+    fs.writeFileSync(path.join(безОписи, "картинка.png"), Buffer.from("89504e470d0a1a0a", "hex"));
+    fs.writeFileSync(path.join(безОписи, "ролик.mp4"), "x");
+    fs.writeFileSync(path.join(безОписи, "звук.mp3"), "x");
+    fs.writeFileSync(path.join(безОписи, "заметки.txt"), "я не генерация");
+    const сироты = await media.list(dataRoot, undefined, безОписи);
+    check("файлы без описи попали в историю", сироты.length === 3, JSON.stringify(сироты.map((x) => x.fileName)));
+    check("и помечены как «без описи»", сироты.every((x) => x.orphan === true));
+    check("тип определён по расширению",
+      сироты.find((x) => x.fileName === "ролик.mp4").type === "video"
+        && сироты.find((x) => x.fileName === "звук.mp3").type === "audio"
+        && сироты.find((x) => x.fileName === "картинка.png").type === "image",
+      JSON.stringify(сироты.map((x) => [x.fileName, x.type])));
+    check("посторонний файл генерацией не считается",
+      !сироты.some((x) => x.fileName === "заметки.txt"));
+    check("у каждой записи есть путь к настоящему файлу",
+      сироты.every((x) => fs.existsSync(x.localPath)));
+    // Там, где опись есть, она и используется: промпт и модель берутся из неё,
+    // а не выдумываются из имени файла.
+    fs.writeFileSync(path.join(безОписи, "картинка.json"), JSON.stringify({
+      id: "картинка", type: "image", model: "м", prompt: "дом у леса", fileName: "картинка.png", createdAt: 1,
+    }));
+    const сОписью = await media.list(dataRoot, undefined, безОписи);
+    check("опись, если она есть, подписывает файл",
+      сОписью.find((x) => x.fileName === "картинка.png").prompt === "дом у леса");
+    check("и такой файл сиротой уже не считается",
+      !сОписью.find((x) => x.fileName === "картинка.png").orphan);
+    check("дважды один файл в списке не появляется",
+      сОписью.filter((x) => x.fileName === "картинка.png").length === 1);
+
+    console.log("\nсвоя папка для готовых файлов");
+    // Картинки и ролики весят много: держать их внутри приложения — значит
+    // раздувать именно его. Файл должен ложиться туда, куда сказано.
+    const своя = fs.mkdtempSync(path.join(os.tmpdir(), "mapi-out-"));
+    ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+    const внеПриложения = await media.generate(dataRoot, {
+      baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п", outDir: своя,
+    });
+    check("файл лёг в свою папку, а не внутрь приложения",
+      внеПриложения.localPath.startsWith(своя), внеПриложения.localPath);
+    check("и история читается оттуда же",
+      (await media.list(dataRoot, undefined, своя)).some((x) => x.id === внеПриложения.id));
+    // Журнал незабранных остаётся в папке данных: он весит килобайты, зато
+    // знает про оплаченные заказы. На внешнем диске он исчезнет вместе с
+    // диском — ровно тогда, когда нужнее всего.
+    check("журнал незабранных остался в папке приложения",
+      fs.existsSync(path.join(dataRoot, "media", "незабранные.json")),
+      fs.readdirSync(своя).join(", "));
+    check("и в свою папку он не уехал", !fs.existsSync(path.join(своя, "незабранные.json")));
+    server.close();
+
+    // Проект — своя подпапка внутри выбранной, по ИМЕНИ проекта: человек ищет
+    // файлы в проводнике, и «p_17583…» ему там ничего не скажет.
+    ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+    const вПроект = await media.generate(dataRoot, {
+      baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      outDir: своя, projectId: "p_123", projectName: "Болдино LIFE",
+    });
+    check("файлы проекта лежат в подпапке с его именем",
+      вПроект.localPath.includes(path.join(своя, "Болдино LIFE")), вПроект.localPath);
+    check("в имени папки нет запрещённых знаков",
+      media.safeFolderName('Про/ект: "раз"') === "Про ект раз", media.safeFolderName('Про/ект: "раз"'));
+    server.close();
+
+    // Папку проверяем ДО заказа: внешний диск отключают, папку переименовывают,
+    // и тогда заказ оплачен, а класть результат некуда.
+    ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+    const занято = path.join(своя, "не-папка");
+    fs.writeFileSync(занято, "я файл");
+    let недоступна = "";
+    try {
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п", outDir: занято,
+      });
+    } catch (e) {
+      недоступна = e.message;
+    }
+    check("недоступная папка отлавливается до заказа",
+      /недоступна/.test(недоступна) && /деньги не списаны/.test(недоступна), недоступна);
+    check("и заказ на сервер не уходил вовсе", принято.создание === null);
+    server.close();
+
+    console.log("\nперенос накопленного");
+    // Выбор папки без переноса решает задачу наполовину: новое уйдёт наружу, а
+    // накопленное останется весом приложения.
+    const куда = fs.mkdtempSync(path.join(os.tmpdir(), "mapi-move-"));
+    const былоВнутри = (await media.list(dataRoot)).length;
+    const перенос = await media.move(dataRoot, undefined, куда);
+    check("перенесено всё, что лежало внутри", перенос.moved === былоВнутри, `${перенос.moved} из ${былоВнутри}`);
+    check("внутри приложения не осталось генераций", (await media.list(dataRoot)).length === 0);
+    check("а в своей папке они читаются", (await media.list(dataRoot, undefined, куда)).length === былоВнутри);
+    check("файлы и правда лежат на диске",
+      (await media.list(dataRoot, undefined, куда)).every((x) => fs.existsSync(x.localPath)));
+    // Журнал переносу не подлежит: он не генерация.
+    check("журнал незабранных перенос не тронул",
+      fs.existsSync(path.join(dataRoot, "media", "незабранные.json")) && !fs.existsSync(path.join(куда, "незабранные.json")));
+    const повтор = await media.move(dataRoot, undefined, куда);
+    check("повторный перенос ничего не ломает", повтор.moved === 0, JSON.stringify(повтор));
+
     console.log("\nответ, готовый сразу");
     ({ server, принято, base } = await startServer({ createStatus: "completed", readyAfter: 1 }));
     // Некоторые модели отдают результат первым же ответом. Опрашивать нечего,
@@ -209,6 +315,93 @@ app.whenReady().then(async () => {
     });
     check("готовый сразу результат тоже сохраняется", !!сразу.localPath && fs.existsSync(сразу.localPath));
     server.close();
+
+    // За одним адресом шлюза стоят десятки моделей разных поставщиков, и
+    // отвечают они по-разному. Пока результат искали ровно в `data.url`,
+    // выполненный и оплаченный заказ любой другой формы объявлялся потерянным —
+    // ровно это и случилось с GPT-5 Image Mini.
+    console.log("\nрезультат находится в ответе любой формы");
+    const формы = {
+      "список data": (порт) => ({ id: "order-1", status: "completed", data: [{ url: `http://127.0.0.1:${порт}/file.png` }] }),
+      "поле output": (порт) => ({ id: "order-1", status: "completed", output: { url: `http://127.0.0.1:${порт}/file.png` } }),
+      "ссылка прямо в result": (порт) => ({ id: "order-1", status: "completed", result: `http://127.0.0.1:${порт}/file.png` }),
+      "вложенный список images": (порт) => ({
+        id: "order-1", status: "completed",
+        data: { images: [{ image_url: `http://127.0.0.1:${порт}/file.png` }] },
+      }),
+      "ссылка без расширения под ключом url": (порт) => ({
+        id: "order-1", status: "completed", data: { url: `http://127.0.0.1:${порт}/file.png?x=1` },
+      }),
+    };
+    for (const [имя, форма] of Object.entries(формы)) {
+      ({ server, принято, base } = await startServer({ readyAfter: 1, shape: форма }));
+      const r = await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      });
+      check(`результат найден: ${имя}`, !!r.localPath && fs.existsSync(r.localPath), r.localPath);
+      check(`незабранных не осталось: ${имя}`, (await media.listPending(dataRoot)).length === 0);
+      server.close();
+    }
+
+    // Часть моделей не даёт ссылки вовсе и присылает сам файл строкой. Скачивать
+    // нечего — файл уже в руках, его надо просто записать.
+    console.log("\nфайл приходит строкой, без ссылки");
+    const пнг = Buffer.from("89504e470d0a1a0a", "hex").toString("base64");
+    for (const [имя, форма] of Object.entries({
+      "data:-строка": () => ({ id: "order-1", status: "completed", data: { url: `data:image/png;base64,${пнг}` } }),
+      "поле b64_json": () => ({ id: "order-1", status: "completed", data: [{ b64_json: пнг.repeat(40) }] }),
+    })) {
+      ({ server, принято, base } = await startServer({ readyAfter: 1, shape: форма }));
+      const r = await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      });
+      check(`файл записан из строки: ${имя}`, !!r.localPath && fs.existsSync(r.localPath), r.localPath);
+      check(`и он не пустой: ${имя}`, fs.statSync(r.localPath).size > 0);
+      check(`скачивать при этом не ходили: ${имя}`, принято.скачиваний === 0, String(принято.скачиваний));
+      server.close();
+    }
+
+    // Ссылка на документацию рядом с результатом — не результат. Если скачать
+    // её, на диск ляжет страница вместо картинки.
+    console.log("\nслужебные ссылки за результат не принимаются");
+    ({ server, принято, base } = await startServer({
+      readyAfter: 1,
+      shape: (порт) => ({
+        id: "order-1", status: "completed",
+        docs: "https://docs.polza.ai/models",
+        data: { url: `http://127.0.0.1:${порт}/file.png` },
+      }),
+    }));
+    const сслк = await media.generate(dataRoot, {
+      baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+    });
+    check("взята ссылка на файл, а не на документацию", сслк.localPath.endsWith(".png"), сслк.localPath);
+    server.close();
+
+    // Если файла в ответе нет совсем — ответ не выбрасывается: он единственное,
+    // по чему можно понять, как эта модель отдаёт результат.
+    console.log("\nответ без файла сохраняется целиком, а заказ остаётся");
+    ({ server, принято, base } = await startServer({
+      readyAfter: 1,
+      shape: () => ({ id: "order-нечего", status: "completed", note: "готово" }),
+    }));
+    let сообщение = "";
+    try {
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      });
+    } catch (e) {
+      сообщение = e.message;
+    }
+    check("сказано, что заказ выполнен и ничего не потеряно", /ничего не потеряно/.test(сообщение), сообщение);
+    check("назван файл с ответом", /ответ-.*\.json/.test(сообщение), сообщение);
+    const путьОтвета = (сообщение.match(/\S+ответ-\S+\.json/) || [""])[0].replace(/\.$/, "");
+    check("и этот файл действительно лежит на диске", !!путьОтвета && fs.existsSync(путьОтвета), путьОтвета);
+    check("заказ остался в незабранных", (await media.listPending(dataRoot)).some((x) => x.id === "order-1"));
+    check("сохранённый ответ не попал в историю как генерация",
+      (await media.list(dataRoot)).every((x) => typeof x.fileName === "string"));
+    server.close();
+    await media.dropPending(dataRoot, "order-1");
   } catch (e) {
     failures++;
     console.log("  FAIL непойманная ошибка —", e && e.message, e && e.stack ? "\n" + e.stack.slice(0, 400) : "");

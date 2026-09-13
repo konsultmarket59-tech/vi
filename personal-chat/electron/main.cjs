@@ -863,6 +863,7 @@ async function saveSkillCreatorConversation(conv) {
 
 const media = require("./media.cjs");
 const mediakit = require("./mediakit.cjs");
+const mediaforms = require("./mediaforms.cjs");
 const mediarefs = require("./mediarefs.cjs");
 const mediascript = require("./mediascript.cjs");
 const github = require("./github.cjs");
@@ -1593,6 +1594,75 @@ function scheduleDemoReport(status) {
   }, wait);
 }
 
+/**
+ * Сторож незабранных заказов.
+ *
+ * Журнал сам по себе ничего не забирает: он только помнит. Пока забирать
+ * приходится руками, оплаченный результат зависит от того, зайдёт ли человек в
+ * раздел и заметит ли блок — а он туда зайдёт, когда вспомнит, то есть иногда
+ * никогда.
+ *
+ * Поэтому приложение само проверяет журнал: сразу после запуска и дальше раз в
+ * несколько минут. Готовое скачивается молча и появляется в истории; не готовое
+ * остаётся ждать следующего круга. Ошибки здесь не показываются: нет сети —
+ * попробуем позже, и незачем встречать человека сообщением о том, чего он не
+ * просил.
+ *
+ * Раз в минуту было бы назойливо к чужому серверу и незачем: заказ, который
+ * ждали пятнадцать минут у экрана, лишние пять минут не испортят.
+ */
+const PENDING_SWEEP_MS = 5 * 60 * 1000;
+let sweeping = false;
+
+async function sweepPending() {
+  if (sweeping) return { collected: 0, waiting: 0 };
+  sweeping = true;
+  try {
+    const root = await getRootPath();
+    const settings = await loadSettings();
+    if (!settings.apiKey) return { collected: 0, waiting: 0 };
+    const list = await media.listPending(root);
+    let collected = 0;
+    let waiting = 0;
+    for (const заказ of list) {
+      try {
+        const { outDir, projectName } = await mediaTarget(заказ.projectId || undefined);
+        const r = await media.collect(root, {
+          baseUrl: settings.baseUrl,
+          apiKey: settings.apiKey,
+          outDir,
+          projectName,
+          id: заказ.id,
+          type: заказ.type,
+          model: заказ.model,
+          prompt: заказ.prompt,
+          projectId: заказ.projectId || undefined,
+          recipe: заказ.recipe || "",
+        });
+        if (r.ready) collected += 1;
+        else waiting += 1;
+      } catch {
+        // Заказ, который сервис потерял или отдать не может, остаётся в
+        // журнале: решение выбросить его принимает человек, а не сторож.
+        waiting += 1;
+      }
+    }
+    if (collected) broadcast("media:collected", { collected });
+    return { collected, waiting };
+  } finally {
+    sweeping = false;
+  }
+}
+
+function startPendingWatch() {
+  // Первый круг — не мгновенно: при запуске приложению есть чем заняться, а
+  // заказ, пролежавший ночь, подождёт ещё полминуты.
+  setTimeout(() => {
+    sweepPending().catch(() => {});
+    setInterval(() => sweepPending().catch(() => {}), PENDING_SWEEP_MS);
+  }, 30000);
+}
+
 app.whenReady().then(async () => {
   await applyProxySettings(await loadSettings());
   // Падения прошлых запусков нужны раньше окна: приложение сообщает о них само,
@@ -1607,6 +1677,8 @@ app.whenReady().then(async () => {
   });
   chatbots.startScheduler(getRootPath, (platform, message) => broadcast("chatbots:message", { platform, message }));
   tasks.startScheduler(getRootPath, runScheduledTask);
+  // Оплаченное забирается само: см. sweepPending.
+  startPendingWatch();
   // Отчёт к концу демо-доступа: будильник ставится сразу, а не при закрытии.
   licence
     .status({ allowNetwork: false })
@@ -1698,6 +1770,21 @@ ipcMain.handle("licence:pickFile", async (event) => {
 
 ipcMain.handle("settings:get", () => loadSettings());
 ipcMain.handle("settings:save", (_e, settings) => saveSettingsFile(settings));
+
+
+/**
+ * Куда класть готовые файлы «Медиа» и как назвать подпапку проекта.
+ *
+ * Имя проекта, а не его номер: человек ищет файлы у себя в проводнике, и папка
+ * «Болдино LIFE» находится, а папка «p_1758...» — нет.
+ */
+async function mediaTarget(projectId) {
+  const settings = await loadSettings();
+  const outDir = String(settings.mediaFolder || "").trim();
+  if (!outDir || !projectId) return { outDir, projectName: "" };
+  const project = (await listProjects()).find((x) => x.id === projectId);
+  return { outDir, projectName: (project && project.name) || "" };
+}
 
 ipcMain.handle("projects:list", () => listProjects());
 ipcMain.handle("projects:create", (_e, data) => createProject(data));
@@ -2643,7 +2730,22 @@ ipcMain.handle("chatbots:sendManual", async (_e, platform, userId, text) =>
 // ---------- media generation IPC ----------
 
 /** Наборы для промпта и поля моделей — их читает раздел «Медиа». */
-ipcMain.handle("media:kit", () => mediakit.KIT);
+ipcMain.handle("media:kit", () => ({
+  ...mediakit.KIT,
+  // Заготовки лежат отдельным модулем: это целые сценарии, а не строки стиля,
+  // и смешивать их со стилями значило бы предлагать выбрать одно вместо другого.
+  templates: mediaforms.TEMPLATES.map((t) => ({
+    id: t.id, name: t.name, kind: t.kind, why: t.why, needsPhoto: !!t.needsPhoto,
+    slots: t.slots.map((s) => ({ key: s.key, name: s.name, hint: s.hint, sample: s.sample || "", block: !!s.block })),
+  })),
+}));
+
+/** Подставить заполненное в заготовку и сказать, чего в ней не хватает. */
+ipcMain.handle("media:fillTemplate", (_e, id, values) => {
+  const template = mediaforms.byId(id);
+  if (!template) throw new Error("Такой заготовки нет.");
+  return { prompt: mediaforms.fill(template, values || {}), empty: mediaforms.emptySlots(template, values || {}) };
+});
 
 /**
  * Дизайн-система для генерации: тот же разбор, что в «Сайтах» и роликах.
@@ -2720,8 +2822,10 @@ ipcMain.handle("media:generate", async (event, payload) => {
         design: payload.design,
       })
     : resolved.prompt;
+  const куда = await mediaTarget(payload.projectId);
   return media.generate(root, {
     ...payload,
+    ...куда,
     prompt,
     params: mediakit.buildParams(payload.type, payload.params || {}),
     referenceImages: resolved.images.map((r) => r.path).filter(Boolean),
@@ -2840,7 +2944,8 @@ ipcMain.handle("media:buildPresentation", async (event, request) => {
     }
     if (!ready.length) throw new Error("Ни одна сцена не собралась: " + failed.map((f) => f.error).join("; "));
     send({ stage: "assemble", index: ready.length, total: scenes.length });
-    const dir = media.mediaDir(root, projectId);
+    const куда = await mediaTarget(projectId);
+    const dir = media.mediaDir(root, projectId, куда.outDir, куда.projectName);
     await media.ensureDir(dir);
     const out = path.join(dir, `презентация-${Date.now()}.mp4`);
     await mediascript.buildPresentationVideo(bin, ready, work, out);
@@ -2896,7 +3001,8 @@ ipcMain.handle("media:buildPodcast", async (event, request) => {
     }
     if (!files.length) throw new Error("Ни одна реплика не озвучена: " + failed.map((f) => f.error).join("; "));
     send({ stage: "assemble", index: files.length, total: lines.length });
-    const dir = media.mediaDir(root, projectId);
+    const куда = await mediaTarget(projectId);
+    const dir = media.mediaDir(root, projectId, куда.outDir, куда.projectName);
     await media.ensureDir(dir);
     const out = path.join(dir, `подкаст-${Date.now()}.mp3`);
     await mediascript.buildPodcastAudio(bin, files, work, out);
@@ -2907,7 +3013,22 @@ ipcMain.handle("media:buildPodcast", async (event, request) => {
   }
 });
 
-ipcMain.handle("media:list", async (_e, projectId) => media.list(await getRootPath(), projectId));
+ipcMain.handle("media:list", async (_e, projectId) => {
+  const { outDir, projectName } = await mediaTarget(projectId);
+  return media.list(await getRootPath(), projectId, outDir, projectName);
+});
+
+/**
+ * Перенести уже накопленное в выбранную папку.
+ *
+ * Выбор папки без переноса решает задачу наполовину: новое уйдёт наружу, а
+ * накопленное так и останется весом приложения.
+ */
+ipcMain.handle("media:moveToFolder", async (_e, projectId) => {
+  const { outDir, projectName } = await mediaTarget(projectId);
+  if (!outDir) throw new Error("Сначала выберите папку для готовых файлов.");
+  return media.move(await getRootPath(), projectId, outDir, projectName);
+});
 
 /** Заказы, за которые деньги сняты, а результат ещё не забран. */
 ipcMain.handle("media:pending", async () => media.listPending(await getRootPath()));
@@ -2916,11 +3037,16 @@ ipcMain.handle("media:collect", async (_e, id) => {
   const root = await getRootPath();
   const settings = await loadSettings();
   const list = await media.listPending(root);
-  const заказ = list.find((x) => x.id === id);
-  if (!заказ) throw new Error("Такого заказа в журнале нет — возможно, он уже забран.");
+  // Заказа может не быть в журнале: он сделан в прошлой версии приложения, или
+  // в личном кабинете Polza, или в другой программе. Номер — всё, что нужно,
+  // чтобы забрать оплаченное, и отказывать из-за отсутствия записи незачем.
+  const заказ = list.find((x) => x.id === id) || { id, type: "image", model: "", prompt: "", projectId: "", recipe: "" };
+  const { outDir, projectName } = await mediaTarget(заказ.projectId || undefined);
   return media.collect(root, {
     baseUrl: settings.baseUrl,
     apiKey: settings.apiKey,
+    outDir,
+    projectName,
     id,
     type: заказ.type,
     model: заказ.model,
@@ -2931,13 +3057,17 @@ ipcMain.handle("media:collect", async (_e, id) => {
 });
 
 /** Забыть заказ: он не получится никогда (например, сервис его потерял). */
+/** Проверить журнал прямо сейчас, не дожидаясь очередного круга. */
+ipcMain.handle("media:sweepPending", () => sweepPending());
+
 ipcMain.handle("media:forgetPending", async (_e, id) => {
   await media.dropPending(await getRootPath(), id);
   return true;
 });
 ipcMain.handle("media:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
-  const dir = media.mediaDir(root, projectId);
+  const { outDir, projectName } = await mediaTarget(projectId);
+  const dir = media.mediaDir(root, projectId, outDir, projectName);
   await media.ensureDir(dir);
   await shell.openPath(dir);
 });

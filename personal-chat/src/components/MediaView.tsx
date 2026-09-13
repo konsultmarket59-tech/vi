@@ -61,8 +61,19 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [params, setParams] = useState<Record<string, string>>({});
   const [design, setDesign] = useState<StoriesDesign | null>(null);
   const [openGroup, setOpenGroup] = useState<string>("");
+  // Своя папка для готовых файлов. Хранится в настройках, но выбирается здесь:
+  // думают о ней ровно в тот момент, когда смотрят на растущую историю.
+  const [mediaFolder, setMediaFolder] = useState(settings.mediaFolder || "");
+  const [moving, setMoving] = useState(false);
+  // Заготовка промпта и то, чем заполнены её места. Выбранное здесь никуда не
+  // уходит само: промпт собирается только по нажатию, и человек видит текст.
+  const [templateId, setTemplateId] = useState("");
+  const [slots, setSlots] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<MediaPending[]>([]);
   const [collecting, setCollecting] = useState("");
+  // Номер заказа из личного кабинета: заказ мог быть сделан в прошлой версии
+  // приложения или вовсе не здесь, а оплачен всё равно.
+  const [orderId, setOrderId] = useState("");
 
   // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
   // голоса и сборку делает приложение.
@@ -120,6 +131,15 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
     };
   }, [prompt, references]);
 
+  // Сторож незабранных работает в главном процессе и забирает готовое сам.
+  // Окно узнаёт об этом и обновляет историю: иначе человек смотрит на список,
+  // в котором уже лежит его картинка, и не видит её до перезахода в раздел.
+  useEffect(() => {
+    return window.api.onMediaCollected(() => {
+      refreshHistory();
+    });
+  }, [projectId]);
+
   useEffect(() => {
     window.api.mediaKit().then(setKit);
     window.api.mediaScriptKinds().then(setScriptKinds);
@@ -170,6 +190,10 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
     // Поля у типов разные: оставить заполненную длительность ролика при
     // переходе на картинку значит отправить модели поле, которого она не знает.
     setParams({});
+    // Заготовка принадлежит своему типу: оставить видеосценарий выбранным при
+    // переходе на картинку значит собрать промпт, который эта модель не поймёт.
+    setTemplateId("");
+    setSlots({});
     if (next === "audio") setChoice({});
   }
 
@@ -310,6 +334,55 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   }
 
   const chosenStyle = kit ? kit.styles.find((x) => x.id === choice.style) || null : null;
+  // Заготовки показываются только те, что для этого типа: предлагать
+  // раскадровку ролика на вкладке картинки — значит звать выбрать негодное.
+  const templatesForType = kit ? kit.templates.filter((t) => t.kind === type) : [];
+  const chosenTemplate = kit ? kit.templates.find((x) => x.id === templateId) || null : null;
+
+  /**
+   * Собрать промпт по заготовке и положить его в поле.
+   *
+   * Именно в поле, а не «внутрь», мимо глаз: заготовка — это тридцать строк
+   * указаний, и отправлять их не глядя нельзя. В поле их видно, можно
+   * поправить руками, дописать своё и позвать референсы через @ — всё как с
+   * обычным промптом.
+   */
+  /** Выбрать (или убрать) свою папку и запомнить её в настройках. */
+  async function chooseFolder(dir: string) {
+    setMediaFolder(dir);
+    await window.api.saveSettings({ ...settings, mediaFolder: dir });
+    await refreshHistory();
+  }
+
+  /** Перенести накопленное: без этого выбор папки решает задачу наполовину. */
+  async function moveToFolder() {
+    setMoving(true);
+    setError(null);
+    try {
+      const r = await window.api.mediaMoveToFolder(projectId || undefined);
+      setError(
+        r.moved
+          ? `Перенесено файлов: ${r.moved}${r.kept ? `, уже были на месте: ${r.kept}` : ""}.`
+          : "Переносить нечего — всё уже в вашей папке."
+      );
+      await refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  async function applyTemplate() {
+    if (!chosenTemplate) return;
+    try {
+      const filled = await window.api.mediaFillTemplate(chosenTemplate.id, slots);
+      setPrompt(filled.prompt);
+      setError(filled.empty.length ? `Не заполнено: ${filled.empty.join(", ")} — эти места остались в тексте в квадратных скобках.` : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   function entryName(list: MediaKitEntry[], id: string | undefined, label: string) {
     const found = id ? list.find((x) => x.id === id) : null;
@@ -641,6 +714,60 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             models.length > 0 && <p className="hint">Доступно моделей типа «{type}»: {models.length} — начните вводить, появятся варианты.</p>
           )}
 
+          {!!templatesForType.length && (
+            <div className="media-forms">
+              <label>Заготовка промпта (необязательно)</label>
+              <p className="hint">
+                Целый сценарий, а не строка стиля: что неприкосновенно, что происходит по секундам,
+                что запрещено. Заполните места и нажмите «Собрать» — текст ляжет в поле промпта,
+                где его можно поправить.
+              </p>
+              <select
+                value={templateId}
+                onChange={(e) => {
+                  setTemplateId(e.target.value);
+                  setSlots({});
+                }}
+              >
+                <option value="">Без заготовки</option>
+                {templatesForType.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {chosenTemplate && (
+                <>
+                  <p className="hint">{chosenTemplate.why}</p>
+                  {chosenTemplate.needsPhoto && !references.length && !referenceImagePath && (
+                    <p className="hint">
+                      Эта заготовка рассчитана на вашу картинку — приложите её референсом, иначе
+                      модель будет придумывать сцену с нуля.
+                    </p>
+                  )}
+                  {chosenTemplate.slots.map((slot) => (
+                    <div key={slot.key} className="media-form-slot">
+                      <label>
+                        {slot.name}
+                        {slot.block && <span className="hint"> — можно не заполнять</span>}
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={slots[slot.key] || ""}
+                        placeholder={slot.sample}
+                        onChange={(e) => setSlots({ ...slots, [slot.key]: e.target.value })}
+                      />
+                      <span className="media-param-hint">{slot.hint}</span>
+                    </div>
+                  ))}
+                  <button className="btn btn-secondary" onClick={applyTemplate}>
+                    Собрать промпт
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <label>Промпт</label>
           <MentionBox
             value={prompt}
@@ -930,6 +1057,39 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </p>
           )}
 
+          <label>Папка для готовых файлов</label>
+          <p className="hint">
+            Картинки и особенно ролики весят много и копятся быстро. Пока они лежат внутри
+            приложения, они раздувают именно его. Назовите свою папку — и файлы будут
+            складываться туда, а приложение останется лёгким.
+          </p>
+          <div className="folder-row">
+            {mediaFolder ? (
+              <span className="hint">{mediaFolder}</span>
+            ) : (
+              <span className="hint">Сейчас: внутри папки данных приложения</span>
+            )}
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                const dir = await window.api.sitesPickFolder("Папка для готовых файлов");
+                if (dir) await chooseFolder(dir);
+              }}
+            >
+              Выбрать папку
+            </button>
+            {mediaFolder && (
+              <>
+                <button className="btn btn-secondary" disabled={moving} onClick={moveToFolder}>
+                  {moving ? "Переношу…" : "Перенести накопленное"}
+                </button>
+                <button className="link-btn" onClick={() => chooseFolder("")}>
+                  Вернуть внутрь
+                </button>
+              </>
+            )}
+          </div>
+
           <label>Проект (сохранить результат в его папку media/)</label>
           <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">Без привязки к проекту</option>
@@ -1005,7 +1165,9 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               <h3>Незабранные</h3>
               <p className="hint">
                 Заказ оплачен, но результат ещё не скачан — обычно потому, что модель считала
-                дольше, чем приложение ждало у экрана. Ничего не пропало: нажмите «Забрать».
+                дольше, чем приложение ждало у экрана. Ничего не пропало: приложение проверяет
+                эти заказы само, раз в несколько минут, и забирает готовое. Кнопка — чтобы не
+                ждать очередной проверки.
               </p>
               {pending.map((p2) => (
                 <div key={p2.id} className="media-pending-item">
@@ -1038,13 +1200,43 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </div>
           )}
 
+          <div className="media-pending">
+            <h3>Забрать по номеру заказа</h3>
+            <p className="hint">
+              Если заказ сделан в прошлой версии приложения, в личном кабинете Polza или в другой
+              программе, приложение о нём не знает — но оплачен он всё равно. Номер заказа виден в
+              личном кабинете; по нему результат забирается так же.
+            </p>
+            <div className="folder-row">
+              <input
+                value={orderId}
+                placeholder="номер заказа"
+                onChange={(e) => setOrderId(e.target.value.trim())}
+              />
+              <button
+                className="btn btn-secondary"
+                disabled={!orderId || collecting === orderId}
+                onClick={() => collect(orderId)}
+              >
+                {collecting === orderId ? "Забираю…" : "Забрать"}
+              </button>
+            </div>
+          </div>
+
           <h3>История</h3>
           {history.length === 0 && <p className="hint">Пока ничего не сгенерировано.</p>}
           <ul className="media-history-list">
             {history.map((item) => (
               <li key={item.id} onClick={() => openHistoryItem(item)}>
                 <span className="media-history-type">{item.type}</span>
-                <span className="media-history-prompt">{item.prompt.slice(0, 60)}</span>
+                <span className="media-history-prompt">
+                  {item.prompt.slice(0, 60) || item.fileName}
+                </span>
+                {item.orphan && (
+                  <span className="hint" title="Файл лежит в папке, но описи к нему нет">
+                    без описи
+                  </span>
+                )}
                 {item.recipe && <span className="media-history-recipe">{item.recipe}</span>}
                 <span className="hint">{new Date(item.createdAt).toLocaleString("ru-RU")}</span>
               </li>
