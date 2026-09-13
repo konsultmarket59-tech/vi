@@ -13,6 +13,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const FormulaParser = require("fast-formula-parser");
+const { toFileFormula, fromFileFormula } = require("./excelFunctions.cjs");
 const { DepParser, FormulaError } = FormulaParser;
 const { EXTRA_FUNCTIONS } = require("./excelFunctions.cjs");
 
@@ -105,12 +106,14 @@ async function loadWorkbook(filePath) {
         const key = cellKey(rowNumber, colNumber);
         const record = {};
         if (cell.formula != null) {
-          record.formula = cell.formula;
+          // Приставка _xlfn. — деталь формата: в строке формул Excel её не
+          // показывает, и наш вычислитель такой функции не знает.
+          record.formula = fromFileFormula(cell.formula);
           record.computed = plainValue(cell.result);
         } else if (cell.sharedFormula != null) {
           // exceljs exposes shared formulas by reference; the cached result is still
           // the right thing to show, and a recalc will recompute from the master.
-          record.formula = cell.formula || null;
+          record.formula = cell.formula ? fromFileFormula(cell.formula) : null;
           record.computed = plainValue(cell.result ?? cell.value);
         } else {
           record.value = plainValue(cell.value);
@@ -376,7 +379,13 @@ async function saveWorkbook(model, targetPath) {
       if (record.formula) {
         // Writing the cached result too means Excel shows the value immediately,
         // without asking to recalculate on open.
-        cell.value = { formula: record.formula, result: record.computed ?? 0 };
+        //
+        // Имя функции приводится к виду формата: всё, что появилось после Excel
+        // 2007 (MINIFS, MAXIFS, TEXTJOIN и прочее), хранится в файле с
+        // приставкой _xlfn. Без неё Excel показывает «#ИМЯ?» — при том что у
+        // нас на экране значение посчитано верно, и ошибка вылезает только
+        // после открытия файла.
+        cell.value = { formula: toFileFormula(record.formula), result: record.computed ?? 0 };
       } else {
         cell.value = record.value ?? null;
       }

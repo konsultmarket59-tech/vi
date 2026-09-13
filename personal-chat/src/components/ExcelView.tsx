@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Conversation, ExcelWorkbook, Settings, Skill } from "../lib/types";
 import { parseExcelEdit, uid, type ParsedExcelEdit } from "../lib/promptBuilder";
 import ChatView from "./ChatView";
+import Splitter from "./Splitter";
 
 interface Props {
   settings: Settings;
@@ -555,6 +556,17 @@ export default function ExcelView({ settings, skills, onOpenSettings }: Props) {
               </>
             )}
             </div>
+            {mode === "dock" && (
+              <Splitter
+                id="excel-агент"
+                variable="--dock-agent-width"
+                fallback={380}
+                min={280}
+                max={760}
+                side="right"
+                label="Граница окна агента"
+              />
+            )}
             {mode === "dock" && renderAgentPanel(true)}
           </div>
         )}

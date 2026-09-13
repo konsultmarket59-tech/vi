@@ -65,12 +65,16 @@ async function pollUntilDone(baseUrl, apiKey, id, type, onTick) {
 }
 
 async function generate(root, opts) {
-  const { baseUrl, apiKey, type, model, prompt, referenceImagePath, extraParamsJson, projectId, onStatus } = opts;
+  const { baseUrl, apiKey, type, model, prompt, referenceImagePath, extraParamsJson, params, projectId, onStatus, meta } = opts;
   if (!apiKey) throw new Error("Не задан API-ключ Polza.ai — откройте Настройки.");
   if (!model?.trim()) throw new Error("Укажите ID модели.");
   if (!prompt?.trim()) throw new Error("Укажите промпт.");
 
   const input = { prompt: prompt.trim() };
+  // Поля из формы ложатся первыми, а рукописный JSON — поверх них: если
+  // человек написал параметр руками, он знает про эту модель больше, чем
+  // общий список полей, и его слово должно быть последним.
+  if (params && typeof params === "object") Object.assign(input, params);
   if (extraParamsJson?.trim()) {
     let extra;
     try {
@@ -80,11 +84,24 @@ async function generate(root, opts) {
     }
     Object.assign(input, extra);
   }
-  if (referenceImagePath) {
-    const buffer = await fs.readFile(referenceImagePath);
-    const ext = path.extname(referenceImagePath).toLowerCase();
-    const mime = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
-    input.images = [{ type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` }];
+  // Картинок-референсов может быть сколько угодно: работа устроена так, что
+  // про каждую говорят своё — «ракурс отсюда, плашку отсюда». Порядок важен:
+  // он совпадает с номерами, которые подставлены в промпт вместо обращений.
+  const pictures = [];
+  if (Array.isArray(opts.referenceImages)) pictures.push(...opts.referenceImages.filter(Boolean));
+  else if (referenceImagePath) pictures.push(referenceImagePath);
+  if (pictures.length) {
+    input.images = [];
+    for (const file of pictures) {
+      const buffer = await fs.readFile(file);
+      const ext = path.extname(file).toLowerCase();
+      const mime =
+        ext === ".png" ? "image/png"
+          : ext === ".webp" ? "image/webp"
+            : ext === ".gif" ? "image/gif"
+              : "image/jpeg";
+      input.images.push({ type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` });
+    }
   }
 
   const createRes = await fetch(`${baseUrl}/media`, {
@@ -115,7 +132,7 @@ async function generate(root, opts) {
   const filePath = path.join(dir, fileName);
   await fs.writeFile(filePath, buffer);
 
-  const meta = {
+  const record = {
     id,
     type,
     model: model.trim(),
@@ -123,10 +140,17 @@ async function generate(root, opts) {
     fileName,
     createdAt: Date.now(),
     costRub: result?.usage?.cost_rub,
+    // Из чего собран промпт: стиль, ракурс, свет, движение камеры. Через
+    // неделю по одному только тексту промпта уже не вспомнить, что выбиралось,
+    // а повторить удачный кадр хочется именно тогда.
+    recipe: (meta && meta.recipe) || "",
+    params: Object.keys(input).filter((k) => k !== "prompt" && k !== "images").length
+      ? Object.fromEntries(Object.entries(input).filter(([k]) => k !== "prompt" && k !== "images"))
+      : undefined,
   };
-  await writeJson(path.join(dir, id.replace(/[^a-zA-Z0-9_-]/g, "") + ".json"), meta);
+  await writeJson(path.join(dir, id.replace(/[^a-zA-Z0-9_-]/g, "") + ".json"), record);
 
-  return { ...meta, localPath: filePath };
+  return { ...record, localPath: filePath };
 }
 
 async function list(root, projectId) {

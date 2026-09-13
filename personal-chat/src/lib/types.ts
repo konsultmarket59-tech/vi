@@ -230,12 +230,96 @@ export interface CrashEntry {
 
 // ---------- каталог для Тильды ----------
 
+/** Материалы сайта: папка на компьютере под каждый вид. */
+export interface SiteSources {
+  text: string;
+  images: string;
+  references: string;
+  design: string;
+  logos: string;
+}
+
+export interface SitesConfig {
+  sources: Partial<SiteSources>;
+  outputDir: string;
+  /**
+   * Ключи API Тильды (тариф Business, Настройки сайта → Экспорт → API).
+   * Секретный наружу отдаётся меткой «сохранён», а не значением.
+   */
+  publickey: string;
+  secretkey: string;
+  hasSecret?: boolean;
+  projectId: string;
+}
+
+export interface SiteFile {
+  path: string;
+  name: string;
+  kind: "image" | "text";
+  size: number;
+  folder: string;
+}
+
+/** Один смысловой экран сайта — то, что переносится в блок «HTML-код» Тильды. */
+export interface SiteBlock {
+  id: string;
+  title: string;
+  page: string;
+  purpose: string;
+  html: string;
+  css: string;
+  js: string;
+}
+
+/**
+ * Задание на форму. Формы не вёрстаются: приём заявок в Тильде работает только
+ * через её собственные блоки формы.
+ */
+export interface SiteForm {
+  id: string;
+  spec: string;
+}
+
+export interface Site {
+  id: string;
+  title: string;
+  kind: string;
+  plan: string;
+  pages: string[];
+  blocks: SiteBlock[];
+  forms: SiteForm[];
+  notes: string[];
+  problems?: string[];
+  /** Значения дизайн-системы, вынутые из материалов и заданные агенту законом. */
+  tokens?: { colours: string[]; fonts: string[]; vars: { name: string; value: string }[] };
+  /** Снимки со стока, подставленные вместо меток [ФОТО: …]. */
+  photos?: { query: string; url: string; thumb: string; author: string; page: string }[];
+  /** Какие картинки агент видел: референсы, логотипы, образцы дизайн-системы. */
+  shownImages?: { name: string; role: string }[];
+  updated: string;
+  raw?: string;
+}
+
+export interface SiteSummary {
+  id: string;
+  title: string;
+  kind: string;
+  blocks: number;
+  updated: string;
+}
+
 export interface CatalogConfig {
   exportPath: string;
   previousPath: string;
   outputDir: string;
   /** Имя посёлка в 1С → имя на витрине. Из прошлого каталога берётся подсказка. */
   villages: Record<string, string>;
+  /**
+   * Имя посёлка в 1С → тип септика. Заготовка описания одна на вариацию дома, а
+   * септик в посёлках разный, и в общем тексте он превращался в отговорку
+   * «по посёлку».
+   */
+  septics: Record<string, string>;
   /**
    * Исключения по улицам: в одном посёлке 1С бывает несколько кварталов, у
    * которых на витрине разные названия.
@@ -300,15 +384,29 @@ export interface CatalogPreview {
 // ---------- видеотека ----------
 
 export interface LibraryConfig {
-  /** Папка с записями. Файлы читаются на месте и никуда не копируются. */
+  /** Источники: папки и отдельные записи. Файлы читаются на месте. */
+  sources: string[];
+  /** Папка с записями — настройка до появления нескольких источников. */
   folderPath: string;
-  /** «local» — расшифровка на этом компьютере; «remote» — платный сервис. */
-  engine: "local" | "remote";
+  /** Куда складывать расшифровки. Пусто — в данные приложения. */
+  vaultPath: string;
+  /**
+   * «builtin» — встроенное распознавание, ставить нечего;
+   * «local» — whisper.cpp, если он уже стоит;
+   * «remote» — платный сервис.
+   */
+  engine: "builtin" | "local" | "remote";
+  /** Какая модель встроенного распознавания выбрана. */
+  speechModel: string;
   binPath: string;
   modelPath: string;
   threads: number;
   remoteModel: string;
   language: string;
+  /** Разбирать расшифровку второй моделью: правка текста и метки. */
+  polish: boolean;
+  /** Модель для разбора. Пусто — модель из общих настроек. */
+  polishModel: string;
 }
 
 export interface LibraryFile {
@@ -323,12 +421,48 @@ export interface LibraryFile {
   chunks: number;
   transcribedAt: number;
   engine: string;
+  fingerprint?: string;
+  /** Запись узнана по содержимому, но лежит не там, где её расшифровали. */
+  moved?: boolean;
+  marks?: number;
+  polished?: boolean;
 }
 
 export interface LibraryScan {
   files: LibraryFile[];
   orphans?: { path: string; name: string }[];
   missing: boolean;
+  sources?: string[];
+  /** Источники, до которых не удалось добраться. */
+  missingSources?: string[];
+  /** Сколько файлов просмотрено всего и сколько папок обойдено. */
+  seen?: number;
+  folders?: number;
+  /** Какие расширения встретились и были пропущены. */
+  other?: { ext: string; count: number }[];
+  unreadable?: { dir: string; error: string }[];
+  /** Где лежат расшифровки. */
+  vault?: string;
+}
+
+/** Метка второй модели: с какой минуты по какую идёт какая тема. */
+export interface LibraryMark {
+  file: string;
+  name: string;
+  from: number;
+  to: number;
+  title: string;
+  keywords: string[];
+}
+
+export interface LibraryReading {
+  name: string;
+  path: string;
+  seconds: number;
+  polishedAt: number;
+  polishModel: string;
+  marks: LibraryMark[];
+  text: string;
 }
 
 export interface LibraryEngineStatus {
@@ -336,6 +470,11 @@ export interface LibraryEngineStatus {
   bin: boolean;
   model: boolean;
   reason: string;
+  /** Скачаны ли веса встроенного распознавания. */
+  builtinReady: boolean;
+  models: { id: string; name: string; size: string; hint: string }[];
+  cacheDir: string;
+  cacheBytes: number;
 }
 
 /** Кусок расшифровки — то, на что ссылается ответ. */
@@ -352,6 +491,9 @@ export interface LibraryQuestion {
   hits: LibraryHit[];
   searched: number;
   files: number;
+  marks?: LibraryMark[];
+  /** Ответ собран по найденным темам, а не по всей библиотеке. */
+  narrowed?: boolean;
 }
 
 export interface LibraryCheck {
@@ -362,12 +504,13 @@ export interface LibraryCheck {
 }
 
 export interface LibraryProgress {
-  stage: "file" | "audio" | "transcribe" | "failed" | "done";
+  stage: "file" | "audio" | "transcribe" | "model" | "polish" | "polishFailed" | "reused" | "failed" | "done";
   index?: number;
   total?: number;
   name?: string;
   progress?: number;
   done?: number;
+  reused?: number;
   failed?: number;
   error?: string;
   stopped?: boolean;
@@ -534,8 +677,17 @@ export interface MediaGenerationRequest {
   model: string;
   prompt: string;
   referenceImagePath?: string;
+  /** Референсы с именами: в промпте к ним обращаются через @. */
+  references?: MediaReference[];
   extraParamsJson?: string;
   projectId?: string;
+  /** Что выбрано из набора приёмов — промпт собирается из этого. */
+  kit?: MediaKitChoice;
+  /** Предмет кадра: подставляется туда, где строка стиля его ждёт. */
+  subject?: string;
+  /** Поля модели: пропорции, длительность, зерно и прочее. */
+  params?: Record<string, string | number | boolean>;
+  design?: StoriesDesign | null;
 }
 
 export interface MediaGenerationResult {
@@ -547,6 +699,9 @@ export interface MediaGenerationResult {
   localPath: string;
   createdAt: number;
   costRub?: number;
+  /** Из чего собран промпт: стиль, ракурс, свет, движение камеры. */
+  recipe?: string;
+  params?: Record<string, unknown>;
 }
 
 export type CloudProvider = "yandex" | "google";
@@ -799,6 +954,13 @@ export interface CostKind {
   name: string;
 }
 
+/** Вид погашения займа: от него зависит график денег, а не только переплата. */
+export interface LoanKind {
+  id: string;
+  name: string;
+  hint: string;
+}
+
 export interface PayrollRow {
   role: string;
   count: number;
@@ -860,8 +1022,23 @@ export interface FinModelInput {
   fixedCosts: { name: string; monthly: number }[];
   variableCosts: VariableCostRow[];
   investments: { name: string; amount: number }[];
+  loans: FinLoan[];
   rates: FinRates;
   notes: string;
+}
+
+/** Заём: откуда взяты деньги на старт и на каких условиях. */
+export interface FinLoan {
+  name: string;
+  amount: number;
+  /** Годовая ставка долей: 0.22 — это 22 %. */
+  rate: number;
+  termMonths: number;
+  /** 0 — деньги приходят вместе с вложениями; k — в k-м месяце проекта. */
+  startMonth: number;
+  /** Отсрочка по телу долга. Проценты в каникулы всё равно начисляются. */
+  graceMonths: number;
+  kind: string;
 }
 
 export interface FinYear {
@@ -876,9 +1053,14 @@ export interface FinYear {
   fixed: number;
   variable: number;
   ebitda: number;
+  interest: number;
+  loanPrincipal: number;
+  loanPayment: number;
   tax: number;
   vat: number;
   net: number;
+  /** Деньги на счёте: прибыль минус тело долга плюс полученные транши. */
+  cash: number;
   minTaxTopUp: number;
   vatOnThreshold: number;
 }
@@ -888,13 +1070,26 @@ export interface FinYear {
 export interface FinScenario {
   years: FinYear[];
   investment: number;
+  /** Своих денег в проекте: вложения минус то, что дал заём к старту. */
+  ownInvestment: number;
+  borrowed: number;
+  loanInterest: number;
+  loanPayments: number;
+  /** Среднемесячный платёж по займам в первый год. */
+  monthlyDebtService: number;
+  /** Месяцы, когда платёж больше, чем проект в этот месяц заработал. */
+  debtTight: { count: number; first: string; worst: number } | null;
+  /** Месяцы, когда денег на счёте не хватило по любой причине. */
+  cashNegative: { count: number; first: string; worst: number } | null;
   payback: { months: number; label: string } | null;
   npv: number;
   irr: number | null;
   breakEvenUnits: number | null;
   breakEvenRevenue: number | null;
+  breakEvenUnitsWithDebt: number | null;
   marginPerUnit: number;
   totalNet: number;
+  totalCash: number;
   totalRevenue: number;
 }
 
@@ -1003,6 +1198,126 @@ export interface StorySpec {
 export interface StoryFont {
   family: string;
   path: string;
+}
+
+/** Дизайн-система ролика: то, что вытащено из её файлов. */
+/** Один приём из набора: движение камеры, ракурс, схема света или стиль. */
+export interface MediaKitEntry {
+  id: string;
+  name: string;
+  en?: string;
+  what?: string;
+  why?: string;
+  prompt: string;
+  needsPhoto?: boolean;
+}
+
+/** Поле параметров модели. */
+export interface MediaKitField {
+  key: string;
+  name: string;
+  kind: "choice" | "number" | "text" | "flag";
+  options?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  hint?: string;
+}
+
+/** Короткая команда формата. */
+export interface MediaCommand {
+  id: string;
+  group: string;
+  name: string;
+  why: string;
+  /** Русское название — по нему тоже ищут. */
+  aka?: string;
+  prompt: string;
+}
+
+export interface MediaKit {
+  paces: MediaKitEntry[];
+  commands: MediaCommand[];
+  commandGroups: { group: string; hint: string }[];
+  cameraMoves: MediaKitEntry[];
+  shotAngles: MediaKitEntry[];
+  lighting: MediaKitEntry[];
+  styles: MediaKitEntry[];
+  fields: Record<MediaType, MediaKitField[]>;
+}
+
+/** Что выбрано из набора для этой генерации. */
+/** Референс: картинка или текст, у которого есть имя для обращения в промпте. */
+export interface MediaReference {
+  id: string;
+  kind: "image" | "text";
+  /** Имя, которым референс зовут через @ в промпте. */
+  name: string;
+  path: string;
+  file: string;
+  text: string;
+}
+
+export interface MediaResolvedPrompt {
+  prompt: string;
+  images: { id: string; name: string; path: string }[];
+  /** Имена, к которым обратились, но таких референсов нет. */
+  missing: string[];
+  used: string[];
+  commands: string[];
+  unknownCommands: string[];
+  note: string;
+}
+
+export interface MediaKitChoice {
+  /** Короткая команда формата: /anatomy, /beforeafter и прочие. */
+  command?: string;
+  style?: string;
+  camera?: string;
+  pace?: string;
+  angle?: string;
+  lighting?: string;
+}
+
+/** Вид сценария: презентация или подкаст. */
+export interface MediaScriptKind {
+  id: string;
+  name: string;
+  hint: string;
+}
+
+/** Сцена презентации: что на экране, что говорит голос, что рисовать. */
+export interface MediaScene {
+  index: number;
+  title: string;
+  voice: string;
+  shot: string;
+}
+
+/** Реплика подкаста. */
+export interface MediaLine {
+  index: number;
+  speaker: "a" | "b";
+  text: string;
+}
+
+export interface MediaScriptProgress {
+  stage: "image" | "voice" | "assemble" | "failed" | "done";
+  index?: number;
+  total?: number;
+  title?: string;
+  error?: string;
+}
+
+export interface StoriesDesign {
+  dir: string;
+  files: string[];
+  colours: string[];
+  fonts: string[];
+  vars: { name: string; value: string }[];
+  /** Словесное описание для задания агенту. */
+  description: string;
+  problem: string;
 }
 
 export interface StoryProbe {
@@ -1262,6 +1577,36 @@ export interface ElectronAPI {
   clearCache(): Promise<{ freedBytes: number; before: number; after: number }>;
 
   // каталог для Тильды
+  // сайты
+  sitesConfig(): Promise<SitesConfig>;
+  sitesSaveConfig(changes: Partial<SitesConfig>): Promise<SitesConfig>;
+  sitesPickFolder(title?: string): Promise<string>;
+  sitesScan(): Promise<{ files: Record<string, SiteFile[]>; problems: string[] }>;
+  sitesList(): Promise<SiteSummary[]>;
+  sitesGet(id: string): Promise<Site | null>;
+  sitesSave(site: Site): Promise<Site>;
+  sitesGenerate(brief: {
+    id?: string;
+    /** Сколько картинок показать агенту: референсы дороги в токенах. */
+    maxImages?: number;
+    title?: string;
+    kind?: string;
+    goal?: string;
+    audience?: string;
+    extra?: string;
+    skill?: string;
+    tilda?: { pages: { title: string; alias: string }[] } | null;
+  }): Promise<Site>;
+  sitesBlockHtml(block: SiteBlock): Promise<string>;
+  sitesCheck(site: Site): Promise<string[]>;
+  sitesExport(site: Site): Promise<{ blocks: string[]; previewFile: string; readmeFile: string }>;
+  /** Методы API Тильды — только чтение, метода записи у Тильды нет. */
+  sitesTilda(
+    method: "projects" | "project" | "pages" | "page" | "pageFull" | "pageExport" | "pageFullExport",
+    params?: { projectid?: string; pageid?: string }
+  ): Promise<unknown>;
+  sitesTildaLimit(): Promise<{ left: number; limit: number }>;
+
   catalogConfig(): Promise<CatalogConfig>;
   catalogSaveConfig(config: Partial<CatalogConfig>): Promise<CatalogConfig>;
   catalogLibrary(): Promise<CatalogDescription[]>;
@@ -1285,9 +1630,22 @@ export interface ElectronAPI {
   librarySaveConfig(config: Partial<LibraryConfig>): Promise<LibraryConfig>;
   libraryPickFolder(): Promise<string>;
   libraryPickFile(title?: string): Promise<string>;
+  libraryAddSources(kind: "folder" | "file"): Promise<LibraryConfig | null>;
+  libraryRemoveSource(source: string): Promise<LibraryConfig>;
+  libraryPickVault(): Promise<LibraryConfig | null>;
+  libraryOpenVault(): Promise<string>;
   libraryEngineStatus(): Promise<LibraryEngineStatus>;
+  /** Расшифровка надиктованной реплики тем же встроенным распознаванием. */
+  transcribeVoice(bytes: Uint8Array): Promise<{ text: string }>;
+  libraryDownloadSpeechModel(modelId?: string): Promise<{ ready: boolean; cacheBytes: number }>;
+  libraryRemoveSpeechModel(): Promise<boolean>;
   libraryScan(): Promise<LibraryScan>;
-  libraryTranscribe(paths: string[]): Promise<{ done: number; failed: { path: string; error: string }[]; stopped: boolean }>;
+  libraryTranscribe(
+    paths: string[],
+    options?: { force?: boolean; polish?: boolean }
+  ): Promise<{ done: number; reused: number; failed: { path: string; error: string }[]; stopped: boolean }>;
+  libraryPolish(paths: string[]): Promise<{ done: number; failed: { path: string; error: string }[]; stopped: boolean }>;
+  libraryRead(filePath: string): Promise<LibraryReading>;
   libraryStop(): Promise<boolean>;
   libraryForget(filePath: string): Promise<boolean>;
   libraryAsk(question: string): Promise<LibraryQuestion>;
@@ -1354,6 +1712,50 @@ export interface ElectronAPI {
 
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
+  mediaKit(): Promise<MediaKit>;
+  mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;
+  mediaResolvePrompt(prompt: string, references: MediaReference[]): Promise<MediaResolvedPrompt>;
+  mediaScriptKinds(): Promise<MediaScriptKind[]>;
+  mediaScriptPrompt(request: {
+    kind: string;
+    source: string;
+    minutes?: number;
+    notes?: string;
+    names?: { a?: string; b?: string };
+    design?: StoriesDesign | null;
+  }): Promise<{ prompt: string }>;
+  mediaWriteScript(request: {
+    kind: string;
+    source: string;
+    minutes?: number;
+    notes?: string;
+    names?: { a?: string; b?: string };
+    design?: StoriesDesign | null;
+    model?: string;
+  }): Promise<{ text: string; scenes?: MediaScene[]; lines?: MediaLine[]; problems: string[] }>;
+  mediaParseScript(
+    kind: string,
+    text: string
+  ): Promise<{ scenes?: MediaScene[]; lines?: MediaLine[]; problems: string[] }>;
+  buildMediaPresentation(request: {
+    scenes: MediaScene[];
+    imageModel: string;
+    voiceModel: string;
+    voice?: string;
+    projectId?: string;
+    design?: StoriesDesign | null;
+    kit?: MediaKitChoice;
+    params?: Record<string, string>;
+  }): Promise<{ path: string; scenes: number; failed: { index: number; error: string }[] }>;
+  buildMediaPodcast(request: {
+    lines: MediaLine[];
+    voiceModel: string;
+    voiceA?: string;
+    voiceB?: string;
+    projectId?: string;
+  }): Promise<{ path: string; lines: number; failed: { index: number; error: string }[] }>;
+  onMediaScriptProgress(handler: (payload: MediaScriptProgress) => void): () => void;
+  readMediaDesign(dir: string): Promise<StoriesDesign>;
   listMediaGenerations(projectId?: string): Promise<MediaGenerationResult[]>;
   openMediaFolder(projectId?: string): Promise<void>;
   pickReferenceImage(): Promise<string | null>;
@@ -1493,6 +1895,7 @@ export interface ElectronAPI {
   finmodelOptions(): Promise<{
     regimes: TaxRegime[];
     costKinds: CostKind[];
+    loanKinds: LoanKind[];
     rates: FinRates;
     months: string[];
   }>;
@@ -1532,9 +1935,11 @@ export interface ElectronAPI {
   storiesSearchStock(query: string, orientation?: string): Promise<StoryStockVideo[]>;
   storiesScene(spec: Partial<StorySpec>): Promise<string>;
   storiesPoster(file: string, at: number, width: number): Promise<string>;
+  readStoriesDesign(dir: string): Promise<StoriesDesign>;
   prepareStoriesScript(request: {
     spec: Partial<StorySpec>;
     text: string;
+    design?: StoriesDesign | null;
   }): Promise<{
     prompt: string;
     info: StoryProbe | null;
@@ -1547,6 +1952,7 @@ export interface ElectronAPI {
     spec: Partial<StorySpec>;
     text: string;
     assetPaths?: string[];
+    design?: StoriesDesign | null;
   }): Promise<{ prompt: string; images: ChatAttachment[]; problems: string[] }>;
   storiesCloudFolders(folder?: string): Promise<StoryCloudFolder[]>;
   uploadStory(localPath: string, remoteFolder: string): Promise<string>;

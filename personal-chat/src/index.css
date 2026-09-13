@@ -116,8 +116,9 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 260px;
-  min-width: 260px;
+  /* Ширину двигает разделитель (см. Splitter.tsx); 260px — исходное значение. */
+  width: var(--sidebar-width, 260px);
+  min-width: var(--sidebar-width, 260px);
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border);
   display: flex;
@@ -585,7 +586,55 @@ body {
 }
 
 .media-layout { display: flex; flex: 1; overflow: hidden; }
-.media-form { flex: 1; max-width: 560px; overflow-y: auto; }
+/*
+  Форма — колонка с прокруткой и прилипшей полосой действия внизу. Раньше
+  кнопка «Сгенерировать» стояла в конце длинной ленты настроек, и до неё надо
+  было домотать: со стороны это выглядело так, будто кнопки нет вовсе.
+*/
+.media-form { flex: 1; max-width: 720px; display: flex; flex-direction: column; overflow: hidden; }
+.media-scroll { flex: 1 1 auto; overflow-y: auto; padding-right: 4px; }
+.media-actions {
+  flex: 0 0 auto; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 8px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--bg);
+}
+.media-actions .btn { width: 100%; }
+/* Запись голоса: короткая строка над полем ввода, а не всплывающее окно. */
+.chat-voice-note {
+  font-size: 12px; color: var(--text-dim); padding: 6px 10px; margin: 0 0 6px;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.chat-voice-note.warn { border-color: #f0c2be; background: #fdefee; color: #8a2018; }
+
+/* Список, который открывается по @ и / прямо в поле промпта. */
+.mention-box { position: relative; }
+.mention-list {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 30;
+  max-height: 260px; overflow-y: auto; margin-top: 2px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 22, 28, 0.14);
+}
+.mention-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 10px; background: none; border: 0; cursor: pointer; font: inherit; font-size: 12px;
+}
+.mention-item.on { background: var(--accent-soft, #f3f6fb); }
+.mention-item b { flex: 0 0 auto; }
+.mention-item span { color: var(--text-dim); }
+.mention-hint { margin-left: auto; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.mention-empty { padding: 8px 10px; font-size: 12px; color: var(--text-dim); margin: 0; }
+
+/* Референсы: у каждого имя, которым его зовут в промпте. */
+.media-refs { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.media-ref { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.media-ref-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.media-ref-kind { flex: 0 0 auto; }
+.media-ref-name { flex: 0 0 150px; font-size: 12px; padding: 3px 6px; }
+.media-ref-head .hint { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.media-kit-search {
+  margin-bottom: 6px; font-size: 12px; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+}
 .media-type-tabs { display: flex; gap: 4px; margin-top: 4px; }
 .media-history {
   width: 320px;
@@ -594,6 +643,58 @@ body {
   padding: 16px 20px;
   overflow-y: auto;
 }
+/* Набор приёмов: группы свёрнуты, иначе это стена, в которой ничего не выбрать. */
+.media-kit-group { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+.media-kit-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px;
+  background: none; border: 0; cursor: pointer; font: inherit; font-size: 12px; text-align: left;
+}
+.media-kit-head span:first-child { flex: 0 0 auto; font-weight: 600; }
+.media-kit-head .hint { flex: 1 1 auto; }
+.media-kit-list {
+  display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px;
+  max-height: 320px; overflow-y: auto; border-top: 1px solid var(--border);
+}
+.media-kit-item {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: none;
+  font: inherit; font-size: 12px; line-height: 1.4;
+}
+.media-kit-item.on { border-color: var(--accent); background: var(--accent-soft, #f3f6fb); }
+.media-kit-what, .media-kit-why { color: var(--text-dim); font-size: 11px; }
+.media-chosen {
+  font-size: 12px; color: var(--text-dim); margin: 6px 0;
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline;
+}
+.media-params { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+/* На широком окне наборы и параметры встают в два столбца — меньше прокрутки. */
+@media (min-width: 1180px) {
+  .media-form { max-width: 900px; }
+  .media-kit-group { break-inside: avoid; }
+}
+.media-param { display: flex; flex-direction: column; gap: 2px; font-size: 11px; flex: 1 1 140px; }
+.media-param input[type="checkbox"] { width: auto; align-self: flex-start; }
+.media-history-recipe { display: block; font-size: 11px; color: var(--text-dim); }
+
+/* Сценарий презентации и подкаста: правится прямо в списке. */
+.media-mode-tabs { margin-bottom: 10px; }
+.media-script-problems {
+  font-size: 12px; line-height: 1.5; margin: 8px 0;
+  border: 1px solid #f0c2be; background: #fdefee; color: #8a2018;
+  border-radius: 10px; padding: 8px 10px;
+}
+.media-script-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; margin: 6px 0; }
+.media-script-row {
+  display: flex; flex-direction: column; gap: 4px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+}
+.media-script-line { flex-direction: row; align-items: flex-start; }
+.media-script-line textarea { flex: 1 1 auto; }
+.media-speaker {
+  flex: 0 0 auto; cursor: pointer; font: inherit; font-size: 11px;
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; background: none;
+}
+
 .media-history-list { list-style: none; padding: 0; margin: 10px 0; }
 .media-history-list li {
   padding: 8px 10px;
@@ -1498,6 +1599,14 @@ a:hover { color: var(--accent-hover); }
 .fin-block label.fin-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
 .fin-block label.fin-check input { width: auto; margin-top: 2px; flex: 0 0 auto; }
 .fin-hint { font-size: 12px; color: var(--text-dim); margin: 6px 0 0; }
+.fin-warn {
+  font-size: 12px; line-height: 1.5; margin: 8px 0 0;
+  border: 1px solid #f0c2be; background: #fdefee; color: #8a2018;
+  border-radius: 10px; padding: 8px 10px;
+}
+/* Пояснения к видам погашения: разница между ними не косметическая. */
+.fin-loan-kinds { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.fin-loan-kinds b { color: var(--text); }
 
 .fin-rows { display: flex; flex-direction: column; gap: 6px; }
 .fin-row { display: flex; gap: 6px; align-items: center; }
@@ -1552,7 +1661,7 @@ button.fin-row-x:hover { color: var(--accent); }
    рядом с кадром видно, читается ли текст поверх именно этой картинки. */
 .vs-body { display: flex; flex: 1; min-height: 0; gap: 20px; padding: 14px 16px; }
 .vs-form { flex: 1 1 480px; min-width: 340px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; padding-right: 4px; }
-.vs-right { flex: 0 0 340px; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.vs-right { flex: 0 0 var(--vs-right-width, 340px); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 .vs-lead { font-size: 13px; color: var(--text-dim); margin: 0; }
 .vs-block { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .vs-block h3 { margin: 0 0 10px; font-size: 14px; }
@@ -1596,6 +1705,17 @@ button.fin-row-x:hover { color: var(--accent); }
 .vs-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .vs-scene { position: absolute; left: 0; top: 0; border: 0; transform-origin: top left; background: transparent; }
 .vs-scrub { width: 100%; margin: 8px 0; }
+
+/* Цвета дизайн-системы: нажатие ставит цвет фоном, с Alt — акцентом. */
+.vs-swatches { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.vs-swatch {
+  width: 76px; height: 40px; border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; padding: 0; position: relative; overflow: hidden;
+}
+.vs-swatch span {
+  position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; line-height: 14px;
+  background: rgba(255, 255, 255, 0.86); color: #222; text-align: center;
+}
 
 .vs-problems { font-size: 12px; border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
 .vs-problems ul { margin: 6px 0 0 16px; }
@@ -1780,6 +1900,52 @@ button.fin-row-x:hover { color: var(--accent); }
   background: #eef8f1; color: #14602f; border: 1px solid #b7dfc2;
 }
 
+.lib-badge-moved { background: #f3f0fb; color: #4a3a86; border-color: #d3c9ee; }
+
+/* Выбор модели распознавания: размер тут — главное свойство выбора. */
+.lib-models { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.lib-model {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: none;
+  font: inherit; font-size: 12px; line-height: 1.45;
+}
+.lib-model.on { border-color: var(--accent); background: var(--accent-soft, #f3f6fb); }
+.lib-model b { font-weight: 600; }
+
+/* Источники записей: папки и отдельные файлы вперемешку. */
+.lib-sources { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lib-sources li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.lib-sources .vs-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-label { flex: 0 0 auto; font-size: 12px; color: var(--text-dim); }
+
+/* Чтение расшифровки: оглавление сверху, текст под ним. */
+.lib-reader-back {
+  position: fixed; inset: 0; background: rgba(20, 22, 28, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 60;
+}
+.lib-reader {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  width: min(860px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden;
+}
+.lib-reader-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.lib-reader-head strong { flex: 1 1 auto; min-width: 0; }
+.lib-outline {
+  margin: 0; padding: 10px 14px 10px 32px; border-bottom: 1px solid var(--border);
+  max-height: 30vh; overflow-y: auto; font-size: 12px; line-height: 1.6;
+}
+.lib-outline b { color: var(--accent); }
+.lib-reader-text {
+  margin: 0; padding: 14px; overflow-y: auto; flex: 1 1 auto;
+  white-space: pre-wrap; word-break: break-word;
+  font: inherit; font-size: 13px; line-height: 1.65;
+}
+
 /* Источники нумерованы так же, как ссылки в ответе: [2] — второй пункт. */
 .lib-hits { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
 .lib-hits li { font-size: 12px; line-height: 1.45; }
@@ -1889,3 +2055,88 @@ button.fin-row-x:hover { color: var(--accent); }
 }
 .cat-variant:hover { border-color: var(--accent); color: var(--accent); }
 .cat-variant.on { border-color: var(--accent); background: var(--bg-hover); }
+
+
+/* Раздвижные границы блоков.
+   Полоса узкая, чтобы не съедать место, но с широкой зоной захвата через
+   ::before: попасть в четыре пикселя мышью трудно, а промах выглядит как
+   «не работает». */
+.splitter {
+  flex: 0 0 4px;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  align-self: stretch;
+  touch-action: none;
+}
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: 0 auto;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.12s, width 0.12s;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter.dragging::after {
+  background: var(--accent);
+  width: 3px;
+}
+.splitter:focus-visible { outline: none; }
+/* Пока границу тянут, выделение текста только мешает. */
+body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
+
+/* Excel и Word: агент рядом с таблицей.
+   Классы excel-split / excel-grid-pane / excel-agent-pane стояли в разметке, но
+   правил у них не было ни одного — «рядом» получалось только на словах, панели
+   шли одна под другой. */
+.excel-split { flex-direction: row; align-items: stretch; }
+.excel-grid-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.excel-agent-pane {
+  flex: 0 0 var(--dock-agent-width, 380px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+}
+
+/* Сайты: список блоков и просмотр. */
+.site-plan {
+  margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px;
+  line-height: 1.5; max-height: 340px; overflow-y: auto;
+}
+.site-block { border-top: 1px solid var(--border); padding: 8px 0; }
+.site-block:first-of-type { border-top: none; }
+.site-block.on { background: var(--bg-hover); }
+.site-block-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.site-block-head .link-btn { font-weight: 600; }
+.site-preview { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+/* Блок смотрим в отдельном документе: свои стили и скрипт не должны драться
+   с оформлением самого приложения, иначе увиденное не совпадёт с сайтом. */
+.site-frame { flex: 1; min-height: 320px; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.site-code { flex: 1; min-height: 320px; width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.site-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.site-photos img { width: 84px; height: 60px; object-fit: cover; border-radius: 6px; display: block; }
+
+/* Раздел «Сайты», вкладка результата: главное здесь — как выглядит сайт,
+   поэтому просмотр занимает всё оставшееся место, а список блоков сжат. */
+.site-body .site-list { flex: 0 0 var(--site-left-width, 380px); min-width: 0; }
+.site-body .site-stage { flex: 1 1 auto; min-width: 0; }
+.site-stage .site-preview { height: 100%; }
+.site-stage .site-frame { min-height: 480px; }

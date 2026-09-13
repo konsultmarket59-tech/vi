@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CatalogConfig, CatalogDescription, CatalogEdits, CatalogTable as CatalogTableData } from "../lib/types";
 import CatalogTable from "./CatalogTable";
+import Splitter from "./Splitter";
 
 /**
  * Каталог: пересборка выгрузки 1С в файл для магазина Тильды.
@@ -341,6 +342,31 @@ export default function CatalogView() {
             </section>
 
             <section className="vs-block">
+              <h3>Септик по посёлкам</h3>
+              <p className="vs-hint">
+                Заготовка описания одна на вариацию дома, а септик в посёлках разный — в общем
+                тексте он превращается в отговорку «по посёлку». Здесь тип задаётся посёлку, и при
+                сборке подменяет пункт «Канализация» в описании. Пункт ищется по заголовку, а не по
+                слову: упоминание канализационного выхода в планировке не пострадает.
+              </p>
+              {preview &&
+                Object.keys(preview.villages).map((from) => (
+                  <div key={from} className="vs-row cat-village">
+                    <span>{from}</span>
+                    <span className="cat-arrow">→</span>
+                    <input
+                      value={config?.septics?.[from] || ""}
+                      placeholder="например: станция биологической очистки «Топас-5»"
+                      onChange={(e) =>
+                        patch({ septics: { ...(config?.septics || {}), [from]: e.target.value } })
+                      }
+                    />
+                  </div>
+                ))}
+              {!preview && <p className="vs-hint">Выберите выгрузку — список посёлков подтянется сам.</p>}
+            </section>
+
+            <section className="vs-block">
               <h3>Кварталы: имя по улице</h3>
               <p className="vs-hint">
                 Если в одном посёлке 1С несколько кварталов с разными названиями на сайте — правило
@@ -573,6 +599,15 @@ export default function CatalogView() {
             </section>
           </div>
 
+          <Splitter
+            id="каталог-агент"
+            variable="--vs-right-width"
+            fallback={340}
+            min={240}
+            max={760}
+            side="right"
+            label="Граница окна агента"
+          />
           <div className="vs-right vs-right-agent">
             <section className="vs-block">
               <h3>Что получится</h3>

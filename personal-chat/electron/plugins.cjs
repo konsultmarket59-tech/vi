@@ -23,6 +23,7 @@ const MODULE_IDS = [
   "stories",
   "library",
   "catalog",
+  "sites",
   "cleanup",
   "media",
   "cloud",

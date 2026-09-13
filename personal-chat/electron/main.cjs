@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
@@ -264,6 +264,24 @@ async function extractDocText(filePath) {
     extractCache.set(key, text);
   }
   return text;
+}
+
+/**
+ * Источник описания для каталога — вместе с оформлением.
+ *
+ * Обычное извлечение отдаёт голый текст: для чата это то, что нужно, а для
+ * каталога — потеря. Описание дома пишут в Word подзаголовками и списками, и
+ * ровно в таком виде оно должно оказаться на витрине. Поэтому .docx читается
+ * как HTML, а приведением к набору тегов магазина занимается catalog.cjs.
+ */
+async function extractCatalogSource(filePath) {
+  if (path.extname(filePath).toLowerCase() === ".docx") {
+    const mammoth = require("mammoth");
+    const buffer = await fs.readFile(filePath);
+    const result = await mammoth.convertToHtml({ buffer });
+    return result.value;
+  }
+  return extractDocText(filePath);
 }
 
 async function extractDocTextUncached(filePath) {
@@ -844,6 +862,9 @@ async function saveSkillCreatorConversation(conv) {
 // ---------- feature modules (delegated to sibling modules) ----------
 
 const media = require("./media.cjs");
+const mediakit = require("./mediakit.cjs");
+const mediarefs = require("./mediarefs.cjs");
+const mediascript = require("./mediascript.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const tasks = require("./tasks.cjs");
@@ -1577,6 +1598,9 @@ app.whenReady().then(async () => {
   // Падения прошлых запусков нужны раньше окна: приложение сообщает о них само,
   // не дожидаясь, пока человек догадается открыть отчёт о проблеме.
   await report.loadCrashes();
+  // Разрешение на микрофон ставится до окна: без него Chromium отказывает
+  // молча, и кнопка записи просто ничего не делает.
+  allowMicrophone();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -2618,11 +2642,92 @@ ipcMain.handle("chatbots:sendManual", async (_e, platform, userId, text) =>
 
 // ---------- media generation IPC ----------
 
+/** Наборы для промпта и поля моделей — их читает раздел «Медиа». */
+ipcMain.handle("media:kit", () => mediakit.KIT);
+
+/**
+ * Дизайн-система для генерации: тот же разбор, что в «Сайтах» и роликах.
+ *
+ * Приложение не пересказывает систему своими словами и не «вдохновляется» ею:
+ * цвета и шрифты уходят в промпт строкой с запретом придумывать другие. Иначе
+ * модель считает систему пожеланием, и получается похоже на что угодно, только
+ * не на неё.
+ */
+ipcMain.handle("media:readDesign", (_e, dir) => readDesignFolder(dir));
+
+/** Разбор промпта: обращения к референсам и короткие команды в тексте. */
+ipcMain.handle("media:resolvePrompt", (_e, prompt, references) => {
+  const cut = mediarefs.extractCommands(prompt, mediakit.COMMANDS);
+  const resolved = mediarefs.resolveMentions(cut.prompt, references || []);
+  return {
+    prompt: resolved.prompt,
+    images: resolved.images.map((r) => ({ id: r.id, name: r.name, path: r.path })),
+    missing: resolved.missing,
+    used: resolved.used,
+    commands: cut.commands,
+    unknownCommands: cut.unknown,
+    note: mediarefs.describeImages(resolved.images),
+  };
+});
+
+ipcMain.handle("media:addReferences", async (_e, kind, taken) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Референсы",
+    properties: ["openFile", "multiSelections"],
+    filters:
+      kind === "text"
+        ? [{ name: "Текст", extensions: ["txt", "md", "rtf", "csv", "json"] }]
+        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif", "bmp", "svg"] }],
+  });
+  if (result.canceled || !result.filePaths.length) return [];
+  const names = [...(taken || [])];
+  const out = [];
+  for (const file of result.filePaths) {
+    const ref = mediarefs.fromFile(file, names);
+    names.push(ref.name);
+    // Текстовый референс читается сразу: его содержимое уедет в промпт
+    // дословно, и показать его человеку надо до генерации, а не после.
+    if (ref.kind === "text") {
+      ref.text = (await fs.readFile(file, "utf-8").catch(() => "")).slice(0, 20000);
+    }
+    out.push(ref);
+  }
+  return out;
+});
+
 ipcMain.handle("media:generate", async (event, payload) => {
   const root = await getRootPath();
   const settings = await loadSettings();
+  const kitChoice = payload && payload.kit ? payload.kit : null;
+  // Промпт собирается здесь, а не в окне: строки стилей и движений живут в
+  // одном месте, и правка в них должна доезжать до генерации сама.
+  // Обращения к референсам и команды из текста разворачиваются ДО сборки
+  // промпта: дальше это уже обычный текст, и приёмы ложатся на него как всегда.
+  const cut = mediarefs.extractCommands(payload.prompt, mediakit.COMMANDS);
+  const resolved = mediarefs.resolveMentions(cut.prompt, payload.references || []);
+  const fromText = cut.commands[0] || "";
+  const prompt = kitChoice || fromText
+    ? mediakit.buildPrompt({
+        base: resolved.prompt,
+        subject: payload.subject,
+        command: (kitChoice && kitChoice.command) || fromText,
+        style: kitChoice && kitChoice.style,
+        camera: kitChoice && kitChoice.camera,
+        pace: kitChoice && kitChoice.pace,
+        angle: kitChoice && kitChoice.angle,
+        lighting: kitChoice && kitChoice.lighting,
+        design: payload.design,
+      })
+    : resolved.prompt;
   return media.generate(root, {
     ...payload,
+    prompt,
+    params: mediakit.buildParams(payload.type, payload.params || {}),
+    referenceImages: resolved.images.map((r) => r.path).filter(Boolean),
+    meta: {
+      recipe: mediakit.describeChoice({ ...(kitChoice || {}), command: (kitChoice && kitChoice.command) || fromText }),
+    },
     baseUrl: settings.baseUrl,
     apiKey: settings.apiKey,
     onStatus: (status) => {
@@ -2634,6 +2739,174 @@ ipcMain.handle("media:generate", async (event, payload) => {
     },
   });
 });
+// ---------- видео-презентации и подкасты ----------
+//
+// Модель пишет только сценарий; картинки, голоса и сборку делает код. Это
+// разделение не косметическое: сценарий можно прочитать и поправить руками ДО
+// того, как потрачены деньги на генерацию, а сборка обязана быть повторяемой.
+
+ipcMain.handle("media:scriptKinds", () => mediascript.SCRIPT_KINDS);
+
+ipcMain.handle("media:scriptPrompt", async (_e, request) => {
+  const { kind, source, minutes, notes, names, design } = request || {};
+  const prompt =
+    kind === "podcast"
+      ? mediascript.buildPodcastPrompt({ source, minutes, names, notes })
+      : mediascript.buildPresentationPrompt({ source, minutes, notes, design });
+  return { prompt: prompt + (await userContextDigest()) };
+});
+
+/**
+ * Сценарий одним вызовом: приложение само спрашивает модель.
+ *
+ * Задание при этом остаётся доступным для копирования: сценарий иногда хочется
+ * написать в другом чате, с другой моделью или с навыком. Но заставлять
+ * человека носить текст туда-сюда, когда ключ уже настроен, — лишняя работа.
+ */
+ipcMain.handle("media:writeScript", async (_e, request) => {
+  const { kind, source, minutes, notes, names, design, model } = request || {};
+  if (!String(source || "").trim()) throw new Error("Пустой источник — писать сценарий не о чем.");
+  const settings = await loadSettings();
+  const prompt =
+    kind === "podcast"
+      ? mediascript.buildPodcastPrompt({ source, minutes, names, notes })
+      : mediascript.buildPresentationPrompt({ source, minutes, notes, design });
+  const answer = await callModelOnce(
+    { ...settings, model: model || settings.model },
+    [{ role: "user", content: prompt + (await userContextDigest()) }]
+  );
+  const parsed =
+    kind === "podcast" ? mediascript.parsePodcast(answer) : mediascript.parsePresentation(answer);
+  return { text: answer, ...parsed };
+});
+
+ipcMain.handle("media:parseScript", (_e, kind, text) =>
+  kind === "podcast" ? mediascript.parsePodcast(text) : mediascript.parsePresentation(text)
+);
+
+/**
+ * Сборка презентации: на каждую сцену — картинка и голос, дальше склейка.
+ *
+ * Сцены идут по очереди, а не разом: генерация каждой стоит денег и минут, и
+ * человек должен видеть, на какой из них всё встало. Сорвавшаяся сцена не
+ * останавливает остальные — из того, что собралось, ролик всё равно выйдет.
+ */
+ipcMain.handle("media:buildPresentation", async (event, request) => {
+  const { scenes, imageModel, voiceModel, voice, projectId, design, kit: kitChoice, params } = request || {};
+  if (!Array.isArray(scenes) || !scenes.length) throw new Error("Сценарий пуст — собирать нечего.");
+  if (!imageModel) throw new Error("Укажите модель для кадров.");
+  if (!voiceModel) throw new Error("Укажите модель для голоса.");
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  const bin = ffmpegPath();
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "презентация-"));
+  const send = (payload) => {
+    try {
+      event.sender.send("media:script-progress", payload);
+    } catch {
+      // окно могло закрыться посреди сборки
+    }
+  };
+  const ready = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+      const step = { index: i + 1, total: scenes.length, title: scene.title || `Сцена ${i + 1}` };
+      try {
+        send({ ...step, stage: "image" });
+        const picture = await media.generate(root, {
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "image", model: imageModel,
+          prompt: mediakit.buildPrompt({
+            base: scene.shot, design,
+            style: kitChoice && kitChoice.style, angle: kitChoice && kitChoice.angle,
+            lighting: kitChoice && kitChoice.lighting,
+          }),
+          params: mediakit.buildParams("image", params || {}),
+          projectId,
+        });
+        send({ ...step, stage: "voice" });
+        const speech = await media.generate(root, {
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "audio", model: voiceModel,
+          prompt: scene.voice,
+          params: voice ? { voice } : {},
+          projectId,
+        });
+        ready.push({ ...scene, imagePath: picture.localPath, audioPath: speech.localPath });
+      } catch (e) {
+        failed.push({ index: i + 1, error: e instanceof Error ? e.message : String(e) });
+        send({ ...step, stage: "failed", error: String(e && e.message) });
+      }
+    }
+    if (!ready.length) throw new Error("Ни одна сцена не собралась: " + failed.map((f) => f.error).join("; "));
+    send({ stage: "assemble", index: ready.length, total: scenes.length });
+    const dir = media.mediaDir(root, projectId);
+    await media.ensureDir(dir);
+    const out = path.join(dir, `презентация-${Date.now()}.mp4`);
+    await mediascript.buildPresentationVideo(bin, ready, work, out);
+    send({ stage: "done" });
+    return { path: out, scenes: ready.length, failed };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+/**
+ * Сборка подкаста: каждая реплика озвучивается своим голосом, потом склейка.
+ *
+ * Два голоса — не украшение: одним голосом диалог не слышен, и подкаст
+ * превращается в тот самый монолог, которого задание велело избегать.
+ */
+ipcMain.handle("media:buildPodcast", async (event, request) => {
+  const { lines, voiceModel, voiceA, voiceB, projectId } = request || {};
+  if (!Array.isArray(lines) || !lines.length) throw new Error("Сценарий пуст — собирать нечего.");
+  if (!voiceModel) throw new Error("Укажите модель для голоса.");
+  if (voiceA && voiceB && voiceA === voiceB) {
+    throw new Error("Голоса ведущих совпадают — диалог будет не слышен. Задайте разные.");
+  }
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  const bin = ffmpegPath();
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "подкаст-"));
+  const send = (payload) => {
+    try {
+      event.sender.send("media:script-progress", payload);
+    } catch {
+      // окно могло закрыться посреди сборки
+    }
+  };
+  const files = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      send({ stage: "voice", index: i + 1, total: lines.length, title: line.speaker === "b" ? "второй" : "первый" });
+      try {
+        const speech = await media.generate(root, {
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "audio", model: voiceModel,
+          prompt: line.text,
+          params: (line.speaker === "b" ? voiceB : voiceA) ? { voice: line.speaker === "b" ? voiceB : voiceA } : {},
+          projectId,
+        });
+        files.push(speech.localPath);
+      } catch (e) {
+        failed.push({ index: i + 1, error: e instanceof Error ? e.message : String(e) });
+        send({ stage: "failed", index: i + 1, total: lines.length, error: String(e && e.message) });
+      }
+    }
+    if (!files.length) throw new Error("Ни одна реплика не озвучена: " + failed.map((f) => f.error).join("; "));
+    send({ stage: "assemble", index: files.length, total: lines.length });
+    const dir = media.mediaDir(root, projectId);
+    await media.ensureDir(dir);
+    const out = path.join(dir, `подкаст-${Date.now()}.mp3`);
+    await mediascript.buildPodcastAudio(bin, files, work, out);
+    send({ stage: "done" });
+    return { path: out, lines: files.length, failed };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 ipcMain.handle("media:list", async (_e, projectId) => media.list(await getRootPath(), projectId));
 ipcMain.handle("media:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
@@ -2827,7 +3100,9 @@ const dataviz = require("./dataviz.cjs");
 const finmodel = require("./finmodel.cjs");
 const videostories = require("./videostories.cjs");
 const library = require("./library.cjs");
+const speech = require("./speech.cjs");
 const catalog = require("./catalog.cjs");
+const sites = require("./sites.cjs");
 
 /**
  * PNG макета в его собственном размере.
@@ -3163,8 +3438,24 @@ ipcMain.handle("stories:scene", async (_e, spec) => {
   return videostories.buildSceneHtml(await inlineStoryAssets(normalized), fonts);
 });
 
+/**
+ * Кусок задания про дизайн-систему. Требование жёсткое нарочно: «ориентируйся
+ * на стиль» модель понимает как разрешение придумать свой, и ролик выходит
+ * похожим на что угодно, только не на систему.
+ */
+function designBlock(design) {
+  const body = design && design.description ? String(design.description).trim() : "";
+  if (!body) return "";
+  return (
+    "\n\nДИЗАЙН-СИСТЕМА. Цвета, шрифты и переменные ниже — не пример и не пожелание, " +
+    "а обязательный набор. Бери цвета ТОЛЬКО из него и шрифты ТОЛЬКО из него; если " +
+    "нужного оттенка в наборе нет — возьми ближайший, но не выдумывай новый.\n" +
+    body
+  );
+}
+
 ipcMain.handle("stories:prepareScript", async (_e, request) => {
-  const { spec, text } = request || {};
+  const { spec, text, design } = request || {};
   const normalized = videostories.normalizeSpec(spec);
   let info = null;
   if (normalized.source.kind === "file" && normalized.source.path) {
@@ -3187,7 +3478,9 @@ ipcMain.handle("stories:prepareScript", async (_e, request) => {
         sourceInfo: info,
         text,
         referenceCount: images.length,
-      }) + (await userContextDigest()),
+      }) +
+      designBlock(design) +
+      (await userContextDigest()),
     info,
     images,
     problems,
@@ -3195,7 +3488,7 @@ ipcMain.handle("stories:prepareScript", async (_e, request) => {
 });
 
 ipcMain.handle("stories:prepareMotion", async (_e, request) => {
-  const { spec, text, assetPaths } = request || {};
+  const { spec, text, assetPaths, design } = request || {};
   const normalized = videostories.normalizeSpec(spec);
   const assets = (assetPaths || []).filter(Boolean).map((p2) => ({
     name: p2,
@@ -3215,11 +3508,74 @@ ipcMain.handle("stories:prepareMotion", async (_e, request) => {
         text,
         assets,
         referenceCount: images.length,
-      }) + (await userContextDigest()),
+      }) +
+      designBlock(design) +
+      (await userContextDigest()),
     images,
     problems,
   };
 });
+
+/**
+ * Дизайн-система для ролика.
+ *
+ * Разбор тот же, что в «Сайтах»: цвета, шрифты и именованные переменные из
+ * файлов дизайн-системы. Ролик и сайт делаются в одном стиле, и разводить для
+ * них два разных разбора значило бы получить два разных представления об одной
+ * и той же системе.
+ */
+/**
+ * Дизайн-система из папки: цвета, шрифты и именованные переменные.
+ *
+ * Разбор один на всё приложение — «Сайты», ролики и генерация изображений
+ * читают систему одинаково. Два разных представления об одной и той же системе
+ * рано или поздно разойдутся, и разойдутся молча.
+ */
+async function readDesignFolder(dir) {
+  const empty = { dir: dir || "", files: [], colours: [], fonts: [], vars: [], description: "", problem: "" };
+  if (!dir) return empty;
+  let stat;
+  try {
+    stat = await fs.stat(dir);
+  } catch {
+    return { ...empty, problem: "Папка не открывается." };
+  }
+  const files = [];
+  if (stat.isDirectory()) {
+    const walk = async (folder, depth) => {
+      if (depth > 3 || files.length >= 60) return;
+      const entries = await fs.readdir(folder, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        const full = path.join(folder, entry.name);
+        if (entry.isDirectory()) await walk(full, depth + 1);
+        else if (/\.(css|scss|less|json|txt|md|svg|html?|js|ts)$/i.test(entry.name)) files.push(full);
+      }
+    };
+    await walk(dir, 0);
+  } else {
+    files.push(dir);
+  }
+  let body = "";
+  for (const file of files.slice(0, 40)) {
+    // Читаем с потолком: дизайн-системы бывают с вшитыми картинками на
+    // мегабайты, а токены лежат в первых тысячах строк.
+    const text = await fs.readFile(file, "utf-8").catch(() => "");
+    body += "\n" + text.slice(0, 200000);
+  }
+  const tokens = sites.extractTokens(body);
+  return {
+    dir,
+    files: files.map((f) => path.basename(f)).slice(0, 40),
+    colours: tokens.colours,
+    fonts: tokens.fonts,
+    vars: tokens.vars,
+    description: sites.describeTokens(tokens),
+    problem: files.length ? "" : "В папке не нашлось файлов дизайн-системы (css, json, svg, md).",
+  };
+}
+
+ipcMain.handle("stories:readDesign", (_e, dir) => readDesignFolder(dir));
 
 ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));
 
@@ -3282,6 +3638,21 @@ ipcMain.handle("stories:render", async (event, payload) => {
     }
     if (!noVideo && !basePath) throw new Error("Не выбрано исходное видео.");
 
+    // Пустая раскладка даёт ровный фон на всю длину — и именно так это и
+    // выглядело: «сборка не сработала, в результате пятнадцать секунд синего
+    // фона». Сборка шла успешно, просто накладывать было нечего. Лучше отказать
+    // и сказать почему, чем отдать человеку пустой файл как готовый ролик.
+    if (!spec.layers.length) {
+      throw new Error(
+        noVideo
+          ? "В ролике нет ни одного слоя — получился бы ровный фон на всю длину. " +
+            "Нажмите «Собрать моушн-дизайн», чтобы агент разложил текст по кадру, " +
+            "или добавьте слои руками."
+          : "В ролике нет ни одного слоя — поверх видео ничего не наложится. " +
+            "Нажмите «Разложить по сценам» или добавьте слои руками."
+      );
+    }
+
     send("frames", { done: 0, total: videostories.frameCount(spec) });
     const framesDir = path.join(work, "frames");
     await renderStoryFrames(spec, framesDir, (p) => send("frames", p));
@@ -3343,6 +3714,9 @@ async function loadCatalogConfig() {
       previousPath: "",
       outputDir: "",
       villages: {},
+      // Тип септика на посёлок: заготовка описания одна на вариацию дома, а
+      // септик в посёлках разный.
+      septics: {},
       // Исключения по улицам: в одном посёлке 1С бывает несколько кварталов с
       // разными названиями на витрине.
       streetNames: [],
@@ -3416,7 +3790,7 @@ async function assembleCatalog() {
   }
   Object.assign(villages, config.villages || {});
 
-  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractCatalogSource);
   const result = catalog.buildCatalog({
     houses: source.houses,
     plots: source.plots,
@@ -3426,6 +3800,7 @@ async function assembleCatalog() {
     previous,
     photoMode: config.photoMode,
     photoSource: config.photoSource || "tilda",
+    septics: config.septics || {},
     carryIds: !!config.carryIds,
   });
   for (const item of library) if (item.error) result.problems.unshift(item.error);
@@ -3470,7 +3845,7 @@ ipcMain.handle("catalog:table", async () => {
     if (!item.street) continue;
     (streets[item.village] = streets[item.village] || new Set()).add(item.street);
   }
-  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractDocText);
+  const library = await catalog.loadLibraryTexts(await catalog.readLibrary(root), extractCatalogSource);
   // Сколько домов подходит каждой заготовке. Без этого числа промах по паре
   // «метраж + облицовка» выглядит как «программа не подтягивает описания»:
   // всё работает, просто ни один дом не совпал, и сказать об этом было некому.
@@ -3527,6 +3902,273 @@ ipcMain.handle("catalog:build", async () => {
   return { csvFile, xlsxFile, rows: rows.length, problems: result.problems, dropped };
 });
 
+// ---------- сайты ----------
+//
+// Материалы лежат на компьютере, сайт собирается блоками под Тильду, а ключи
+// API Тильды хранятся рядом с остальными настройками пользователя и в
+// репозиторий не попадают.
+//
+// Отдельно про перенос: API Тильды работает ТОЛЬКО НА ЧТЕНИЕ — в документации
+// семь методов, все get. Кнопки «залить сайт на Тильду» здесь нет и быть не
+// может; ключи нужны, чтобы посмотреть, что уже есть в проекте.
+
+function sitesConfigFile(root) {
+  return path.join(root, "sites", "config.json");
+}
+
+async function loadSitesConfig() {
+  const root = await getRootPath();
+  try {
+    const stored = JSON.parse(await fs.readFile(sitesConfigFile(root), "utf-8"));
+    return { sources: {}, outputDir: "", publickey: "", secretkey: "", projectId: "", ...stored };
+  } catch {
+    return { sources: {}, outputDir: "", publickey: "", secretkey: "", projectId: "" };
+  }
+}
+
+/** Счётчик запросов к Тильде живёт на время работы приложения. */
+const tildaLimiter = sites.createLimiter();
+
+ipcMain.handle("sites:config", async () => {
+  const config = await loadSitesConfig();
+  // Секретный ключ наружу не отдаём — окну достаточно знать, что он задан.
+  return { ...config, secretkey: config.secretkey ? "сохранён" : "", hasSecret: !!config.secretkey };
+});
+
+ipcMain.handle("sites:saveConfig", async (_e, changes) => {
+  const root = await getRootPath();
+  const current = await loadSitesConfig();
+  const next = { ...current, ...(changes || {}) };
+  // «сохранён» — это метка для окна, а не ключ: по ней настоящий не затираем.
+  if (next.secretkey === "сохранён") next.secretkey = current.secretkey;
+  await fs.mkdir(path.dirname(sitesConfigFile(root)), { recursive: true });
+  await fs.writeFile(sitesConfigFile(root), JSON.stringify(next, null, 2), "utf-8");
+  return { ...next, secretkey: next.secretkey ? "сохранён" : "", hasSecret: !!next.secretkey };
+});
+
+ipcMain.handle("sites:pickFolder", async (_e, title) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const r = await dialog.showOpenDialog(win, {
+    title: title || "Выберите папку",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return r.canceled ? "" : r.filePaths[0];
+});
+
+ipcMain.handle("sites:scan", async () => {
+  const config = await loadSitesConfig();
+  return sites.collectSources(config.sources);
+});
+
+ipcMain.handle("sites:list", async () => sites.listSites(await getRootPath()));
+ipcMain.handle("sites:get", async (_e, id) => sites.readSite(await getRootPath(), id));
+ipcMain.handle("sites:save", async (_e, site) =>
+  sites.writeSite(await getRootPath(), { ...site, updated: new Date().toISOString() })
+);
+
+ipcMain.handle("sites:blockHtml", (_e, block) => sites.buildBlockHtml(block));
+ipcMain.handle("sites:check", (_e, site) => sites.checkSite(site));
+
+/** Сколько запросов к Тильде осталось в этом часе. */
+ipcMain.handle("sites:tildaLimit", () => ({ left: tildaLimiter.left(), limit: sites.RATE_LIMIT }));
+
+ipcMain.handle("sites:tilda", async (_e, method, params) => {
+  const config = await loadSitesConfig();
+  return sites.tildaCall(
+    method,
+    { ...(params || {}), publickey: config.publickey, secretkey: config.secretkey },
+    { limiter: tildaLimiter, fetchImpl: proxyAwareFetch }
+  );
+});
+
+/**
+ * Сборка сайта агентом.
+ *
+ * Текстовые материалы читаются целиком и уходят в задание: сайт пишется по ним,
+ * а не по названиям файлов. Картинки перечисляются именами — их агент не видит,
+ * и обещать обратное нельзя.
+ */
+/**
+ * Уменьшенная копия картинки для показа модели.
+ *
+ * Показывать референс в исходном размере незачем и дорого: снимок с телефона —
+ * это миллионы точек, а приёмы вёрстки (сетка, плотность, типографика) читаются
+ * и с 900 px. nativeImage уже есть в Electron, отдельной библиотеки не нужно.
+ */
+async function siteImagePart(filePath, width = 900) {
+  const buf = await fs.readFile(filePath);
+  const image = nativeImage.createFromBuffer(buf);
+  if (image.isEmpty()) {
+    // SVG и повреждённые файлы nativeImage не читает — отдаём как есть, если он
+    // не слишком велик, иначе пропускаем.
+    if (buf.length > 400 * 1024) return null;
+    const ext = path.extname(filePath).toLowerCase().replace(".", "") || "png";
+    return `data:image/${ext === "svg" ? "svg+xml" : ext};base64,${buf.toString("base64")}`;
+  }
+  const size = image.getSize();
+  const small = size.width > width ? image.resize({ width, quality: "good" }) : image;
+  return `data:image/jpeg;base64,${small.toJPEG(78).toString("base64")}`;
+}
+
+/**
+ * Сборка сайта агентом.
+ *
+ * Текстовые материалы читаются целиком. Референсы, логотипы и картинки
+ * дизайн-системы УХОДЯТ КАРТИНКАМИ — агент на них смотрит, а не читает имена
+ * файлов. Работает это, если выбранная модель понимает изображения; если нет,
+ * запрос вернётся ошибкой, и об этом честнее узнать сразу.
+ *
+ * Фотографии в блоки агент не вставляет: он ставит метки, а приложение
+ * подставляет настоящие адреса со стока. Прототип без изображений оценить
+ * нельзя, а придуманные моделью адреса не открываются.
+ */
+ipcMain.handle("sites:generate", async (_e, brief) => {
+  const settings = await loadSettings();
+  const config = await loadSitesConfig();
+  const { files, problems } = await sites.collectSources(config.sources);
+
+  // Текст проекта.
+  const texts = [];
+  let budget = 60000;
+  for (const file of files.text || []) {
+    if (budget <= 0) break;
+    try {
+      const text = (await extractDocText(file.path)).slice(0, budget);
+      if (text.trim()) {
+        texts.push({ name: file.name, text });
+        budget -= text.length;
+      }
+    } catch (e) {
+      problems.push(`Не прочитан файл «${file.name}»: ${e.message}`);
+    }
+  }
+
+  // Дизайн-система: из текстовых файлов вынимаем конкретные значения.
+  let designText = "";
+  for (const file of files.design || []) {
+    if (file.kind !== "text" || designText.length > 40000) continue;
+    try {
+      designText += "\n" + (await extractDocText(file.path));
+    } catch {
+      // Нечитаемый файл дизайн-системы не повод останавливать сборку.
+    }
+  }
+  const tokens = sites.extractTokens(designText);
+
+  // Картинки, на которые агент смотрит. Порядок важен: сперва референсы — ради
+  // них всё и затевалось, — потом логотипы, потом образцы дизайн-системы.
+  const maxImages = Number(brief?.maxImages) || 6;
+  const shown = [];
+  const queue = [
+    ...(files.references || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "референс" })),
+    ...(files.logos || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "логотип" })),
+    ...(files.design || []).filter((f) => f.kind === "image").map((f) => ({ ...f, role: "дизайн-система" })),
+  ];
+  for (const file of queue.slice(0, maxImages)) {
+    try {
+      const url = await siteImagePart(file.path);
+      if (url) shown.push({ ...file, url });
+    } catch (e) {
+      problems.push(`Не прочитана картинка «${file.name}»: ${e.message}`);
+    }
+  }
+  if (queue.length > maxImages) {
+    problems.push(`Показано агенту ${maxImages} картинок из ${queue.length} — остальные в задание не попали.`);
+  }
+
+  const task = sites.buildSiteBrief({
+    kind: brief?.kind || "лендинг",
+    goal: brief?.goal || "",
+    audience: brief?.audience || "",
+    sources: files,
+    texts,
+    tilda: brief?.tilda || null,
+  });
+  const tokensText = sites.describeTokens(tokens);
+  const full =
+    task +
+    (tokensText ? `\n\n=== ДИЗАЙН-СИСТЕМА (использовать именно эти значения) ===\n${tokensText}` : "") +
+    (brief?.extra ? `\n\nДополнительно: ${brief.extra}` : "") +
+    (shown.length ? `\n\nНиже приложены картинки: ${shown.map((f) => `${f.role} «${f.name}»`).join(", ")}.` : "");
+
+  const content = shown.length
+    ? [{ type: "text", text: full }, ...shown.map((f) => ({ type: "image_url", image_url: { url: f.url } }))]
+    : full;
+
+  const system = sites.SITE_AGENT_PROMPT + (brief?.skill ? `\n\n=== НАВЫК ===\n${brief.skill}` : "");
+  const reply = await callModelOnce(settings, [
+    { role: "system", content: system },
+    { role: "user", content },
+  ]);
+
+  const site = sites.parseSite(reply);
+
+  // Метки фотографий → настоящие адреса со стока.
+  const marks = sites.collectPhotoMarks(site.blocks);
+  const byQuery = {};
+  if (marks.length && settings.pexelsKey) {
+    for (const mark of marks) {
+      try {
+        const found = await sites.searchPhotos(mark.query, settings.pexelsKey, { fetchImpl: proxyAwareFetch });
+        if (found[0]) byQuery[mark.query] = found[0];
+      } catch (e) {
+        problems.push(`Сток не ответил на «${mark.query}»: ${e.message}`);
+      }
+    }
+  } else if (marks.length) {
+    problems.push(
+      `В блоках ${marks.length} мест под фотографии, но не задан ключ Pexels в настройках — ` +
+        "прототип останется с пустыми метками вместо снимков."
+    );
+  }
+  // Логотип: метка → сам файл строкой данных. Путь с компьютера на сайте
+  // превратился бы в пустое место, а загружать логотип куда-то ради прототипа
+  // незачем.
+  const logoMarks = sites.collectLogoMarks(site.blocks);
+  const byHint = {};
+  for (const mark of logoMarks) {
+    const file = sites.pickLogo(files.logos || [], mark.hint);
+    if (!file) continue;
+    try {
+      const url = await siteImagePart(file.path, 600);
+      if (url) byHint[mark.hint] = url;
+    } catch (e) {
+      problems.push(`Не прочитан логотип «${file.name}»: ${e.message}`);
+    }
+  }
+  const withLogos = sites.applyLogos(site.blocks, byHint);
+  site.blocks = withLogos.blocks;
+  for (const hint of withLogos.missing) {
+    problems.push(`Не нашлось логотипа «${hint}» — метка осталась в блоке. Проверьте папку с логотипами.`);
+  }
+  if (logoMarks.length === 0 && (files.logos || []).some((f) => f.kind === "image")) {
+    problems.push("Логотип передан, но агент его не поставил — попросите добавить логотип в шапку.");
+  }
+
+  const applied = sites.applyPhotos(site.blocks, byQuery);
+  site.blocks = applied.blocks;
+  site.photos = applied.used;
+  for (const q of applied.missing) problems.push(`Не нашлось фото по запросу «${q}» — метка осталась в блоке.`);
+
+  site.id = brief?.id || "s" + Date.now().toString(36);
+  site.title = brief?.title || "Новый сайт";
+  site.kind = brief?.kind || "лендинг";
+  site.tokens = tokens;
+  site.shownImages = shown.map((f) => ({ name: f.name, role: f.role }));
+  site.updated = new Date().toISOString();
+  site.problems = problems.concat(sites.checkSite(site));
+  site.raw = reply;
+  await sites.writeSite(await getRootPath(), site);
+  return site;
+});
+
+ipcMain.handle("sites:export", async (_e, site) => {
+  const config = await loadSitesConfig();
+  if (!config.outputDir) throw new Error("Не выбрана папка, куда выгрузить сайт.");
+  const dir = path.join(config.outputDir, String(site.title || site.id).replace(/[^\wа-яёА-ЯЁ -]/gi, "").trim() || site.id);
+  return sites.exportSite(site, dir);
+});
+
 // ---------- видеотека ----------
 //
 // Записи не копируются: человек указывает папку, приложение читает файлы на
@@ -3542,18 +4184,60 @@ async function loadLibraryConfig() {
   try {
     return JSON.parse(await fs.readFile(libraryConfigFile(root), "utf-8"));
   } catch {
-    return {
-      folderPath: "",
-      // Локально по умолчанию: материал не покидает компьютер. Платный путь
-      // включается только руками — на записях бывают клиентские дела.
-      engine: "local",
-      binPath: "",
-      modelPath: "",
-      threads: Math.max(2, Math.min(8, os.cpus().length - 1)),
-      remoteModel: "whisper-1",
-      language: "ru",
-    };
+    return defaultLibraryConfig();
   }
+}
+
+function defaultLibraryConfig() {
+  return {
+    // Источники: и папки, и отдельные записи. Старое поле folderPath остаётся
+    // ради уже сделанных настроек — оно подхватывается при первом чтении.
+    sources: [],
+    folderPath: "",
+    // Папка, куда кладутся расшифровки. Пусто — значит в данные приложения.
+    vaultPath: "",
+    // Встроенное распознавание по умолчанию: ставить и настраивать нечего,
+    // материал компьютер не покидает. Платный путь включается только руками —
+    // на записях бывают клиентские дела.
+    engine: "builtin",
+    speechModel: speech.DEFAULT_MODEL,
+    // Путь через whisper.cpp остаётся для тех, у кого он уже стоит: он быстрее
+    // встроенного и слышит лучше. Но требовать его больше не с кого.
+    binPath: "",
+    modelPath: "",
+    threads: Math.max(2, Math.min(8, os.cpus().length - 1)),
+    remoteModel: "whisper-1",
+    language: "ru",
+    // Вторая модель: правит расшифровку и расставляет метки. Пусто — берётся
+    // модель из общих настроек.
+    polish: true,
+    polishModel: "",
+  };
+}
+
+/** Настройки с подставленными умолчаниями и подхваченной старой папкой. */
+async function libraryConfig() {
+  const config = { ...defaultLibraryConfig(), ...(await loadLibraryConfig()) };
+  if (!Array.isArray(config.sources)) config.sources = [];
+  // Настройка, сделанная до появления нескольких источников, не должна
+  // пропадать: одна папка превращается в один источник.
+  if (!config.sources.length && config.folderPath) config.sources = [config.folderPath];
+  return config;
+}
+
+/**
+ * Где лежат веса распознавания.
+ *
+ * Рядом с расшифровками, а не в системном кэше: человек должен иметь
+ * возможность увидеть, сколько места они занимают, и убрать их одним движением.
+ */
+async function speechCacheDir() {
+  return path.join(await getRootPath(), "library", "модель-распознавания");
+}
+
+/** Где лежат расшифровки: своя папка человека или данные приложения. */
+async function libraryWhere(config) {
+  return { root: await getRootPath(), vaultPath: (config && config.vaultPath) || "" };
 }
 
 async function saveLibraryConfig(config) {
@@ -3564,7 +4248,7 @@ async function saveLibraryConfig(config) {
   return merged;
 }
 
-ipcMain.handle("library:config", () => loadLibraryConfig());
+ipcMain.handle("library:config", () => libraryConfig());
 ipcMain.handle("library:saveConfig", (_e, config) => saveLibraryConfig(config));
 
 ipcMain.handle("library:pickFolder", async () => {
@@ -3582,64 +4266,333 @@ ipcMain.handle("library:pickFile", async (_e, title) => {
   return result.canceled ? "" : result.filePaths[0];
 });
 
-ipcMain.handle("library:engineStatus", async () => {
-  const config = await loadLibraryConfig();
-  return library.localEngineStatus(config);
+/**
+ * Добавить источники: папки или отдельные записи.
+ *
+ * Раздельные кнопки вместо одной «выбрать» затем, что системное окно выбора
+ * не умеет отдавать и папки, и файлы сразу — в Windows это разные режимы. Зато
+ * можно выбрать несколько папок или несколько файлов за раз.
+ */
+ipcMain.handle("library:addSources", async (_e, kind) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const folders = kind === "folder";
+  const result = await dialog.showOpenDialog(win, {
+    title: folders ? "Папки с записями" : "Записи",
+    properties: [folders ? "openDirectory" : "openFile", "multiSelections"],
+    filters: folders
+      ? undefined
+      : [
+          { name: "Видео и аудио", extensions: library.MEDIA_EXT.map((e) => e.slice(1)) },
+          { name: "Все файлы", extensions: ["*"] },
+        ],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  const config = await libraryConfig();
+  const sources = [...new Set([...config.sources, ...result.filePaths])];
+  return saveLibraryConfig({ sources, folderPath: "" });
 });
 
-/** Что лежит в папке и что из этого уже расшифровано. */
-ipcMain.handle("library:scan", async () => {
-  const config = await loadLibraryConfig();
-  if (!config.folderPath) return { files: [], missing: false };
-  const root = await getRootPath();
-  let files;
-  try {
-    files = await library.scanFolder(config.folderPath);
-  } catch {
-    return { files: [], missing: true };
+ipcMain.handle("library:removeSource", async (_e, source) => {
+  const config = await libraryConfig();
+  return saveLibraryConfig({
+    sources: config.sources.filter((s2) => s2 !== source),
+    folderPath: "",
+  });
+});
+
+/** Папка, куда складывать расшифровки. */
+ipcMain.handle("library:pickVault", async () => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Куда сохранять расшифровки",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled) return null;
+  return saveLibraryConfig({ vaultPath: result.filePaths[0] });
+});
+
+ipcMain.handle("library:openVault", async () => {
+  const config = await libraryConfig();
+  const dir = library.libraryDir(await libraryWhere(config));
+  await fs.mkdir(dir, { recursive: true });
+  await shell.openPath(dir);
+  return dir;
+});
+
+// ---------- голос ----------
+//
+// Разговор с агентом голосом. Слушает то же встроенное распознавание, что и
+// «Видеотека», — значит, ничего дополнительно ставить не надо и ничего не
+// уходит в сеть. Говорит система: в Windows есть свои голоса, включая русский,
+// и брать за них деньги или что-то качать незачем.
+
+/**
+ * Микрофон разрешается только своему же окну.
+ *
+ * Без обработчика Chromium отказывает молча, и кнопка записи просто ничего не
+ * делает. Разрешение даётся выборочно: звук — да, камера и геопозиция — нет,
+ * они разделу не нужны, а просить лишнее нехорошо.
+ */
+function allowMicrophone() {
+  const handler = (_wc, permission, callback) => callback(permission === "media" || permission === "audioCapture");
+  session.defaultSession.setPermissionRequestHandler(handler);
+  if (session.defaultSession.setPermissionCheckHandler) {
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+      permission === "media" || permission === "audioCapture"
+    );
   }
-  const docs = await library.listDocs(root);
-  const byPath = new Map(docs.map((d) => [d.path, d]));
+}
+
+/**
+ * Расшифровка надиктованного.
+ *
+ * Окно записывает в webm, а расшифровщик ждёт wav 16 кГц моно — переводит
+ * ffmpeg, тот же, что и везде. Реплика короткая, поэтому окон не нужно: всё
+ * уходит в модель одним куском.
+ */
+ipcMain.handle("voice:transcribe", async (_e, bytes) => {
+  const config = await libraryConfig();
+  const cacheDir = await speechCacheDir();
+  const modelId = config.speechModel || speech.DEFAULT_MODEL;
+  if (!speech.isModelReady(cacheDir, modelId)) {
+    throw new Error(
+      "Модель распознавания ещё не скачана. Откройте «Видеотека» → «Чем расшифровывать» → " +
+        "«Встроенное» и нажмите «Скачать модель» — она нужна и для голоса."
+    );
+  }
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "голос-"));
+  try {
+    const src = path.join(work, "реплика.webm");
+    await fs.writeFile(src, Buffer.from(bytes));
+    const wav = path.join(work, "реплика.wav");
+    await library.extractAudio(ffmpegPath(), src, wav);
+    const segments = await speech.transcribeFile({
+      wavPath: wav,
+      modelId,
+      cacheDir,
+      language: config.language === "en" ? "english" : "russian",
+    });
+    return { text: segments.map((s2) => s2.text).join(" ").replace(/\s+/g, " ").trim() };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+ipcMain.handle("library:engineStatus", async () => {
+  const config = await libraryConfig();
+  const cacheDir = await speechCacheDir();
+  const ready = speech.isModelReady(cacheDir, config.speechModel || speech.DEFAULT_MODEL);
   return {
-    files: files.map((f) => {
-      const doc = byPath.get(f.path);
-      return {
-        ...f,
-        transcribed: !!doc,
-        seconds: doc?.seconds || 0,
-        chunks: doc?.chunks?.length || 0,
-        transcribedAt: doc?.transcribedAt || 0,
-        engine: doc?.engine || "",
-      };
-    }),
-    // Расшифровки записей, которых в папке больше нет: файл переименовали или
-    // унесли. Молча держать их в поиске нельзя — по ссылке будет некуда пойти.
-    orphans: docs.filter((d) => !files.some((f) => f.path === d.path)).map((d) => ({ path: d.path, name: d.name })),
-    missing: false,
+    ...library.localEngineStatus(config),
+    // Встроенный путь готов ровно тогда, когда веса скачаны. Ставить при этом
+    // нечего — ни программы, ни настроек.
+    builtinReady: ready,
+    models: speech.SPEECH_MODELS,
+    cacheDir,
+    cacheBytes: speech.cacheSize(cacheDir),
   };
 });
+
+/**
+ * Скачать веса распознавания.
+ *
+ * Единственное, что требует сети во встроенном пути, и делается один раз. Дальше
+ * расшифровка идёт без сети совсем.
+ */
+ipcMain.handle("library:downloadSpeechModel", async (event, modelId) => {
+  const config = await libraryConfig();
+  const id = modelId || config.speechModel || speech.DEFAULT_MODEL;
+  const cacheDir = await speechCacheDir();
+  const send = (payload) => {
+    try {
+      event.sender.send("library-progress", payload);
+    } catch {
+      // окно могло закрыться посреди скачивания
+    }
+  };
+  try {
+    await speech.loadRecognizer({
+      modelId: id,
+      cacheDir,
+      onProgress: (p) =>
+        send({
+          stage: "model",
+          name: p.file || id,
+          progress: p.total ? (p.loaded || 0) / p.total : 0,
+        }),
+    });
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    // Сеть — единственная причина, по которой этот шаг может не пройти, и
+    // сказать об этом надо прямо: иначе человек будет искать ошибку у себя.
+    throw new Error(
+      `Не удалось скачать модель распознавания (${id}). ${reason}\n` +
+        "Проверьте интернет: файлы берутся с huggingface.co, и в некоторых сетях он закрыт. " +
+        "Если доступа нет, остаётся платный путь — он работает через ваш ключ и ничего не качает."
+    );
+  }
+  send({ stage: "model", progress: 1 });
+  await saveLibraryConfig({ speechModel: id });
+  return { ready: true, cacheBytes: speech.cacheSize(cacheDir) };
+});
+
+ipcMain.handle("library:removeSpeechModel", async () => {
+  const cacheDir = await speechCacheDir();
+  speech.unload();
+  await fs.rm(cacheDir, { recursive: true, force: true });
+  return true;
+});
+
+/**
+ * Что лежит в источниках и что из этого уже расшифровано.
+ *
+ * Здесь же считается то, чего раньше не было видно: сколько файлов просмотрено
+ * и какие расширения пропущены. Пустой список без этих чисел неотличим от
+ * сломанного обхода — именно так это и выглядело: «при выборе папки не видит,
+ * есть ли там аудио или видео файлы».
+ */
+ipcMain.handle("library:scan", async () => {
+  const config = await libraryConfig();
+  const where = await libraryWhere(config);
+  if (!config.sources.length) {
+    return { files: [], missing: false, seen: 0, folders: 0, other: [], orphans: [], sources: [] };
+  }
+  const scan = await library.scanSources(config.sources);
+  const index = await library.readIndex(where);
+  const byPath = new Map(index.записи.map((e) => [e.path, e]));
+  const byFingerprint = new Map(index.записи.filter((e) => e.fingerprint).map((e) => [e.fingerprint, e]));
+
+  const files = [];
+  const matched = new Set();
+  for (const f of scan.files) {
+    // Отпечаток считается только там, где по пути ничего не нашлось: читать
+    // куски со всех файлов при каждом заходе в раздел незачем.
+    let entry = byPath.get(f.path);
+    let fp = entry ? entry.fingerprint : "";
+    if (!entry && byFingerprint.size) {
+      try {
+        fp = await library.fingerprint(f.path);
+        entry = byFingerprint.get(fp);
+      } catch {
+        fp = "";
+      }
+    }
+    if (entry) matched.add(entry.file);
+    files.push({
+      ...f,
+      fingerprint: fp,
+      transcribed: !!entry,
+      // Запись узнана по содержимому, а лежит уже не там, где её расшифровали:
+      // человеку полезно знать, что заново читать её не будут.
+      moved: !!(entry && entry.path !== f.path),
+      seconds: entry ? entry.seconds : 0,
+      chunks: entry ? entry.chunks : 0,
+      marks: entry ? entry.marks : 0,
+      polished: !!(entry && entry.polishedAt),
+      transcribedAt: entry ? entry.transcribedAt : 0,
+      engine: entry ? entry.engine : "",
+    });
+  }
+  return {
+    files,
+    sources: config.sources,
+    // Расшифровки записей, которых в источниках больше нет: файл унесли или
+    // источник убрали. Молча держать их в поиске нельзя — по ссылке будет
+    // некуда пойти.
+    orphans: index.записи
+      .filter((e) => !matched.has(e.file))
+      .map((e) => ({ path: e.path, name: e.name })),
+    missingSources: scan.missing,
+    seen: scan.seen,
+    folders: scan.folders,
+    other: scan.other,
+    unreadable: scan.unreadable,
+    missing: !!scan.missing.length && !scan.files.length,
+    vault: library.libraryDir(where),
+  };
+});
+
+/**
+ * Разбор расшифровки второй моделью: правка текста и метки.
+ *
+ * Вынесено отдельной функцией, потому что вызывается и сразу после
+ * расшифровки, и потом руками — для записей, расшифрованных до того, как второй
+ * шаг появился.
+ */
+async function polishDoc(doc, { config, settings, onProgress }) {
+  const pieces = library.polishPieces(doc);
+  if (!pieces.length) return doc;
+  const model = config.polishModel || settings.model;
+  const parts = [];
+  for (let i = 0; i < pieces.length; i++) {
+    if (onProgress) onProgress(i / pieces.length);
+    const answer = await callModelOnce(
+      { ...settings, model },
+      [{ role: "user", content: library.buildPolishPrompt(pieces[i], {
+        name: doc.name, part: i + 1, parts: pieces.length,
+      }) }]
+    );
+    parts.push(library.parsePolish(answer, pieces[i]));
+  }
+  const merged = library.mergePolish(parts);
+  return {
+    ...doc,
+    marks: merged.marks,
+    clean: merged.clean,
+    polishedAt: Date.now(),
+    polishModel: model,
+  };
+}
 
 // Очередь расшифровки живёт в главном процессе: она идёт часами, и переживать
 // перерисовки окна ей нельзя.
 let libraryQueue = null;
 
-ipcMain.handle("library:transcribe", async (event, paths) => {
+ipcMain.handle("library:transcribe", async (event, paths, options) => {
   if (libraryQueue) throw new Error("Расшифровка уже идёт.");
-  const config = await loadLibraryConfig();
-  const root = await getRootPath();
+  const config = await libraryConfig();
+  const where = await libraryWhere(config);
   const bin = ffmpegPath();
   const settings = await loadSettings();
   const send = (payload) => event.sender.send("library-progress", payload);
+  const force = !!(options && options.force);
+  const polishWanted = options && options.polish !== undefined ? !!options.polish : !!config.polish;
 
-  if (config.engine === "local") {
+  // Готовность расшифровщика проверяется не здесь, а перед первой записью,
+  // которую и правда надо читать. Иначе повторный запуск по уже прочитанным
+  // записям упирался бы в отсутствие whisper.cpp на ровном месте — а читать там
+  // нечего, всё уже расшифровано.
+  const cacheDir = await speechCacheDir();
+  const speechModelId = config.speechModel || speech.DEFAULT_MODEL;
+  const requireEngine = () => {
+    // Встроенный путь: без скачанных весов слушать нечем. Сказать это надо
+    // заранее и по-человечески — иначе на первой же записи человек получит
+    // сетевую ошибку вида net::ERR_..., которая ничего ему не объясняет.
+    if (config.engine === "builtin") {
+      if (speech.isModelReady(cacheDir, speechModelId)) return;
+      const problem = new Error(
+        "Модель распознавания ещё не скачана. Откройте «Чем расшифровывать» → «Встроенное» " +
+          "и нажмите «Скачать модель» — это одно нажатие и один раз."
+      );
+      problem.engine = true;
+      throw problem;
+    }
+    if (config.engine !== "local") return;
     const status = library.localEngineStatus(config);
-    if (!status.ready) throw new Error(status.reason);
-  }
+    if (status.ready) return;
+    const problem = new Error(status.reason);
+    // Нехватка расшифровщика — беда не этой записи, а всей очереди: на
+    // следующей повторится слово в слово. Поэтому очередь останавливается, а не
+    // молотит сотню одинаковых отказов.
+    problem.engine = true;
+    throw problem;
+  };
 
   const queue = { stopped: false };
   libraryQueue = queue;
   const work = await fs.mkdtemp(path.join(app.getPath("temp"), "library-"));
   const done = [];
+  const reused = [];
   const failed = [];
 
   try {
@@ -3649,9 +4602,64 @@ ipcMain.handle("library:transcribe", async (event, paths) => {
       const name = path.basename(filePath);
       send({ stage: "file", index: i, total: paths.length, name, done: done.length });
       try {
+        // Отпечаток по содержимому: запись, уже прочитанную под другим именем
+        // или в другой папке, читать заново незачем — это часы работы.
+        let fp = "";
+        try {
+          fp = await library.fingerprint(filePath);
+        } catch {
+          fp = "";
+        }
+        const existing = force ? null : await library.findDoc(where, { path: filePath, fingerprint: fp });
+        if (existing && (existing.chunks || []).length) {
+          send({ stage: "reused", index: i, total: paths.length, name });
+          let doc = existing;
+          // Путь мог измениться — ссылки должны вести туда, где запись лежит
+          // сейчас, иначе проверить ответ будет негде.
+          if (doc.path !== filePath || doc.fingerprint !== fp) {
+            doc = { ...doc, path: filePath, name, fingerprint: fp || doc.fingerprint || "" };
+          }
+          if (polishWanted && !doc.polishedAt) {
+            send({ stage: "polish", index: i, total: paths.length, name, progress: 0 });
+            doc = await polishDoc(doc, {
+              config, settings,
+              onProgress: (progress) => send({ stage: "polish", index: i, total: paths.length, name, progress }),
+            });
+          }
+          if (doc !== existing) await library.writeDoc(where, doc);
+          reused.push(filePath);
+          continue;
+        }
+
+        requireEngine();
         const seconds = await library.probeDuration(bin, filePath);
         let segments;
-        if (config.engine === "local") {
+        if (config.engine === "builtin") {
+          // Встроенный путь: звук готовится тем же ffmpeg, что и для
+          // whisper.cpp, а слушает его onnxruntime внутри приложения.
+          const wav = path.join(work, "audio.wav");
+          send({ stage: "audio", index: i, total: paths.length, name });
+          await library.extractAudio(bin, filePath, wav);
+          send({ stage: "transcribe", index: i, total: paths.length, name, progress: 0 });
+          segments = await speech.transcribeFile({
+            wavPath: wav,
+            modelId: speechModelId,
+            cacheDir,
+            language: config.language === "en" ? "english" : "russian",
+            onProgress: (p) => {
+              if (p.stage === "download") {
+                send({
+                  stage: "model", index: i, total: paths.length, name: p.file || "",
+                  progress: p.total ? p.loaded / p.total : 0,
+                });
+              } else if (p.stage === "transcribe") {
+                send({ stage: "transcribe", index: i, total: paths.length, name, progress: p.progress });
+              }
+            },
+            shouldStop: () => queue.stopped,
+          });
+          await fs.rm(wav, { force: true });
+        } else if (config.engine === "local") {
           const wav = path.join(work, "audio.wav");
           send({ stage: "audio", index: i, total: paths.length, name });
           await library.extractAudio(bin, filePath, wav);
@@ -3682,26 +4690,81 @@ ipcMain.handle("library:transcribe", async (event, paths) => {
           await fs.rm(audio, { force: true });
         }
 
-        const chunks = library.buildChunks(segments);
-        await library.writeDoc(root, {
+        let doc = {
           path: filePath,
           name,
+          fingerprint: fp,
           kind: library.kindOf(name),
           seconds,
           engine: config.engine,
           transcribedAt: Date.now(),
           segments,
-          chunks,
-        });
+          chunks: library.buildChunks(segments),
+        };
+        // Сохраняем до разбора второй моделью: если разбор сорвётся, часы
+        // расшифровки не должны пропасть вместе с ним.
+        await library.writeDoc(where, doc);
+        if (polishWanted) {
+          send({ stage: "polish", index: i, total: paths.length, name, progress: 0 });
+          try {
+            doc = await polishDoc(doc, {
+              config, settings,
+              onProgress: (progress) => send({ stage: "polish", index: i, total: paths.length, name, progress }),
+            });
+            await library.writeDoc(where, doc);
+          } catch (e) {
+            send({ stage: "polishFailed", index: i, total: paths.length, name, error: String(e && e.message) });
+          }
+        }
         done.push(filePath);
       } catch (e) {
-        // Одна сорвавшаяся запись не должна останавливать всю ночь работы.
+        // Одна сорвавшаяся запись не должна останавливать всю ночь работы —
+        // но сорвавшийся расшифровщик останавливает.
+        failed.push({ path: filePath, error: e instanceof Error ? e.message : String(e) });
+        send({ stage: "failed", index: i, total: paths.length, name, error: String(e && e.message) });
+        if (e && e.engine) break;
+      }
+    }
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+    libraryQueue = null;
+  }
+  send({ stage: "done", done: done.length, reused: reused.length, failed: failed.length, stopped: queue.stopped });
+  return { done: done.length, reused: reused.length, failed, stopped: queue.stopped };
+});
+
+/** Разобрать второй моделью то, что уже расшифровано. */
+ipcMain.handle("library:polish", async (event, paths) => {
+  if (libraryQueue) throw new Error("Расшифровка уже идёт.");
+  const config = await libraryConfig();
+  const where = await libraryWhere(config);
+  const settings = await loadSettings();
+  const send = (payload) => event.sender.send("library-progress", payload);
+  const queue = { stopped: false };
+  libraryQueue = queue;
+  const done = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < paths.length; i++) {
+      if (queue.stopped) break;
+      const filePath = paths[i];
+      const name = path.basename(filePath);
+      try {
+        const doc = await library.findDoc(where, { path: filePath });
+        if (!doc) throw new Error("Эта запись ещё не расшифрована.");
+        send({ stage: "polish", index: i, total: paths.length, name, progress: 0 });
+        const polished = await polishDoc(doc, {
+          config, settings,
+          onProgress: (progress) => send({ stage: "polish", index: i, total: paths.length, name, progress }),
+        });
+        await library.writeDoc(where, polished);
+        done.push(filePath);
+      } catch (e) {
         failed.push({ path: filePath, error: e instanceof Error ? e.message : String(e) });
         send({ stage: "failed", index: i, total: paths.length, name, error: String(e && e.message) });
       }
     }
   } finally {
-    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
     libraryQueue = null;
   }
   send({ stage: "done", done: done.length, failed: failed.length, stopped: queue.stopped });
@@ -3714,19 +4777,44 @@ ipcMain.handle("library:stop", () => {
 });
 
 ipcMain.handle("library:forget", async (_e, filePath) => {
-  await library.removeDoc(await getRootPath(), filePath);
+  const config = await libraryConfig();
+  await library.removeDoc(await libraryWhere(config), filePath);
   return true;
 });
 
-/** Поиск по расшифровкам и задание для модели — строго по источникам. */
-ipcMain.handle("library:ask", async (_e, question) => {
-  const root = await getRootPath();
-  const docs = await library.listDocs(root);
-  const index = library.buildIndex(docs);
-  const hits = library.search(index, question, 14);
+/** Правленый текст записи и её оглавление — для чтения глазами. */
+ipcMain.handle("library:read", async (_e, filePath) => {
+  const config = await libraryConfig();
+  const doc = await library.findDoc(await libraryWhere(config), { path: filePath });
+  if (!doc) throw new Error("Эта запись ещё не расшифрована.");
   return {
-    prompt: library.buildAnswerPrompt({ question, hits }),
-    hits,
+    name: doc.name,
+    path: doc.path,
+    seconds: doc.seconds || 0,
+    polishedAt: doc.polishedAt || 0,
+    polishModel: doc.polishModel || "",
+    marks: library.outline(doc),
+    text: library.cleanText(doc),
+  };
+});
+
+/**
+ * Поиск по расшифровкам и задание для модели — строго по источникам.
+ *
+ * Сначала ищутся метки, потом куски внутри найденных тем. Ради этого вторая
+ * модель метки и расставляет: на вопрос по двадцати часам записей не нужно
+ * перечитывать двадцать часов.
+ */
+ipcMain.handle("library:ask", async (_e, question) => {
+  const config = await libraryConfig();
+  const docs = await library.listDocs(await libraryWhere(config));
+  const index = library.buildIndex(docs);
+  const found = library.navigate(index, question, { limit: 14 });
+  return {
+    prompt: library.buildAnswerPrompt({ question, hits: found.hits, marks: found.marks }),
+    hits: found.hits,
+    marks: found.marks,
+    narrowed: found.narrowed,
     searched: index.total,
     files: docs.length,
   };
@@ -3734,8 +4822,8 @@ ipcMain.handle("library:ask", async (_e, question) => {
 
 /** Пересказ одной записи целиком: в модель уходит вся её расшифровка. */
 ipcMain.handle("library:retell", async (_e, filePath) => {
-  const root = await getRootPath();
-  const doc = await library.readDoc(root, filePath);
+  const config = await libraryConfig();
+  const doc = await library.findDoc(await libraryWhere(config), { path: filePath });
   if (!doc) throw new Error("Эта запись ещё не расшифрована.");
   const hits = (doc.chunks || []).map((c) => ({ ...c, name: doc.name, file: doc.path }));
   return {
@@ -3743,8 +4831,10 @@ ipcMain.handle("library:retell", async (_e, filePath) => {
       question: `Перескажи запись «${doc.name}» целиком.`,
       hits,
       mode: "retell",
+      marks: library.outline(doc),
     }),
     hits,
+    marks: library.outline(doc),
     searched: hits.length,
     files: 1,
   };
@@ -3757,6 +4847,7 @@ ipcMain.handle("library:verify", (_e, answer, hits) => library.verifyCitations(a
 ipcMain.handle("finmodel:options", () => ({
   regimes: finmodel.TAX_REGIMES,
   costKinds: finmodel.COST_KINDS,
+  loanKinds: finmodel.LOAN_KINDS,
   rates: finmodel.DEFAULT_RATES,
   months: finmodel.MONTHS,
 }));
