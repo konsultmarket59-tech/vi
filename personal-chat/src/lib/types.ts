@@ -668,6 +668,13 @@ export interface MediaGenerationRequest {
   referenceImagePath?: string;
   extraParamsJson?: string;
   projectId?: string;
+  /** Что выбрано из набора приёмов — промпт собирается из этого. */
+  kit?: MediaKitChoice;
+  /** Предмет кадра: подставляется туда, где строка стиля его ждёт. */
+  subject?: string;
+  /** Поля модели: пропорции, длительность, зерно и прочее. */
+  params?: Record<string, string | number | boolean>;
+  design?: StoriesDesign | null;
 }
 
 export interface MediaGenerationResult {
@@ -679,6 +686,9 @@ export interface MediaGenerationResult {
   localPath: string;
   createdAt: number;
   costRub?: number;
+  /** Из чего собран промпт: стиль, ракурс, свет, движение камеры. */
+  recipe?: string;
+  params?: Record<string, unknown>;
 }
 
 export type CloudProvider = "yandex" | "google";
@@ -1178,6 +1188,77 @@ export interface StoryFont {
 }
 
 /** Дизайн-система ролика: то, что вытащено из её файлов. */
+/** Один приём из набора: движение камеры, ракурс, схема света или стиль. */
+export interface MediaKitEntry {
+  id: string;
+  name: string;
+  en?: string;
+  what?: string;
+  why?: string;
+  prompt: string;
+  needsPhoto?: boolean;
+}
+
+/** Поле параметров модели. */
+export interface MediaKitField {
+  key: string;
+  name: string;
+  kind: "choice" | "number" | "text" | "flag";
+  options?: string[];
+  min?: number;
+  max?: number;
+  step?: number;
+  hint?: string;
+}
+
+export interface MediaKit {
+  paces: MediaKitEntry[];
+  cameraMoves: MediaKitEntry[];
+  shotAngles: MediaKitEntry[];
+  lighting: MediaKitEntry[];
+  styles: MediaKitEntry[];
+  fields: Record<MediaType, MediaKitField[]>;
+}
+
+/** Что выбрано из набора для этой генерации. */
+export interface MediaKitChoice {
+  style?: string;
+  camera?: string;
+  pace?: string;
+  angle?: string;
+  lighting?: string;
+}
+
+/** Вид сценария: презентация или подкаст. */
+export interface MediaScriptKind {
+  id: string;
+  name: string;
+  hint: string;
+}
+
+/** Сцена презентации: что на экране, что говорит голос, что рисовать. */
+export interface MediaScene {
+  index: number;
+  title: string;
+  voice: string;
+  shot: string;
+}
+
+/** Реплика подкаста. */
+export interface MediaLine {
+  index: number;
+  speaker: "a" | "b";
+  text: string;
+}
+
+export interface MediaScriptProgress {
+  stage: "image" | "voice" | "assemble" | "failed" | "done";
+  index?: number;
+  total?: number;
+  title?: string;
+  error?: string;
+}
+
 export interface StoriesDesign {
   dir: string;
   files: string[];
@@ -1577,6 +1658,39 @@ export interface ElectronAPI {
 
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
+  mediaKit(): Promise<MediaKit>;
+  mediaScriptKinds(): Promise<MediaScriptKind[]>;
+  mediaScriptPrompt(request: {
+    kind: string;
+    source: string;
+    minutes?: number;
+    notes?: string;
+    names?: { a?: string; b?: string };
+    design?: StoriesDesign | null;
+  }): Promise<{ prompt: string }>;
+  mediaParseScript(
+    kind: string,
+    text: string
+  ): Promise<{ scenes?: MediaScene[]; lines?: MediaLine[]; problems: string[] }>;
+  buildMediaPresentation(request: {
+    scenes: MediaScene[];
+    imageModel: string;
+    voiceModel: string;
+    voice?: string;
+    projectId?: string;
+    design?: StoriesDesign | null;
+    kit?: MediaKitChoice;
+    params?: Record<string, string>;
+  }): Promise<{ path: string; scenes: number; failed: { index: number; error: string }[] }>;
+  buildMediaPodcast(request: {
+    lines: MediaLine[];
+    voiceModel: string;
+    voiceA?: string;
+    voiceB?: string;
+    projectId?: string;
+  }): Promise<{ path: string; lines: number; failed: { index: number; error: string }[] }>;
+  onMediaScriptProgress(handler: (payload: MediaScriptProgress) => void): () => void;
+  readMediaDesign(dir: string): Promise<StoriesDesign>;
   listMediaGenerations(projectId?: string): Promise<MediaGenerationResult[]>;
   openMediaFolder(projectId?: string): Promise<void>;
   pickReferenceImage(): Promise<string | null>;

@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
-import type { MediaGenerationResult, MediaType, Project, Settings } from "../lib/types";
+import type {
+  MediaGenerationResult,
+  MediaKit,
+  MediaKitChoice,
+  MediaKitEntry,
+  MediaLine,
+  MediaScene,
+  MediaScriptKind,
+  MediaScriptProgress,
+  MediaType,
+  Project,
+  Settings,
+  StoriesDesign,
+} from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import { CURATED_IMAGE_MODELS, CURATED_VIDEO_MODELS, mergeModelLists } from "../lib/curatedModels";
 
@@ -30,6 +43,35 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [extraParamsJson, setExtraParamsJson] = useState("");
 
+  // Набор приёмов: движения камеры, ракурсы, схемы света и стили. Промпт из них
+  // собирается в главном процессе — строки живут там же, где описания.
+  const [kit, setKit] = useState<MediaKit | null>(null);
+  const [choice, setChoice] = useState<MediaKitChoice>({});
+  const [subject, setSubject] = useState("");
+  const [params, setParams] = useState<Record<string, string>>({});
+  const [design, setDesign] = useState<StoriesDesign | null>(null);
+  const [openGroup, setOpenGroup] = useState<string>("");
+
+  // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
+  // голоса и сборку делает приложение.
+  const [mode, setMode] = useState<"single" | "script">("single");
+  const [scriptKinds, setScriptKinds] = useState<MediaScriptKind[]>([]);
+  const [scriptKind, setScriptKind] = useState("presentation");
+  const [source, setSource] = useState("");
+  const [minutes, setMinutes] = useState("3");
+  const [notes, setNotes] = useState("");
+  const [nameA, setNameA] = useState("Аня");
+  const [nameB, setNameB] = useState("Борис");
+  const [scriptText, setScriptText] = useState("");
+  const [scenes, setScenes] = useState<MediaScene[]>([]);
+  const [lines, setLines] = useState<MediaLine[]>([]);
+  const [scriptProblems, setScriptProblems] = useState<string[]>([]);
+  const [voiceModel, setVoiceModel] = useState("");
+  const [voiceA, setVoiceA] = useState("");
+  const [voiceB, setVoiceB] = useState("");
+  const [scriptProgress, setScriptProgress] = useState<MediaScriptProgress | null>(null);
+  const [built, setBuilt] = useState("");
+
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +89,12 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   }, [projectId]);
 
   useEffect(() => {
+    window.api.mediaKit().then(setKit);
+    window.api.mediaScriptKinds().then(setScriptKinds);
+    return window.api.onMediaScriptProgress(setScriptProgress);
+  }, []);
+
+  useEffect(() => {
     setModels(CURATED_BY_TYPE[type]);
     setModelsError(null);
     listModels(settings.baseUrl, settings.apiKey, type)
@@ -61,6 +109,15 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   function selectType(next: MediaType) {
     setType(next);
     setModel(TYPE_PLACEHOLDERS[next].model);
+    // Поля у типов разные: оставить заполненную длительность ролика при
+    // переходе на картинку значит отправить модели поле, которого она не знает.
+    setParams({});
+    if (next === "audio") setChoice({});
+  }
+
+  /** Приёмы выбираются по одному в группе: второй щелчок снимает выбор. */
+  function pick(group: keyof MediaKitChoice, id: string) {
+    setChoice((prev) => ({ ...prev, [group]: prev[group] === id ? undefined : id }));
   }
 
   async function pickReference() {
@@ -83,6 +140,10 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
         referenceImagePath: referenceImagePath || undefined,
         extraParamsJson: showAdvanced ? extraParamsJson : undefined,
         projectId: projectId || undefined,
+        kit: choice,
+        subject: subject.trim() || undefined,
+        params,
+        design,
       });
       setResult(r);
       setPreviewUrl(await window.api.readFileAsDataUrl(r.localPath));
@@ -96,8 +157,114 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
     }
   }
 
+  /** Задание модели на сценарий. Ответ вставляется руками — и это нарочно. */
+  async function copyScriptPrompt() {
+    setError(null);
+    try {
+      const { prompt: p } = await window.api.mediaScriptPrompt({
+        kind: scriptKind,
+        source,
+        minutes: Number(minutes) || 3,
+        notes,
+        names: { a: nameA, b: nameB },
+        design,
+      });
+      await navigator.clipboard.writeText(p);
+      setStatus("Задание скопировано — вставьте его в чат с моделью и принесите ответ сюда.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function parseScript() {
+    setError(null);
+    setBuilt("");
+    try {
+      const parsed = await window.api.mediaParseScript(scriptKind, scriptText);
+      setScenes(parsed.scenes || []);
+      setLines(parsed.lines || []);
+      setScriptProblems(parsed.problems);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function buildScript() {
+    setError(null);
+    setBuilt("");
+    setGenerating(true);
+    try {
+      const result =
+        scriptKind === "podcast"
+          ? await window.api.buildMediaPodcast({
+              lines, voiceModel: voiceModel.trim(), voiceA, voiceB, projectId: projectId || undefined,
+            })
+          : await window.api.buildMediaPresentation({
+              scenes, imageModel: model.trim(), voiceModel: voiceModel.trim(), voice: voiceA,
+              projectId: projectId || undefined, design, kit: choice, params,
+            });
+      setBuilt(result.path);
+      if (result.failed.length) {
+        setError(
+          `Не собралось частей: ${result.failed.length}. ` +
+            [...new Set(result.failed.map((f) => f.error))].join("; ")
+        );
+      }
+      await refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGenerating(false);
+      setScriptProgress(null);
+    }
+  }
+
   async function openHistoryItem(item: MediaGenerationResult) {
     setHistoryPreview({ item, url: await window.api.readFileAsDataUrl(item.localPath) });
+  }
+
+  const chosenStyle = kit ? kit.styles.find((x) => x.id === choice.style) || null : null;
+
+  function entryName(list: MediaKitEntry[], id: string | undefined, label: string) {
+    const found = id ? list.find((x) => x.id === id) : null;
+    return found ? `${label}: ${found.name}` : "";
+  }
+
+  /**
+   * Группа приёмов. Свёрнута по умолчанию: шесть стилей, девять ракурсов, девять
+   * схем света и двадцать два движения камеры, развёрнутые разом, — это стена, в
+   * которой ничего не выбрать.
+   */
+  function kitGroup(title: string, group: keyof MediaKitChoice, list: MediaKitEntry[]) {
+    const open = openGroup === group;
+    const current = list.find((x) => x.id === choice[group]);
+    return (
+      <div className="media-kit-group">
+        <button className="media-kit-head" onClick={() => setOpenGroup(open ? "" : group)}>
+          <span>{title}</span>
+          <span className="hint">{current ? current.name : "не выбрано"}</span>
+          <span>{open ? "▾" : "▸"}</span>
+        </button>
+        {open && (
+          <div className="media-kit-list">
+            {list.map((item) => (
+              <button
+                key={item.id}
+                className={choice[group] === item.id ? "media-kit-item on" : "media-kit-item"}
+                onClick={() => pick(group, item.id)}
+              >
+                <b>
+                  {item.name}
+                  {item.en ? ` · ${item.en}` : ""}
+                </b>
+                {item.what && <span className="media-kit-what">{item.what}</span>}
+                {item.why && <span className="media-kit-why">{item.why}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -136,6 +303,217 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               </>
             )}
           </p>
+
+          <div className="media-type-tabs media-mode-tabs">
+            <button className={mode === "single" ? "tab active" : "tab"} onClick={() => setMode("single")}>
+              Одна генерация
+            </button>
+            <button className={mode === "script" ? "tab active" : "tab"} onClick={() => setMode("script")}>
+              Презентация и подкаст
+            </button>
+          </div>
+
+          {mode === "script" && (
+            <>
+              <label>Что делаем</label>
+              <div className="media-type-tabs">
+                {scriptKinds.map((k) => (
+                  <button
+                    key={k.id}
+                    className={scriptKind === k.id ? "tab active" : "tab"}
+                    onClick={() => {
+                      setScriptKind(k.id);
+                      setScenes([]);
+                      setLines([]);
+                      setScriptProblems([]);
+                    }}
+                  >
+                    {k.name}
+                  </button>
+                ))}
+              </div>
+              <p className="hint">{scriptKinds.find((k) => k.id === scriptKind)?.hint}</p>
+
+              <label>Источник</label>
+              <textarea
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                rows={6}
+                placeholder="Текст, расшифровка встречи, выдержка из документа — то, о чём будет презентация или разговор."
+              />
+
+              <div className="media-params">
+                <label className="media-param">
+                  <span>Примерная длина, мин</span>
+                  <input type="number" min={1} max={40} value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+                </label>
+                {scriptKind === "podcast" && (
+                  <>
+                    <label className="media-param">
+                      <span>Первый ведущий</span>
+                      <input value={nameA} onChange={(e) => setNameA(e.target.value)} />
+                    </label>
+                    <label className="media-param">
+                      <span>Второй ведущий</span>
+                      <input value={nameB} onChange={(e) => setNameB(e.target.value)} />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <label>Пожелания (необязательно)</label>
+              <input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Для кого, чего избегать, на чём сделать упор"
+              />
+
+              {/*
+                Сценарий пишет модель в обычном чате, а не приложение молча: его
+                надо прочитать и поправить ДО того, как потрачены деньги на
+                картинки и озвучку.
+              */}
+              <button className="btn btn-secondary" onClick={copyScriptPrompt} disabled={!source.trim()}>
+                Скопировать задание для модели
+              </button>
+              <p className="hint">
+                Задание вставляется в любой чат с моделью, ответ приносится сюда. Так сценарий можно
+                прочитать и поправить до того, как потрачены деньги на кадры и озвучку.
+              </p>
+
+              <label>Ответ модели — сценарий</label>
+              <textarea
+                value={scriptText}
+                onChange={(e) => setScriptText(e.target.value)}
+                rows={8}
+                placeholder="Вставьте сюда ответ модели целиком"
+              />
+              <button className="btn btn-secondary" onClick={parseScript} disabled={!scriptText.trim()}>
+                Разобрать сценарий
+              </button>
+
+              {!!scriptProblems.length && (
+                <div className="media-script-problems">
+                  {scriptProblems.map((p2) => (
+                    <p key={p2}>{p2}</p>
+                  ))}
+                </div>
+              )}
+
+              {!!scenes.length && (
+                <>
+                  <p className="hint">Сцен разобрано: {scenes.length}. Правьте прямо здесь.</p>
+                  <div className="media-script-list">
+                    {scenes.map((sc, i) => (
+                      <div key={sc.index} className="media-script-row">
+                        <input
+                          value={sc.title}
+                          placeholder="заголовок"
+                          onChange={(e) =>
+                            setScenes(scenes.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))
+                          }
+                        />
+                        <textarea
+                          rows={2}
+                          value={sc.voice}
+                          placeholder="что говорит голос"
+                          onChange={(e) =>
+                            setScenes(scenes.map((x, j) => (j === i ? { ...x, voice: e.target.value } : x)))
+                          }
+                        />
+                        <textarea
+                          rows={2}
+                          value={sc.shot}
+                          placeholder="описание кадра для генерации"
+                          onChange={(e) =>
+                            setScenes(scenes.map((x, j) => (j === i ? { ...x, shot: e.target.value } : x)))
+                          }
+                        />
+                        <button className="link-btn" onClick={() => setScenes(scenes.filter((_, j) => j !== i))}>
+                          убрать сцену
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {!!lines.length && (
+                <>
+                  <p className="hint">
+                    Реплик разобрано: {lines.length} — {lines.filter((l) => l.speaker === "a").length} у первого,{" "}
+                    {lines.filter((l) => l.speaker === "b").length} у второго.
+                  </p>
+                  <div className="media-script-list">
+                    {lines.map((ln, i) => (
+                      <div key={ln.index} className="media-script-row media-script-line">
+                        <button
+                          className="media-speaker"
+                          title="Поменять, кто говорит"
+                          onClick={() =>
+                            setLines(
+                              lines.map((x, j) => (j === i ? { ...x, speaker: x.speaker === "a" ? "b" : "a" } : x))
+                            )
+                          }
+                        >
+                          {ln.speaker === "a" ? nameA : nameB}
+                        </button>
+                        <textarea
+                          rows={2}
+                          value={ln.text}
+                          onChange={(e) =>
+                            setLines(lines.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))
+                          }
+                        />
+                        <button className="link-btn" onClick={() => setLines(lines.filter((_, j) => j !== i))}>
+                          убрать
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <label>Модель озвучки</label>
+              <input
+                value={voiceModel}
+                onChange={(e) => setVoiceModel(e.target.value)}
+                placeholder="ID модели синтеза речи"
+              />
+              <div className="media-params">
+                <label className="media-param">
+                  <span>{scriptKind === "podcast" ? "Голос первого" : "Голос диктора"}</span>
+                  <input value={voiceA} onChange={(e) => setVoiceA(e.target.value)} />
+                </label>
+                {scriptKind === "podcast" && (
+                  <label className="media-param">
+                    <span>Голос второго</span>
+                    <input value={voiceB} onChange={(e) => setVoiceB(e.target.value)} />
+                  </label>
+                )}
+              </div>
+              {scriptKind === "podcast" && voiceA && voiceB && voiceA === voiceB && (
+                <p className="hint">
+                  Голоса совпадают — диалог будет не слышен. Сборка такой подкаст не примет.
+                </p>
+              )}
+              {scriptKind === "presentation" && (
+                <p className="hint">Кадры рисует модель из поля «ID модели» выше, с выбранными приёмами.</p>
+              )}
+
+              {scriptProgress && (
+                <p className="hint">
+                  {scriptProgress.stage === "image" &&
+                    `Кадр ${scriptProgress.index} из ${scriptProgress.total}: ${scriptProgress.title || ""}`}
+                  {scriptProgress.stage === "voice" &&
+                    `Озвучиваю ${scriptProgress.index} из ${scriptProgress.total}`}
+                  {scriptProgress.stage === "assemble" && "Собираю файл…"}
+                  {scriptProgress.stage === "failed" && `Не вышло: ${scriptProgress.error || ""}`}
+                </p>
+              )}
+              {built && <div className="media-result-card">Готово: {built}</div>}
+            </>
+          )}
 
           <label>Тип</label>
           <div className="media-type-tabs">
@@ -195,6 +573,147 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </>
           )}
 
+          {kit && type !== "audio" && (
+            <>
+              <label>Приёмы</label>
+              <p className="hint">
+                Промпт собирается из выбранного: сначала что в кадре, потом стиль, ракурс, свет и
+                движение камеры. Ничего не выбрано — уходит только ваш текст.
+              </p>
+              {kitGroup("Стиль", "style", kit.styles)}
+              {type === "image" && kitGroup("Ракурс", "angle", kit.shotAngles)}
+              {kitGroup("Свет", "lighting", kit.lighting)}
+              {type === "video" && (
+                <>
+                  {kitGroup("Камера", "camera", kit.cameraMoves)}
+                  {/*
+                    Темп — не украшение к списку движений. Одна и та же
+                    траектория плавно и рывком передаёт разные чувства, и без
+                    него половина списка теряет смысл.
+                  */}
+                  {choice.camera && kitGroup("Темп", "pace", kit.paces)}
+                </>
+              )}
+              {(choice.style || choice.camera || choice.angle || choice.lighting) && (
+                <div className="media-chosen">
+                  {[
+                    entryName(kit.styles, choice.style, "стиль"),
+                    entryName(kit.shotAngles, choice.angle, "ракурс"),
+                    entryName(kit.lighting, choice.lighting, "свет"),
+                    entryName(kit.cameraMoves, choice.camera, "камера"),
+                    entryName(kit.paces, choice.pace, "темп"),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  <button className="link-btn" onClick={() => setChoice({})}>
+                    сбросить
+                  </button>
+                </div>
+              )}
+              {chosenStyle?.needsPhoto && !referenceImagePath && (
+                <p className="hint">
+                  Этот стиль рассчитан на обработку вашей фотографии — приложите её референсом ниже,
+                  иначе модель нарисует предмет с нуля.
+                </p>
+              )}
+              {chosenStyle && (
+                <>
+                  <label>Что в кадре (для стиля)</label>
+                  <input
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="кроссовки, дом, портрет девушки"
+                  />
+                  <p className="hint">
+                    Подставляется в строку стиля. Пусто — возьмётся начало промпта.
+                  </p>
+                </>
+              )}
+            </>
+          )}
+
+          {kit && !!(kit.fields[type] || []).length && (
+            <>
+              <label>Параметры модели</label>
+              <div className="media-params">
+                {(kit.fields[type] || []).map((f) => (
+                  <label key={f.key} className="media-param" title={f.hint || ""}>
+                    <span>{f.name}</span>
+                    {f.kind === "choice" ? (
+                      <select
+                        value={params[f.key] || ""}
+                        onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
+                      >
+                        <option value="">как у модели</option>
+                        {(f.options || []).map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : f.kind === "flag" ? (
+                      <input
+                        type="checkbox"
+                        checked={params[f.key] === "true"}
+                        onChange={(e) => setParams({ ...params, [f.key]: e.target.checked ? "true" : "" })}
+                      />
+                    ) : (
+                      <input
+                        type={f.kind === "number" ? "number" : "text"}
+                        value={params[f.key] || ""}
+                        min={f.min}
+                        max={f.max}
+                        step={f.step}
+                        onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+              {/*
+                Честная оговорка вместо обещания «все команды всех моделей»: у
+                каждой модели свой набор полей, единого справочника у шлюза нет.
+                Здесь то, что принимают почти все, а остальное — ниже, в JSON.
+              */}
+              <p className="hint">
+                Здесь поля, которые принимают почти все модели. Незаполненное не отправляется — модель
+                берёт своё умолчание. Всё, что есть только у одной модели, пишется JSON-ом ниже и
+                кладётся поверх этих полей.
+              </p>
+            </>
+          )}
+
+          <label>Дизайн-система</label>
+          <div className="folder-row">
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                const dir = await window.api.sitesPickFolder("Папка с дизайн-системой");
+                if (!dir) return;
+                try {
+                  setDesign(await window.api.readMediaDesign(dir));
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                }
+              }}
+            >
+              Выбрать папку
+            </button>
+            {design && (
+              <button className="link-btn" onClick={() => setDesign(null)}>
+                Убрать
+              </button>
+            )}
+          </div>
+          {design && (
+            <p className="hint">
+              {design.problem
+                ? design.problem
+                : `${design.dir} — цветов: ${design.colours.length}, шрифтов: ${design.fonts.length}, ` +
+                  `переменных: ${design.vars.length}. Уходит в промпт запретом придумывать другие.`}
+            </p>
+          )}
+
           <label>Проект (сохранить результат в его папку media/)</label>
           <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">Без привязки к проекту</option>
@@ -218,9 +737,23 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
           )}
 
           {error && <div className="chat-error">{error}</div>}
-          <button className="btn btn-primary" onClick={generate} disabled={generating || !model.trim() || !prompt.trim()}>
-            {generating ? status || "Генерация…" : "Сгенерировать"}
-          </button>
+          {mode === "script" ? (
+            <button
+              className="btn btn-primary"
+              onClick={buildScript}
+              disabled={
+                generating ||
+                !voiceModel.trim() ||
+                (scriptKind === "podcast" ? !lines.length : !scenes.length || !model.trim())
+              }
+            >
+              {generating ? "Собираю…" : scriptKind === "podcast" ? "Собрать подкаст" : "Собрать презентацию"}
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={generate} disabled={generating || !model.trim() || !prompt.trim()}>
+              {generating ? status || "Генерация…" : "Сгенерировать"}
+            </button>
+          )}
 
           {result && previewUrl && (
             <div className="media-result-card">
@@ -242,6 +775,7 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               <li key={item.id} onClick={() => openHistoryItem(item)}>
                 <span className="media-history-type">{item.type}</span>
                 <span className="media-history-prompt">{item.prompt.slice(0, 60)}</span>
+                {item.recipe && <span className="media-history-recipe">{item.recipe}</span>}
                 <span className="hint">{new Date(item.createdAt).toLocaleString("ru-RU")}</span>
               </li>
             ))}

@@ -595,6 +595,53 @@ body {
   padding: 16px 20px;
   overflow-y: auto;
 }
+/* Набор приёмов: группы свёрнуты, иначе это стена, в которой ничего не выбрать. */
+.media-kit-group { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+.media-kit-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px;
+  background: none; border: 0; cursor: pointer; font: inherit; font-size: 12px; text-align: left;
+}
+.media-kit-head span:first-child { flex: 0 0 auto; font-weight: 600; }
+.media-kit-head .hint { flex: 1 1 auto; }
+.media-kit-list {
+  display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px;
+  max-height: 320px; overflow-y: auto; border-top: 1px solid var(--border);
+}
+.media-kit-item {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: none;
+  font: inherit; font-size: 12px; line-height: 1.4;
+}
+.media-kit-item.on { border-color: var(--accent); background: var(--accent-soft, #f3f6fb); }
+.media-kit-what, .media-kit-why { color: var(--text-dim); font-size: 11px; }
+.media-chosen {
+  font-size: 12px; color: var(--text-dim); margin: 6px 0;
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline;
+}
+.media-params { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.media-param { display: flex; flex-direction: column; gap: 2px; font-size: 11px; flex: 1 1 140px; }
+.media-param input[type="checkbox"] { width: auto; align-self: flex-start; }
+.media-history-recipe { display: block; font-size: 11px; color: var(--text-dim); }
+
+/* Сценарий презентации и подкаста: правится прямо в списке. */
+.media-mode-tabs { margin-bottom: 10px; }
+.media-script-problems {
+  font-size: 12px; line-height: 1.5; margin: 8px 0;
+  border: 1px solid #f0c2be; background: #fdefee; color: #8a2018;
+  border-radius: 10px; padding: 8px 10px;
+}
+.media-script-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; margin: 6px 0; }
+.media-script-row {
+  display: flex; flex-direction: column; gap: 4px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+}
+.media-script-line { flex-direction: row; align-items: flex-start; }
+.media-script-line textarea { flex: 1 1 auto; }
+.media-speaker {
+  flex: 0 0 auto; cursor: pointer; font: inherit; font-size: 11px;
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; background: none;
+}
+
 .media-history-list { list-style: none; padding: 0; margin: 10px 0; }
 .media-history-list li {
   padding: 8px 10px;

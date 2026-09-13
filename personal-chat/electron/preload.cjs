@@ -331,6 +331,18 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
 
   // media generation
   generateMedia: (payload) => ipcRenderer.invoke("media:generate", payload),
+  mediaKit: () => ipcRenderer.invoke("media:kit"),
+  mediaScriptKinds: () => ipcRenderer.invoke("media:scriptKinds"),
+  mediaScriptPrompt: (request) => ipcRenderer.invoke("media:scriptPrompt", request),
+  mediaParseScript: (kind, text) => ipcRenderer.invoke("media:parseScript", kind, text),
+  buildMediaPresentation: (request) => ipcRenderer.invoke("media:buildPresentation", request),
+  buildMediaPodcast: (request) => ipcRenderer.invoke("media:buildPodcast", request),
+  onMediaScriptProgress: (handler) => {
+    const listener = (_e, payload) => handler(payload);
+    ipcRenderer.on("media:script-progress", listener);
+    return () => ipcRenderer.removeListener("media:script-progress", listener);
+  },
+  readMediaDesign: (dir) => ipcRenderer.invoke("media:readDesign", dir),
   listMediaGenerations: (projectId) => ipcRenderer.invoke("media:list", projectId),
   openMediaFolder: (projectId) => ipcRenderer.invoke("media:openFolder", projectId),
   pickReferenceImage: () => ipcRenderer.invoke("media:pickReferenceImage"),

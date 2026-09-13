@@ -862,6 +862,8 @@ async function saveSkillCreatorConversation(conv) {
 // ---------- feature modules (delegated to sibling modules) ----------
 
 const media = require("./media.cjs");
+const mediakit = require("./mediakit.cjs");
+const mediascript = require("./mediascript.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
 const tasks = require("./tasks.cjs");
@@ -2636,11 +2638,42 @@ ipcMain.handle("chatbots:sendManual", async (_e, platform, userId, text) =>
 
 // ---------- media generation IPC ----------
 
+/** Наборы для промпта и поля моделей — их читает раздел «Медиа». */
+ipcMain.handle("media:kit", () => mediakit.KIT);
+
+/**
+ * Дизайн-система для генерации: тот же разбор, что в «Сайтах» и роликах.
+ *
+ * Приложение не пересказывает систему своими словами и не «вдохновляется» ею:
+ * цвета и шрифты уходят в промпт строкой с запретом придумывать другие. Иначе
+ * модель считает систему пожеланием, и получается похоже на что угодно, только
+ * не на неё.
+ */
+ipcMain.handle("media:readDesign", (_e, dir) => readDesignFolder(dir));
+
 ipcMain.handle("media:generate", async (event, payload) => {
   const root = await getRootPath();
   const settings = await loadSettings();
+  const kitChoice = payload && payload.kit ? payload.kit : null;
+  // Промпт собирается здесь, а не в окне: строки стилей и движений живут в
+  // одном месте, и правка в них должна доезжать до генерации сама.
+  const prompt = kitChoice
+    ? mediakit.buildPrompt({
+        base: payload.prompt,
+        subject: payload.subject,
+        style: kitChoice.style,
+        camera: kitChoice.camera,
+        pace: kitChoice.pace,
+        angle: kitChoice.angle,
+        lighting: kitChoice.lighting,
+        design: payload.design,
+      })
+    : payload.prompt;
   return media.generate(root, {
     ...payload,
+    prompt,
+    params: mediakit.buildParams(payload.type, payload.params || {}),
+    meta: { recipe: kitChoice ? mediakit.describeChoice(kitChoice) : "" },
     baseUrl: settings.baseUrl,
     apiKey: settings.apiKey,
     onStatus: (status) => {
@@ -2652,6 +2685,150 @@ ipcMain.handle("media:generate", async (event, payload) => {
     },
   });
 });
+// ---------- видео-презентации и подкасты ----------
+//
+// Модель пишет только сценарий; картинки, голоса и сборку делает код. Это
+// разделение не косметическое: сценарий можно прочитать и поправить руками ДО
+// того, как потрачены деньги на генерацию, а сборка обязана быть повторяемой.
+
+ipcMain.handle("media:scriptKinds", () => mediascript.SCRIPT_KINDS);
+
+ipcMain.handle("media:scriptPrompt", async (_e, request) => {
+  const { kind, source, minutes, notes, names, design } = request || {};
+  const prompt =
+    kind === "podcast"
+      ? mediascript.buildPodcastPrompt({ source, minutes, names, notes })
+      : mediascript.buildPresentationPrompt({ source, minutes, notes, design });
+  return { prompt: prompt + (await userContextDigest()) };
+});
+
+ipcMain.handle("media:parseScript", (_e, kind, text) =>
+  kind === "podcast" ? mediascript.parsePodcast(text) : mediascript.parsePresentation(text)
+);
+
+/**
+ * Сборка презентации: на каждую сцену — картинка и голос, дальше склейка.
+ *
+ * Сцены идут по очереди, а не разом: генерация каждой стоит денег и минут, и
+ * человек должен видеть, на какой из них всё встало. Сорвавшаяся сцена не
+ * останавливает остальные — из того, что собралось, ролик всё равно выйдет.
+ */
+ipcMain.handle("media:buildPresentation", async (event, request) => {
+  const { scenes, imageModel, voiceModel, voice, projectId, design, kit: kitChoice, params } = request || {};
+  if (!Array.isArray(scenes) || !scenes.length) throw new Error("Сценарий пуст — собирать нечего.");
+  if (!imageModel) throw new Error("Укажите модель для кадров.");
+  if (!voiceModel) throw new Error("Укажите модель для голоса.");
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  const bin = ffmpegPath();
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "презентация-"));
+  const send = (payload) => {
+    try {
+      event.sender.send("media:script-progress", payload);
+    } catch {
+      // окно могло закрыться посреди сборки
+    }
+  };
+  const ready = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
+      const step = { index: i + 1, total: scenes.length, title: scene.title || `Сцена ${i + 1}` };
+      try {
+        send({ ...step, stage: "image" });
+        const picture = await media.generate(root, {
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "image", model: imageModel,
+          prompt: mediakit.buildPrompt({
+            base: scene.shot, design,
+            style: kitChoice && kitChoice.style, angle: kitChoice && kitChoice.angle,
+            lighting: kitChoice && kitChoice.lighting,
+          }),
+          params: mediakit.buildParams("image", params || {}),
+          projectId,
+        });
+        send({ ...step, stage: "voice" });
+        const speech = await media.generate(root, {
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "audio", model: voiceModel,
+          prompt: scene.voice,
+          params: voice ? { voice } : {},
+          projectId,
+        });
+        ready.push({ ...scene, imagePath: picture.localPath, audioPath: speech.localPath });
+      } catch (e) {
+        failed.push({ index: i + 1, error: e instanceof Error ? e.message : String(e) });
+        send({ ...step, stage: "failed", error: String(e && e.message) });
+      }
+    }
+    if (!ready.length) throw new Error("Ни одна сцена не собралась: " + failed.map((f) => f.error).join("; "));
+    send({ stage: "assemble", index: ready.length, total: scenes.length });
+    const dir = media.mediaDir(root, projectId);
+    await media.ensureDir(dir);
+    const out = path.join(dir, `презентация-${Date.now()}.mp4`);
+    await mediascript.buildPresentationVideo(bin, ready, work, out);
+    send({ stage: "done" });
+    return { path: out, scenes: ready.length, failed };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+/**
+ * Сборка подкаста: каждая реплика озвучивается своим голосом, потом склейка.
+ *
+ * Два голоса — не украшение: одним голосом диалог не слышен, и подкаст
+ * превращается в тот самый монолог, которого задание велело избегать.
+ */
+ipcMain.handle("media:buildPodcast", async (event, request) => {
+  const { lines, voiceModel, voiceA, voiceB, projectId } = request || {};
+  if (!Array.isArray(lines) || !lines.length) throw new Error("Сценарий пуст — собирать нечего.");
+  if (!voiceModel) throw new Error("Укажите модель для голоса.");
+  if (voiceA && voiceB && voiceA === voiceB) {
+    throw new Error("Голоса ведущих совпадают — диалог будет не слышен. Задайте разные.");
+  }
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  const bin = ffmpegPath();
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "подкаст-"));
+  const send = (payload) => {
+    try {
+      event.sender.send("media:script-progress", payload);
+    } catch {
+      // окно могло закрыться посреди сборки
+    }
+  };
+  const files = [];
+  const failed = [];
+  try {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      send({ stage: "voice", index: i + 1, total: lines.length, title: line.speaker === "b" ? "второй" : "первый" });
+      try {
+        const speech = await media.generate(root, {
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "audio", model: voiceModel,
+          prompt: line.text,
+          params: (line.speaker === "b" ? voiceB : voiceA) ? { voice: line.speaker === "b" ? voiceB : voiceA } : {},
+          projectId,
+        });
+        files.push(speech.localPath);
+      } catch (e) {
+        failed.push({ index: i + 1, error: e instanceof Error ? e.message : String(e) });
+        send({ stage: "failed", index: i + 1, total: lines.length, error: String(e && e.message) });
+      }
+    }
+    if (!files.length) throw new Error("Ни одна реплика не озвучена: " + failed.map((f) => f.error).join("; "));
+    send({ stage: "assemble", index: files.length, total: lines.length });
+    const dir = media.mediaDir(root, projectId);
+    await media.ensureDir(dir);
+    const out = path.join(dir, `подкаст-${Date.now()}.mp3`);
+    await mediascript.buildPodcastAudio(bin, files, work, out);
+    send({ stage: "done" });
+    return { path: out, lines: files.length, failed };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 ipcMain.handle("media:list", async (_e, projectId) => media.list(await getRootPath(), projectId));
 ipcMain.handle("media:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
@@ -3268,13 +3445,21 @@ ipcMain.handle("stories:prepareMotion", async (_e, request) => {
  * них два разных разбора значило бы получить два разных представления об одной
  * и той же системе.
  */
-ipcMain.handle("stories:readDesign", async (_e, dir) => {
-  if (!dir) return { dir: "", files: [], colours: [], fonts: [], vars: [], description: "", problem: "" };
+/**
+ * Дизайн-система из папки: цвета, шрифты и именованные переменные.
+ *
+ * Разбор один на всё приложение — «Сайты», ролики и генерация изображений
+ * читают систему одинаково. Два разных представления об одной и той же системе
+ * рано или поздно разойдутся, и разойдутся молча.
+ */
+async function readDesignFolder(dir) {
+  const empty = { dir: dir || "", files: [], colours: [], fonts: [], vars: [], description: "", problem: "" };
+  if (!dir) return empty;
   let stat;
   try {
     stat = await fs.stat(dir);
   } catch {
-    return { dir, files: [], colours: [], fonts: [], vars: [], description: "", problem: "Папка не открывается." };
+    return { ...empty, problem: "Папка не открывается." };
   }
   const files = [];
   if (stat.isDirectory()) {
@@ -3309,7 +3494,9 @@ ipcMain.handle("stories:readDesign", async (_e, dir) => {
     description: sites.describeTokens(tokens),
     problem: files.length ? "" : "В папке не нашлось файлов дизайн-системы (css, json, svg, md).",
   };
-});
+}
+
+ipcMain.handle("stories:readDesign", (_e, dir) => readDesignFolder(dir));
 
 ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));
 
