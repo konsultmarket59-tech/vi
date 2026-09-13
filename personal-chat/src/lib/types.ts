@@ -707,6 +707,12 @@ export interface MediaGenerationResult {
   /** Из чего собран промпт: стиль, ракурс, свет, движение камеры. */
   recipe?: string;
   params?: Record<string, unknown>;
+  /**
+   * Файл лежит в папке, но описи к нему нет: приложение знает про него только
+   * то, что он есть. Так попадают в историю файлы, принесённые руками, и те,
+   * чья опись потерялась.
+   */
+  orphan?: boolean;
 }
 
 export type CloudProvider = "yandex" | "google";
@@ -1751,6 +1757,8 @@ export interface ElectronAPI {
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
   mediaKit(): Promise<MediaKit>;
   mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
+  mediaSweepPending(): Promise<{ collected: number; waiting: number }>;
+  onMediaCollected(cb: (payload: { collected: number }) => void): () => void;
   mediaFillTemplate(id: string, values: Record<string, string>): Promise<{ prompt: string; empty: string[] }>;
   mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;
   mediaResolvePrompt(prompt: string, references: MediaReference[]): Promise<MediaResolvedPrompt>;

@@ -71,6 +71,9 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [slots, setSlots] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<MediaPending[]>([]);
   const [collecting, setCollecting] = useState("");
+  // Номер заказа из личного кабинета: заказ мог быть сделан в прошлой версии
+  // приложения или вовсе не здесь, а оплачен всё равно.
+  const [orderId, setOrderId] = useState("");
 
   // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
   // голоса и сборку делает приложение.
@@ -127,6 +130,15 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
       window.clearTimeout(t);
     };
   }, [prompt, references]);
+
+  // Сторож незабранных работает в главном процессе и забирает готовое сам.
+  // Окно узнаёт об этом и обновляет историю: иначе человек смотрит на список,
+  // в котором уже лежит его картинка, и не видит её до перезахода в раздел.
+  useEffect(() => {
+    return window.api.onMediaCollected(() => {
+      refreshHistory();
+    });
+  }, [projectId]);
 
   useEffect(() => {
     window.api.mediaKit().then(setKit);
@@ -1153,7 +1165,9 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               <h3>Незабранные</h3>
               <p className="hint">
                 Заказ оплачен, но результат ещё не скачан — обычно потому, что модель считала
-                дольше, чем приложение ждало у экрана. Ничего не пропало: нажмите «Забрать».
+                дольше, чем приложение ждало у экрана. Ничего не пропало: приложение проверяет
+                эти заказы само, раз в несколько минут, и забирает готовое. Кнопка — чтобы не
+                ждать очередной проверки.
               </p>
               {pending.map((p2) => (
                 <div key={p2.id} className="media-pending-item">
@@ -1186,13 +1200,43 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </div>
           )}
 
+          <div className="media-pending">
+            <h3>Забрать по номеру заказа</h3>
+            <p className="hint">
+              Если заказ сделан в прошлой версии приложения, в личном кабинете Polza или в другой
+              программе, приложение о нём не знает — но оплачен он всё равно. Номер заказа виден в
+              личном кабинете; по нему результат забирается так же.
+            </p>
+            <div className="folder-row">
+              <input
+                value={orderId}
+                placeholder="номер заказа"
+                onChange={(e) => setOrderId(e.target.value.trim())}
+              />
+              <button
+                className="btn btn-secondary"
+                disabled={!orderId || collecting === orderId}
+                onClick={() => collect(orderId)}
+              >
+                {collecting === orderId ? "Забираю…" : "Забрать"}
+              </button>
+            </div>
+          </div>
+
           <h3>История</h3>
           {history.length === 0 && <p className="hint">Пока ничего не сгенерировано.</p>}
           <ul className="media-history-list">
             {history.map((item) => (
               <li key={item.id} onClick={() => openHistoryItem(item)}>
                 <span className="media-history-type">{item.type}</span>
-                <span className="media-history-prompt">{item.prompt.slice(0, 60)}</span>
+                <span className="media-history-prompt">
+                  {item.prompt.slice(0, 60) || item.fileName}
+                </span>
+                {item.orphan && (
+                  <span className="hint" title="Файл лежит в папке, но описи к нему нет">
+                    без описи
+                  </span>
+                )}
                 {item.recipe && <span className="media-history-recipe">{item.recipe}</span>}
                 <span className="hint">{new Date(item.createdAt).toLocaleString("ru-RU")}</span>
               </li>

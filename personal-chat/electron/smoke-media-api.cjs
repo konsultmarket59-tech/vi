@@ -203,6 +203,40 @@ app.whenReady().then(async () => {
     server.close();
     Object.assign(media.POLL_CONFIG.image, прежние);
 
+    console.log("\nфайл в папке виден в истории даже без описи");
+    // Опись маленькая и служебная, файл — то, ради чего всё делалось. Вешать
+    // видимость файла на судьбу json неправильно: опись могут удалить при
+    // уборке, файл могут принести руками из личного кабинета.
+    const безОписи = fs.mkdtempSync(path.join(os.tmpdir(), "mapi-orph-"));
+    fs.writeFileSync(path.join(безОписи, "картинка.png"), Buffer.from("89504e470d0a1a0a", "hex"));
+    fs.writeFileSync(path.join(безОписи, "ролик.mp4"), "x");
+    fs.writeFileSync(path.join(безОписи, "звук.mp3"), "x");
+    fs.writeFileSync(path.join(безОписи, "заметки.txt"), "я не генерация");
+    const сироты = await media.list(dataRoot, undefined, безОписи);
+    check("файлы без описи попали в историю", сироты.length === 3, JSON.stringify(сироты.map((x) => x.fileName)));
+    check("и помечены как «без описи»", сироты.every((x) => x.orphan === true));
+    check("тип определён по расширению",
+      сироты.find((x) => x.fileName === "ролик.mp4").type === "video"
+        && сироты.find((x) => x.fileName === "звук.mp3").type === "audio"
+        && сироты.find((x) => x.fileName === "картинка.png").type === "image",
+      JSON.stringify(сироты.map((x) => [x.fileName, x.type])));
+    check("посторонний файл генерацией не считается",
+      !сироты.some((x) => x.fileName === "заметки.txt"));
+    check("у каждой записи есть путь к настоящему файлу",
+      сироты.every((x) => fs.existsSync(x.localPath)));
+    // Там, где опись есть, она и используется: промпт и модель берутся из неё,
+    // а не выдумываются из имени файла.
+    fs.writeFileSync(path.join(безОписи, "картинка.json"), JSON.stringify({
+      id: "картинка", type: "image", model: "м", prompt: "дом у леса", fileName: "картинка.png", createdAt: 1,
+    }));
+    const сОписью = await media.list(dataRoot, undefined, безОписи);
+    check("опись, если она есть, подписывает файл",
+      сОписью.find((x) => x.fileName === "картинка.png").prompt === "дом у леса");
+    check("и такой файл сиротой уже не считается",
+      !сОписью.find((x) => x.fileName === "картинка.png").orphan);
+    check("дважды один файл в списке не появляется",
+      сОписью.filter((x) => x.fileName === "картинка.png").length === 1);
+
     console.log("\nсвоя папка для готовых файлов");
     // Картинки и ролики весят много: держать их внутри приложения — значит
     // раздувать именно его. Файл должен ложиться туда, куда сказано.

@@ -1594,6 +1594,75 @@ function scheduleDemoReport(status) {
   }, wait);
 }
 
+/**
+ * Сторож незабранных заказов.
+ *
+ * Журнал сам по себе ничего не забирает: он только помнит. Пока забирать
+ * приходится руками, оплаченный результат зависит от того, зайдёт ли человек в
+ * раздел и заметит ли блок — а он туда зайдёт, когда вспомнит, то есть иногда
+ * никогда.
+ *
+ * Поэтому приложение само проверяет журнал: сразу после запуска и дальше раз в
+ * несколько минут. Готовое скачивается молча и появляется в истории; не готовое
+ * остаётся ждать следующего круга. Ошибки здесь не показываются: нет сети —
+ * попробуем позже, и незачем встречать человека сообщением о том, чего он не
+ * просил.
+ *
+ * Раз в минуту было бы назойливо к чужому серверу и незачем: заказ, который
+ * ждали пятнадцать минут у экрана, лишние пять минут не испортят.
+ */
+const PENDING_SWEEP_MS = 5 * 60 * 1000;
+let sweeping = false;
+
+async function sweepPending() {
+  if (sweeping) return { collected: 0, waiting: 0 };
+  sweeping = true;
+  try {
+    const root = await getRootPath();
+    const settings = await loadSettings();
+    if (!settings.apiKey) return { collected: 0, waiting: 0 };
+    const list = await media.listPending(root);
+    let collected = 0;
+    let waiting = 0;
+    for (const заказ of list) {
+      try {
+        const { outDir, projectName } = await mediaTarget(заказ.projectId || undefined);
+        const r = await media.collect(root, {
+          baseUrl: settings.baseUrl,
+          apiKey: settings.apiKey,
+          outDir,
+          projectName,
+          id: заказ.id,
+          type: заказ.type,
+          model: заказ.model,
+          prompt: заказ.prompt,
+          projectId: заказ.projectId || undefined,
+          recipe: заказ.recipe || "",
+        });
+        if (r.ready) collected += 1;
+        else waiting += 1;
+      } catch {
+        // Заказ, который сервис потерял или отдать не может, остаётся в
+        // журнале: решение выбросить его принимает человек, а не сторож.
+        waiting += 1;
+      }
+    }
+    if (collected) broadcast("media:collected", { collected });
+    return { collected, waiting };
+  } finally {
+    sweeping = false;
+  }
+}
+
+function startPendingWatch() {
+  // Первый круг — не мгновенно: при запуске приложению есть чем заняться, а
+  // заказ, пролежавший ночь, подождёт ещё полминуты.
+  setTimeout(() => {
+    sweepPending().catch(() => {});
+    setInterval(() => sweepPending().catch(() => {}), PENDING_SWEEP_MS);
+  }, 30000);
+}
+
 app.whenReady().then(async () => {
   await applyProxySettings(await loadSettings());
   // Падения прошлых запусков нужны раньше окна: приложение сообщает о них само,
@@ -1608,6 +1677,8 @@ app.whenReady().then(async () => {
   });
   chatbots.startScheduler(getRootPath, (platform, message) => broadcast("chatbots:message", { platform, message }));
   tasks.startScheduler(getRootPath, runScheduledTask);
+  // Оплаченное забирается само: см. sweepPending.
+  startPendingWatch();
   // Отчёт к концу демо-доступа: будильник ставится сразу, а не при закрытии.
   licence
     .status({ allowNetwork: false })
@@ -2966,8 +3037,10 @@ ipcMain.handle("media:collect", async (_e, id) => {
   const root = await getRootPath();
   const settings = await loadSettings();
   const list = await media.listPending(root);
-  const заказ = list.find((x) => x.id === id);
-  if (!заказ) throw new Error("Такого заказа в журнале нет — возможно, он уже забран.");
+  // Заказа может не быть в журнале: он сделан в прошлой версии приложения, или
+  // в личном кабинете Polza, или в другой программе. Номер — всё, что нужно,
+  // чтобы забрать оплаченное, и отказывать из-за отсутствия записи незачем.
+  const заказ = list.find((x) => x.id === id) || { id, type: "image", model: "", prompt: "", projectId: "", recipe: "" };
   const { outDir, projectName } = await mediaTarget(заказ.projectId || undefined);
   return media.collect(root, {
     baseUrl: settings.baseUrl,
@@ -2984,6 +3057,9 @@ ipcMain.handle("media:collect", async (_e, id) => {
 });
 
 /** Забыть заказ: он не получится никогда (например, сервис его потерял). */
+/** Проверить журнал прямо сейчас, не дожидаясь очередного круга. */
+ipcMain.handle("media:sweepPending", () => sweepPending());
+
 ipcMain.handle("media:forgetPending", async (_e, id) => {
   await media.dropPending(await getRootPath(), id);
   return true;

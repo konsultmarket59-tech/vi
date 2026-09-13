@@ -336,6 +336,12 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
   generateMedia: (payload) => ipcRenderer.invoke("media:generate", payload),
   mediaKit: () => ipcRenderer.invoke("media:kit"),
   mediaMoveToFolder: (projectId) => ipcRenderer.invoke("media:moveToFolder", projectId),
+  mediaSweepPending: () => ipcRenderer.invoke("media:sweepPending"),
+  onMediaCollected: (cb) => {
+    const h = (_e, payload) => cb(payload);
+    ipcRenderer.on("media:collected", h);
+    return () => ipcRenderer.removeListener("media:collected", h);
+  },
   mediaFillTemplate: (id, values) => ipcRenderer.invoke("media:fillTemplate", id, values),
   mediaAddReferences: (kind, taken) => ipcRenderer.invoke("media:addReferences", kind, taken),
   mediaResolvePrompt: (prompt, references) => ipcRenderer.invoke("media:resolvePrompt", prompt, references),

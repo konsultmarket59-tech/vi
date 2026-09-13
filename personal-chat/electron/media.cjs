@@ -419,18 +419,67 @@ function looksLikeItem(value) {
   return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.fileName === "string";
 }
 
+/** Расширения, по которым файл в папке считается результатом генерации. */
+const RESULT_EXT = /\.(png|jpe?g|webp|gif|bmp|mp4|mov|webm|mkv|mp3|wav|ogg|m4a|flac|aac)$/i;
+
+/**
+ * Что лежит в папке генераций.
+ *
+ * Раньше список строился только по описям: json есть — запись есть, json нет —
+ * записи нет. Опись маленькая и служебная, а файл — то, ради чего всё делалось,
+ * и вешать видимость файла на судьбу служебного json неправильно. Опись может
+ * не записаться, её могут удалить при уборке, файл могут принести в папку
+ * руками из личного кабинета — и результат пропадал из истории, продолжая
+ * лежать на диске.
+ *
+ * Поэтому идём от ФАЙЛОВ. Опись, если она есть, добавляет к файлу промпт,
+ * модель и стоимость; если её нет, запись всё равно показывается — с тем, что
+ * можно узнать из самого файла. Видеть файл без подписи лучше, чем не видеть
+ * файл.
+ */
 async function list(root, projectId, outDir, projectName) {
   const dir = mediaDir(root, projectId, outDir, projectName);
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-  const items = [];
+  const files = entries.filter((e) => e.isFile() && RESULT_EXT.test(e.name));
+  const metaByBase = new Map();
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name === PENDING_FILE) continue;
     const meta = await readJson(path.join(dir, entry.name), null);
-    if (!looksLikeItem(meta)) continue;
-    items.push({ ...meta, localPath: path.join(dir, meta.fileName) });
+    if (looksLikeItem(meta)) metaByBase.set(meta.fileName, meta);
+  }
+
+  const items = [];
+  for (const entry of files) {
+    const meta = metaByBase.get(entry.name);
+    if (meta) {
+      items.push({ ...meta, localPath: path.join(dir, meta.fileName) });
+      continue;
+    }
+    // Файл без описи: время берём из самого файла, тип — из расширения.
+    const full = path.join(dir, entry.name);
+    const stat = await fs.stat(full).catch(() => null);
+    items.push({
+      id: entry.name.replace(/\.[^.]+$/, ""),
+      type: typeByExt(entry.name),
+      model: "",
+      prompt: "",
+      fileName: entry.name,
+      createdAt: stat ? Math.round(stat.mtimeMs) : 0,
+      localPath: full,
+      // Чтобы в истории было видно: это файл, про который приложение знает
+      // только то, что он лежит в папке.
+      orphan: true,
+    });
   }
   items.sort((a, b) => b.createdAt - a.createdAt);
   return items;
+}
+
+function typeByExt(name) {
+  const ext = path.extname(name).toLowerCase();
+  if (/\.(mp4|mov|webm|mkv)$/i.test(ext)) return "video";
+  if (/\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(ext)) return "audio";
+  return "image";
 }
 
 /**

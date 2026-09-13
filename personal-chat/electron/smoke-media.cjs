@@ -16,6 +16,7 @@ const refs = require("./mediarefs.cjs");
 const script = require("./mediascript.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { execFileSync } = require("node:child_process");
+const http = require("node:http");
 const { finish } = require("./finish.cjs");
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "media-ud-"));
@@ -444,6 +445,52 @@ app.whenReady().then(async () => {
         изСвоей.some((x) => x.id === "abc"), JSON.stringify(изСвоей.map((x) => x.id)));
       check("перенос накопленного доступен из окна",
         (await call(`typeof window.api.mediaMoveToFolder`)) === "function");
+
+      // Сторож незабранных: оплаченный заказ должен забираться САМ, без того
+      // чтобы человек зашёл в раздел и заметил блок. Поднимаем подставной
+      // сервер, кладём заказ в журнал руками — как будто ожидание оборвалось, —
+      // и просим приложение проверить журнал.
+      const сервер = http.createServer((req, res) => {
+        if (/\/media\/order-9$/.test(req.url)) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            id: "order-9", status: "completed",
+            data: { url: `http://127.0.0.1:${сервер.address().port}/ready.png` },
+          }));
+          return;
+        }
+        if (req.url.includes("ready.png")) {
+          res.writeHead(200, { "Content-Type": "image/png" });
+          res.end(Buffer.from("89504e470d0a1a0a", "hex"));
+          return;
+        }
+        res.writeHead(404);
+        res.end("{}");
+      });
+      await new Promise((r) => сервер.listen(0, "127.0.0.1", r));
+      const адрес = `http://127.0.0.1:${сервер.address().port}`;
+      await call(`window.api.saveSettings(${JSON.stringify({
+        ...прежние, mediaFolder: сПапкой, baseUrl: "@@BASE@@", apiKey: "ключ",
+      })})`.replace("@@BASE@@", адрес));
+      const корень = dataRoot;
+      fs.mkdirSync(path.join(корень, "media"), { recursive: true });
+      fs.writeFileSync(path.join(корень, "media", "незабранные.json"), JSON.stringify([
+        { id: "order-9", type: "image", model: "м", prompt: "оплачено", projectId: "", recipe: "", createdAt: Date.now() },
+      ]));
+      const итогСторожа = await call(`window.api.mediaSweepPending()`);
+      check("сторож забрал оплаченный заказ сам", итогСторожа.collected === 1, JSON.stringify(итогСторожа));
+      check("и файл лёг в выбранную папку",
+        fs.existsSync(path.join(сПапкой, "order-9.png")), fs.readdirSync(сПапкой).join(", "));
+      check("забранный заказ ушёл из журнала",
+        (await call(`window.api.listPendingMedia()`)).length === 0);
+      // Заказ, которого приложение никогда не видело, тоже должен забираться:
+      // он мог быть сделан в прошлой версии или в личном кабинете.
+      fs.rmSync(path.join(сПапкой, "order-9.png"), { force: true });
+      const поНомеру = await call(`window.api.collectMedia("order-9")`);
+      check("заказ забирается по номеру, даже если его нет в журнале",
+        поНомеру.ready === true && fs.existsSync(path.join(сПапкой, "order-9.png")), JSON.stringify(поНомеру));
+      сервер.close();
+      await call(`window.api.saveSettings(${JSON.stringify({ ...прежние, mediaFolder: сПапкой })})`);
       await call(`window.api.saveSettings(${JSON.stringify(прежние)})`);
 
       // Заготовка обязана доехать до ПОЛЯ промпта, а не «внутрь»: тридцать
