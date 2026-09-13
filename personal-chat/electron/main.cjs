@@ -3046,6 +3046,7 @@ const dataviz = require("./dataviz.cjs");
 const finmodel = require("./finmodel.cjs");
 const videostories = require("./videostories.cjs");
 const library = require("./library.cjs");
+const speech = require("./speech.cjs");
 const catalog = require("./catalog.cjs");
 const sites = require("./sites.cjs");
 
@@ -3582,6 +3583,21 @@ ipcMain.handle("stories:render", async (event, payload) => {
       basePath = await videostories.downloadTo(spec.source.path, path.join(work, "base.mp4"));
     }
     if (!noVideo && !basePath) throw new Error("Не выбрано исходное видео.");
+
+    // Пустая раскладка даёт ровный фон на всю длину — и именно так это и
+    // выглядело: «сборка не сработала, в результате пятнадцать секунд синего
+    // фона». Сборка шла успешно, просто накладывать было нечего. Лучше отказать
+    // и сказать почему, чем отдать человеку пустой файл как готовый ролик.
+    if (!spec.layers.length) {
+      throw new Error(
+        noVideo
+          ? "В ролике нет ни одного слоя — получился бы ровный фон на всю длину. " +
+            "Нажмите «Собрать моушн-дизайн», чтобы агент разложил текст по кадру, " +
+            "или добавьте слои руками."
+          : "В ролике нет ни одного слоя — поверх видео ничего не наложится. " +
+            "Нажмите «Разложить по сценам» или добавьте слои руками."
+      );
+    }
 
     send("frames", { done: 0, total: videostories.frameCount(spec) });
     const framesDir = path.join(work, "frames");
@@ -4126,9 +4142,13 @@ function defaultLibraryConfig() {
     folderPath: "",
     // Папка, куда кладутся расшифровки. Пусто — значит в данные приложения.
     vaultPath: "",
-    // Локально по умолчанию: материал не покидает компьютер. Платный путь
-    // включается только руками — на записях бывают клиентские дела.
-    engine: "local",
+    // Встроенное распознавание по умолчанию: ставить и настраивать нечего,
+    // материал компьютер не покидает. Платный путь включается только руками —
+    // на записях бывают клиентские дела.
+    engine: "builtin",
+    speechModel: speech.DEFAULT_MODEL,
+    // Путь через whisper.cpp остаётся для тех, у кого он уже стоит: он быстрее
+    // встроенного и слышит лучше. Но требовать его больше не с кого.
     binPath: "",
     modelPath: "",
     threads: Math.max(2, Math.min(8, os.cpus().length - 1)),
@@ -4149,6 +4169,16 @@ async function libraryConfig() {
   // пропадать: одна папка превращается в один источник.
   if (!config.sources.length && config.folderPath) config.sources = [config.folderPath];
   return config;
+}
+
+/**
+ * Где лежат веса распознавания.
+ *
+ * Рядом с расшифровками, а не в системном кэше: человек должен иметь
+ * возможность увидеть, сколько места они занимают, и убрать их одним движением.
+ */
+async function speechCacheDir() {
+  return path.join(await getRootPath(), "library", "модель-распознавания");
 }
 
 /** Где лежат расшифровки: своя папка человека или данные приложения. */
@@ -4237,7 +4267,67 @@ ipcMain.handle("library:openVault", async () => {
 
 ipcMain.handle("library:engineStatus", async () => {
   const config = await libraryConfig();
-  return library.localEngineStatus(config);
+  const cacheDir = await speechCacheDir();
+  const ready = speech.isModelReady(cacheDir, config.speechModel || speech.DEFAULT_MODEL);
+  return {
+    ...library.localEngineStatus(config),
+    // Встроенный путь готов ровно тогда, когда веса скачаны. Ставить при этом
+    // нечего — ни программы, ни настроек.
+    builtinReady: ready,
+    models: speech.SPEECH_MODELS,
+    cacheDir,
+    cacheBytes: speech.cacheSize(cacheDir),
+  };
+});
+
+/**
+ * Скачать веса распознавания.
+ *
+ * Единственное, что требует сети во встроенном пути, и делается один раз. Дальше
+ * расшифровка идёт без сети совсем.
+ */
+ipcMain.handle("library:downloadSpeechModel", async (event, modelId) => {
+  const config = await libraryConfig();
+  const id = modelId || config.speechModel || speech.DEFAULT_MODEL;
+  const cacheDir = await speechCacheDir();
+  const send = (payload) => {
+    try {
+      event.sender.send("library-progress", payload);
+    } catch {
+      // окно могло закрыться посреди скачивания
+    }
+  };
+  try {
+    await speech.loadRecognizer({
+      modelId: id,
+      cacheDir,
+      onProgress: (p) =>
+        send({
+          stage: "model",
+          name: p.file || id,
+          progress: p.total ? (p.loaded || 0) / p.total : 0,
+        }),
+    });
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    // Сеть — единственная причина, по которой этот шаг может не пройти, и
+    // сказать об этом надо прямо: иначе человек будет искать ошибку у себя.
+    throw new Error(
+      `Не удалось скачать модель распознавания (${id}). ${reason}\n` +
+        "Проверьте интернет: файлы берутся с huggingface.co, и в некоторых сетях он закрыт. " +
+        "Если доступа нет, остаётся платный путь — он работает через ваш ключ и ничего не качает."
+    );
+  }
+  send({ stage: "model", progress: 1 });
+  await saveLibraryConfig({ speechModel: id });
+  return { ready: true, cacheBytes: speech.cacheSize(cacheDir) };
+});
+
+ipcMain.handle("library:removeSpeechModel", async () => {
+  const cacheDir = await speechCacheDir();
+  speech.unload();
+  await fs.rm(cacheDir, { recursive: true, force: true });
+  return true;
 });
 
 /**
@@ -4359,7 +4449,21 @@ ipcMain.handle("library:transcribe", async (event, paths, options) => {
   // которую и правда надо читать. Иначе повторный запуск по уже прочитанным
   // записям упирался бы в отсутствие whisper.cpp на ровном месте — а читать там
   // нечего, всё уже расшифровано.
+  const cacheDir = await speechCacheDir();
+  const speechModelId = config.speechModel || speech.DEFAULT_MODEL;
   const requireEngine = () => {
+    // Встроенный путь: без скачанных весов слушать нечем. Сказать это надо
+    // заранее и по-человечески — иначе на первой же записи человек получит
+    // сетевую ошибку вида net::ERR_..., которая ничего ему не объясняет.
+    if (config.engine === "builtin") {
+      if (speech.isModelReady(cacheDir, speechModelId)) return;
+      const problem = new Error(
+        "Модель распознавания ещё не скачана. Откройте «Чем расшифровывать» → «Встроенное» " +
+          "и нажмите «Скачать модель» — это одно нажатие и один раз."
+      );
+      problem.engine = true;
+      throw problem;
+    }
     if (config.engine !== "local") return;
     const status = library.localEngineStatus(config);
     if (status.ready) return;
@@ -4417,7 +4521,32 @@ ipcMain.handle("library:transcribe", async (event, paths, options) => {
         requireEngine();
         const seconds = await library.probeDuration(bin, filePath);
         let segments;
-        if (config.engine === "local") {
+        if (config.engine === "builtin") {
+          // Встроенный путь: звук готовится тем же ffmpeg, что и для
+          // whisper.cpp, а слушает его onnxruntime внутри приложения.
+          const wav = path.join(work, "audio.wav");
+          send({ stage: "audio", index: i, total: paths.length, name });
+          await library.extractAudio(bin, filePath, wav);
+          send({ stage: "transcribe", index: i, total: paths.length, name, progress: 0 });
+          segments = await speech.transcribeFile({
+            wavPath: wav,
+            modelId: speechModelId,
+            cacheDir,
+            language: config.language === "en" ? "english" : "russian",
+            onProgress: (p) => {
+              if (p.stage === "download") {
+                send({
+                  stage: "model", index: i, total: paths.length, name: p.file || "",
+                  progress: p.total ? p.loaded / p.total : 0,
+                });
+              } else if (p.stage === "transcribe") {
+                send({ stage: "transcribe", index: i, total: paths.length, name, progress: p.progress });
+              }
+            },
+            shouldStop: () => queue.stopped,
+          });
+          await fs.rm(wav, { force: true });
+        } else if (config.engine === "local") {
           const wav = path.join(work, "audio.wav");
           send({ stage: "audio", index: i, total: paths.length, name });
           await library.extractAudio(bin, filePath, wav);

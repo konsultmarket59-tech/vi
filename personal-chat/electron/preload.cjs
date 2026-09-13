@@ -197,6 +197,8 @@ contextBridge.exposeInMainWorld("api", {
   libraryPickFolder: () => ipcRenderer.invoke("library:pickFolder"),
   libraryPickFile: (title) => ipcRenderer.invoke("library:pickFile", title),
   libraryEngineStatus: () => ipcRenderer.invoke("library:engineStatus"),
+  libraryDownloadSpeechModel: (modelId) => ipcRenderer.invoke("library:downloadSpeechModel", modelId),
+  libraryRemoveSpeechModel: () => ipcRenderer.invoke("library:removeSpeechModel"),
   libraryAddSources: (kind) => ipcRenderer.invoke("library:addSources", kind),
   libraryRemoveSource: (source) => ipcRenderer.invoke("library:removeSource", source),
   libraryPickVault: () => ipcRenderer.invoke("library:pickVault"),

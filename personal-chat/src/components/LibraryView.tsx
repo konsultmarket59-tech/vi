@@ -390,10 +390,10 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
               <h3>Чем расшифровывать</h3>
               <div className="vs-tabs">
                 <button
-                  className={config?.engine !== "remote" ? "vs-tab on" : "vs-tab"}
-                  onClick={() => patchConfig({ engine: "local" })}
+                  className={config?.engine !== "local" && config?.engine !== "remote" ? "vs-tab on" : "vs-tab"}
+                  onClick={() => patchConfig({ engine: "builtin" })}
                 >
-                  На этом компьютере
+                  Встроенное
                 </button>
                 <button
                   className={config?.engine === "remote" ? "vs-tab on" : "vs-tab"}
@@ -401,14 +401,25 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
                 >
                   Через платный сервис
                 </button>
+                <button
+                  className={config?.engine === "local" ? "vs-tab on" : "vs-tab"}
+                  onClick={() => patchConfig({ engine: "local" })}
+                >
+                  Свой whisper.cpp
+                </button>
               </div>
-              {config?.engine !== "remote" ? (
+
+              {config?.engine === "remote" ? (
+                <p className="vs-hint">
+                  Быстро — час записи за минуты, — но <b>запись уходит на чужой сервер</b>. Если на
+                  записях клиентские дела, это решение принимаете вы. Используется ключ и адрес из
+                  общих настроек приложения.
+                </p>
+              ) : config?.engine === "local" ? (
                 <>
                   <p className="vs-hint">
-                    Бесплатно и материал не покидает компьютер. Расплата — время: примерно час
-                    работы на час записи. Нужны программа whisper.cpp и файл модели — приложение их
-                    не возит с собой, потому что это полтора гигабайта ради тех, кому раздел не
-                    нужен.
+                    Для тех, у кого whisper.cpp уже стоит: он быстрее встроенного и слышит лучше.
+                    Если его нет — ставить не нужно, вернитесь на «Встроенное».
                   </p>
                   <div className="vs-row">
                     <button
@@ -438,11 +449,90 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
                   {engine?.ready && <p className="vs-hint">Готово к работе.</p>}
                 </>
               ) : (
-                <p className="vs-hint">
-                  Быстро — час записи за минуты, — но <b>запись уходит на чужой сервер</b>. Если на
-                  записях клиентские дела, это решение принимаете вы. Используется ключ и адрес из
-                  общих настроек приложения.
-                </p>
+                <>
+                  {/*
+                    Встроенный путь. Прежний вариант требовал поставить
+                    whisper.cpp и скачать модель руками — для человека, которому
+                    надо расшифровать запись, это не «бесплатно», а «невозможно».
+                  */}
+                  <p className="vs-hint">
+                    Бесплатно, ставить нечего, материал не покидает компьютер. Один раз скачиваются
+                    веса модели — дальше расшифровка идёт без сети совсем. Расплата — время:
+                    примерно час работы на час записи.
+                  </p>
+
+                  {engine?.builtinReady ? (
+                    <p className="vs-hint">
+                      Готово к работе. Модель занимает {formatBytes(engine.cacheBytes)}.{" "}
+                      <button
+                        className="link-btn"
+                        onClick={async () => {
+                          await window.api.libraryRemoveSpeechModel();
+                          setEngine(await window.api.libraryEngineStatus());
+                        }}
+                      >
+                        удалить
+                      </button>
+                    </p>
+                  ) : (
+                    <p className="vs-warn">
+                      Веса модели ещё не скачаны — без них расшифровывать нечем. Это одно нажатие.
+                    </p>
+                  )}
+
+                  <div className="lib-models">
+                    {(engine?.models || []).map((m) => (
+                      <button
+                        key={m.id}
+                        className={
+                          (config?.speechModel || engine?.models?.[1]?.id) === m.id
+                            ? "lib-model on"
+                            : "lib-model"
+                        }
+                        onClick={() => patchConfig({ speechModel: m.id })}
+                      >
+                        <b>
+                          {m.name} <span className="vs-hint">{m.size}</span>
+                        </b>
+                        <span className="vs-hint">{m.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    className="btn btn-primary btn-small"
+                    disabled={busy}
+                    onClick={async () => {
+                      setError("");
+                      setBusy(true);
+                      setProgress({ stage: "model", progress: 0 });
+                      try {
+                        await window.api.libraryDownloadSpeechModel(config?.speechModel || undefined);
+                        setEngine(await window.api.libraryEngineStatus());
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : String(e));
+                      } finally {
+                        setBusy(false);
+                        setProgress(null);
+                      }
+                    }}
+                  >
+                    {engine?.builtinReady ? "Скачать заново" : "Скачать модель"}
+                  </button>
+
+                  {/*
+                    Оговорка про качество нужна здесь, а не в оправданиях потом:
+                    модель такого размера слышит хуже платного сервиса, и это
+                    ровно тот случай, ради которого ниже стоит второй шаг с
+                    сильной моделью.
+                  */}
+                  <p className="vs-hint">
+                    Встроенная модель слышит хуже платного сервиса: путает имена, названия и числа.
+                    Поэтому ниже включён разбор второй моделью — она читает расшифровку и правит
+                    расслышанное. Дёшево услышать и умно прочитать вместе выходит лучше, чем каждое
+                    по отдельности.
+                  </p>
+                </>
               )}
             </section>
 
@@ -513,6 +603,10 @@ export default function LibraryView({ settings, skills, onOpenSettings }: Props)
                       progress.progress ? ` — ${Math.round(progress.progress * 100)}%` : ""
                     }`}
                   {progress.stage === "file" && `Запись ${(progress.index || 0) + 1} из ${progress.total}`}
+                  {progress.stage === "model" &&
+                    `Скачиваю модель распознавания${
+                      progress.progress ? ` — ${Math.round(progress.progress * 100)}%` : "…"
+                    }`}
                   {progress.stage === "reused" && `Уже расшифровано, читаю готовое: ${progress.name}`}
                   {progress.stage === "polish" &&
                     `Разбираю расшифровку ${progress.name}${

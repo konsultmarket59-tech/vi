@@ -1775,7 +1775,12 @@ function buildMotionPrompt({ spec, text, assets = [], referenceCount = 0 }) {
 /** Разбор ответа. Возвращает null, если блока со сценами нет. */
 function parseScenes(text) {
   const body = String(text || "");
-  const block = /===СЦЕНЫ===([\s\S]*?)===КОНЕЦ===/i.exec(body);
+  // Закрывающую метку модель теряет постоянно — особенно когда ответ длинный и
+  // упирается в предел длины. Требовать её значило бы выбрасывать готовую
+  // раскладку из-за недостающей строки, поэтому без неё берём всё до конца.
+  const block =
+    /===\s*СЦЕНЫ\s*===([\s\S]*?)===\s*КОНЕЦ\s*===/i.exec(body) ||
+    /===\s*СЦЕНЫ\s*===([\s\S]*)$/i.exec(body);
   if (!block) return null;
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(block[1]);
   const raw = (fenced ? fenced[1] : block[1]).trim();

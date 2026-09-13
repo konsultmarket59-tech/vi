@@ -828,6 +828,21 @@ function libraryDir(where) {
 /** Имя описи внутри папки расшифровок. */
 const INDEX_FILE = "опись.json";
 
+/**
+ * Файлы в папке расшифровок, которые расшифровками не являются.
+ *
+ * Настройки раздела лежат там же — так сложилось исторически, — и без этого
+ * списка они попадали в опись наравне с записями. Выглядело это озадачивающе:
+ * «Расшифровано: 0» и тут же «Расшифровок без записи: 1». Проверяется не только
+ * имя, но и вид содержимого: расшифровка обязана знать, к какому файлу
+ * относится и из каких кусков состоит.
+ */
+const NOT_A_DOC = new Set([INDEX_FILE, "config.json", "настройки.json"]);
+
+function looksLikeDoc(value) {
+  return !!value && typeof value === "object" && typeof value.path === "string" && Array.isArray(value.chunks);
+}
+
 /** Старое имя файла расшифровки — по пути записи. Читается ради совместимости. */
 function docId(filePath) {
   let h = 0;
@@ -894,9 +909,11 @@ async function rebuildIndex(where) {
   const names = await fs.readdir(dir).catch(() => []);
   const записи = [];
   for (const name of names) {
-    if (!name.endsWith(".json") || name === INDEX_FILE) continue;
+    if (!name.endsWith(".json") || NOT_A_DOC.has(name)) continue;
     try {
-      записи.push(indexEntry(JSON.parse(await fs.readFile(path.join(dir, name), "utf-8")), name));
+      const parsed = JSON.parse(await fs.readFile(path.join(dir, name), "utf-8"));
+      if (!looksLikeDoc(parsed)) continue;
+      записи.push(indexEntry(parsed, name));
     } catch {
       // повреждённая расшифровка не должна ронять весь раздел
     }
@@ -958,9 +975,10 @@ async function listDocs(where) {
   const names = await fs.readdir(dir).catch(() => []);
   const docs = [];
   for (const name of names) {
-    if (!name.endsWith(".json") || name === INDEX_FILE) continue;
+    if (!name.endsWith(".json") || NOT_A_DOC.has(name)) continue;
     try {
-      docs.push(JSON.parse(await fs.readFile(path.join(dir, name), "utf-8")));
+      const parsed = JSON.parse(await fs.readFile(path.join(dir, name), "utf-8"));
+      if (looksLikeDoc(parsed)) docs.push(parsed);
     } catch {
       // повреждённая расшифровка не должна ронять весь раздел
     }
@@ -1209,6 +1227,8 @@ module.exports = {
   CHUNK_OVERLAP,
   POLISH_PIECE_CHARS,
   INDEX_FILE,
+  NOT_A_DOC,
+  looksLikeDoc,
   isMedia,
   kindOf,
   stamp,

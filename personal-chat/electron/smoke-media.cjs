@@ -70,6 +70,35 @@ app.whenReady().then(async () => {
     check("имена не повторяются",
       new Set(kit.CAMERA_MOVES.map((m) => m.id)).size === kit.CAMERA_MOVES.length);
 
+    console.log("\nкороткие команды формата");
+    check("команд ровно столько, сколько в шпаргалке", kit.COMMANDS.length === 102, String(kit.COMMANDS.length));
+    check("групп десять", kit.FORMAT_COMMANDS.length === 10, String(kit.FORMAT_COMMANDS.length));
+    check("имена не повторяются",
+      new Set(kit.COMMANDS.map((c) => c.id)).size === kit.COMMANDS.length);
+    check("команда пишется через косую черту", kit.COMMANDS.every((c) => c.name.startsWith("/")));
+    check("у каждой есть и русское пояснение, и строка для модели",
+      kit.COMMANDS.every((c) => c.why && /[a-z]{4}/i.test(c.prompt)));
+    for (const id of ["anatomy", "beforeafter", "iceberg", "billboard", "phonemockup", "storyboard", "metaphor", "dataviz"]) {
+      check(`команда /${id} на месте`, kit.COMMANDS.some((c) => c.id === id));
+    }
+
+    console.log("\nприсланные стили");
+    for (const id of ["dark-noir-deco", "origami", "paper-collage", "crimson-heat", "liquid-chrome",
+      "iridescent-violet", "klimt", "hopper", "magritte", "hokusai", "rousseau", "bosch",
+      "flir", "expired-film", "datamosh", "y2k-fisheye"]) {
+      check(`стиль «${id}» на месте`, kit.ALL_STYLES.some((m) => m.id === id));
+    }
+    check("стиль для видео помечен и один",
+      kit.ALL_STYLES.filter((m) => m.video).length === 1, JSON.stringify(kit.ALL_STYLES.filter((m) => m.video).map((m) => m.id)));
+    // Промпты присланы проверенными: переписывать их «покрасивее» значило бы
+    // потерять ровно то, ради чего их записывали.
+    check("длинный промпт не обрезан",
+      kit.ALL_STYLES.find((m) => m.id === "dark-noir-deco").prompt.length > 1500,
+      String(kit.ALL_STYLES.find((m) => m.id === "dark-noir-deco").prompt.length));
+    check("место под товар размечено в товарных рендерах",
+      ["crimson-heat", "liquid-chrome", "iridescent-violet"].every((id) =>
+        kit.ALL_STYLES.find((m) => m.id === id).prompt.includes("[PRODUCT]")));
+
     console.log("\nсборка промпта");
     const пусто = kit.buildPrompt({ base: "Дом у леса на закате" });
     check("без выбранных приёмов уходит только текст человека", пусто === "Дом у леса на закате", пусто);
@@ -89,6 +118,18 @@ app.whenReady().then(async () => {
       полный.includes("low angle full-length") && полный.includes("golden hour backlight"));
     check("темп приклеен к движению, а не живёт отдельной фразой",
       /orbit shot[^.]*very slow/.test(полный), полный.slice(-160));
+
+    const сКомандой = kit.buildPrompt({ base: "Кроссовки", command: "anatomy", style: "crimson-heat", subject: "the sneaker" });
+    check("команда формата попала в промпт", /anatomical breakdown/.test(сКомандой), сКомандой.slice(0, 140));
+    // Формат отвечает на вопрос «в каком виде показать» и должен стоять до
+    // стиля: иначе модель рисует стиль, а формат теряется.
+    check("формат идёт после темы, но до стиля",
+      сКомандой.indexOf("Кроссовки") < сКомандой.indexOf("anatomical") &&
+        сКомандой.indexOf("anatomical") < сКомандой.indexOf("commercial render"), сКомандой.slice(0, 200));
+    check("место под товар заменено тем, что назвал человек",
+      !сКомандой.includes("[PRODUCT]") && сКомандой.includes("render of the sneaker"), сКомандой.slice(0, 200));
+    check("без команды её в промпте нет",
+      !/anatomical breakdown/.test(kit.buildPrompt({ base: "Кроссовки" })));
 
     const безТемпа = kit.buildPrompt({ base: "к", camera: "orbit" });
     check("без темпа движение всё равно уходит", безТемпа.includes("orbit shot"));
@@ -124,6 +165,9 @@ app.whenReady().then(async () => {
       kit.MODEL_FIELDS.image.some((f) => f.key === "steps") && !kit.MODEL_FIELDS.video.some((f) => f.key === "steps"));
 
     console.log("\nопись выбранного");
+    const сФорматом = kit.describeChoice({ command: "iceberg", style: "klimt" });
+    check("формат виден в описи выбранного",
+      сФорматом.includes("/iceberg") && сФорматом.includes("Климт"), сФорматом);
     const опись = kit.describeChoice({ style: "mixed-media", camera: "dolly-zoom", pace: "smooth", lighting: "low-key" });
     check("человек видит, из чего собран промпт",
       опись.includes("Mixed Media") && опись.includes("Эффект Вертиго") && опись.includes("плавно"), опись);
@@ -284,6 +328,38 @@ app.whenReady().then(async () => {
       check("поля модели показаны",
         (await call(`document.querySelectorAll(".media-param").length`)) >= 3,
         String(await call(`document.querySelectorAll(".media-param").length`)));
+      // «Даже кнопку сгенерировать не видно»: она стояла в конце длинной ленты
+      // настроек. Теперь действие прилипло к низу столбца и видно всегда.
+      check("кнопка действия прилипла к низу и видна без прокрутки",
+        (await call(`(() => {
+          const bar = document.querySelector(".media-actions");
+          const form = document.querySelector(".media-form");
+          if (!bar || !form) return "нет полосы действия";
+          const b = bar.getBoundingClientRect(), f = form.getBoundingClientRect();
+          return b.bottom <= f.bottom + 2 && b.height > 0 ? "видна" : "за краем";
+        })()`)) === "видна");
+      check("настройки прокручиваются отдельно от кнопки",
+        (await call(`(() => {
+          const sc = document.querySelector(".media-scroll");
+          return sc && getComputedStyle(sc).overflowY === "auto" ? "да" : "нет";
+        })()`)) === "да");
+      check("команды формата есть и закрыты по умолчанию",
+        (await call(`document.body.textContent.includes("Короткая команда")`)) === true &&
+          (await call(`!document.querySelector(".media-kit-search")`)) === true);
+      await call(`[...document.querySelectorAll(".media-kit-head")].find(b => b.textContent.includes("Короткая команда")).click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("по командам можно искать — их сто с лишним",
+        (await call(`!!document.querySelector(".media-kit-search")`)) === true);
+      await call(`(() => {
+        const i = document.querySelector(".media-kit-search");
+        const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        set.call(i, "айсберг");
+        i.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("поиск идёт и по русскому пояснению",
+        (await call(`[...document.querySelectorAll(".media-kit-item")].some(b => b.textContent.includes("/iceberg"))`)) === true);
+
       check("сказано честно, что часть полей — только через JSON",
         (await call(`document.body.textContent.includes("пишется JSON-ом ниже")`)) === true);
 

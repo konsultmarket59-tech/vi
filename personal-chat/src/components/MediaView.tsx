@@ -51,6 +51,7 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [params, setParams] = useState<Record<string, string>>({});
   const [design, setDesign] = useState<StoriesDesign | null>(null);
   const [openGroup, setOpenGroup] = useState<string>("");
+  const [commandSearch, setCommandSearch] = useState("");
 
   // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
   // голоса и сборку делает приложение.
@@ -311,6 +312,7 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
 
       <div className="media-layout">
         <div className="panel-section media-form">
+          <div className="media-scroll">
           <p className="hint">
             {settings.managed ? (
               <>
@@ -608,6 +610,59 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
 
           {kit && type !== "audio" && (
             <>
+              {/*
+                Команды формата — не магия и не команды какой-то модели, а
+                короткие обозначения того, В КАКОМ ВИДЕ показать тему. Их сто с
+                лишним, поэтому список закрыт и ищется, а не вываливается сразу.
+              */}
+              <label>Формат</label>
+              <div className="media-kit-group">
+                <button
+                  className="media-kit-head"
+                  onClick={() => setOpenGroup(openGroup === "command" ? "" : "command")}
+                >
+                  <span>Короткая команда</span>
+                  <span className="hint">
+                    {kit.commands.find((c) => c.id === choice.command)?.name || "не выбрана"}
+                  </span>
+                  <span>{openGroup === "command" ? "▾" : "▸"}</span>
+                </button>
+                {openGroup === "command" && (
+                  <div className="media-kit-list">
+                    <input
+                      className="media-kit-search"
+                      value={commandSearch}
+                      placeholder="найти команду или формат…"
+                      onChange={(e) => setCommandSearch(e.target.value)}
+                    />
+                    {kit.commands
+                      .filter((c) => {
+                        const q = commandSearch.trim().toLowerCase();
+                        return (
+                          !q ||
+                          c.name.toLowerCase().includes(q) ||
+                          c.why.toLowerCase().includes(q) ||
+                          (c.aka || "").toLowerCase().includes(q) ||
+                          (c.group || "").toLowerCase().includes(q)
+                        );
+                      })
+                      .slice(0, 40)
+                      .map((c) => (
+                        <button
+                          key={c.id}
+                          className={choice.command === c.id ? "media-kit-item on" : "media-kit-item"}
+                          onClick={() => pick("command", c.id)}
+                        >
+                          <b>
+                            {c.name} <span className="media-kit-why">{c.group}</span>
+                          </b>
+                          <span className="media-kit-why">{c.why}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
               <label>Приёмы</label>
               <p className="hint">
                 Промпт собирается из выбранного: сначала что в кадре, потом стиль, ракурс, свет и
@@ -770,6 +825,14 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
           )}
 
           {error && <div className="chat-error">{error}</div>}
+          </div>
+
+          {/*
+            Действие прилипает к низу столбца. Раньше кнопка стояла в конце
+            длинной ленты настроек, и до неё надо было домотать — «даже кнопку
+            сгенерировать не видно».
+          */}
+          <div className="media-actions">
           {mode === "script" ? (
             <button
               className="btn btn-primary"
@@ -787,6 +850,8 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               {generating ? status || "Генерация…" : "Сгенерировать"}
             </button>
           )}
+
+          </div>
 
           {result && previewUrl && (
             <div className="media-result-card">

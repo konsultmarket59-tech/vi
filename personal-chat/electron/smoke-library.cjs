@@ -42,6 +42,7 @@ function check(label, condition, detail = "") {
 }
 
 const library = require("./library.cjs");
+const speech = require("./speech.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { finish } = require("./smoke-finish.cjs");
 
@@ -53,6 +54,11 @@ function makeMedia(dest, seconds, withVideo) {
   args.push("-c:a", "aac", "-shortest", dest);
   execFileSync(ffmpeg, args);
   return dest;
+}
+
+/** Значение и правда булево, а не «что-то, что похоже на да». */
+function типБулев(v) {
+  return v === true || v === false;
 }
 
 function cleanup() {
@@ -279,6 +285,123 @@ app.whenReady().then(async () => {
     check("опись не попадает в список расшифровок",
       (await library.listDocs(где)).length === 1, String((await library.listDocs(где)).length));
 
+    console.log("\nвстроенное распознавание: подготовка звука");
+    // Настоящую модель здесь не гоняем: веса весят десятки мегабайт и качаются
+    // из сети. Зато всё, что вокруг неё, — разбор wav, нарезка на окна, сборка
+    // отрезков — работает по-настоящему, и ломается обычно именно оно.
+    const звук = path.join(userData, "речь.wav");
+    execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=440:duration=3", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", звук]);
+    const сведения = speech.wavInfo(fs.readFileSync(звук));
+    check("wav от ffmpeg разобран", сведения.rate === 16000 && сведения.totalSamples === 48000,
+      JSON.stringify(сведения));
+
+    // Разбор проверяется на известных отсчётах, а не «похоже на правду».
+    const отсчёты = [0, 16384, -16384, 32767, -32768];
+    const данные = Buffer.alloc(отсчёты.length * 2);
+    отсчёты.forEach((v, i) => данные.writeInt16LE(v, i * 2));
+    const шапка = Buffer.alloc(44);
+    шапка.write("RIFF", 0); шапка.writeUInt32LE(36 + данные.length, 4); шапка.write("WAVE", 8);
+    шапка.write("fmt ", 12); шапка.writeUInt32LE(16, 16); шапка.writeUInt16LE(1, 20);
+    шапка.writeUInt16LE(1, 22); шапка.writeUInt32LE(16000, 24); шапка.writeUInt32LE(32000, 28);
+    шапка.writeUInt16LE(2, 32); шапка.writeUInt16LE(16, 34);
+    шапка.write("data", 36); шапка.writeUInt32LE(данные.length, 40);
+    const точный = speech.wavToFloat32(Buffer.concat([шапка, данные])).audio;
+    check("отсчёты переводятся точно, без потери знака и края",
+      отсчёты.every((v, i) => Math.abs(точный[i] - v / 32768) < 1e-9),
+      Array.from(точный).join(", "));
+
+    // ffmpeg кладёт перед данными служебный кусок LIST. Отсчёт «44 байта от
+    // начала» съедал бы вместе с ним первые слова записи.
+    const служебный = Buffer.alloc(8 + 26);
+    служебный.write("LIST", 0); служебный.writeUInt32LE(26, 4); служебный.write("INFOISFT", 8);
+    const размер = Buffer.alloc(4); размер.writeUInt32LE(данные.length, 0);
+    const сЛишним = Buffer.concat([шапка.subarray(0, 36), служебный, Buffer.from("data"), размер, данные]);
+    check("служебный кусок перед звуком не сбивает разбор",
+      speech.wavToFloat32(сЛишним).audio.length === отсчёты.length &&
+        Math.abs(speech.wavToFloat32(сЛишним).audio[3] - 32767 / 32768) < 1e-9);
+    let неWav = "";
+    try { speech.wavToFloat32(Buffer.from("это не звук вовсе")); } catch (e) { неWav = e.message; }
+    check("чужой файл назван прямо, а не разобран в тишину", /не wav/i.test(неWav), неWav);
+
+    console.log("\nдлинная запись режется на окна");
+    // Шесть часов речи в виде дробных чисел — это больше гигабайта в памяти:
+    // попытка взять запись целиком кончается не ошибкой, а падением.
+    const шестьЧасов = speech.planWindows(6 * 3600 * 16000, 16000);
+    check("шестичасовая запись разбита", шестьЧасов.length > 30, String(шестьЧасов.length));
+    check("окна идут подряд и покрывают всю запись",
+      шестьЧасов[0].from === 0 &&
+        шестьЧасов[шестьЧасов.length - 1].from + шестьЧасов[шестьЧасов.length - 1].count === 6 * 3600 * 16000);
+    const сПерехлёстом = speech.planWindows(1000, 100, { windowSeconds: 4, overlapSeconds: 1 });
+    check("окна перекрываются — иначе фраза со стыка пропадёт",
+      сПерехлёстом[1].from < сПерехлёстом[0].from + сПерехлёстом[0].count,
+      JSON.stringify(сПерехлёстом));
+    check("короткая запись — одно окно", speech.planWindows(16000, 16000).length === 1);
+
+    console.log("\nответ модели превращается в отрезки");
+    const отрезки = speech.toSegments(
+      { chunks: [
+        { timestamp: [0, 2.5], text: " Первая фраза." },
+        { timestamp: [2.5, null], text: " Вторая, упёрлась в край окна." },
+        { timestamp: [5, 6], text: "   " },
+      ] },
+      { offsetSeconds: 600, windowSeconds: 30 }
+    );
+    check("время сдвинуто на начало окна", отрезки[0].from === 600 && отрезки[0].to === 602.5,
+      JSON.stringify(отрезки[0]));
+    // Незакрытое время — признак того, что кусок упёрся в край окна, а не брак:
+    // выбрасывать его значило бы терять целую фразу.
+    check("незакрытое время закрывается концом окна",
+      отрезки[1].to === 630 && отрезки[1].text.startsWith("Вторая"), JSON.stringify(отрезки[1]));
+    check("пустой кусок отброшен", отрезки.length === 2, String(отрезки.length));
+    check("ответ без времени всё равно не теряется",
+      speech.toSegments({ text: "речь без разметки" }, { offsetSeconds: 5 })[0].text === "речь без разметки");
+
+    const склеено = speech.mergeSegments([
+      { from: 0, to: 3, text: "раз" },
+      { from: 600, to: 602, text: "на стыке" },
+      { from: 600.4, to: 603, text: "на стыке" },
+      { from: 610, to: 612, text: "два" },
+    ]);
+    check("фраза из перехлёста не попадает дважды", склеено.length === 3, JSON.stringify(склеено));
+    check("и берёт больший конец из двух", склеено[1].to === 603, JSON.stringify(склеено[1]));
+    check("разные фразы в одно время не склеиваются",
+      speech.mergeSegments([{ from: 0, to: 1, text: "а" }, { from: 0.2, to: 1, text: "б" }]).length === 2);
+
+    console.log("\nмодели распознавания");
+    check("есть из чего выбрать", speech.SPEECH_MODELS.length >= 3);
+    check("у каждой сказан размер и чем она хуже соседней",
+      speech.SPEECH_MODELS.every((m) => m.size && m.hint && m.name));
+    check("по умолчанию — не самая грубая",
+      speech.DEFAULT_MODEL !== speech.SPEECH_MODELS[0].id, speech.DEFAULT_MODEL);
+    const хранилищеВесов = fs.mkdtempSync(path.join(os.tmpdir(), "веса-"));
+    check("без скачанных весов готовности нет", !speech.isModelReady(хранилищеВесов, speech.DEFAULT_MODEL));
+    fs.mkdirSync(path.join(хранилищеВесов, ...speech.DEFAULT_MODEL.split("/")), { recursive: true });
+    check("пустая папка после сорвавшегося скачивания — тоже не готовность",
+      !speech.isModelReady(хранилищеВесов, speech.DEFAULT_MODEL));
+    fs.writeFileSync(path.join(хранилищеВесов, ...speech.DEFAULT_MODEL.split("/"), "model.onnx"), "x".repeat(1000));
+    check("с файлами — готова", speech.isModelReady(хранилищеВесов, speech.DEFAULT_MODEL));
+    check("занятое место считается",
+      speech.cacheSize(хранилищеВесов) === 1000, String(speech.cacheSize(хранилищеВесов)));
+    fs.rmSync(хранилищеВесов, { recursive: true, force: true });
+
+    console.log("\nнастройки — не расшифровка");
+    // config.json лежит в той же папке. Без этого он попадал в опись наравне с
+    // записями, и получалось «Расшифровано: 0» и тут же «Расшифровок без
+    // записи: 1».
+    const сНастройками = { root: fs.mkdtempSync(path.join(os.tmpdir(), "опись-")), vaultPath: "" };
+    const папка = library.libraryDir(сНастройками);
+    fs.mkdirSync(папка, { recursive: true });
+    fs.writeFileSync(path.join(папка, "config.json"), JSON.stringify({ engine: "builtin", folderPath: "" }));
+    check("настройки не считаются расшифровкой",
+      (await library.listDocs(сНастройками)).length === 0);
+    check("и не попадают в опись",
+      (await library.rebuildIndex(сНастройками)).записи.length === 0);
+    fs.writeFileSync(path.join(папка, "чужое.json"), JSON.stringify({ что: "угодно" }));
+    check("посторонний json тоже не считается расшифровкой",
+      (await library.listDocs(сНастройками)).length === 0);
+    fs.rmSync(сНастройками.root, { recursive: true, force: true });
+
     console.log("\nвторая модель: правка текста и метки");
     // Часовая запись — это около пятидесяти тысяч знаков; целиком такое в модель
     // не отправить. Здесь предел занижен нарочно, чтобы резка была видна.
@@ -421,11 +544,20 @@ app.whenReady().then(async () => {
         (await call(`document.body.textContent.includes("никуда не копируются")`)) === true);
       check("выбор движка на месте",
         (await call(`[...document.querySelectorAll(".vs-tab")].map(b => b.textContent).join("|")`))
-          .includes("На этом компьютере"));
-      // Локальный движок стоит по умолчанию: материал не должен уезжать на
-      // чужой сервер, пока человек этого не выбрал сам.
+          .includes("Встроенное"));
+      // По умолчанию — встроенное распознавание: материал не уезжает на чужой
+      // сервер, пока человек этого не выбрал сам, и ставить при этом нечего.
       const cfg = await call(`window.api.libraryConfig()`);
-      check("по умолчанию расшифровка локальная", cfg.engine === "local", cfg.engine);
+      check("по умолчанию расшифровка идёт на этом компьютере", cfg.engine === "builtin", cfg.engine);
+      const движок = await call(`window.api.libraryEngineStatus()`);
+      check("встроенный путь знает, скачаны ли веса", типБулев(движок.builtinReady), String(движок.builtinReady));
+      check("и предлагает выбрать модель", (движок.models || []).length >= 3, JSON.stringify(движок.models));
+      // Без скачанных весов слушать нечем — и сказано это должно быть
+      // по-человечески, а не сетевой ошибкой вида net::ERR_...
+      const безВесов = await call(`window.api.libraryTranscribe(${JSON.stringify([path.join(mediaRoot, "Планёрка.mp4")])})`);
+      check("без скачанных весов сказано, что нажать, а не показана сетевая ошибка",
+        безВесов.failed.length === 1 && /Скачать модель/.test(безВесов.failed[0].error),
+        JSON.stringify(безВесов.failed));
       // Настройка, сделанная до появления нескольких источников, не должна
       // пропасть: одна папка превращается в один источник.
       await call(`window.api.librarySaveConfig(${JSON.stringify({ folderPath: mediaRoot })})`);
@@ -440,7 +572,9 @@ app.whenReady().then(async () => {
       check("видно, что пропущено", (scan.other || []).some((o) => o.ext === ".txt"), JSON.stringify(scan.other));
       check("сказано, где лежат расшифровки", typeof scan.vault === "string" && scan.vault.length > 0, scan.vault);
 
-      // Приложение не должно молча уходить на платный путь, если локального нет.
+      // Приложение не должно молча уходить на платный путь, если выбран
+      // whisper.cpp, а его нет.
+      await call(`window.api.librarySaveConfig({ engine: "local" })`);
       const отказ = await call(`window.api.libraryTranscribe(${JSON.stringify([path.join(mediaRoot, "Планёрка.mp4")])})`);
       check("без локального движка расшифровка отказывает, а не уезжает в сеть",
         отказ.failed.length === 1 && /whisper|модел/i.test(отказ.failed[0].error),
@@ -450,6 +584,8 @@ app.whenReady().then(async () => {
       ])})`);
       check("нехватка расшифровщика останавливает очередь, а не молотит отказы",
         отказДвоих.failed.length === 1, JSON.stringify(отказДвоих.failed.map((f) => f.error)));
+
+      await call(`window.api.librarySaveConfig({ engine: "builtin" })`);
 
       // Главное обещание: уже прочитанное не читается заново.
       const своя = fs.mkdtempSync(path.join(os.tmpdir(), "lib-своя-"));

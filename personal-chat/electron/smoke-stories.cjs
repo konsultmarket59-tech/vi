@@ -521,11 +521,39 @@ app.whenReady().then(async () => {
         outputDir: motionOutDir,
       })}).then(p => p, e => "ОШИБКА: " + e.message)`);
       check("моушн собрался кнопкой, а не в обход неё", typeof built === "string" && built.endsWith(".mp4"), String(built));
+
+      // Пустая раскладка даёт ровный фон на всю длину — и именно так это и
+      // выглядело со стороны: «сборка не сработала, в результате пятнадцать
+      // секунд синего фона». Сборка шла успешно, накладывать было нечего.
+      const пустой = await call(`window.api.renderStory(${JSON.stringify({
+        spec: {
+          title: "Пустой", presetId: "story", fps: 24, duration: 15,
+          source: { kind: "none", path: "", query: "", trimStart: 0 },
+          bgColor: "#1B4F9C", layers: [],
+        },
+        outputDir: motionOutDir,
+      })}).then(() => "СОБРАЛОСЬ", e => e.message)`);
+      check("пустая раскладка не отдаётся как готовый ролик",
+        пустой !== "СОБРАЛОСЬ" && /нет ни одного слоя/.test(пустой), пустой);
+      check("и сказано, что нажать, чтобы слои появились",
+        /Собрать моушн-дизайн/.test(пустой), пустой);
       if (typeof built === "string" && built.endsWith(".mp4")) {
         const info2 = await vs.probe(ffmpeg, built);
         check("ролик настоящий, нужного размера", info2.width === 1080 && info2.height === 1920, JSON.stringify(info2));
         check("длительность как заказана", Math.abs(info2.duration - 2) < 0.3, String(info2.duration));
       }
+
+      console.log("\nразбор ответа агента");
+      // Закрывающую метку модель теряет постоянно — особенно когда ответ
+      // длинный и упирается в предел длины. Выбрасывать из-за этого готовую
+      // раскладку значит отдать человеку ровный фон вместо ролика.
+      const безМетки = await call(`window.api.parseStoriesScript(${JSON.stringify(
+        "===СЦЕНЫ===\n```json\n{\"duration\":8,\"layers\":[{\"kind\":\"pill\",\"text\":\"Раз\",\"start\":0,\"duration\":4}]}\n```"
+      )})`);
+      check("раскладка без закрывающей метки всё равно разбирается",
+        !!безМетки && безМетки.layers.length === 1, JSON.stringify(безМетки));
+      check("мусор вместо раскладки по-прежнему отвергается",
+        (await call(`window.api.parseStoriesScript("просто текст без разметки")`)) === null);
 
       console.log("\nдизайн-система и разговор с агентом");
       // Дизайн-система: цвета и переменные должны доехать до задания агенту как

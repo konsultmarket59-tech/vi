@@ -16,6 +16,7 @@
     "electron:build:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "docx": "^9.7.1",
     "dompurify": "^3.4.14",
     "exceljs": "^4.4.0",
@@ -59,7 +60,10 @@
       "plugins.json",
       "licence-config.json",
       "managed-config.json",
-      "node_modules/ffmpeg-static/**/*"
+      "node_modules/ffmpeg-static/**/*",
+      "node_modules/@huggingface/transformers/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/onnxruntime-common/**/*"
     ],
     "directories": {
       "output": "release"
@@ -69,6 +73,11 @@
       "target": [
         "nsis",
         "portable"
+      ],
+      "files": [
+        "!node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
+        "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+        "!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**"
       ]
     },
     "nsis": {
@@ -80,16 +89,23 @@
       "target": [
         "AppImage"
       ],
-      "category": "Office"
+      "category": "Office",
+      "files": [
+        "!node_modules/onnxruntime-node/bin/napi-v*/win32/**"
+      ]
     },
     "mac": {
       "target": [
         "zip"
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "files": [
+        "!node_modules/onnxruntime-node/bin/napi-v*/win32/**"
+      ]
     },
     "asarUnpack": [
-      "node_modules/ffmpeg-static/**"
+      "node_modules/ffmpeg-static/**",
+      "node_modules/onnxruntime-node/**"
     ]
   }
 }

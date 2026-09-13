@@ -390,8 +390,14 @@ export interface LibraryConfig {
   folderPath: string;
   /** Куда складывать расшифровки. Пусто — в данные приложения. */
   vaultPath: string;
-  /** «local» — расшифровка на этом компьютере; «remote» — платный сервис. */
-  engine: "local" | "remote";
+  /**
+   * «builtin» — встроенное распознавание, ставить нечего;
+   * «local» — whisper.cpp, если он уже стоит;
+   * «remote» — платный сервис.
+   */
+  engine: "builtin" | "local" | "remote";
+  /** Какая модель встроенного распознавания выбрана. */
+  speechModel: string;
   binPath: string;
   modelPath: string;
   threads: number;
@@ -464,6 +470,11 @@ export interface LibraryEngineStatus {
   bin: boolean;
   model: boolean;
   reason: string;
+  /** Скачаны ли веса встроенного распознавания. */
+  builtinReady: boolean;
+  models: { id: string; name: string; size: string; hint: string }[];
+  cacheDir: string;
+  cacheBytes: number;
 }
 
 /** Кусок расшифровки — то, на что ссылается ответ. */
@@ -493,7 +504,7 @@ export interface LibraryCheck {
 }
 
 export interface LibraryProgress {
-  stage: "file" | "audio" | "transcribe" | "polish" | "polishFailed" | "reused" | "failed" | "done";
+  stage: "file" | "audio" | "transcribe" | "model" | "polish" | "polishFailed" | "reused" | "failed" | "done";
   index?: number;
   total?: number;
   name?: string;
@@ -1211,8 +1222,21 @@ export interface MediaKitField {
   hint?: string;
 }
 
+/** Короткая команда формата. */
+export interface MediaCommand {
+  id: string;
+  group: string;
+  name: string;
+  why: string;
+  /** Русское название — по нему тоже ищут. */
+  aka?: string;
+  prompt: string;
+}
+
 export interface MediaKit {
   paces: MediaKitEntry[];
+  commands: MediaCommand[];
+  commandGroups: { group: string; hint: string }[];
   cameraMoves: MediaKitEntry[];
   shotAngles: MediaKitEntry[];
   lighting: MediaKitEntry[];
@@ -1222,6 +1246,8 @@ export interface MediaKit {
 
 /** Что выбрано из набора для этой генерации. */
 export interface MediaKitChoice {
+  /** Короткая команда формата: /anatomy, /beforeafter и прочие. */
+  command?: string;
   style?: string;
   camera?: string;
   pace?: string;
@@ -1585,6 +1611,8 @@ export interface ElectronAPI {
   libraryPickVault(): Promise<LibraryConfig | null>;
   libraryOpenVault(): Promise<string>;
   libraryEngineStatus(): Promise<LibraryEngineStatus>;
+  libraryDownloadSpeechModel(modelId?: string): Promise<{ ready: boolean; cacheBytes: number }>;
+  libraryRemoveSpeechModel(): Promise<boolean>;
   libraryScan(): Promise<LibraryScan>;
   libraryTranscribe(
     paths: string[],
