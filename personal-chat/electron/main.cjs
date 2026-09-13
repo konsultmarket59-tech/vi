@@ -863,6 +863,7 @@ async function saveSkillCreatorConversation(conv) {
 
 const media = require("./media.cjs");
 const mediakit = require("./mediakit.cjs");
+const mediaforms = require("./mediaforms.cjs");
 const mediarefs = require("./mediarefs.cjs");
 const mediascript = require("./mediascript.cjs");
 const github = require("./github.cjs");
@@ -2643,7 +2644,22 @@ ipcMain.handle("chatbots:sendManual", async (_e, platform, userId, text) =>
 // ---------- media generation IPC ----------
 
 /** Наборы для промпта и поля моделей — их читает раздел «Медиа». */
-ipcMain.handle("media:kit", () => mediakit.KIT);
+ipcMain.handle("media:kit", () => ({
+  ...mediakit.KIT,
+  // Заготовки лежат отдельным модулем: это целые сценарии, а не строки стиля,
+  // и смешивать их со стилями значило бы предлагать выбрать одно вместо другого.
+  templates: mediaforms.TEMPLATES.map((t) => ({
+    id: t.id, name: t.name, kind: t.kind, why: t.why, needsPhoto: !!t.needsPhoto,
+    slots: t.slots.map((s) => ({ key: s.key, name: s.name, hint: s.hint, sample: s.sample || "", block: !!s.block })),
+  })),
+}));
+
+/** Подставить заполненное в заготовку и сказать, чего в ней не хватает. */
+ipcMain.handle("media:fillTemplate", (_e, id, values) => {
+  const template = mediaforms.byId(id);
+  if (!template) throw new Error("Такой заготовки нет.");
+  return { prompt: mediaforms.fill(template, values || {}), empty: mediaforms.emptySlots(template, values || {}) };
+});
 
 /**
  * Дизайн-система для генерации: тот же разбор, что в «Сайтах» и роликах.

@@ -63,6 +63,74 @@ function extFromUrlOrContentType(url, contentType) {
   return MIME_TO_EXT[contentType] || ".bin";
 }
 
+/**
+ * Где в ответе лежит результат.
+ *
+ * Раньше приложение искало его ровно в одном месте — `data.url`. У шлюза за
+ * одним адресом стоят десятки моделей разных поставщиков, и отвечают они
+ * по-разному: кто-то кладёт ссылку в `data.url`, кто-то отдаёт список
+ * `data: [{ url }]`, кто-то зовёт поле `output`, `result` или `image_url`, а
+ * кто-то не даёт ссылки вовсе и присылает сам файл строкой base64. Заказ при
+ * этом честно выполнен, и деньги за него сняты — а приложение говорило
+ * «ссылка не получена» и выбрасывало оплаченное. Ровно это и случилось с
+ * GPT-5 Image Mini.
+ *
+ * Поэтому ищем не по известному пути, а по всему ответу: обходим его целиком и
+ * берём первое, что похоже на файл. Порядок предпочтения — от самого надёжного
+ * признака к самому слабому, иначе в ответе легко схватить ссылку на
+ * документацию или на превью вместо самого результата.
+ */
+const MEDIA_EXT = /\.(png|jpe?g|webp|gif|bmp|svg|mp4|mov|webm|mkv|mp3|wav|ogg|m4a|flac|aac)(\?|#|$)/i;
+const MEDIA_KEY = /(^|_)(url|uri|link|file|output|result|image|video|audio|src|asset|download)s?($|_)/i;
+// Служебные ссылки, которые в ответах попадаются рядом с результатом и файлом
+// не являются: на них уходит скачивание, и вместо картинки на диск ложится
+// страница документации.
+const NOT_MEDIA = /(^|\/\/)(docs?|help|support|status|www)\.|\/(docs|pricing|terms|privacy|models)(\/|$)/i;
+
+function scoreUrl(key, value) {
+  if (NOT_MEDIA.test(value)) return 0;
+  if (MEDIA_EXT.test(value)) return 3;
+  if (MEDIA_KEY.test(key)) return 2;
+  return 0;
+}
+
+function resultPayload(result) {
+  let best = null;
+  const seen = new Set();
+  const walk = (value, key) => {
+    if (!value || typeof value === "number" || typeof value === "boolean") return;
+    if (typeof value === "string") {
+      if (/^data:[^;,]+;base64,/.test(value)) {
+        const mime = value.slice(5, value.indexOf(";"));
+        if (!best || best.score < 4) best = { kind: "base64", data: value.split(",")[1], mime, score: 4 };
+        return;
+      }
+      if (/^https?:\/\//.test(value)) {
+        const score = scoreUrl(key, value);
+        if (score && (!best || score > best.score)) best = { kind: "url", url: value, score };
+        return;
+      }
+      // Голый base64 без заголовка — так отдаёт часть моделей изображений
+      // (поле b64_json). Короткие строки сюда не попадают: это идентификаторы
+      // и подписи, а не файл.
+      if (/^(b64|base64)/i.test(key) && value.length > 256 && /^[A-Za-z0-9+/=\s]+$/.test(value)) {
+        if (!best || best.score < 4) best = { kind: "base64", data: value, mime: "", score: 4 };
+      }
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, key);
+      return;
+    }
+    for (const [k, v] of Object.entries(value)) walk(v, k);
+  };
+  walk(result, "");
+  return best;
+}
+
 async function pollUntilDone(baseUrl, apiKey, id, type, onTick) {
   const cfg = POLL_CONFIG[type] || POLL_CONFIG.image;
   const start = Date.now();
@@ -134,18 +202,38 @@ async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", 
 
 /** Скачать готовое и записать рядом опись — общее для генерации и дозабора. */
 async function download(root, result, { type, model, prompt, projectId, recipe = "", input = null }) {
-  const mediaUrl = result?.data?.url;
-  if (!mediaUrl) throw new Error("Генерация завершена, но ссылка на результат не получена.");
-  const fileRes = await fetch(mediaUrl);
-  if (!fileRes.ok) throw new Error(`Не удалось скачать результат (${fileRes.status}).`);
-  const contentType = fileRes.headers.get("content-type") || "";
-  const buffer = Buffer.from(await fileRes.arrayBuffer());
-  const ext = extFromUrlOrContentType(mediaUrl, contentType);
-
   const dir = mediaDir(root, projectId);
   await ensureDir(dir);
   const id = result.id || `media_${Date.now()}`;
-  const fileName = id.replace(/[^a-zA-Z0-9_-]/g, "") + ext;
+  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "");
+
+  const found = resultPayload(result);
+  if (!found) {
+    // Ответ есть, заказ выполнен, а файла в нём не нашлось. Это не повод
+    // выбросить ответ: он единственное, по чему можно понять, как эта модель
+    // отдаёт результат. Кладём его рядом целиком и называем файл в сообщении —
+    // иначе разбираться не с чем, а деньги уже сняты.
+    const dump = path.join(dir, `ответ-${safeId}.json`);
+    await writeJson(dump, result);
+    throw new Error(
+      "Заказ выполнен, но файла в ответе модели не нашлось. Ответ целиком сохранён рядом с генерациями: " +
+        `${dump}. Заказ остался в «Незабранных» — ничего не потеряно.`
+    );
+  }
+
+  let buffer;
+  let ext;
+  if (found.kind === "base64") {
+    buffer = Buffer.from(found.data.replace(/\s+/g, ""), "base64");
+    ext = MIME_TO_EXT[found.mime] || (type === "video" ? ".mp4" : type === "audio" ? ".mp3" : ".png");
+  } else {
+    const fileRes = await fetch(found.url);
+    if (!fileRes.ok) throw new Error(`Не удалось скачать результат (${fileRes.status}).`);
+    const contentType = fileRes.headers.get("content-type") || "";
+    buffer = Buffer.from(await fileRes.arrayBuffer());
+    ext = extFromUrlOrContentType(found.url, contentType);
+  }
+  const fileName = safeId + ext;
   const filePath = path.join(dir, fileName);
   await fs.writeFile(filePath, buffer);
 
@@ -163,7 +251,7 @@ async function download(root, result, { type, model, prompt, projectId, recipe =
         ? Object.fromEntries(Object.entries(input).filter(([k]) => k !== "prompt" && k !== "images"))
         : undefined,
   };
-  await writeJson(path.join(dir, id.replace(/[^a-zA-Z0-9_-]/g, "") + ".json"), record);
+  await writeJson(path.join(dir, safeId + ".json"), record);
   return { ...record, localPath: filePath };
 }
 
@@ -243,7 +331,7 @@ async function generate(root, opts) {
 
   // Иногда ответ приходит готовым сразу — тогда опрашивать нечего.
   let result;
-  if (createBody.status === "completed" && createBody?.data?.url) {
+  if (createBody.status === "completed" && resultPayload(createBody)) {
     result = createBody;
   } else {
     try {
@@ -302,6 +390,7 @@ async function list(root, projectId) {
 
 module.exports = {
   PENDING_FILE,
+  resultPayload,
   looksLikeItem,
   generate,
   collect,

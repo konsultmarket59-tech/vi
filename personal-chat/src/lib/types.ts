@@ -1235,7 +1235,28 @@ export interface MediaCommand {
   prompt: string;
 }
 
+/** Место в заготовке, которое заполняют своим. */
+export interface MediaTemplateSlot {
+  key: string;
+  name: string;
+  hint: string;
+  sample: string;
+  /** Необязательный блок: пустым он выкидывается из промпта целиком. */
+  block: boolean;
+}
+
+/** Заготовка промпта — целый сценарий, а не строка стиля. */
+export interface MediaTemplate {
+  id: string;
+  name: string;
+  kind: MediaType;
+  why: string;
+  needsPhoto: boolean;
+  slots: MediaTemplateSlot[];
+}
+
 export interface MediaKit {
+  templates: MediaTemplate[];
   paces: MediaKitEntry[];
   commands: MediaCommand[];
   commandGroups: { group: string; hint: string }[];
@@ -1724,6 +1745,7 @@ export interface ElectronAPI {
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
   mediaKit(): Promise<MediaKit>;
+  mediaFillTemplate(id: string, values: Record<string, string>): Promise<{ prompt: string; empty: string[] }>;
   mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;
   mediaResolvePrompt(prompt: string, references: MediaReference[]): Promise<MediaResolvedPrompt>;
   mediaScriptKinds(): Promise<MediaScriptKind[]>;

@@ -51,9 +51,12 @@ function startServer(behaviour) {
         принято.опросов += 1;
         const готово = behaviour.readyAfter !== undefined && принято.опросов >= behaviour.readyAfter;
         res.writeHead(200, { "Content-Type": "application/json" });
+        const порт = server.address().port;
         res.end(JSON.stringify(
           готово
-            ? { id: "order-1", status: "completed", data: { url: `http://127.0.0.1:${server.address().port}/file.png` }, usage: { cost_rub: 5.95 } }
+            ? (behaviour.shape
+                ? behaviour.shape(порт)
+                : { id: "order-1", status: "completed", data: { url: `http://127.0.0.1:${порт}/file.png` }, usage: { cost_rub: 5.95 } })
             : { id: "order-1", status: "processing" }
         ));
         return;
@@ -209,6 +212,93 @@ app.whenReady().then(async () => {
     });
     check("готовый сразу результат тоже сохраняется", !!сразу.localPath && fs.existsSync(сразу.localPath));
     server.close();
+
+    // За одним адресом шлюза стоят десятки моделей разных поставщиков, и
+    // отвечают они по-разному. Пока результат искали ровно в `data.url`,
+    // выполненный и оплаченный заказ любой другой формы объявлялся потерянным —
+    // ровно это и случилось с GPT-5 Image Mini.
+    console.log("\nрезультат находится в ответе любой формы");
+    const формы = {
+      "список data": (порт) => ({ id: "order-1", status: "completed", data: [{ url: `http://127.0.0.1:${порт}/file.png` }] }),
+      "поле output": (порт) => ({ id: "order-1", status: "completed", output: { url: `http://127.0.0.1:${порт}/file.png` } }),
+      "ссылка прямо в result": (порт) => ({ id: "order-1", status: "completed", result: `http://127.0.0.1:${порт}/file.png` }),
+      "вложенный список images": (порт) => ({
+        id: "order-1", status: "completed",
+        data: { images: [{ image_url: `http://127.0.0.1:${порт}/file.png` }] },
+      }),
+      "ссылка без расширения под ключом url": (порт) => ({
+        id: "order-1", status: "completed", data: { url: `http://127.0.0.1:${порт}/file.png?x=1` },
+      }),
+    };
+    for (const [имя, форма] of Object.entries(формы)) {
+      ({ server, принято, base } = await startServer({ readyAfter: 1, shape: форма }));
+      const r = await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      });
+      check(`результат найден: ${имя}`, !!r.localPath && fs.existsSync(r.localPath), r.localPath);
+      check(`незабранных не осталось: ${имя}`, (await media.listPending(dataRoot)).length === 0);
+      server.close();
+    }
+
+    // Часть моделей не даёт ссылки вовсе и присылает сам файл строкой. Скачивать
+    // нечего — файл уже в руках, его надо просто записать.
+    console.log("\nфайл приходит строкой, без ссылки");
+    const пнг = Buffer.from("89504e470d0a1a0a", "hex").toString("base64");
+    for (const [имя, форма] of Object.entries({
+      "data:-строка": () => ({ id: "order-1", status: "completed", data: { url: `data:image/png;base64,${пнг}` } }),
+      "поле b64_json": () => ({ id: "order-1", status: "completed", data: [{ b64_json: пнг.repeat(40) }] }),
+    })) {
+      ({ server, принято, base } = await startServer({ readyAfter: 1, shape: форма }));
+      const r = await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      });
+      check(`файл записан из строки: ${имя}`, !!r.localPath && fs.existsSync(r.localPath), r.localPath);
+      check(`и он не пустой: ${имя}`, fs.statSync(r.localPath).size > 0);
+      check(`скачивать при этом не ходили: ${имя}`, принято.скачиваний === 0, String(принято.скачиваний));
+      server.close();
+    }
+
+    // Ссылка на документацию рядом с результатом — не результат. Если скачать
+    // её, на диск ляжет страница вместо картинки.
+    console.log("\nслужебные ссылки за результат не принимаются");
+    ({ server, принято, base } = await startServer({
+      readyAfter: 1,
+      shape: (порт) => ({
+        id: "order-1", status: "completed",
+        docs: "https://docs.polza.ai/models",
+        data: { url: `http://127.0.0.1:${порт}/file.png` },
+      }),
+    }));
+    const сслк = await media.generate(dataRoot, {
+      baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+    });
+    check("взята ссылка на файл, а не на документацию", сслк.localPath.endsWith(".png"), сслк.localPath);
+    server.close();
+
+    // Если файла в ответе нет совсем — ответ не выбрасывается: он единственное,
+    // по чему можно понять, как эта модель отдаёт результат.
+    console.log("\nответ без файла сохраняется целиком, а заказ остаётся");
+    ({ server, принято, base } = await startServer({
+      readyAfter: 1,
+      shape: () => ({ id: "order-нечего", status: "completed", note: "готово" }),
+    }));
+    let сообщение = "";
+    try {
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      });
+    } catch (e) {
+      сообщение = e.message;
+    }
+    check("сказано, что заказ выполнен и ничего не потеряно", /ничего не потеряно/.test(сообщение), сообщение);
+    check("назван файл с ответом", /ответ-.*\.json/.test(сообщение), сообщение);
+    const путьОтвета = (сообщение.match(/\S+ответ-\S+\.json/) || [""])[0].replace(/\.$/, "");
+    check("и этот файл действительно лежит на диске", !!путьОтвета && fs.existsSync(путьОтвета), путьОтвета);
+    check("заказ остался в незабранных", (await media.listPending(dataRoot)).some((x) => x.id === "order-1"));
+    check("сохранённый ответ не попал в историю как генерация",
+      (await media.list(dataRoot)).every((x) => typeof x.fileName === "string"));
+    server.close();
+    await media.dropPending(dataRoot, "order-1");
   } catch (e) {
     failures++;
     console.log("  FAIL непойманная ошибка —", e && e.message, e && e.stack ? "\n" + e.stack.slice(0, 400) : "");

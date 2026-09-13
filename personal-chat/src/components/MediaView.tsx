@@ -61,6 +61,10 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [params, setParams] = useState<Record<string, string>>({});
   const [design, setDesign] = useState<StoriesDesign | null>(null);
   const [openGroup, setOpenGroup] = useState<string>("");
+  // Заготовка промпта и то, чем заполнены её места. Выбранное здесь никуда не
+  // уходит само: промпт собирается только по нажатию, и человек видит текст.
+  const [templateId, setTemplateId] = useState("");
+  const [slots, setSlots] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<MediaPending[]>([]);
   const [collecting, setCollecting] = useState("");
 
@@ -170,6 +174,10 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
     // Поля у типов разные: оставить заполненную длительность ролика при
     // переходе на картинку значит отправить модели поле, которого она не знает.
     setParams({});
+    // Заготовка принадлежит своему типу: оставить видеосценарий выбранным при
+    // переходе на картинку значит собрать промпт, который эта модель не поймёт.
+    setTemplateId("");
+    setSlots({});
     if (next === "audio") setChoice({});
   }
 
@@ -310,6 +318,29 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   }
 
   const chosenStyle = kit ? kit.styles.find((x) => x.id === choice.style) || null : null;
+  // Заготовки показываются только те, что для этого типа: предлагать
+  // раскадровку ролика на вкладке картинки — значит звать выбрать негодное.
+  const templatesForType = kit ? kit.templates.filter((t) => t.kind === type) : [];
+  const chosenTemplate = kit ? kit.templates.find((x) => x.id === templateId) || null : null;
+
+  /**
+   * Собрать промпт по заготовке и положить его в поле.
+   *
+   * Именно в поле, а не «внутрь», мимо глаз: заготовка — это тридцать строк
+   * указаний, и отправлять их не глядя нельзя. В поле их видно, можно
+   * поправить руками, дописать своё и позвать референсы через @ — всё как с
+   * обычным промптом.
+   */
+  async function applyTemplate() {
+    if (!chosenTemplate) return;
+    try {
+      const filled = await window.api.mediaFillTemplate(chosenTemplate.id, slots);
+      setPrompt(filled.prompt);
+      setError(filled.empty.length ? `Не заполнено: ${filled.empty.join(", ")} — эти места остались в тексте в квадратных скобках.` : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   function entryName(list: MediaKitEntry[], id: string | undefined, label: string) {
     const found = id ? list.find((x) => x.id === id) : null;
@@ -639,6 +670,60 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             <p className="hint">Не удалось загрузить список моделей: {modelsError}. Введите ID вручную.</p>
           ) : (
             models.length > 0 && <p className="hint">Доступно моделей типа «{type}»: {models.length} — начните вводить, появятся варианты.</p>
+          )}
+
+          {!!templatesForType.length && (
+            <div className="media-forms">
+              <label>Заготовка промпта (необязательно)</label>
+              <p className="hint">
+                Целый сценарий, а не строка стиля: что неприкосновенно, что происходит по секундам,
+                что запрещено. Заполните места и нажмите «Собрать» — текст ляжет в поле промпта,
+                где его можно поправить.
+              </p>
+              <select
+                value={templateId}
+                onChange={(e) => {
+                  setTemplateId(e.target.value);
+                  setSlots({});
+                }}
+              >
+                <option value="">Без заготовки</option>
+                {templatesForType.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {chosenTemplate && (
+                <>
+                  <p className="hint">{chosenTemplate.why}</p>
+                  {chosenTemplate.needsPhoto && !references.length && !referenceImagePath && (
+                    <p className="hint">
+                      Эта заготовка рассчитана на вашу картинку — приложите её референсом, иначе
+                      модель будет придумывать сцену с нуля.
+                    </p>
+                  )}
+                  {chosenTemplate.slots.map((slot) => (
+                    <div key={slot.key} className="media-form-slot">
+                      <label>
+                        {slot.name}
+                        {slot.block && <span className="hint"> — можно не заполнять</span>}
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={slots[slot.key] || ""}
+                        placeholder={slot.sample}
+                        onChange={(e) => setSlots({ ...slots, [slot.key]: e.target.value })}
+                      />
+                      <span className="media-param-hint">{slot.hint}</span>
+                    </div>
+                  ))}
+                  <button className="btn btn-secondary" onClick={applyTemplate}>
+                    Собрать промпт
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
           <label>Промпт</label>
