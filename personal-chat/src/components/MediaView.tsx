@@ -13,6 +13,7 @@ import type {
   MediaType,
   Project,
   Settings,
+  Skill,
   StoriesDesign,
 } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
@@ -28,6 +29,8 @@ const CURATED_BY_TYPE: Record<MediaType, ModelInfo[]> = {
 interface Props {
   projects: Project[];
   settings: Settings;
+  /** Навыки: ими промпт правят по существу — см. «Доработать промпт навыком». */
+  skills: Skill[];
   onOpenSettings: () => void;
 }
 
@@ -37,7 +40,7 @@ const TYPE_PLACEHOLDERS: Record<MediaType, { model: string; prompt: string }> = 
   audio: { model: "elevenlabs/sound-effect-v2", prompt: "Спокойная фоновая мелодия для рекламного ролика, 15 секунд" },
 };
 
-export default function MediaView({ projects, settings, onOpenSettings }: Props) {
+export default function MediaView({ projects, settings, skills, onOpenSettings }: Props) {
   const [type, setType] = useState<MediaType>("image");
   const [model, setModel] = useState(TYPE_PLACEHOLDERS.image.model);
   const [prompt, setPrompt] = useState("");
@@ -65,6 +68,12 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   // думают о ней ровно в тот момент, когда смотрят на растущую историю.
   const [mediaFolder, setMediaFolder] = useState(settings.mediaFolder || "");
   const [moving, setMoving] = useState(false);
+  // Навык, которым правят промпт по существу, и его предложение. Предложение
+  // живёт отдельно от поля: заменить свой текст чужим без спроса — потерять
+  // свой текст.
+  const [skillId, setSkillId] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refined, setRefined] = useState<{ prompt: string; notes: string; raw: boolean } | null>(null);
   // Заготовка промпта и то, чем заполнены её места. Выбранное здесь никуда не
   // уходит само: промпт собирается только по нажатию, и человек видит текст.
   const [templateId, setTemplateId] = useState("");
@@ -347,6 +356,26 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
    * поправить руками, дописать своё и позвать референсы через @ — всё как с
    * обычным промптом.
    */
+  /**
+   * Пропустить промпт через навык.
+   *
+   * Модель рисует что просят — и охотно рисует конструктив, которого не бывает.
+   * Заметить это может тот, кто знает предмет, а навык на этот случай уже
+   * написан: пусть он и правит текст, по своей части.
+   */
+  async function refineWithSkill() {
+    if (!skillId || !prompt.trim()) return;
+    setRefining(true);
+    setError(null);
+    try {
+      setRefined(await window.api.mediaRefinePrompt({ prompt, skillId, type }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefining(false);
+    }
+  }
+
   /** Выбрать (или убрать) свою папку и запомнить её в настройках. */
   async function chooseFolder(dir: string) {
     setMediaFolder(dir);
@@ -784,7 +813,8 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               id: c.id,
               insert: c.id,
               title: c.why,
-              hint: c.group,
+              hint: c.aka,
+              group: c.group,
             }))}
             emptyMentionHint="Референсов пока нет — добавьте их кнопкой ниже, и они появятся здесь."
           />
@@ -910,6 +940,65 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </>
           )}
 
+          {!!skills.length && (
+            <div className="media-refine">
+              <label>Доработать промпт навыком</label>
+              <p className="hint">
+                Модель рисует то, что просят, — и охотно рисует узел, которого в реальности не
+                бывает. Навык правит промпт по своей части: называет вещи принятыми терминами,
+                убирает то, что так не устроено, добавляет то, без чего кадр будет неверным.
+                Ваш текст при этом остаётся на месте — предложение показывается рядом.
+              </p>
+              <div className="folder-row">
+                <select value={skillId} onChange={(e) => setSkillId(e.target.value)}>
+                  <option value="">Без навыка</option>
+                  {skills.map((sk) => (
+                    <option key={sk.id} value={sk.id}>
+                      {sk.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn btn-secondary"
+                  disabled={!skillId || !prompt.trim() || refining}
+                  onClick={refineWithSkill}
+                >
+                  {refining ? "Навык читает…" : "Доработать"}
+                </button>
+              </div>
+              {refined && (
+                <div className="media-refined">
+                  {refined.raw ? (
+                    <p className="hint">
+                      Навык ответил не по разметке — ниже его ответ целиком, решайте сами, что
+                      из него брать.
+                    </p>
+                  ) : refined.notes ? (
+                    <>
+                      <span className="media-param-hint">Что исправлено:</span>
+                      <pre className="media-refined-notes">{refined.notes}</pre>
+                    </>
+                  ) : null}
+                  <textarea rows={5} readOnly value={refined.prompt} />
+                  <div className="folder-row">
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setPrompt(refined.prompt);
+                        setRefined(null);
+                      }}
+                    >
+                      Заменить промпт
+                    </button>
+                    <button className="link-btn" onClick={() => setRefined(null)}>
+                      оставить свой
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {kit && type !== "audio" && (
             <>
               <label>Приёмы</label>
@@ -994,6 +1083,38 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                         checked={params[f.key] === "true"}
                         onChange={(e) => setParams({ ...params, [f.key]: e.target.checked ? "true" : "" })}
                       />
+                    ) : f.kind === "number" && f.min !== undefined && f.max !== undefined ? (
+                      /*
+                        Число с известными границами — ползунком. Поле ввода не
+                        говорит, что в него можно писать: «строгость к промпту»
+                        принимает от 1 до 20, и без подписи человек пишет 100 и
+                        получает отказ модели. У ползунка границы видны, а
+                        промахнуться мимо них нельзя.
+                        Пустое значение при этом остаётся возможным: незаполненное
+                        поле не уходит вовсе, и это лучше, чем навязанное
+                        умолчание, которое модель поняла бы иначе.
+                      */
+                      <div className="media-range">
+                        <span className="media-range-edge">{f.min}</span>
+                        <input
+                          type="range"
+                          value={params[f.key] || String(f.min)}
+                          min={f.min}
+                          max={f.max}
+                          step={f.step || 1}
+                          onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
+                        />
+                        <span className="media-range-edge">{f.max}</span>
+                        <span className="media-range-value">{params[f.key] || "не задано"}</span>
+                        {params[f.key] && (
+                          <button
+                            className="link-btn"
+                            onClick={() => setParams({ ...params, [f.key]: "" })}
+                          >
+                            сбросить
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type={f.kind === "number" ? "number" : "text"}
@@ -1001,6 +1122,11 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                         min={f.min}
                         max={f.max}
                         step={f.step}
+                        placeholder={
+                          f.kind === "number" && (f.min !== undefined || f.max !== undefined)
+                            ? `от ${f.min ?? "—"} до ${f.max ?? "—"}`
+                            : undefined
+                        }
                         onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
                       />
                     )}

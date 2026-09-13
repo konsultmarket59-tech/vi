@@ -626,7 +626,9 @@ body {
 .mention-box { position: relative; }
 .mention-list {
   position: absolute; left: 0; right: 0; top: 100%; z-index: 30;
-  max-height: 260px; overflow-y: auto; margin-top: 2px;
+  /* Список не обрезается по числу пунктов — его держит прокрутка. Сто с
+     лишним команд без высоты выросли бы за нижний край окна. */
+  max-height: 320px; overflow-y: auto; margin-top: 2px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(20, 22, 28, 0.14);
 }
@@ -2193,4 +2195,75 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
 .media-form-slot textarea {
   width: 100%;
   resize: vertical;
+}
+
+/* Заголовок раздела внутри списка команд и счётчик найденного. */
+.mention-group {
+  margin: 6px 0 2px; padding: 0 10px;
+  font-size: 11px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.mention-count {
+  position: sticky; top: 0; z-index: 1;
+  margin: 0; padding: 6px 10px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  font-size: 11px; color: var(--text-dim);
+}
+
+/*
+ * Число с известными границами — ползунком: границы видно, промахнуться мимо
+ * них нельзя, а рядом стоит выставленное значение, иначе ползунок молчит.
+ */
+.media-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.media-range input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+.media-range-edge {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.media-range-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 64px;
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+/* Доработка промпта навыком: предложение стоит рядом со своим текстом, а не вместо него. */
+.media-refine {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.media-refined {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.media-refined textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.media-refined-notes {
+  margin: 4px 0 8px;
+  padding: 8px;
+  background: var(--bg-soft, #f6f7f9);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

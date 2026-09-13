@@ -224,7 +224,7 @@ export default function App() {
           <DirectView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "media" && (
-          <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
+          <MediaView projects={projects} settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />

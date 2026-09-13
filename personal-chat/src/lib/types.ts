@@ -1758,6 +1758,11 @@ export interface ElectronAPI {
   mediaKit(): Promise<MediaKit>;
   mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
   mediaSweepPending(): Promise<{ collected: number; waiting: number }>;
+  mediaRefinePrompt(payload: { prompt: string; skillId: string; type: MediaType }): Promise<{
+    prompt: string;
+    notes: string;
+    raw: boolean;
+  }>;
   onMediaCollected(cb: (payload: { collected: number }) => void): () => void;
   mediaFillTemplate(id: string, values: Record<string, string>): Promise<{ prompt: string; empty: string[] }>;
   mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;

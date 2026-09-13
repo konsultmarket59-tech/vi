@@ -232,6 +232,35 @@ app.whenReady().then(async () => {
       опись.includes("Mixed Media") && опись.includes("Эффект Вертиго") && опись.includes("плавно"), опись);
     check("невыбранное в опись не лезет", !kit.describeChoice({}).length);
 
+    console.log("\nразмер изображения и границы чисел");
+    check("размер кадра выбирается 1K/2K/4K",
+      kit.MODEL_FIELDS.image.some((f) => f.key === "size" && f.options.join() === "1K,2K,4K"),
+      JSON.stringify(kit.MODEL_FIELDS.image.map((f) => f.key)));
+    check("выбранный размер уезжает в запрос", kit.buildParams("image", { size: "2K" }).size === "2K");
+    check("невыбранный размер не уезжает", !("size" in kit.buildParams("image", { size: "" })));
+    // У числа без границ ползунка быть не может: seed — произвольное число, и
+    // ограничивать его нечем.
+    check("у чисел с границами они заданы обе",
+      ["n", "guidance_scale", "steps"].every((k2) => {
+        const f = kit.MODEL_FIELDS.image.find((x) => x.key === k2);
+        return typeof f.min === "number" && typeof f.max === "number";
+      }));
+    check("у зерна границ нет — это произвольное число",
+      kit.MODEL_FIELDS.image.find((f) => f.key === "seed").min === undefined);
+
+    console.log("\nкоманды находятся все");
+    check("команд ровно сто две", kit.COMMANDS.length === 102, String(kit.COMMANDS.length));
+    check("у каждой команды есть раздел", kit.COMMANDS.every((c) => !!c.group));
+    // Список ходит по рукам с двумя опечатками. Человек наберёт то, что у него
+    // перед глазами, и команда обязана найтись.
+    for (const [набрано, ожидается] of [["scenebysscene", "scenebyscene"], ["problemssolution", "problemsolution"]]) {
+      const найдено = kit.COMMANDS.filter(
+        (c) => c.id.includes(набрано) || (c.aka || "").includes(набрано)
+      );
+      check(`написание «${набрано}» находит /${ожидается}`,
+        найдено.some((c) => c.id === ожидается), JSON.stringify(найдено.map((c) => c.id)));
+    }
+
     console.log("\nзаготовки промптов");
     const forms = require("./mediaforms.cjs");
     const путь = forms.byId("camera-path");
@@ -419,6 +448,65 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Медиа")).click()`);
       await new Promise((r) => setTimeout(r, 800));
       check("раздел открывается", (await call(`!!document.querySelector(".media-form")`)) === true);
+
+      // Список команд по «/» обязан показывать ВСЕ сто две. Раньше он обрезался
+      // на тридцати, и половина команд для человека просто не существовала: он
+      // открывал список, видел конец и считал, что остального нет.
+      await call(`(() => {
+        const t = document.querySelector(".mention-box textarea");
+        const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+        set.call(t, "/");
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+        t.setSelectionRange(1, 1);
+        t.dispatchEvent(new Event("click", { bubbles: true }));
+      })()`);
+      await new Promise((r) => setTimeout(r, 400));
+      const вСписке = await call(`document.querySelectorAll(".mention-list .mention-item").length`);
+      check("по «/» видны все сто две команды", вСписке === 102, String(вСписке));
+      check("и список разбит на разделы",
+        (await call(`document.querySelectorAll(".mention-list .mention-group").length`)) === 10,
+        String(await call(`document.querySelectorAll(".mention-list .mention-group").length`)));
+      check("сказано, сколько пунктов в списке",
+        (await call(`(document.querySelector(".mention-count") || {}).textContent || ""`)).includes("102"));
+      // Высоту держит прокрутка, а не отсечение: иначе сто пунктов уходят за
+      // нижний край окна.
+      check("список прокручивается, а не растёт за край",
+        (await call(`(() => { const l = document.querySelector(".mention-list"); return l.scrollHeight > l.clientHeight; })()`)) === true);
+      await call(`(() => {
+        const t = document.querySelector(".mention-box textarea");
+        const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+        set.call(t, "");
+        t.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+
+      // Числа с известными границами — ползунками: поле ввода не говорит, что
+      // в него можно писать, и человек пишет 100 туда, где принимают до 20.
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.includes("Показать дополнительные")) ?. click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      const ползунков = await call(`document.querySelectorAll(".media-range input[type=range]").length`);
+      check("числа с границами настраиваются ползунком", ползунков >= 3, String(ползунков));
+      check("границы подписаны у каждого ползунка",
+        (await call(`[...document.querySelectorAll(".media-range")].every(n => n.querySelectorAll(".media-range-edge").length === 2)`)) === true);
+      check("и рядом видно выставленное значение",
+        (await call(`[...document.querySelectorAll(".media-range")].every(n => !!n.querySelector(".media-range-value"))`)) === true);
+      check("размер кадра выбирается в форме",
+        (await call(`[...document.querySelectorAll("label")].some(l => l.textContent.includes("Размер"))`)) === true);
+
+      // Навык правит промпт по существу — ради узлов, которых в реальности не
+      // бывает. Блок обязан быть в разделе, а не только в общем чате.
+      await call(`window.api.saveSkill(${JSON.stringify({
+        id: "itr", name: "ИТР", description: "конструктивные узлы", content: "Правь по СП и ГОСТ.",
+      })})`);
+      // Список навыков приезжает в раздел из окна приложения, поэтому его надо
+      // перечитать — в жизни это происходит при следующем открытии.
+      await call(`location.reload()`);
+      await new Promise((r) => setTimeout(r, 2500));
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Медиа")).click()`);
+      await new Promise((r) => setTimeout(r, 900));
+      check("промпт можно доработать навыком",
+        (await call(`[...document.querySelectorAll("label")].some(l => l.textContent.includes("Доработать промпт навыком"))`)) === true);
+      check("и навык для этого выбирается из списка",
+        (await call(`typeof window.api.mediaRefinePrompt`)) === "function");
 
       // Папка для готовых файлов выбирается там же, где смотрят на растущую
       // историю, — а не в общих настройках, куда за этим не пойдут.

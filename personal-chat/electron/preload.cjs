@@ -337,6 +337,7 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
   mediaKit: () => ipcRenderer.invoke("media:kit"),
   mediaMoveToFolder: (projectId) => ipcRenderer.invoke("media:moveToFolder", projectId),
   mediaSweepPending: () => ipcRenderer.invoke("media:sweepPending"),
+  mediaRefinePrompt: (payload) => ipcRenderer.invoke("media:refinePrompt", payload),
   onMediaCollected: (cb) => {
     const h = (_e, payload) => cb(payload);
     ipcRenderer.on("media:collected", h);
