@@ -30,15 +30,12 @@ export default function SitesView() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [copied, setCopied] = useState("");
-  const [limit, setLimit] = useState<{ left: number; limit: number } | null>(null);
-  const [tildaPages, setTildaPages] = useState<{ title: string; alias: string }[] | null>(null);
 
   const [brief, setBrief] = useState({ title: "", kind: "лендинг", goal: "", audience: "", extra: "", maxImages: 6 });
 
   useEffect(() => {
     window.api.sitesConfig().then(setConfig);
     window.api.sitesList().then(setList);
-    window.api.sitesTildaLimit().then(setLimit);
   }, []);
 
   const refreshScan = useCallback(async () => {
@@ -75,7 +72,6 @@ export default function SitesView() {
       const made = await window.api.sitesGenerate({
         ...brief,
         title: brief.title || "Новый сайт",
-        tilda: tildaPages ? { pages: tildaPages } : null,
       });
       setSite(made);
       setTab("site");
@@ -112,25 +108,6 @@ export default function SitesView() {
       setSaved(`${result.blocks.length} блоков · ${result.previewFile}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** Страницы проекта Тильды — чтобы новый сайт не повторял существующие. */
-  async function loadTilda() {
-    setError("");
-    setBusy(true);
-    try {
-      const pages = (await window.api.sitesTilda("pages", { projectid: config?.projectId })) as {
-        title: string;
-        alias: string;
-      }[];
-      setTildaPages(pages.map((p) => ({ title: p.title, alias: p.alias })));
-      setLimit(await window.api.sitesTildaLimit());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setLimit(await window.api.sitesTildaLimit());
     } finally {
       setBusy(false);
     }
@@ -252,55 +229,6 @@ export default function SitesView() {
               </label>
             </section>
 
-            <section className="vs-block">
-              <h3>Тильда</h3>
-              <p className="vs-hint">
-                <b>Готовый сайт переносится руками.</b> У API Тильды семь методов, и все — на чтение:
-                метода, который создаёт или меняет страницу, у Тильды нет. Ключи нужны для другого:
-                посмотреть, что уже есть в проекте, чтобы новые страницы не повторяли существующие.
-              </p>
-              <label className="vs-field">
-                Публичный ключ
-                <input
-                  value={config?.publickey || ""}
-                  onChange={(e) => patch({ publickey: e.target.value })}
-                  placeholder="Настройки сайта → Экспорт → API"
-                />
-              </label>
-              <label className="vs-field">
-                Секретный ключ
-                <input
-                  type="password"
-                  value={config?.secretkey || ""}
-                  onChange={(e) => patch({ secretkey: e.target.value })}
-                  placeholder={config?.hasSecret ? "сохранён" : "вставьте ключ"}
-                />
-              </label>
-              <label className="vs-field">
-                Номер проекта
-                <input value={config?.projectId || ""} onChange={(e) => patch({ projectId: e.target.value })} placeholder="projectid" />
-              </label>
-              <div className="vs-row">
-                <button className="btn btn-secondary btn-small" disabled={busy || !config?.projectId} onClick={loadTilda}>
-                  Посмотреть страницы проекта
-                </button>
-                {limit && (
-                  <span className="hint">
-                    Осталось запросов в этом часе: {limit.left} из {limit.limit}
-                  </span>
-                )}
-              </div>
-              {tildaPages && (
-                <p className="vs-hint">
-                  В проекте {tildaPages.length} страниц: {tildaPages.slice(0, 8).map((p) => p.title).join(", ")}
-                  {tildaPages.length > 8 ? "…" : ""}
-                </p>
-              )}
-              <p className="vs-hint">
-                API доступен только на тарифе Business. Лимит Тильды — 150 запросов в час; за нагрузку
-                аккаунт блокируют, поэтому приложение считает запросы само и не даст его превысить.
-              </p>
-            </section>
 
             <section className="vs-block">
               <h3>Куда выгружать</h3>
@@ -339,8 +267,8 @@ export default function SitesView() {
         </div>
 
         {tab === "site" && site && (
-          <div className="vs-body">
-            <div className="vs-form">
+          <div className="vs-body site-body">
+            <div className="vs-form site-list">
               {!!site.problems?.length && (
                 <section className="vs-block">
                   <h3>Замечания</h3>
@@ -449,15 +377,15 @@ export default function SitesView() {
 
             <Splitter
               id="сайты-просмотр"
-              variable="--vs-right-width"
-              fallback={420}
-              min={280}
-              max={900}
-              side="right"
-              label="Граница просмотра"
+              variable="--site-left-width"
+              fallback={380}
+              min={240}
+              max={760}
+              side="left"
+              label="Граница списка блоков"
             />
 
-            <div className="vs-right">
+            <div className="vs-right site-stage">
               <h3>Просмотр</h3>
               {openedBlock ? (
                 <BlockPreview block={openedBlock} />

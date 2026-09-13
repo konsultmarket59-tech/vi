@@ -503,6 +503,65 @@ function applyPhotos(blocks = [], byQuery = {}) {
   return { blocks: next, missing: [...missing], used };
 }
 
+// ---------- логотип ----------
+//
+// Логотип агент видит, но вставить не может: файл лежит на компьютере, а путь
+// с компьютера на сайте превращается в пустое место. Поэтому он ставит метку, а
+// приложение подставляет сам файл строкой данных — такая картинка работает и в
+// просмотре, и в Тильде, и не зависит от того, загрузили её куда-то или нет.
+
+const LOGO_MARK = /\[ЛОГОТИП(?::\s*([^\]]+))?\]/g;
+
+/** Метки логотипа в блоках: с уточнением, какой именно вариант нужен. */
+function collectLogoMarks(blocks = []) {
+  const wanted = new Map();
+  for (const block of blocks) {
+    for (const source of [block.html, block.css]) {
+      for (const m of String(source || "").matchAll(LOGO_MARK)) {
+        const hint = (m[1] || "").trim();
+        if (!wanted.has(hint)) wanted.set(hint, []);
+        if (!wanted.get(hint).includes(block.id)) wanted.get(hint).push(block.id);
+      }
+    }
+  }
+  return [...wanted.entries()].map(([hint, blockIds]) => ({ hint, blockIds }));
+}
+
+/**
+ * Выбирает файл логотипа по уточнению из метки.
+ *
+ * Уточнение — слова вроде «белый», «на тёмном», «знак». Совпадение ищется по
+ * имени файла: варианты логотипов почти всегда так и называются.
+ */
+function pickLogo(files = [], hint = "") {
+  const images = files.filter((f) => f.kind === "image");
+  if (!images.length) return null;
+  const words = String(hint || "").toLowerCase().split(/[\s,._-]+/).filter((w) => w.length > 2);
+  if (words.length) {
+    const scored = images
+      .map((f) => ({ f, score: words.filter((w) => f.name.toLowerCase().includes(w)).length }))
+      .sort((a, b) => b.score - a.score);
+    if (scored[0].score > 0) return scored[0].f;
+  }
+  return images[0];
+}
+
+/** Подставляет в блоки готовые строки данных вместо меток логотипа. */
+function applyLogos(blocks = [], byHint = {}) {
+  const missing = new Set();
+  const swap = (text) =>
+    String(text || "").replace(LOGO_MARK, (whole, hint) => {
+      const key = (hint || "").trim();
+      const found = byHint[key];
+      if (!found) {
+        missing.add(key || "без уточнения");
+        return whole;
+      }
+      return found;
+    });
+  return { blocks: blocks.map((b) => ({ ...b, html: swap(b.html), css: swap(b.css) })), missing: [...missing] };
+}
+
 // ---------- разбор ответа агента ----------
 
 /**
@@ -512,6 +571,28 @@ function applyPhotos(blocks = [], byQuery = {}) {
  * экранировании модель ошибается тем чаще, чем длиннее блок. Разметка же
  * восстанавливается даже из частично испорченного ответа.
  */
+/**
+ * Снимает ограду markdown вокруг кода.
+ *
+ * Модель почти всегда оборачивает разметку в ```html … ```, и без снятия ограда
+ * попадает внутрь блока. Последствия несоразмерны причине: CSS, начинающийся с
+ * ```css, для браузера недействителен целиком — блок остаётся вообще без
+ * стилей, а в просмотре видно текст ограды вместо страницы. Со стороны это
+ * выглядит как «модель плохо рисует», хотя рисует она нормально.
+ */
+function stripFence(text) {
+  let body = String(text || "").trim();
+  // Ограда может стоять несколько раз подряд, если модель разбила кусок.
+  for (let i = 0; i < 3; i++) {
+    const m = /^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n?```$/.exec(body);
+    if (!m) break;
+    body = m[1].trim();
+  }
+  // Осталась одиночная ограда без пары — тоже убираем, иначе она видна на сайте.
+  body = body.replace(/^```[a-zA-Z0-9_-]*\s*$/gm, "").trim();
+  return body;
+}
+
 function parseSite(reply) {
   const text = String(reply || "");
   const site = { plan: "", pages: [], blocks: [], forms: [], notes: [] };
@@ -527,7 +608,7 @@ function parseSite(reply) {
     const field = (name) => {
       const re = new RegExp(`---\\s*${name}\\s*---\\s*([\\s\\S]*?)(?=---\\s*[А-ЯA-Z]|$)`, "i");
       const found = re.exec(body);
-      return found ? found[1].trim() : "";
+      return found ? stripFence(found[1]) : "";
     };
     site.blocks.push({
       id,
@@ -596,6 +677,14 @@ const SITE_AGENT_PROMPT = `
 фотографии.
 
 Метку можно ставить и в CSS: background: url([ФОТО: soft blurred forest]).
+
+=== ЛОГОТИП ===
+Если логотип передан — ИСПОЛЬЗУЙ ЕГО: в шапке, а если уместно, то и в подвале.
+Ставь метку с уточнением, какой вариант нужен:
+  [ЛОГОТИП: белый на тёмном]
+Приложение подставит сам файл. Уточнение пиши словами из имени файла — они
+обычно и описывают вариант. Сайт без логотипа выглядит как чужой шаблон, а не
+как сайт этого бренда.
 
 === ФОРМЫ: ВЁРСТАЙ, НО ПОМЕЧАЙ ===
 Форму рисуй целиком и в общем стиле — поля, подписи, кнопку, состояния. Это часть
@@ -834,12 +923,17 @@ module.exports = {
   checkBlock,
   checkSite,
   parseSite,
+  stripFence,
   buildSiteBrief,
   extractTokens,
   describeTokens,
   searchPhotos,
   collectPhotoMarks,
   applyPhotos,
+  collectLogoMarks,
+  pickLogo,
+  applyLogos,
+  LOGO_MARK,
   PHOTO_MARK,
   buildPreview,
   readSite,

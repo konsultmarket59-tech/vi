@@ -290,3 +290,76 @@ const EXTRA_FUNCTIONS = {
 };
 
 module.exports = { EXTRA_FUNCTIONS, makeCriteria };
+
+
+/**
+ * Функции, которые Excel хранит в файле с приставкой `_xlfn.`.
+ *
+ * Формат .xlsx заморожен на наборе функций Excel 2007. Всё, что появилось
+ * позже, записывается в файл с приставкой `_xlfn.` — это способ сказать старым
+ * версиям «такой функции ты не знаешь». Если записать короткое имя, Excel при
+ * открытии покажет «#ИМЯ?» (#NAME?): функции с таким именем в наборе 2007 года
+ * нет.
+ *
+ * Ровно это и случилось. Приложение считало MINIFS и MAXIFS само и показывало
+ * верные числа, а в файл писало короткие имена — и в настоящем Excel минимум с
+ * максимумом превращались в «#ИМЯ?», тогда как соседние SUMIFS, COUNTIFS и
+ * AVERAGEIFS (они из 2007-го) считались как ни в чём не бывало. Отсюда и
+ * обманчивость: на экране всё верно, ошибка вылезает только после открытия
+ * файла в Excel.
+ *
+ * Список закрытый и составлен по тому, что умеет пересчёт этого приложения:
+ * писать приставку функции, которой у нас нет, незачем.
+ */
+const XLFN_FUNCTIONS = [
+  // Excel 2016/2019
+  "MAXIFS", "MINIFS", "IFS", "SWITCH", "TEXTJOIN", "CONCAT",
+  // Excel 2013
+  "IFNA", "ISFORMULA", "FORMULATEXT", "DAYS", "ARABIC", "BASE", "CEILING.MATH",
+  "FLOOR.MATH", "COMBINA", "PERMUTATIONA", "PDURATION", "RRI", "SHEET", "SHEETS",
+  "UNICHAR", "UNICODE", "NUMBERVALUE", "BITAND", "BITOR", "BITXOR",
+  // Динамические массивы и поиск (2021 и 365)
+  "XLOOKUP", "XMATCH", "FILTER", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY",
+  "LET", "LAMBDA", "TEXTBEFORE", "TEXTAFTER", "TEXTSPLIT", "VSTACK", "HSTACK",
+  "TOROW", "TOCOL", "WRAPROWS", "WRAPCOLS", "TAKE", "DROP", "CHOOSEROWS",
+  "CHOOSECOLS", "EXPAND", "ARRAYTOTEXT", "VALUETOTEXT",
+];
+
+/** Точка в CEILING.MATH значима, поэтому имена экранируются. */
+const XLFN_RE = new RegExp(
+  "(^|[^A-Za-z0-9_.])(" + XLFN_FUNCTIONS.map((f) => f.replace(/\./g, "\\.")).join("|") + ")\\s*\\(",
+  "gi"
+);
+
+/**
+ * Формула — в тот вид, в каком её надо положить в файл.
+ *
+ * Текст в кавычках не трогается: слово SORT внутри подписи — не функция, и
+ * приставка испортила бы подпись на листе. Поэтому строки временно вынимаются,
+ * замена идёт по остальному, и строки возвращаются на место.
+ */
+function toFileFormula(formula) {
+  const source = String(formula || "");
+  if (!source) return source;
+  const strings = [];
+  const masked = source.replace(/"(?:[^"]|"")*"/g, (s) => {
+    strings.push(s);
+    return "\u0001" + (strings.length - 1) + "\u0001";
+  });
+  const fixed = masked.replace(XLFN_RE, (whole, before, name) => before + "_xlfn." + name.toUpperCase() + "(");
+  return fixed.replace(/\u0001(\d+)\u0001/g, (_m, i) => strings[Number(i)]);
+}
+
+/**
+ * Формула из файла — в вид для показа и для нашего пересчёта.
+ *
+ * Приставка это деталь формата, а не часть формулы: в строке формул Excel её
+ * тоже не показывает, и наш вычислитель такой функции не знает.
+ */
+function fromFileFormula(formula) {
+  return String(formula || "").replace(/_xlfn\.|_xlws\./gi, "");
+}
+
+module.exports.XLFN_FUNCTIONS = XLFN_FUNCTIONS;
+module.exports.toFileFormula = toFileFormula;
+module.exports.fromFileFormula = fromFileFormula;

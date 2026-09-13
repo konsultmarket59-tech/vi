@@ -3769,6 +3769,30 @@ ipcMain.handle("sites:generate", async (_e, brief) => {
         "прототип останется с пустыми метками вместо снимков."
     );
   }
+  // Логотип: метка → сам файл строкой данных. Путь с компьютера на сайте
+  // превратился бы в пустое место, а загружать логотип куда-то ради прототипа
+  // незачем.
+  const logoMarks = sites.collectLogoMarks(site.blocks);
+  const byHint = {};
+  for (const mark of logoMarks) {
+    const file = sites.pickLogo(files.logos || [], mark.hint);
+    if (!file) continue;
+    try {
+      const url = await siteImagePart(file.path, 600);
+      if (url) byHint[mark.hint] = url;
+    } catch (e) {
+      problems.push(`Не прочитан логотип «${file.name}»: ${e.message}`);
+    }
+  }
+  const withLogos = sites.applyLogos(site.blocks, byHint);
+  site.blocks = withLogos.blocks;
+  for (const hint of withLogos.missing) {
+    problems.push(`Не нашлось логотипа «${hint}» — метка осталась в блоке. Проверьте папку с логотипами.`);
+  }
+  if (logoMarks.length === 0 && (files.logos || []).some((f) => f.kind === "image")) {
+    problems.push("Логотип передан, но агент его не поставил — попросите добавить логотип в шапку.");
+  }
+
   const applied = sites.applyPhotos(site.blocks, byQuery);
   site.blocks = applied.blocks;
   site.photos = applied.used;
