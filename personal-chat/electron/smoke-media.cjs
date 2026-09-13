@@ -12,6 +12,7 @@ const os = require("node:os");
 const path = require("node:path");
 const fs = require("node:fs");
 const kit = require("./mediakit.cjs");
+const refs = require("./mediarefs.cjs");
 const script = require("./mediascript.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { execFileSync } = require("node:child_process");
@@ -98,6 +99,63 @@ app.whenReady().then(async () => {
     check("место под товар размечено в товарных рендерах",
       ["crimson-heat", "liquid-chrome", "iridescent-violet"].every((id) =>
         kit.ALL_STYLES.find((m) => m.id === id).prompt.includes("[PRODUCT]")));
+
+    console.log("\nрефересы с именами");
+    // Одна безымянная картинка отвечает на вопрос «на что похоже». Но работа
+    // устроена иначе: вот фасад, вот логотип, вот текст — и про каждый надо
+    // сказать своё. Без имён это объяснить нельзя.
+    const набор = [];
+    набор.push(refs.fromFile("/д/фасад дома.jpg", набор.map((r) => r.name)));
+    набор.push(refs.fromFile("/д/логотип.png", набор.map((r) => r.name)));
+    набор.push(refs.fromText("заголовок", "Дом у леса. Сдан.", набор.map((r) => r.name)));
+    check("имя берётся из файла без расширения", набор[0].name === "фасад_дома", набор[0].name);
+    check("картинка и текст различаются",
+      набор[0].kind === "image" && набор[2].kind === "text", набор.map((r) => r.kind).join(","));
+    // Одинаковые имена развели бы одно обращение на два разных референса.
+    const сПовтором = refs.fromFile("/другое/фасад дома.jpg", ["фасад_дома"]);
+    check("одинаковые имена разводятся", сПовтором.name === "фасад_дома_2", сПовтором.name);
+    check("пробелы в имени заменяются — иначе обращение не разобрать",
+      !/\s/.test(refs.slugName("очень длинное имя")), refs.slugName("очень длинное имя"));
+
+    const разобрано = refs.resolveMentions(
+      "Ракурс возьми с @фасад_дома, плашку с @логотип, а написать надо @заголовок. И @выдумка.",
+      набор
+    );
+    check("картинки пронумерованы в порядке упоминания",
+      /reference image 1/.test(разобрано.prompt) && /reference image 2/.test(разобрано.prompt),
+      разобрано.prompt);
+    check("номер в тексте совпадает с порядком вложений",
+      разобрано.images[0].name === "фасад_дома" && разобрано.images[1].name === "логотип",
+      разобрано.images.map((i) => i.name).join(","));
+    // Текстовый референс — буквальное содержимое, а не описание стиля.
+    check("текстовый референс вставлен дословно",
+      разобрано.prompt.includes('"Дом у леса. Сдан."'), разобрано.prompt);
+    check("опечатка в имени названа, а не проглочена",
+      разобрано.missing.length === 1 && разобрано.missing[0] === "выдумка", JSON.stringify(разобрано.missing));
+    check("неизвестное имя остаётся в тексте как есть", разобрано.prompt.includes("@выдумка"));
+
+    // Привычное поведение прежнего единственного референса ломать незачем.
+    const безОбращений = refs.resolveMentions("просто нарисуй дом", набор);
+    check("без обращений уходят все картинки",
+      безОбращений.images.length === 2, String(безОбращений.images.length));
+    check("а текстовый референс сам не лезет в промпт",
+      !безОбращений.prompt.includes("Дом у леса"), безОбращений.prompt);
+    check("одна картинка, упомянутая дважды, отправляется один раз",
+      refs.resolveMentions("@логотип сверху и @логотип снизу", набор).images.length === 1);
+    check("длинное имя не съедается коротким",
+      refs.resolveMentions("@фасад_дома_2", [...набор, сПовтором]).images[0].name === "фасад_дома_2");
+
+    console.log("\nкоманды прямо в тексте промпта");
+    const сКомандами = refs.extractCommands("Разбери @фасад_дома /anatomy и покажи /beforeafter", kit.COMMANDS);
+    check("команды вынуты из текста",
+      сКомандами.commands.join(",") === "anatomy,beforeafter", JSON.stringify(сКомандами.commands));
+    // Оставить «/anatomy» в промпте значило бы отправить модели непонятный ей знак.
+    check("из текста они вырезаны", !/\/anatomy/.test(сКомандами.prompt), сКомандами.prompt);
+    check("остальной текст цел", сКомандами.prompt.includes("@фасад_дома"), сКомандами.prompt);
+    check("несуществующая команда названа и оставлена текстом",
+      refs.extractCommands("сделай /выдумка", kit.COMMANDS).unknown.length === 1);
+    check("дробь внутри слова командой не считается",
+      refs.extractCommands("размер 16/9 и путь c:/дом", kit.COMMANDS).commands.length === 0);
 
     console.log("\nсборка промпта");
     const пусто = kit.buildPrompt({ base: "Дом у леса на закате" });
@@ -359,6 +417,20 @@ app.whenReady().then(async () => {
       await new Promise((r) => setTimeout(r, 300));
       check("поиск идёт и по русскому пояснению",
         (await call(`[...document.querySelectorAll(".media-kit-item")].some(b => b.textContent.includes("/iceberg"))`)) === true);
+
+      // Разбор промпта доступен окну: опечатку в имени надо показать до того,
+      // как генерация оплачена.
+      const изОкна = await call(`window.api.mediaResolvePrompt(
+        "ракурс с @фасад, надпись @текст, /anatomy и @опечатка",
+        ${JSON.stringify([
+          { id: "1", kind: "image", name: "фасад", path: "/д/ф.jpg", file: "ф.jpg", text: "" },
+          { id: "2", kind: "text", name: "текст", path: "", file: "", text: "Дом у леса" },
+        ])})`);
+      check("окно видит, что уедет в модель",
+        изОкна.prompt.includes("reference image 1") && изОкна.prompt.includes('"Дом у леса"'),
+        изОкна.prompt);
+      check("и видит опечатку в имени", изОкна.missing.join(",") === "опечатка", JSON.stringify(изОкна.missing));
+      check("и команду, набранную в тексте", изОкна.commands.join(",") === "anatomy");
 
       check("сказано честно, что часть полей — только через JSON",
         (await call(`document.body.textContent.includes("пишется JSON-ом ниже")`)) === true);

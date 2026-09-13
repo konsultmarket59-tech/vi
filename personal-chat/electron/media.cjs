@@ -84,11 +84,24 @@ async function generate(root, opts) {
     }
     Object.assign(input, extra);
   }
-  if (referenceImagePath) {
-    const buffer = await fs.readFile(referenceImagePath);
-    const ext = path.extname(referenceImagePath).toLowerCase();
-    const mime = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
-    input.images = [{ type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` }];
+  // Картинок-референсов может быть сколько угодно: работа устроена так, что
+  // про каждую говорят своё — «ракурс отсюда, плашку отсюда». Порядок важен:
+  // он совпадает с номерами, которые подставлены в промпт вместо обращений.
+  const pictures = [];
+  if (Array.isArray(opts.referenceImages)) pictures.push(...opts.referenceImages.filter(Boolean));
+  else if (referenceImagePath) pictures.push(referenceImagePath);
+  if (pictures.length) {
+    input.images = [];
+    for (const file of pictures) {
+      const buffer = await fs.readFile(file);
+      const ext = path.extname(file).toLowerCase();
+      const mime =
+        ext === ".png" ? "image/png"
+          : ext === ".webp" ? "image/webp"
+            : ext === ".gif" ? "image/gif"
+              : "image/jpeg";
+      input.images.push({ type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` });
+    }
   }
 
   const createRes = await fetch(`${baseUrl}/media`, {

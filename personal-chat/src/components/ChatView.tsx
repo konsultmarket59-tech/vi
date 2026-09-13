@@ -15,6 +15,8 @@ import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
 import Markdown from "./Markdown";
 import Thinking, { type ThinkingStage } from "./Thinking";
 
+import { VoiceRecorder, canSpeak, speak, stopSpeaking } from "../lib/voice";
+
 interface Props {
   conversation: Conversation;
   systemPrompt: string;
@@ -244,7 +246,73 @@ export default function ChatView({
   prefill,
 }: Props) {
   const [input, setInput] = useState("");
+  // Голос. Слушает встроенное распознавание — то же, что в «Видеотеке»: ставить
+  // ничего не надо и запись никуда не уходит. Читает вслух система.
+  const recorder = useRef<VoiceRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [hearing, setHearing] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const [speaking, setSpeaking] = useState(false);
+  const [readAloud, setReadAloud] = useState(() => {
+    try {
+      return localStorage.getItem("голос:читать") === "да";
+    } catch {
+      return false;
+    }
+  });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /**
+   * Надиктовать реплику.
+   *
+   * Запись останавливается вручную: пауза в речи — плохой признак конца мысли,
+   * а обрубленная на полуслове реплика раздражает сильнее лишнего нажатия.
+   */
+  async function toggleRecording() {
+    setVoiceError("");
+    if (recording) {
+      setRecording(false);
+      setHearing(true);
+      try {
+        const bytes = await recorder.current!.stop();
+        const { text } = await window.api.transcribeVoice(bytes);
+        if (text) setInput((prev) => (prev ? prev.trimEnd() + " " + text : text));
+        else setVoiceError("Ничего не расслышано — попробуйте ещё раз, ближе к микрофону.");
+      } catch (e) {
+        setVoiceError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setHearing(false);
+        recorder.current = null;
+      }
+      return;
+    }
+    try {
+      recorder.current = new VoiceRecorder();
+      await recorder.current.start();
+      setRecording(true);
+    } catch (e) {
+      recorder.current = null;
+      // Отказ микрофона — самая частая причина, и звучит она непонятно.
+      const reason = e instanceof Error ? e.message : String(e);
+      setVoiceError(
+        /NotAllowedError|Permission/i.test(reason)
+          ? "Доступ к микрофону не дан. Разрешите его приложению в настройках системы."
+          : /NotFoundError/i.test(reason)
+            ? "Микрофон не найден — проверьте, подключён ли он."
+            : reason
+      );
+    }
+  }
+
+  /** Прочитать вслух последний ответ. */
+  const readOut = useCallback(
+    (text: string) => {
+      if (!readAloud) return;
+      if (speak(text)) setSpeaking(true);
+    },
+    [readAloud]
+  );
+
   const [busy, setBusy] = useState(false);
   const [attachedSkillId, setAttachedSkillId] = useState<string | null>(null);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
@@ -496,6 +564,7 @@ export default function ChatView({
       onUpdate(finalConv);
       await onSave(finalConv);
       onAssistantMessage?.(full);
+      readOut(full);
       setPendingMedia(parseMediaRequest(full));
       setMediaResult(null);
       setMediaPreviewUrl(null);
@@ -864,6 +933,15 @@ export default function ChatView({
           ))}
         </div>
       )}
+      {(recording || hearing || voiceError) && (
+        <div className={voiceError ? "chat-voice-note warn" : "chat-voice-note"}>
+          {voiceError
+            ? voiceError
+            : recording
+              ? "Говорите. Нажмите ■, когда закончите."
+              : "Расшифровываю…"}
+        </div>
+      )}
       <div className="chat-input-bar">
         <button
           className="btn btn-secondary attach-btn"
@@ -872,6 +950,14 @@ export default function ChatView({
           title="Прикрепить файл с компьютера"
         >
           {attaching ? "…" : "+"}
+        </button>
+        <button
+          className={recording ? "btn btn-primary attach-btn" : "btn btn-secondary attach-btn"}
+          onClick={toggleRecording}
+          disabled={busy || hearing}
+          title={recording ? "Остановить запись и расшифровать" : "Надиктовать реплику"}
+        >
+          {hearing ? "…" : recording ? "■" : "🎤"}
         </button>
         <textarea
           ref={inputRef}
@@ -882,6 +968,46 @@ export default function ChatView({
           rows={3}
           disabled={busy}
         />
+        <button
+          className={readAloud ? "btn btn-primary attach-btn" : "btn btn-secondary attach-btn"}
+          title={
+            readAloud
+              ? "Ответы читаются вслух — нажмите, чтобы выключить"
+              : "Читать ответы вслух голосом системы"
+          }
+          onClick={() => {
+            const next = !readAloud;
+            setReadAloud(next);
+            try {
+              localStorage.setItem("голос:читать", next ? "да" : "нет");
+            } catch {
+              /* приватное окно — переживём */
+            }
+            if (!next) {
+              stopSpeaking();
+              setSpeaking(false);
+            } else if (!canSpeak()) {
+              setVoiceError(
+                "В системе не нашлось ни одного голоса — читать вслух нечем. " +
+                  "В Windows голоса ставятся в «Параметры» → «Специальные возможности» → «Речь»."
+              );
+            }
+          }}
+        >
+          {readAloud ? "🔊" : "🔈"}
+        </button>
+        {speaking && (
+          <button
+            className="btn btn-secondary attach-btn"
+            title="Замолчать"
+            onClick={() => {
+              stopSpeaking();
+              setSpeaking(false);
+            }}
+          >
+            ✕
+          </button>
+        )}
         {busy ? (
           <button className="btn btn-secondary" onClick={stop}>
             Остановить

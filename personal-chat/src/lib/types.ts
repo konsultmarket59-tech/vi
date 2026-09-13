@@ -677,6 +677,8 @@ export interface MediaGenerationRequest {
   model: string;
   prompt: string;
   referenceImagePath?: string;
+  /** Референсы с именами: в промпте к ним обращаются через @. */
+  references?: MediaReference[];
   extraParamsJson?: string;
   projectId?: string;
   /** Что выбрано из набора приёмов — промпт собирается из этого. */
@@ -1245,6 +1247,28 @@ export interface MediaKit {
 }
 
 /** Что выбрано из набора для этой генерации. */
+/** Референс: картинка или текст, у которого есть имя для обращения в промпте. */
+export interface MediaReference {
+  id: string;
+  kind: "image" | "text";
+  /** Имя, которым референс зовут через @ в промпте. */
+  name: string;
+  path: string;
+  file: string;
+  text: string;
+}
+
+export interface MediaResolvedPrompt {
+  prompt: string;
+  images: { id: string; name: string; path: string }[];
+  /** Имена, к которым обратились, но таких референсов нет. */
+  missing: string[];
+  used: string[];
+  commands: string[];
+  unknownCommands: string[];
+  note: string;
+}
+
 export interface MediaKitChoice {
   /** Короткая команда формата: /anatomy, /beforeafter и прочие. */
   command?: string;
@@ -1611,6 +1635,8 @@ export interface ElectronAPI {
   libraryPickVault(): Promise<LibraryConfig | null>;
   libraryOpenVault(): Promise<string>;
   libraryEngineStatus(): Promise<LibraryEngineStatus>;
+  /** Расшифровка надиктованной реплики тем же встроенным распознаванием. */
+  transcribeVoice(bytes: Uint8Array): Promise<{ text: string }>;
   libraryDownloadSpeechModel(modelId?: string): Promise<{ ready: boolean; cacheBytes: number }>;
   libraryRemoveSpeechModel(): Promise<boolean>;
   libraryScan(): Promise<LibraryScan>;
@@ -1687,6 +1713,8 @@ export interface ElectronAPI {
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
   mediaKit(): Promise<MediaKit>;
+  mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;
+  mediaResolvePrompt(prompt: string, references: MediaReference[]): Promise<MediaResolvedPrompt>;
   mediaScriptKinds(): Promise<MediaScriptKind[]>;
   mediaScriptPrompt(request: {
     kind: string;

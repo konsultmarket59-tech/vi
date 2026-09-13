@@ -863,6 +863,7 @@ async function saveSkillCreatorConversation(conv) {
 
 const media = require("./media.cjs");
 const mediakit = require("./mediakit.cjs");
+const mediarefs = require("./mediarefs.cjs");
 const mediascript = require("./mediascript.cjs");
 const github = require("./github.cjs");
 const chatbots = require("./chatbots.cjs");
@@ -1597,6 +1598,9 @@ app.whenReady().then(async () => {
   // Падения прошлых запусков нужны раньше окна: приложение сообщает о них само,
   // не дожидаясь, пока человек догадается открыть отчёт о проблеме.
   await report.loadCrashes();
+  // Разрешение на микрофон ставится до окна: без него Chromium отказывает
+  // молча, и кнопка записи просто ничего не делает.
+  allowMicrophone();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -2651,29 +2655,79 @@ ipcMain.handle("media:kit", () => mediakit.KIT);
  */
 ipcMain.handle("media:readDesign", (_e, dir) => readDesignFolder(dir));
 
+/** Разбор промпта: обращения к референсам и короткие команды в тексте. */
+ipcMain.handle("media:resolvePrompt", (_e, prompt, references) => {
+  const cut = mediarefs.extractCommands(prompt, mediakit.COMMANDS);
+  const resolved = mediarefs.resolveMentions(cut.prompt, references || []);
+  return {
+    prompt: resolved.prompt,
+    images: resolved.images.map((r) => ({ id: r.id, name: r.name, path: r.path })),
+    missing: resolved.missing,
+    used: resolved.used,
+    commands: cut.commands,
+    unknownCommands: cut.unknown,
+    note: mediarefs.describeImages(resolved.images),
+  };
+});
+
+ipcMain.handle("media:addReferences", async (_e, kind, taken) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const result = await dialog.showOpenDialog(win, {
+    title: "Референсы",
+    properties: ["openFile", "multiSelections"],
+    filters:
+      kind === "text"
+        ? [{ name: "Текст", extensions: ["txt", "md", "rtf", "csv", "json"] }]
+        : [{ name: "Изображения", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif", "bmp", "svg"] }],
+  });
+  if (result.canceled || !result.filePaths.length) return [];
+  const names = [...(taken || [])];
+  const out = [];
+  for (const file of result.filePaths) {
+    const ref = mediarefs.fromFile(file, names);
+    names.push(ref.name);
+    // Текстовый референс читается сразу: его содержимое уедет в промпт
+    // дословно, и показать его человеку надо до генерации, а не после.
+    if (ref.kind === "text") {
+      ref.text = (await fs.readFile(file, "utf-8").catch(() => "")).slice(0, 20000);
+    }
+    out.push(ref);
+  }
+  return out;
+});
+
 ipcMain.handle("media:generate", async (event, payload) => {
   const root = await getRootPath();
   const settings = await loadSettings();
   const kitChoice = payload && payload.kit ? payload.kit : null;
   // Промпт собирается здесь, а не в окне: строки стилей и движений живут в
   // одном месте, и правка в них должна доезжать до генерации сама.
-  const prompt = kitChoice
+  // Обращения к референсам и команды из текста разворачиваются ДО сборки
+  // промпта: дальше это уже обычный текст, и приёмы ложатся на него как всегда.
+  const cut = mediarefs.extractCommands(payload.prompt, mediakit.COMMANDS);
+  const resolved = mediarefs.resolveMentions(cut.prompt, payload.references || []);
+  const fromText = cut.commands[0] || "";
+  const prompt = kitChoice || fromText
     ? mediakit.buildPrompt({
-        base: payload.prompt,
+        base: resolved.prompt,
         subject: payload.subject,
-        style: kitChoice.style,
-        camera: kitChoice.camera,
-        pace: kitChoice.pace,
-        angle: kitChoice.angle,
-        lighting: kitChoice.lighting,
+        command: (kitChoice && kitChoice.command) || fromText,
+        style: kitChoice && kitChoice.style,
+        camera: kitChoice && kitChoice.camera,
+        pace: kitChoice && kitChoice.pace,
+        angle: kitChoice && kitChoice.angle,
+        lighting: kitChoice && kitChoice.lighting,
         design: payload.design,
       })
-    : payload.prompt;
+    : resolved.prompt;
   return media.generate(root, {
     ...payload,
     prompt,
     params: mediakit.buildParams(payload.type, payload.params || {}),
-    meta: { recipe: kitChoice ? mediakit.describeChoice(kitChoice) : "" },
+    referenceImages: resolved.images.map((r) => r.path).filter(Boolean),
+    meta: {
+      recipe: mediakit.describeChoice({ ...(kitChoice || {}), command: (kitChoice && kitChoice.command) || fromText }),
+    },
     baseUrl: settings.baseUrl,
     apiKey: settings.apiKey,
     onStatus: (status) => {
@@ -4263,6 +4317,65 @@ ipcMain.handle("library:openVault", async () => {
   await fs.mkdir(dir, { recursive: true });
   await shell.openPath(dir);
   return dir;
+});
+
+// ---------- голос ----------
+//
+// Разговор с агентом голосом. Слушает то же встроенное распознавание, что и
+// «Видеотека», — значит, ничего дополнительно ставить не надо и ничего не
+// уходит в сеть. Говорит система: в Windows есть свои голоса, включая русский,
+// и брать за них деньги или что-то качать незачем.
+
+/**
+ * Микрофон разрешается только своему же окну.
+ *
+ * Без обработчика Chromium отказывает молча, и кнопка записи просто ничего не
+ * делает. Разрешение даётся выборочно: звук — да, камера и геопозиция — нет,
+ * они разделу не нужны, а просить лишнее нехорошо.
+ */
+function allowMicrophone() {
+  const handler = (_wc, permission, callback) => callback(permission === "media" || permission === "audioCapture");
+  session.defaultSession.setPermissionRequestHandler(handler);
+  if (session.defaultSession.setPermissionCheckHandler) {
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+      permission === "media" || permission === "audioCapture"
+    );
+  }
+}
+
+/**
+ * Расшифровка надиктованного.
+ *
+ * Окно записывает в webm, а расшифровщик ждёт wav 16 кГц моно — переводит
+ * ffmpeg, тот же, что и везде. Реплика короткая, поэтому окон не нужно: всё
+ * уходит в модель одним куском.
+ */
+ipcMain.handle("voice:transcribe", async (_e, bytes) => {
+  const config = await libraryConfig();
+  const cacheDir = await speechCacheDir();
+  const modelId = config.speechModel || speech.DEFAULT_MODEL;
+  if (!speech.isModelReady(cacheDir, modelId)) {
+    throw new Error(
+      "Модель распознавания ещё не скачана. Откройте «Видеотека» → «Чем расшифровывать» → " +
+        "«Встроенное» и нажмите «Скачать модель» — она нужна и для голоса."
+    );
+  }
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "голос-"));
+  try {
+    const src = path.join(work, "реплика.webm");
+    await fs.writeFile(src, Buffer.from(bytes));
+    const wav = path.join(work, "реплика.wav");
+    await library.extractAudio(ffmpegPath(), src, wav);
+    const segments = await speech.transcribeFile({
+      wavPath: wav,
+      modelId,
+      cacheDir,
+      language: config.language === "en" ? "english" : "russian",
+    });
+    return { text: segments.map((s2) => s2.text).join(" ").replace(/\s+/g, " ").trim() };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
 });
 
 ipcMain.handle("library:engineStatus", async () => {

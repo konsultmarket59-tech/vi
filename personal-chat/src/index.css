@@ -598,6 +598,39 @@ body {
   display: flex; flex-direction: column; gap: 6px; background: var(--bg);
 }
 .media-actions .btn { width: 100%; }
+/* Запись голоса: короткая строка над полем ввода, а не всплывающее окно. */
+.chat-voice-note {
+  font-size: 12px; color: var(--text-dim); padding: 6px 10px; margin: 0 0 6px;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.chat-voice-note.warn { border-color: #f0c2be; background: #fdefee; color: #8a2018; }
+
+/* Список, который открывается по @ и / прямо в поле промпта. */
+.mention-box { position: relative; }
+.mention-list {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 30;
+  max-height: 260px; overflow-y: auto; margin-top: 2px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 22, 28, 0.14);
+}
+.mention-item {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 10px; background: none; border: 0; cursor: pointer; font: inherit; font-size: 12px;
+}
+.mention-item.on { background: var(--accent-soft, #f3f6fb); }
+.mention-item b { flex: 0 0 auto; }
+.mention-item span { color: var(--text-dim); }
+.mention-hint { margin-left: auto; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.mention-empty { padding: 8px 10px; font-size: 12px; color: var(--text-dim); margin: 0; }
+
+/* Референсы: у каждого имя, которым его зовут в промпте. */
+.media-refs { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.media-ref { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.media-ref-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.media-ref-kind { flex: 0 0 auto; }
+.media-ref-name { flex: 0 0 150px; font-size: 12px; padding: 3px 6px; }
+.media-ref-head .hint { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .media-kit-search {
   margin-bottom: 6px; font-size: 12px; padding: 5px 8px;
   border: 1px solid var(--border); border-radius: 6px;

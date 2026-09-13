@@ -587,6 +587,25 @@ app.whenReady().then(async () => {
 
       await call(`window.api.librarySaveConfig({ engine: "builtin" })`);
 
+      console.log("\nголос");
+      // Надиктованная реплика слушается тем же встроенным распознаванием, что и
+      // записи: ставить ничего не надо и запись никуда не уходит.
+      const безМодели = await call(`window.api.transcribeVoice(new Uint8Array([1,2,3]))
+        .then(() => "", e => e.message)`);
+      check("без скачанной модели голос говорит, что нажать",
+        /Скачать модель/.test(безМодели) && /голоса/.test(безМодели), безМодели);
+      // Микрофон без разрешения молча не работает — Chromium отказывает без
+      // объяснений, и кнопка выглядит сломанной.
+      check("микрофон приложению разрешён",
+        (await call(`window.isSecureContext && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)`)) === true);
+      check("запись голоса браузером поддерживается",
+        (await call(`typeof MediaRecorder !== "undefined" &&
+          ["audio/webm;codecs=opus","audio/webm","audio/mp4"].some(t => MediaRecorder.isTypeSupported(t))`)) === true);
+      // Читать вслух умеет система. Голосов в этой среде нет — это нормально и
+      // проверяется отдельно: приложение обязано сказать об этом, а не молчать.
+      check("синтез речи в окне есть",
+        (await call(`typeof window.speechSynthesis !== "undefined"`)) === true);
+
       // Главное обещание: уже прочитанное не читается заново.
       const своя = fs.mkdtempSync(path.join(os.tmpdir(), "lib-своя-"));
       await call(`window.api.librarySaveConfig(${JSON.stringify({ vaultPath: своя })})`);

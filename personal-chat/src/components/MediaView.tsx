@@ -5,6 +5,7 @@ import type {
   MediaKitChoice,
   MediaKitEntry,
   MediaLine,
+  MediaReference,
   MediaScene,
   MediaScriptKind,
   MediaScriptProgress,
@@ -14,6 +15,7 @@ import type {
   StoriesDesign,
 } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
+import MentionBox, { type MentionItem } from "./MentionBox";
 import { CURATED_IMAGE_MODELS, CURATED_VIDEO_MODELS, mergeModelLists } from "../lib/curatedModels";
 
 const CURATED_BY_TYPE: Record<MediaType, ModelInfo[]> = {
@@ -40,6 +42,13 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [prompt, setPrompt] = useState("");
   const [projectId, setProjectId] = useState("");
   const [referenceImagePath, setReferenceImagePath] = useState<string | null>(null);
+  // Референсов может быть сколько угодно, и у каждого есть имя: в промпте к
+  // ним обращаются через @ и говорят про каждый своё.
+  const [references, setReferences] = useState<MediaReference[]>([]);
+  const [resolved, setResolved] = useState<{
+    prompt: string; images: { name: string }[]; missing: string[]; note: string;
+    commands: string[]; unknownCommands: string[];
+  } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [extraParamsJson, setExtraParamsJson] = useState("");
 
@@ -88,6 +97,26 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   useEffect(() => {
     refreshHistory();
   }, [projectId]);
+
+  // Промпт разбирается по мере набора: опечатку в имени референса надо
+  // показать до того, как генерация оплачена, а не после.
+  useEffect(() => {
+    if (!prompt.trim() && !references.length) {
+      setResolved(null);
+      return;
+    }
+    let живо = true;
+    const t = window.setTimeout(() => {
+      window.api
+        .mediaResolvePrompt(prompt, references)
+        .then((r) => живо && setResolved(r))
+        .catch(() => {});
+    }, 250);
+    return () => {
+      живо = false;
+      window.clearTimeout(t);
+    };
+  }, [prompt, references]);
 
   useEffect(() => {
     window.api.mediaKit().then(setKit);
@@ -139,6 +168,7 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
         model: model.trim(),
         prompt: prompt.trim(),
         referenceImagePath: referenceImagePath || undefined,
+        references,
         extraParamsJson: showAdvanced ? extraParamsJson : undefined,
         projectId: projectId || undefined,
         kit: choice,
@@ -584,16 +614,133 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
           )}
 
           <label>Промпт</label>
-          <textarea
+          <MentionBox
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={setPrompt}
             placeholder={TYPE_PLACEHOLDERS[type].prompt}
-            rows={4}
+            rows={5}
+            mentions={references.map((r) => ({
+              id: r.id,
+              insert: r.name,
+              title: r.kind === "image" ? "картинка" : "текст",
+              hint: r.kind === "text" ? r.text.slice(0, 60) : r.file,
+            }))}
+            commands={(kit?.commands || []).map((c): MentionItem => ({
+              id: c.id,
+              insert: c.id,
+              title: c.why,
+              hint: c.group,
+            }))}
+            emptyMentionHint="Референсов пока нет — добавьте их кнопкой ниже, и они появятся здесь."
           />
+          <p className="hint">
+            <b>@</b> — список референсов: выберите нужный и объясните, что с ним сделать.{" "}
+            <b>/</b> — короткие команды формата.
+          </p>
+          {resolved && (
+            <>
+              {!!resolved.missing.length && (
+                <p className="media-script-problems">
+                  Таких референсов нет: {resolved.missing.map((m) => "@" + m).join(", ")}. Проверьте
+                  имя — иначе модель получит его как обычный текст.
+                </p>
+              )}
+              {!!resolved.unknownCommands.length && (
+                <p className="hint">
+                  Не команда: {resolved.unknownCommands.map((c) => "/" + c).join(", ")} — уйдёт как
+                  обычный текст.
+                </p>
+              )}
+              {!!resolved.note && <p className="hint">{resolved.note}</p>}
+            </>
+          )}
+
+          <label>Референсы</label>
+          <p className="hint">
+            Сколько угодно картинок и текстов, у каждого своё имя. Референсом может быть и текст —
+            например то, что должно быть написано в макете: он уедет в промпт дословно.
+          </p>
+          <div className="folder-row">
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                const added = await window.api.mediaAddReferences("image", references.map((r) => r.name));
+                if (added.length) setReferences([...references, ...added]);
+              }}
+            >
+              + картинки
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                const added = await window.api.mediaAddReferences("text", references.map((r) => r.name));
+                if (added.length) setReferences([...references, ...added]);
+              }}
+            >
+              + текстовый файл
+            </button>
+            <button
+              className="link-btn"
+              onClick={() => {
+                // Текст, набранный руками, — самый частый случай: «вот что
+                // должно быть написано». Заводить ради него файл незачем.
+                const имена = references.map((r) => r.name);
+                let имя = "текст";
+                let n = 2;
+                while (имена.includes(имя)) имя = `текст_${n++}`;
+                setReferences([
+                  ...references,
+                  { id: `${Date.now()}`, kind: "text", name: имя, path: "", file: "", text: "" },
+                ]);
+              }}
+            >
+              написать текст
+            </button>
+          </div>
+          {!!references.length && (
+            <div className="media-refs">
+              {references.map((r, i) => (
+                <div key={r.id} className="media-ref">
+                  <div className="media-ref-head">
+                    <span className="media-ref-kind">{r.kind === "image" ? "🖼" : "📝"}</span>
+                    <input
+                      className="media-ref-name"
+                      value={r.name}
+                      title="Имя, которым референс зовут через @"
+                      onChange={(e) =>
+                        setReferences(
+                          references.map((x, j) =>
+                            j === i ? { ...x, name: e.target.value.replace(/\s+/g, "_") } : x
+                          )
+                        )
+                      }
+                    />
+                    <span className="hint">{r.file || (r.kind === "text" ? "свой текст" : "")}</span>
+                    <button
+                      className="link-btn"
+                      onClick={() => setReferences(references.filter((_, j) => j !== i))}
+                    >
+                      убрать
+                    </button>
+                  </div>
+                  {r.kind === "text" && (
+                    <textarea
+                      rows={2}
+                      value={r.text}
+                      placeholder="что должно быть написано в макете"
+                      onChange={(e) =>
+                        setReferences(references.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {type !== "audio" && (
             <>
-              <label>Референс-изображение (необязательно, для image-to-{type === "video" ? "video" : "image"})</label>
+              <label>Один референс по-старому (необязательно)</label>
               <div className="folder-row">
                 {referenceImagePath && <span className="hint">{referenceImagePath.split(/[\\/]/).pop()}</span>}
                 <button className="btn btn-secondary" onClick={pickReference}>
