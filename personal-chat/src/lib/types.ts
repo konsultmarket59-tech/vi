@@ -1322,6 +1322,13 @@ export interface MediaKitChoice {
   lighting?: string;
 }
 
+/** Кадр сториборда: что видно и что должно двигаться, если кадр оживить. */
+export interface StoryboardFrame {
+  index: number;
+  scene: string;
+  motion: string;
+}
+
 /** Вид сценария: презентация или подкаст. */
 export interface MediaScriptKind {
   id: string;
@@ -1345,7 +1352,8 @@ export interface MediaLine {
 }
 
 export interface MediaScriptProgress {
-  stage: "image" | "voice" | "assemble" | "failed" | "done";
+  /** «video» — оживление кадра сториборда: тот же ход работы, тот же канал. */
+  stage: "image" | "voice" | "video" | "assemble" | "failed" | "done";
   index?: number;
   total?: number;
   title?: string;
@@ -1762,6 +1770,31 @@ export interface ElectronAPI {
     prompt: string;
     notes: string;
     raw: boolean;
+  }>;
+  mediaStoryboardPrompt(opts: { idea?: string; hasPhoto?: boolean }): Promise<string>;
+  writeStoryboard(payload: { idea: string; photos: string[] }): Promise<{
+    text: string;
+    frames: StoryboardFrame[];
+    problems: string[];
+  }>;
+  parseStoryboard(text: string): Promise<{ frames: StoryboardFrame[]; problems: string[] }>;
+  buildStoryboard(request: {
+    frames: StoryboardFrame[];
+    imageModel: string;
+    videoModel: string;
+    animate: boolean;
+    projectId?: string;
+    keep?: string;
+    style?: string;
+    photos?: string[];
+    params?: Record<string, string>;
+    videoParams?: Record<string, string>;
+  }): Promise<{
+    path: string;
+    images: string[];
+    clips: string[];
+    animated: boolean;
+    failed: { index: number; error: string }[];
   }>;
   onMediaCollected(cb: (payload: { collected: number }) => void): () => void;
   mediaFillTemplate(id: string, values: Record<string, string>): Promise<{ prompt: string; empty: string[] }>;

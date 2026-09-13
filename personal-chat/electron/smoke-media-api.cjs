@@ -203,6 +203,55 @@ app.whenReady().then(async () => {
     server.close();
     Object.assign(media.POLL_CONFIG.image, прежние);
 
+    console.log("\nтип поля подгоняется по отказу модели");
+    // У шлюза один адрес, а моделей за ним десятки: kling ждёт duration строкой,
+    // другие — числом. Справочника нет, зато отказ называет и поле, и тип.
+    {
+      let попыток = 0;
+      const сервер = http.createServer((req, res) => {
+        const куски = [];
+        req.on("data", (c) => куски.push(c));
+        req.on("end", () => {
+          if (req.method === "POST" && req.url.endsWith("/media")) {
+            попыток += 1;
+            const тело = JSON.parse(куски.join("") || "{}");
+            if (typeof тело.input.duration !== "string") {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: { message: "Поле input.duration должно быть строкой" } }));
+              return;
+            }
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              id: "ok-1", status: "completed",
+              data: { url: `http://127.0.0.1:${сервер.address().port}/f.png` },
+            }));
+            return;
+          }
+          if (req.url.includes("f.png")) {
+            res.writeHead(200, { "Content-Type": "image/png" });
+            res.end(Buffer.from("89504e470d0a1a0a", "hex"));
+            return;
+          }
+          res.writeHead(404);
+          res.end("{}");
+        });
+      });
+      await new Promise((r) => сервер.listen(0, "127.0.0.1", r));
+      const итог2 = await media.generate(dataRoot, {
+        baseUrl: `http://127.0.0.1:${сервер.address().port}`, apiKey: "test-key",
+        type: "video", model: "kling/v2.6", prompt: "п",
+        params: mediakit.buildParams("video", { duration: "8" }),
+      });
+      check("заказ прошёл со второй попытки, с поправленным типом", !!итог2.localPath && попыток === 2, String(попыток));
+      check("в описи записано то, что реально уехало", итог2.params.duration === "8", JSON.stringify(итог2.params));
+      сервер.close();
+    }
+    // Отказ не про тип показывается как есть: выдумывать поправку не из чего.
+    check("отказ не про тип не переигрывается",
+      media.coerceFromError({ duration: 8 }, "Недостаточно средств") === null);
+    check("и поля, которого нет, не выдумывается",
+      media.coerceFromError({ fps: 24 }, "Поле input.duration должно быть строкой") === null);
+
     console.log("\nфайл в папке виден в истории даже без описи");
     // Опись маленькая и служебная, файл — то, ради чего всё делалось. Вешать
     // видимость файла на судьбу json неправильно: опись могут удалить при

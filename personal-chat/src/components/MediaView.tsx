@@ -15,6 +15,7 @@ import type {
   Settings,
   Skill,
   StoriesDesign,
+  StoryboardFrame,
 } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import MentionBox, { type MentionItem } from "./MentionBox";
@@ -68,6 +69,15 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
   // думают о ней ровно в тот момент, когда смотрят на растущую историю.
   const [mediaFolder, setMediaFolder] = useState(settings.mediaFolder || "");
   const [moving, setMoving] = useState(false);
+  // История по умолчанию свёрнута: она нужна изредка, а места занимает треть
+  // окна — ровно того места, где смотрят на сделанное. Выбор запоминается.
+  const [historyOpen, setHistoryOpen] = useState(() => {
+    try {
+      return localStorage.getItem("медиа-история-открыта") === "да";
+    } catch {
+      return false;
+    }
+  });
   // Навык, которым правят промпт по существу, и его предложение. Предложение
   // живёт отдельно от поля: заменить свой текст чужим без спроса — потерять
   // свой текст.
@@ -86,7 +96,17 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
 
   // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
   // голоса и сборку делает приложение.
-  const [mode, setMode] = useState<"single" | "script">("single");
+  const [mode, setMode] = useState<"single" | "script" | "storyboard">("single");
+  // Сториборд: шесть кадров из фотографии и, по желанию, ролик из них.
+  const [sbIdea, setSbIdea] = useState("");
+  const [sbKeep, setSbKeep] = useState("");
+  const [sbText, setSbText] = useState("");
+  const [sbFrames, setSbFrames] = useState<StoryboardFrame[]>([]);
+  const [sbProblems, setSbProblems] = useState<string[]>([]);
+  const [sbAnimate, setSbAnimate] = useState(false);
+  const [sbVideoModel, setSbVideoModel] = useState("");
+  const [sbBuilding, setSbBuilding] = useState(false);
+  const [sbDone, setSbDone] = useState("");
   const [scriptKinds, setScriptKinds] = useState<MediaScriptKind[]>([]);
   const [scriptKind, setScriptKind] = useState("presentation");
   const [source, setSource] = useState("");
@@ -348,6 +368,34 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
   const templatesForType = kit ? kit.templates.filter((t) => t.kind === type) : [];
   const chosenTemplate = kit ? kit.templates.find((x) => x.id === templateId) || null : null;
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("медиа-история-открыта", historyOpen ? "да" : "нет");
+    } catch {
+      // Приватный режим — раскладка просто не запомнится.
+    }
+  }, [historyOpen]);
+
+  // Что показывать на сцене: только что сделанное или открытое из истории.
+  const shown = historyPreview
+    ? historyPreview
+    : result && previewUrl
+      ? { item: result, url: previewUrl }
+      : null;
+
+  /*
+    Пропорции рамки ожидания берутся из тех же параметров, что уйдут в модель:
+    рамка, которая не совпадает с заказанным кадром, обманывает — человек
+    привыкает к одной форме и получает другую. Аудио формы не имеет, поэтому
+    для него квадрат.
+  */
+  const waitingRatio = (() => {
+    if (type === "audio") return "3 / 1";
+    const raw = params.aspect_ratio || (type === "video" ? "16:9" : "1:1");
+    const [w, h] = String(raw).split(":");
+    return Number(w) > 0 && Number(h) > 0 ? `${w} / ${h}` : "1 / 1";
+  })();
+
   /**
    * Собрать промпт по заготовке и положить его в поле.
    *
@@ -373,6 +421,69 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRefining(false);
+    }
+  }
+
+  /**
+   * Написать раскадровку.
+   *
+   * Текст сначала, картинки потом: шесть описаний правятся бесплатно, а шесть
+   * картинок и шесть роликов — нет.
+   */
+  async function writeStoryboard() {
+    setError(null);
+    setSbDone("");
+    setGenerating(true);
+    try {
+      const r = await window.api.writeStoryboard({
+        idea: sbIdea,
+        photos: references.filter((x) => x.kind === "image").map((x) => x.path),
+      });
+      setSbText(r.text);
+      setSbFrames(r.frames);
+      setSbProblems(r.problems);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  /** Разобрать правленый руками текст обратно в кадры. */
+  async function reparseStoryboard(text: string) {
+    setSbText(text);
+    const r = await window.api.parseStoryboard(text);
+    setSbFrames(r.frames);
+    setSbProblems(r.problems);
+  }
+
+  /** Заказать кадры и, если попросили, оживить их и склеить. */
+  async function buildStoryboard() {
+    setError(null);
+    setSbDone("");
+    setSbBuilding(true);
+    try {
+      const r = await window.api.buildStoryboard({
+        frames: sbFrames,
+        imageModel: model.trim(),
+        videoModel: sbVideoModel.trim(),
+        animate: sbAnimate,
+        projectId: projectId || undefined,
+        keep: sbKeep,
+        style: choice.style ? (kit?.styles.find((x) => x.id === choice.style)?.prompt || "") : "",
+        photos: references.filter((x) => x.kind === "image").map((x) => x.path),
+        params,
+      });
+      setSbDone(r.path);
+      if (r.failed.length) {
+        setError(`Не собрались кадры: ${r.failed.map((f) => `${f.index} (${f.error})`).join("; ")}`);
+      }
+      await refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSbBuilding(false);
+      setScriptProgress(null);
     }
   }
 
@@ -499,6 +610,12 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             </button>
             <button className={mode === "script" ? "tab active" : "tab"} onClick={() => setMode("script")}>
               Презентация и подкаст
+            </button>
+            <button
+              className={mode === "storyboard" ? "tab active" : "tab"}
+              onClick={() => setMode("storyboard")}
+            >
+              Сториборд
             </button>
           </div>
 
@@ -710,6 +827,96 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             </>
           )}
 
+          {mode === "storyboard" && (
+            <>
+              {/*
+                Одна картинка отвечает на вопрос «как это выглядит». Ролик
+                отвечает на вопрос «что происходит», и собрать его из одной
+                картинки нельзя: нужна последовательность, где каждый кадр
+                продолжает предыдущий. Шесть промптов руками, следя за тем,
+                чтобы герой, свет и место не менялись, — работа, ради которой
+                это и сделано.
+              */}
+              <label>Замысел</label>
+              <textarea
+                rows={3}
+                value={sbIdea}
+                placeholder="Что должно произойти за шесть кадров. Пусто — раскадровка придумается по фотографии."
+                onChange={(e) => setSbIdea(e.target.value)}
+              />
+              <label>Что не меняется от кадра к кадру</label>
+              <input
+                value={sbKeep}
+                placeholder="тот же дом, тот же свет, та же одежда"
+                onChange={(e) => setSbKeep(e.target.value)}
+              />
+              <p className="hint">
+                Фотографии-референсы приложите ниже: с каждым кадром уедут они же, иначе герой
+                и место будут меняться от кадра к кадру. Кадры рисует модель из поля «ID модели».
+              </p>
+              <button
+                className="btn btn-secondary"
+                onClick={writeStoryboard}
+                disabled={generating}
+              >
+                {generating ? "Раскадровка пишется…" : "Написать раскадровку"}
+              </button>
+
+              {!!sbProblems.length && (
+                <div className="media-problems">
+                  {sbProblems.map((p2) => (
+                    <p key={p2} className="hint">
+                      {p2}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {!!sbText && (
+                <>
+                  <label>Раскадровка — правится руками до трат</label>
+                  <textarea rows={10} value={sbText} onChange={(e) => reparseStoryboard(e.target.value)} />
+                  <p className="hint">Кадров разобрано: {sbFrames.length}.</p>
+                </>
+              )}
+
+              <label className="media-param">
+                <span>
+                  <input
+                    type="checkbox"
+                    checked={sbAnimate}
+                    onChange={(e) => setSbAnimate(e.target.checked)}
+                  />{" "}
+                  Оживить кадры и склеить ролик
+                </span>
+                <span className="media-param-hint">
+                  Без галочки из кадров всё равно соберётся ролик со стоп-кадрами: монтаж видно
+                  целиком, а на видео ничего не потрачено. С галочкой каждый кадр заказывается
+                  ещё и как видео — это шесть отдельных оплаченных заказов.
+                </span>
+              </label>
+              {sbAnimate && (
+                <>
+                  <label>ID модели видео</label>
+                  <input
+                    value={sbVideoModel}
+                    placeholder="kling/v2.6"
+                    onChange={(e) => setSbVideoModel(e.target.value)}
+                  />
+                </>
+              )}
+              {scriptProgress && (
+                <p className="hint">
+                  {scriptProgress.stage === "image" && `Кадр ${scriptProgress.index} из ${scriptProgress.total}`}
+                  {scriptProgress.stage === "video" && `Оживляю кадр ${scriptProgress.index} из ${scriptProgress.total}`}
+                  {scriptProgress.stage === "assemble" && "Склеиваю ролик…"}
+                  {scriptProgress.stage === "failed" && `Не вышло: ${scriptProgress.error || ""}`}
+                </p>
+              )}
+              {sbDone && <div className="media-result-card">Готово: {sbDone}</div>}
+            </>
+          )}
+
           <label>Тип</label>
           <div className="media-type-tabs">
             <button className={type === "image" ? "tab active" : "tab"} onClick={() => selectType("image")}>
@@ -743,7 +950,7 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             models.length > 0 && <p className="hint">Доступно моделей типа «{type}»: {models.length} — начните вводить, появятся варианты.</p>
           )}
 
-          {!!templatesForType.length && (
+          {mode !== "storyboard" && !!templatesForType.length && (
             <div className="media-forms">
               <label>Заготовка промпта (необязательно)</label>
               <p className="hint">
@@ -797,6 +1004,8 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             </div>
           )}
 
+          {mode !== "storyboard" && (
+            <>
           <label>Промпт</label>
           <MentionBox
             value={prompt}
@@ -939,8 +1148,10 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
               </div>
             </>
           )}
+            </>
+          )}
 
-          {!!skills.length && (
+          {mode !== "storyboard" && !!skills.length && (
             <div className="media-refine">
               <label>Доработать промпт навыком</label>
               <p className="hint">
@@ -1247,7 +1458,15 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             сгенерировать не видно».
           */}
           <div className="media-actions">
-          {mode === "script" ? (
+          {mode === "storyboard" ? (
+            <button
+              className="btn btn-primary"
+              onClick={buildStoryboard}
+              disabled={sbBuilding || !sbFrames.length || !model.trim() || (sbAnimate && !sbVideoModel.trim())}
+            >
+              {sbBuilding ? "Собираю кадры…" : sbAnimate ? "Сделать кадры и ролик" : "Сделать кадры"}
+            </button>
+          ) : mode === "script" ? (
             <button
               className="btn btn-primary"
               onClick={buildScript}
@@ -1266,19 +1485,51 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
           )}
 
           </div>
+        </div>
 
-          {result && previewUrl && (
-            <div className="media-result-card">
-              {result.type === "image" && <img src={previewUrl} alt={result.prompt} />}
-              {result.type === "video" && <video src={previewUrl} controls />}
-              {result.type === "audio" && <audio src={previewUrl} controls />}
+        {/*
+          Сцена: здесь и только здесь появляется результат. Раньше он вылезал
+          под формой, в колонке настроек, и картинка была шириной с поле ввода —
+          при том, что справа пустовала треть окна. Настройки слева, сделанное —
+          на всём оставшемся месте.
+        */}
+        <div className="media-stage">
+          {generating ? (
+            <div className="media-waiting" style={{ aspectRatio: waitingRatio }}>
+              <div className="media-waiting-glow" />
+              <span className="media-waiting-text">{status || "Модель считает…"}</span>
+              <span className="hint">{waitingRatio.replace("/", ":")} — как задано в параметрах</span>
+            </div>
+          ) : shown ? (
+            <div className="media-result-card media-stage-card">
+              {shown.item.type === "image" && <img src={shown.url} alt={shown.item.prompt} />}
+              {shown.item.type === "video" && <video src={shown.url} controls />}
+              {shown.item.type === "audio" && <audio src={shown.url} controls />}
               <div className="media-result-actions">
-                <span className="hint">{result.fileName}</span>
+                <span className="hint">{shown.item.fileName || shown.item.model}</span>
+                {historyPreview && (
+                  <button className="link-btn" onClick={() => setHistoryPreview(null)}>
+                    Закрыть
+                  </button>
+                )}
               </div>
             </div>
+          ) : (
+            <p className="hint media-stage-empty">
+              Здесь появится сделанное. Настройки — слева, готовое и прошлые работы — здесь.
+            </p>
           )}
         </div>
 
+        <button
+          className="media-history-toggle"
+          title={historyOpen ? "Скрыть историю" : "Показать историю"}
+          onClick={() => setHistoryOpen(!historyOpen)}
+        >
+          {historyOpen ? "›" : "🕘"}
+        </button>
+
+        {historyOpen && (
         <div className="media-history">
           {/*
             Незабранные заказы. Деньги за генерацию снимаются в момент
@@ -1368,20 +1619,8 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
               </li>
             ))}
           </ul>
-          {historyPreview && (
-            <div className="media-result-card">
-              {historyPreview.item.type === "image" && <img src={historyPreview.url} alt="" />}
-              {historyPreview.item.type === "video" && <video src={historyPreview.url} controls />}
-              {historyPreview.item.type === "audio" && <audio src={historyPreview.url} controls />}
-              <div className="media-result-actions">
-                <span className="hint">{historyPreview.item.model}</span>
-                <button className="link-btn" onClick={() => setHistoryPreview(null)}>
-                  Закрыть
-                </button>
-              </div>
-            </div>
-          )}
         </div>
+        )}
       </div>
     </div>
   );

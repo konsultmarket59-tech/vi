@@ -283,6 +283,47 @@ async function download(root, result, { type, model, prompt, projectId, recipe =
   return { ...record, localPath: filePath };
 }
 
+/**
+ * Подогнать поле под тип, которого требует модель.
+ *
+ * У шлюза один адрес, а моделей за ним десятки, и одно и то же поле они
+ * принимают по-разному: kling ждёт `duration: "8"` строкой, другие — числом.
+ * Справочника по полям у шлюза нет, угадать заранее нельзя, зато ОТКАЗ
+ * называет и поле, и нужный тип прямым текстом. Этого достаточно: чинить по
+ * сообщению, которое уже пришло, честнее, чем вести у себя список
+ * причуд каждой модели и держать его в актуальном состоянии.
+ *
+ * Возвращает исправленный набор полей или null, если из сообщения ничего не
+ * извлекается: тогда ошибка показывается человеку как есть.
+ */
+function coerceFromError(input, message) {
+  const text = String(message || "");
+  // «Поле input.duration должно быть строкой», «input.duration must be a string»,
+  // «expected string, received number» рядом с именем поля.
+  const where = text.match(/\binput\.([A-Za-z0-9_]+)/);
+  if (!where) return null;
+  const key = where[1];
+  if (!(key in input)) return null;
+
+  const wantsString = /строк|string/i.test(text);
+  const wantsNumber = /числ|number|integer/i.test(text);
+  const value = input[key];
+
+  // Требование должно быть ОДНО: в сообщении вида «string, received number»
+  // встречаются оба слова, и тогда решает то, что стоит после «должно быть» /
+  // «must be» — а если разобрать не удалось, лучше не угадывать.
+  const asked = text.match(/(?:должно быть|должен быть|must be(?: a| an)?|expected)\s+([^\s,.;]+)/i);
+  const askedString = asked ? /строк|string/i.test(asked[1]) : wantsString && !wantsNumber;
+  const askedNumber = asked ? /числ|number|integer/i.test(asked[1]) : wantsNumber && !wantsString;
+
+  if (askedString && typeof value !== "string") return { ...input, [key]: String(value) };
+  if (askedNumber && typeof value !== "number") {
+    const n = Number(String(value).replace(",", "."));
+    if (Number.isFinite(n)) return { ...input, [key]: n };
+  }
+  return null;
+}
+
 async function generate(root, opts) {
   const { baseUrl, apiKey, type, model, prompt, referenceImagePath, extraParamsJson, params, projectId, onStatus, meta } = opts;
   const outDir = String(opts.outDir || "").trim();
@@ -349,14 +390,30 @@ async function generate(root, opts) {
     }
   }
 
-  const createRes = await fetch(`${baseUrl}/media`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: model.trim(), input, async: true }),
-  });
-  const createBody = await createRes.json().catch(() => ({}));
+  const заказать = (тело) =>
+    fetch(`${baseUrl}/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: model.trim(), input: тело, async: true }),
+    });
+
+  let отправлено = input;
+  let createRes = await заказать(отправлено);
+  let createBody = await createRes.json().catch(() => ({}));
   if (!createRes.ok) {
-    throw new Error(createBody?.error?.message || createBody?.error || `Ошибка API (${createRes.status})`);
+    // Отказ из-за типа поля — не тупик: сообщение называет и поле, и нужный
+    // тип. Пробуем ровно один раз, с поправкой по этому сообщению; денег за
+    // отклонённый заказ не берут, а человеку незачем угадывать, какой модели
+    // что подсунуть.
+    const первое = createBody?.error?.message || createBody?.error || `Ошибка API (${createRes.status})`;
+    const исправленный = coerceFromError(отправлено, первое);
+    if (!исправленный) throw new Error(первое);
+    отправлено = исправленный;
+    createRes = await заказать(отправлено);
+    createBody = await createRes.json().catch(() => ({}));
+    if (!createRes.ok) {
+      throw new Error(createBody?.error?.message || createBody?.error || первое);
+    }
   }
 
   // Заказ создан — значит деньги уже могут быть списаны. Записываем его на
@@ -399,7 +456,7 @@ async function generate(root, opts) {
   // тексту уже не вспомнить, что выбиралось, а повторить удачный кадр хочется
   // именно тогда.
   const saved = await download(root, result, {
-    type, model, prompt, projectId, recipe: (meta && meta.recipe) || "", input, outDir, projectName,
+    type, model, prompt, projectId, recipe: (meta && meta.recipe) || "", input: отправлено, outDir, projectName,
   });
   await dropPending(root, saved.id);
   return saved;
@@ -537,6 +594,7 @@ function existsAt(file) {
 
 module.exports = {
   PENDING_FILE,
+  coerceFromError,
   safeFolderName,
   move,
   resultPayload,

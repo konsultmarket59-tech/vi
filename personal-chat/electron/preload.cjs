@@ -338,6 +338,10 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
   mediaMoveToFolder: (projectId) => ipcRenderer.invoke("media:moveToFolder", projectId),
   mediaSweepPending: () => ipcRenderer.invoke("media:sweepPending"),
   mediaRefinePrompt: (payload) => ipcRenderer.invoke("media:refinePrompt", payload),
+  mediaStoryboardPrompt: (opts) => ipcRenderer.invoke("media:storyboardPrompt", opts),
+  writeStoryboard: (payload) => ipcRenderer.invoke("media:writeStoryboard", payload),
+  parseStoryboard: (text) => ipcRenderer.invoke("media:parseStoryboard", text),
+  buildStoryboard: (request) => ipcRenderer.invoke("media:buildStoryboard", request),
   onMediaCollected: (cb) => {
     const h = (_e, payload) => cb(payload);
     ipcRenderer.on("media:collected", h);

@@ -14,6 +14,7 @@ const fs = require("node:fs");
 const kit = require("./mediakit.cjs");
 const refs = require("./mediarefs.cjs");
 const script = require("./mediascript.cjs");
+const videostories = require("./videostories.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { execFileSync } = require("node:child_process");
 const http = require("node:http");
@@ -232,6 +233,79 @@ app.whenReady().then(async () => {
       опись.includes("Mixed Media") && опись.includes("Эффект Вертиго") && опись.includes("плавно"), опись);
     check("невыбранное в опись не лезет", !kit.describeChoice({}).length);
 
+    console.log("\nсториборд");
+    const sb = require("./storyboard.cjs");
+    const раскадровка = sb.parseStoryboard([
+      "=== КАДР 1 ===", "--- ЧТО В КАДРЕ ---", "дом на закате, общий план",
+      "--- ДВИЖЕНИЕ ---", "медленный наезд", "",
+      "=== КАДР 2 ===", "--- ЧТО В КАДРЕ ---", "крыльцо крупно", "--- ДВИЖЕНИЕ ---", "",
+    ].join("\n"));
+    check("кадры разбираются из ответа", раскадровка.length === 2, JSON.stringify(раскадровка));
+    check("движение читается отдельно от описания",
+      раскадровка[0].motion === "медленный наезд" && раскадровка[0].scene === "дом на закате, общий план");
+    // Ответ без разметки не превращается в пустую раскадровку молча: пустой
+    // список выглядит как «ничего не вышло», хотя текст пришёл.
+    check("ответ без разметки назван проблемой, а не пустотой",
+      sb.problemsOf(sb.parseStoryboard("просто текст")).some((p2) => /без разметки/.test(p2)));
+    check("нехватка кадров видна до трат",
+      sb.problemsOf(раскадровка).some((p2) => /Кадров получилось 2/.test(p2)));
+    // Кадр без движения оживлять нечем — он станет статичной секундой.
+    check("кадр без движения назван поимённо",
+      sb.problemsOf(раскадровка).some((p2) => /кадры 2/.test(p2)));
+    // Неизменность повторяется в КАЖДОМ кадре: каждая картинка заказывается
+    // отдельным запросом, и модель не помнит, что говорили предыдущей.
+    const промптКадра = sb.framePrompt(раскадровка[0], { keep: "тот же дом" });
+    check("в промпте кадра повторено, что неизменно",
+      /тот же дом/.test(промптКадра) && /same character, same wardrobe/.test(промптКадра), промптКадра.slice(0, 100));
+    check("и сказано, какой это кадр из скольких", /frame 1 of 6/.test(промптКадра));
+    check("в задании раскадровки требуется неизменность и смена плана",
+      /не мен[яе]/.test(sb.buildStoryboardPrompt({ idea: "дом" }))
+        && /План меняется/.test(sb.buildStoryboardPrompt({ idea: "дом" })));
+    check("с фотографией сказано брать героя из неё",
+      /берётся ИЗ НЕЁ/.test(sb.buildStoryboardPrompt({ hasPhoto: true })));
+    check("оживление просит одно медленное движение и ничего больше",
+      /One single slow continuous movement/.test(sb.motionPrompt(раскадровка[0])));
+
+    // Склейка настоящая: кадры синтетические, ffmpeg тот же, что в работе.
+    {
+      const кадрыПапка = path.join(workDir, "сб");
+      fs.mkdirSync(кадрыПапка, { recursive: true });
+      const картинки = [];
+      for (const [i, colour] of ["0x2B4C7E", "0xC6362F", "0x2F7A3D"].entries()) {
+        const img = path.join(кадрыПапка, `к${i}.png`);
+        execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+          "-i", `color=c=${colour}:s=320x180`, "-frames:v", "1", img]);
+        картинки.push(img);
+      }
+      const ролик = path.join(кадрыПапка, "стопкадры.mp4");
+      await sb.joinStills(videostories.runFfmpeg, ffmpeg, картинки, кадрыПапка, ролик,
+        { width: 320, height: 180, fps: 24, seconds: 1 });
+      check("из кадров собирается ролик со стоп-кадрами",
+        fs.existsSync(ролик) && fs.statSync(ролик).size > 1000, String(fs.existsSync(ролик)));
+      const длина = await script.audioSeconds(ffmpeg, ролик);
+      check("каждый кадр держится заданное время", Math.abs(длина - 3) < 0.4, `${длина.toFixed(2)} с вместо 3`);
+      // Клипы от разных заказов отличаются размером и частотой — склейка
+      // «copy» на таком разваливается, поэтому каждый кусок приводится к виду.
+      const разные = [];
+      for (const [i, size] of ["320x180", "640x360"].entries()) {
+        const v = path.join(кадрыПапка, `в${i}.mp4`);
+        execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+          "-i", `color=c=0x333333:s=${size}:d=1`, "-c:v", "libx264", "-pix_fmt", "yuv420p", v]);
+        разные.push(v);
+      }
+      const склейка = path.join(кадрыПапка, "склейка.mp4");
+      await sb.joinClips(videostories.runFfmpeg, ffmpeg, разные, кадрыПапка, склейка, { width: 320, height: 180, fps: 24 });
+      check("клипы разного размера всё равно склеиваются",
+        fs.existsSync(склейка) && fs.statSync(склейка).size > 1000);
+      let пусто = "";
+      try {
+        await sb.joinClips(videostories.runFfmpeg, ffmpeg, [], кадрыПапка, склейка);
+      } catch (e) {
+        пусто = e.message;
+      }
+      check("из пустого списка ролик не собирается", /склеивать нечего/.test(пусто), пусто);
+    }
+
     console.log("\nразмер изображения и границы чисел");
     check("размер кадра выбирается 1K/2K/4K",
       kit.MODEL_FIELDS.image.some((f) => f.key === "size" && f.options.join() === "1K,2K,4K"),
@@ -448,6 +522,47 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Медиа")).click()`);
       await new Promise((r) => setTimeout(r, 800));
       check("раздел открывается", (await call(`!!document.querySelector(".media-form")`)) === true);
+
+      // Раскладка. Настройки слева, сделанное — на сцене, история свёрнута.
+      // Раньше результат вылезал под формой, шириной с поле ввода, при том что
+      // справа пустовала треть окна.
+      check("сцена для результата есть", (await call(`!!document.querySelector(".media-stage")`)) === true);
+      check("история свёрнута по умолчанию",
+        (await call(`!document.querySelector(".media-history")`)) === true);
+      await call(`document.querySelector(".media-history-toggle").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("и раскрывается кнопкой", (await call(`!!document.querySelector(".media-history")`)) === true);
+      await call(`document.querySelector(".media-history-toggle").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("и снова сворачивается", (await call(`!document.querySelector(".media-history")`)) === true);
+      // Сцена шире формы: иначе весь этот переезд бессмыслен.
+      const ширины = await call(`(() => {
+        const f = document.querySelector(".media-form").getBoundingClientRect();
+        const st = document.querySelector(".media-stage").getBoundingClientRect();
+        return { форма: Math.round(f.width), сцена: Math.round(st.width) };
+      })()`);
+      check("сцена не уже формы", ширины.сцена >= ширины.форма, JSON.stringify(ширины));
+
+      // Боковая колонка убирается и возвращается кнопкой.
+      check("колонка проектов на месте", (await call(`!!document.querySelector(".sidebar")`)) === true);
+      await call(`document.querySelector(".sidebar-hide").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("колонка прячется", (await call(`getComputedStyle(document.querySelector(".sidebar")).display`)) === "none");
+      check("и есть чем её вернуть", (await call(`!!document.querySelector(".sidebar-show")`)) === true);
+      await call(`document.querySelector(".sidebar-show").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("возвращается по нажатию",
+        (await call(`getComputedStyle(document.querySelector(".sidebar")).display`)) !== "none");
+
+      // Сториборд — третий режим рядом с остальными.
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Сториборд").click()`);
+      await new Promise((r) => setTimeout(r, 400));
+      check("режим сториборда открывается",
+        (await call(`[...document.querySelectorAll("button")].some(b => b.textContent.includes("Написать раскадровку"))`)) === true);
+      check("и поле промпта в нём не показывается — его пишет раскадровка",
+        (await call(`!document.querySelector(".mention-box")`)) === true);
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Одна генерация").click()`);
+      await new Promise((r) => setTimeout(r, 400));
 
       // Список команд по «/» обязан показывать ВСЕ сто две. Раньше он обрезался
       // на тридцати, и половина команд для человека просто не существовала: он
