@@ -585,14 +585,31 @@ body {
   margin: 0;
 }
 
-.media-layout { display: flex; flex: 1; overflow: hidden; }
+/*
+  Раздел обязан занимать ровно высоту окна и не больше.
+  Без этого правила он просто рос вниз по содержимому: у .media-layout был
+  flex: 1, но расти было не от чего — родитель не был колонкой с заданной
+  высотой. Внутренняя прокрутка при этом не включалась (прокручивать нечего,
+  когда высота равна содержимому), а overflow: hidden обрезал низ. Со стороны
+  это выглядело так: полосы прокрутки нет, а кнопка «Сгенерировать» где-то
+  ниже края экрана и достать до неё нечем.
+*/
+.media-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+/*
+  Та же беда была и здесь, только не бросалась в глаза: пустой раздел
+  помещался в окно. На замере с наполнением он уезжал на две тысячи точек вниз,
+  и добраться до низа было нечем. Здесь прокручивается сам раздел целиком —
+  внутренней раскладки, которую стоило бы делить на части, у него нет.
+*/
+.github-view { height: 100%; overflow-y: auto; }
+.media-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 /*
   Форма — колонка с прокруткой и прилипшей полосой действия внизу. Раньше
   кнопка «Сгенерировать» стояла в конце длинной ленты настроек, и до неё надо
   было домотать: со стороны это выглядело так, будто кнопки нет вовсе.
 */
-.media-form { flex: 1; max-width: 720px; display: flex; flex-direction: column; overflow: hidden; }
-.media-scroll { flex: 1 1 auto; overflow-y: auto; padding-right: 4px; }
+.media-form { flex: 1; min-height: 0; max-width: 720px; display: flex; flex-direction: column; overflow: hidden; }
+.media-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .media-actions {
   flex: 0 0 auto; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 8px;
   display: flex; flex-direction: column; gap: 6px; background: var(--bg);

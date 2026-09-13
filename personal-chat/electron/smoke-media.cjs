@@ -386,21 +386,69 @@ app.whenReady().then(async () => {
       check("поля модели показаны",
         (await call(`document.querySelectorAll(".media-param").length`)) >= 3,
         String(await call(`document.querySelectorAll(".media-param").length`)));
-      // «Даже кнопку сгенерировать не видно»: она стояла в конце длинной ленты
-      // настроек. Теперь действие прилипло к низу столбца и видно всегда.
-      check("кнопка действия прилипла к низу и видна без прокрутки",
-        (await call(`(() => {
-          const bar = document.querySelector(".media-actions");
-          const form = document.querySelector(".media-form");
-          if (!bar || !form) return "нет полосы действия";
-          const b = bar.getBoundingClientRect(), f = form.getBoundingClientRect();
-          return b.bottom <= f.bottom + 2 && b.height > 0 ? "видна" : "за краем";
-        })()`)) === "видна");
-      check("настройки прокручиваются отдельно от кнопки",
+      // Проверка идёт в НЕВЫСОКОМ окне и меряет настоящие координаты.
+      //
+      // Прежняя проверка сравнивала кнопку с краем формы — и проходила, пока
+      // сама форма уезжала за край экрана: раздел рос по содержимому, потому
+      // что у .media-view не было заданной высоты. Полосы прокрутки не было
+      // (прокручивать нечего, когда высота равна содержимому), а лишнее
+      // обрезалось. Сравнивать надо с краем ОКНА, а не с краем того, что само
+      // за окно и вылезло.
+      win.setContentSize(1200, 760);
+      await new Promise((r) => setTimeout(r, 500));
+      const раскладка = await call(`(() => {
+        const view = document.querySelector(".media-view");
+        const scroll = document.querySelector(".media-scroll");
+        const кнопка = [...document.querySelectorAll(".media-actions .btn")].pop();
+        if (!view || !scroll || !кнопка) return { беда: "нет разметки" };
+        return {
+          разделВОкне: Math.round(view.getBoundingClientRect().bottom) <= window.innerHeight + 1,
+          кнопкаВидна: Math.round(кнопка.getBoundingClientRect().bottom) <= window.innerHeight + 1,
+          прокручивается: scroll.scrollHeight > scroll.clientHeight + 2,
+          низРаздела: Math.round(view.getBoundingClientRect().bottom),
+          окно: window.innerHeight,
+        };
+      })()`);
+      check("раздел не вылезает за окно", раскладка.разделВОкне === true, JSON.stringify(раскладка));
+      check("кнопка «Сгенерировать» видна без прокрутки", раскладка.кнопкаВидна === true, JSON.stringify(раскладка));
+      // Прокрутка должна БЫТЬ: настроек больше, чем помещается в такое окно.
+      check("настройки прокручиваются", раскладка.прокручивается === true, JSON.stringify(раскладка));
+
+      // И до низа настроек можно домотать — прокрутка не декоративная.
+      check("до конца настроек можно дойти",
         (await call(`(() => {
           const sc = document.querySelector(".media-scroll");
-          return sc && getComputedStyle(sc).overflowY === "auto" ? "да" : "нет";
-        })()`)) === "да");
+          sc.scrollTop = sc.scrollHeight;
+          return sc.scrollTop > 0 && sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2;
+        })()`)) === true);
+
+      // Тот же промах был и в разделе GitHub: пустой он помещался в окно, а с
+      // наполнением уезжал вниз, и добраться до низа было нечем.
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("GitHub")).click()`);
+      await new Promise((r) => setTimeout(r, 600));
+      const гит = await call(`(() => {
+          const v = document.querySelector(".github-view");
+          if (!v) return "раздела нет";
+          const проба = document.createElement("div");
+          проба.style.height = "2000px";
+          v.appendChild(проба);
+          const достать = v.scrollHeight > v.clientHeight + 2 ||
+            document.documentElement.scrollHeight > window.innerHeight + 1;
+          const диагноз = {
+            достать: достать ? "можно" : "нельзя",
+            высотаРаздела: Math.round(v.getBoundingClientRect().height),
+            clientHeight: v.clientHeight,
+            scrollHeight: v.scrollHeight,
+            overflowY: getComputedStyle(v).overflowY,
+            height: getComputedStyle(v).height,
+            окно: window.innerHeight,
+          };
+          проба.remove();
+          return JSON.stringify(диагноз);
+        })()`);
+      check("в GitHub до низа тоже можно дойти при любом наполнении", /"можно"/.test(гит), String(гит));
+      await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Медиа")).click()`);
+      await new Promise((r) => setTimeout(r, 600));
       check("команды формата есть и закрыты по умолчанию",
         (await call(`document.body.textContent.includes("Короткая команда")`)) === true &&
           (await call(`!document.querySelector(".media-kit-search")`)) === true);
