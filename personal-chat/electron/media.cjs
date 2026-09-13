@@ -5,8 +5,30 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function mediaDir(root, projectId) {
+/**
+ * Куда класть готовые файлы.
+ *
+ * По умолчанию — внутрь папки данных приложения. Но картинки и особенно ролики
+ * весят много, копятся быстро и никакого отношения к работе приложения не
+ * имеют: держать их внутри — значит раздувать то, что человек носит с собой и
+ * копирует целиком. Поэтому папку можно назвать свою, на своём диске, и тогда
+ * приложение остаётся лёгким, а файлы лежат там, где их и ищут.
+ *
+ * Привязанные к проекту попадают в подпапку с именем проекта: одна общая свалка
+ * из всех проектов — это не «своя папка», а та же куча, только снаружи.
+ */
+function mediaDir(root, projectId, outDir, projectName) {
+  const own = String(outDir || "").trim();
+  if (own) {
+    return projectId ? path.join(own, safeFolderName(projectName || projectId)) : own;
+  }
   return projectId ? path.join(root, "projects", projectId, "media") : path.join(root, "media");
+}
+
+/** Имя подпапки из названия проекта: в именах папок можно не всё. */
+function safeFolderName(name) {
+  const clean = String(name || "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  return clean.slice(0, 60) || "проект";
 }
 
 async function ensureDir(p) {
@@ -153,8 +175,14 @@ async function pollUntilDone(baseUrl, apiKey, id, type, onTick) {
 // оборвалась сеть. Поэтому номер заказа записывается на диск СРАЗУ после
 // создания, до первого опроса, и снимается только когда файл скачан.
 
+/**
+ * Журнал незабранных всегда лежит в папке данных приложения, а не в той, что
+ * выбрал человек. Он весит килобайты, зато знает про оплаченные заказы: если
+ * положить его на внешний диск и диск отключат, оплаченное перестанет
+ * существовать ровно в тот момент, когда оно нужнее всего.
+ */
 function pendingFile(root) {
-  return path.join(mediaDir(root, undefined), PENDING_FILE);
+  return path.join(root, "media", PENDING_FILE);
 }
 
 async function listPending(root) {
@@ -163,7 +191,7 @@ async function listPending(root) {
 }
 
 async function savePending(root, list) {
-  await ensureDir(mediaDir(root, undefined));
+  await ensureDir(path.join(root, "media"));
   await writeJson(pendingFile(root), list);
   return list;
 }
@@ -186,7 +214,7 @@ async function dropPending(root, id) {
  * создан и оплачен. Если заказ ещё не готов, возвращается его состояние, а не
  * ошибка: ждать дальше — нормальное положение дел, а не сбой.
  */
-async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", prompt = "", projectId, recipe = "" }) {
+async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", prompt = "", projectId, recipe = "", outDir = "", projectName = "" }) {
   const res = await fetch(`${baseUrl}/media/${id}`, { headers: { Authorization: `Bearer ${apiKey}` } });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.error?.message || body?.error || `Ошибка API (${res.status})`);
@@ -195,14 +223,14 @@ async function collect(root, { baseUrl, apiKey, id, type = "image", model = "", 
     throw new Error(body?.error?.message || body?.error || "Генерация завершилась с ошибкой.");
   }
   if (body.status !== "completed") return { ready: false, status: body.status || "pending" };
-  const saved = await download(root, body, { type, model, prompt, projectId, recipe });
+  const saved = await download(root, body, { type, model, prompt, projectId, recipe, outDir, projectName });
   await dropPending(root, id);
   return { ready: true, item: saved };
 }
 
 /** Скачать готовое и записать рядом опись — общее для генерации и дозабора. */
-async function download(root, result, { type, model, prompt, projectId, recipe = "", input = null }) {
-  const dir = mediaDir(root, projectId);
+async function download(root, result, { type, model, prompt, projectId, recipe = "", input = null, outDir = "", projectName = "" }) {
+  const dir = mediaDir(root, projectId, outDir, projectName);
   await ensureDir(dir);
   const id = result.id || `media_${Date.now()}`;
   const safeId = id.replace(/[^a-zA-Z0-9_-]/g, "");
@@ -257,6 +285,8 @@ async function download(root, result, { type, model, prompt, projectId, recipe =
 
 async function generate(root, opts) {
   const { baseUrl, apiKey, type, model, prompt, referenceImagePath, extraParamsJson, params, projectId, onStatus, meta } = opts;
+  const outDir = String(opts.outDir || "").trim();
+  const projectName = opts.projectName || "";
   if (!apiKey) throw new Error("Не задан API-ключ Polza.ai — откройте Настройки.");
   // Ключ уезжает в заголовок, а заголовки принимают только латиницу. Без этой
   // проверки лишний русский символ в ключе даёт сообщение вида «Cannot convert
@@ -301,6 +331,21 @@ async function generate(root, opts) {
             : ext === ".gif" ? "image/gif"
               : "image/jpeg";
       input.images.push({ type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` });
+    }
+  }
+
+  // Папку проверяем ДО заказа. Внешний диск отключают, папку переименовывают —
+  // и тогда заказ оплачен, а класть результат некуда. Дешевле упереться в это
+  // до списания денег, чем после.
+  if (outDir) {
+    try {
+      await ensureDir(mediaDir(root, projectId, outDir, projectName));
+    } catch (e) {
+      throw new Error(
+        `Папка для готовых файлов недоступна: ${outDir}. ` +
+          "Проверьте, на месте ли диск и та ли это папка — заказ не отправлен, деньги не списаны. " +
+          `(${e && e.message})`
+      );
     }
   }
 
@@ -354,7 +399,7 @@ async function generate(root, opts) {
   // тексту уже не вспомнить, что выбиралось, а повторить удачный кадр хочется
   // именно тогда.
   const saved = await download(root, result, {
-    type, model, prompt, projectId, recipe: (meta && meta.recipe) || "", input,
+    type, model, prompt, projectId, recipe: (meta && meta.recipe) || "", input, outDir, projectName,
   });
   await dropPending(root, saved.id);
   return saved;
@@ -374,8 +419,8 @@ function looksLikeItem(value) {
   return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.fileName === "string";
 }
 
-async function list(root, projectId) {
-  const dir = mediaDir(root, projectId);
+async function list(root, projectId, outDir, projectName) {
+  const dir = mediaDir(root, projectId, outDir, projectName);
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
   const items = [];
   for (const entry of entries) {
@@ -388,8 +433,63 @@ async function list(root, projectId) {
   return items;
 }
 
+/**
+ * Перенести уже накопленное в свою папку.
+ *
+ * Без этого выбор папки решает задачу только наполовину: новые файлы уйдут
+ * наружу, а всё, что успело накопиться внутри, так и останется весом
+ * приложения. Переносим файл вместе с его описью — порознь они бесполезны:
+ * файл без описи выпадает из истории, опись без файла ломает её.
+ *
+ * Перенос идёт копированием с последующим удалением, а не переименованием:
+ * своя папка обычно на другом диске, а туда `rename` не умеет. Если файл с
+ * таким именем на месте уже есть, он не трогается — повторный перенос не
+ * должен затирать то, что уже перенесено.
+ */
+async function move(root, projectId, outDir, projectName) {
+  const from = mediaDir(root, projectId);
+  const to = mediaDir(root, projectId, outDir, projectName);
+  if (!String(outDir || "").trim()) throw new Error("Не выбрана папка, куда переносить.");
+  if (path.resolve(from) === path.resolve(to)) return { moved: 0, kept: 0 };
+  await ensureDir(to);
+  const items = await list(root, projectId);
+  let moved = 0;
+  let kept = 0;
+  for (const item of items) {
+    const meta = path.join(from, item.id.replace(/[^a-zA-Z0-9_-]/g, "") + ".json");
+    const pair = [item.localPath, meta];
+    if (pair.every((f) => existsAt(path.join(to, path.basename(f))))) {
+      kept += 1;
+      continue;
+    }
+    for (const file of pair) {
+      const target = path.join(to, path.basename(file));
+      try {
+        await fs.copyFile(file, target);
+        await fs.rm(file, { force: true });
+      } catch {
+        // Файла может не быть вовсе (опись пережила файл) — это не повод
+        // обрывать перенос остальных.
+      }
+    }
+    moved += 1;
+  }
+  return { moved, kept };
+}
+
+function existsAt(file) {
+  try {
+    require("node:fs").accessSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   PENDING_FILE,
+  safeFolderName,
+  move,
   resultPayload,
   looksLikeItem,
   generate,

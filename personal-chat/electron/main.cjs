@@ -1700,6 +1700,21 @@ ipcMain.handle("licence:pickFile", async (event) => {
 ipcMain.handle("settings:get", () => loadSettings());
 ipcMain.handle("settings:save", (_e, settings) => saveSettingsFile(settings));
 
+
+/**
+ * Куда класть готовые файлы «Медиа» и как назвать подпапку проекта.
+ *
+ * Имя проекта, а не его номер: человек ищет файлы у себя в проводнике, и папка
+ * «Болдино LIFE» находится, а папка «p_1758...» — нет.
+ */
+async function mediaTarget(projectId) {
+  const settings = await loadSettings();
+  const outDir = String(settings.mediaFolder || "").trim();
+  if (!outDir || !projectId) return { outDir, projectName: "" };
+  const project = (await listProjects()).find((x) => x.id === projectId);
+  return { outDir, projectName: (project && project.name) || "" };
+}
+
 ipcMain.handle("projects:list", () => listProjects());
 ipcMain.handle("projects:create", (_e, data) => createProject(data));
 ipcMain.handle("projects:update", (_e, id, patch) => updateProject(id, patch));
@@ -2736,8 +2751,10 @@ ipcMain.handle("media:generate", async (event, payload) => {
         design: payload.design,
       })
     : resolved.prompt;
+  const куда = await mediaTarget(payload.projectId);
   return media.generate(root, {
     ...payload,
+    ...куда,
     prompt,
     params: mediakit.buildParams(payload.type, payload.params || {}),
     referenceImages: resolved.images.map((r) => r.path).filter(Boolean),
@@ -2856,7 +2873,8 @@ ipcMain.handle("media:buildPresentation", async (event, request) => {
     }
     if (!ready.length) throw new Error("Ни одна сцена не собралась: " + failed.map((f) => f.error).join("; "));
     send({ stage: "assemble", index: ready.length, total: scenes.length });
-    const dir = media.mediaDir(root, projectId);
+    const куда = await mediaTarget(projectId);
+    const dir = media.mediaDir(root, projectId, куда.outDir, куда.projectName);
     await media.ensureDir(dir);
     const out = path.join(dir, `презентация-${Date.now()}.mp4`);
     await mediascript.buildPresentationVideo(bin, ready, work, out);
@@ -2912,7 +2930,8 @@ ipcMain.handle("media:buildPodcast", async (event, request) => {
     }
     if (!files.length) throw new Error("Ни одна реплика не озвучена: " + failed.map((f) => f.error).join("; "));
     send({ stage: "assemble", index: files.length, total: lines.length });
-    const dir = media.mediaDir(root, projectId);
+    const куда = await mediaTarget(projectId);
+    const dir = media.mediaDir(root, projectId, куда.outDir, куда.projectName);
     await media.ensureDir(dir);
     const out = path.join(dir, `подкаст-${Date.now()}.mp3`);
     await mediascript.buildPodcastAudio(bin, files, work, out);
@@ -2923,7 +2942,22 @@ ipcMain.handle("media:buildPodcast", async (event, request) => {
   }
 });
 
-ipcMain.handle("media:list", async (_e, projectId) => media.list(await getRootPath(), projectId));
+ipcMain.handle("media:list", async (_e, projectId) => {
+  const { outDir, projectName } = await mediaTarget(projectId);
+  return media.list(await getRootPath(), projectId, outDir, projectName);
+});
+
+/**
+ * Перенести уже накопленное в выбранную папку.
+ *
+ * Выбор папки без переноса решает задачу наполовину: новое уйдёт наружу, а
+ * накопленное так и останется весом приложения.
+ */
+ipcMain.handle("media:moveToFolder", async (_e, projectId) => {
+  const { outDir, projectName } = await mediaTarget(projectId);
+  if (!outDir) throw new Error("Сначала выберите папку для готовых файлов.");
+  return media.move(await getRootPath(), projectId, outDir, projectName);
+});
 
 /** Заказы, за которые деньги сняты, а результат ещё не забран. */
 ipcMain.handle("media:pending", async () => media.listPending(await getRootPath()));
@@ -2934,9 +2968,12 @@ ipcMain.handle("media:collect", async (_e, id) => {
   const list = await media.listPending(root);
   const заказ = list.find((x) => x.id === id);
   if (!заказ) throw new Error("Такого заказа в журнале нет — возможно, он уже забран.");
+  const { outDir, projectName } = await mediaTarget(заказ.projectId || undefined);
   return media.collect(root, {
     baseUrl: settings.baseUrl,
     apiKey: settings.apiKey,
+    outDir,
+    projectName,
     id,
     type: заказ.type,
     model: заказ.model,
@@ -2953,7 +2990,8 @@ ipcMain.handle("media:forgetPending", async (_e, id) => {
 });
 ipcMain.handle("media:openFolder", async (_e, projectId) => {
   const root = await getRootPath();
-  const dir = media.mediaDir(root, projectId);
+  const { outDir, projectName } = await mediaTarget(projectId);
+  const dir = media.mediaDir(root, projectId, outDir, projectName);
   await media.ensureDir(dir);
   await shell.openPath(dir);
 });

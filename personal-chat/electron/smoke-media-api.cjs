@@ -203,6 +203,75 @@ app.whenReady().then(async () => {
     server.close();
     Object.assign(media.POLL_CONFIG.image, прежние);
 
+    console.log("\nсвоя папка для готовых файлов");
+    // Картинки и ролики весят много: держать их внутри приложения — значит
+    // раздувать именно его. Файл должен ложиться туда, куда сказано.
+    const своя = fs.mkdtempSync(path.join(os.tmpdir(), "mapi-out-"));
+    ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+    const внеПриложения = await media.generate(dataRoot, {
+      baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п", outDir: своя,
+    });
+    check("файл лёг в свою папку, а не внутрь приложения",
+      внеПриложения.localPath.startsWith(своя), внеПриложения.localPath);
+    check("и история читается оттуда же",
+      (await media.list(dataRoot, undefined, своя)).some((x) => x.id === внеПриложения.id));
+    // Журнал незабранных остаётся в папке данных: он весит килобайты, зато
+    // знает про оплаченные заказы. На внешнем диске он исчезнет вместе с
+    // диском — ровно тогда, когда нужнее всего.
+    check("журнал незабранных остался в папке приложения",
+      fs.existsSync(path.join(dataRoot, "media", "незабранные.json")),
+      fs.readdirSync(своя).join(", "));
+    check("и в свою папку он не уехал", !fs.existsSync(path.join(своя, "незабранные.json")));
+    server.close();
+
+    // Проект — своя подпапка внутри выбранной, по ИМЕНИ проекта: человек ищет
+    // файлы в проводнике, и «p_17583…» ему там ничего не скажет.
+    ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+    const вПроект = await media.generate(dataRoot, {
+      baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п",
+      outDir: своя, projectId: "p_123", projectName: "Болдино LIFE",
+    });
+    check("файлы проекта лежат в подпапке с его именем",
+      вПроект.localPath.includes(path.join(своя, "Болдино LIFE")), вПроект.localPath);
+    check("в имени папки нет запрещённых знаков",
+      media.safeFolderName('Про/ект: "раз"') === "Про ект раз", media.safeFolderName('Про/ект: "раз"'));
+    server.close();
+
+    // Папку проверяем ДО заказа: внешний диск отключают, папку переименовывают,
+    // и тогда заказ оплачен, а класть результат некуда.
+    ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+    const занято = path.join(своя, "не-папка");
+    fs.writeFileSync(занято, "я файл");
+    let недоступна = "";
+    try {
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "test-key", type: "image", model: "м", prompt: "п", outDir: занято,
+      });
+    } catch (e) {
+      недоступна = e.message;
+    }
+    check("недоступная папка отлавливается до заказа",
+      /недоступна/.test(недоступна) && /деньги не списаны/.test(недоступна), недоступна);
+    check("и заказ на сервер не уходил вовсе", принято.создание === null);
+    server.close();
+
+    console.log("\nперенос накопленного");
+    // Выбор папки без переноса решает задачу наполовину: новое уйдёт наружу, а
+    // накопленное останется весом приложения.
+    const куда = fs.mkdtempSync(path.join(os.tmpdir(), "mapi-move-"));
+    const былоВнутри = (await media.list(dataRoot)).length;
+    const перенос = await media.move(dataRoot, undefined, куда);
+    check("перенесено всё, что лежало внутри", перенос.moved === былоВнутри, `${перенос.moved} из ${былоВнутри}`);
+    check("внутри приложения не осталось генераций", (await media.list(dataRoot)).length === 0);
+    check("а в своей папке они читаются", (await media.list(dataRoot, undefined, куда)).length === былоВнутри);
+    check("файлы и правда лежат на диске",
+      (await media.list(dataRoot, undefined, куда)).every((x) => fs.existsSync(x.localPath)));
+    // Журнал переносу не подлежит: он не генерация.
+    check("журнал незабранных перенос не тронул",
+      fs.existsSync(path.join(dataRoot, "media", "незабранные.json")) && !fs.existsSync(path.join(куда, "незабранные.json")));
+    const повтор = await media.move(dataRoot, undefined, куда);
+    check("повторный перенос ничего не ломает", повтор.moved === 0, JSON.stringify(повтор));
+
     console.log("\nответ, готовый сразу");
     ({ server, принято, base } = await startServer({ createStatus: "completed", readyAfter: 1 }));
     // Некоторые модели отдают результат первым же ответом. Опрашивать нечего,

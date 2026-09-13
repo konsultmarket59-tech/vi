@@ -185,6 +185,11 @@ export interface Settings {
   promptCache?: boolean;
   /** Ключ Pexels — нужен только разделу «Видео-сторис» для поиска по стоку. */
   pexelsKey?: string;
+  /**
+   * Своя папка для готовых файлов «Медиа». Пусто — файлы лежат внутри папки
+   * данных приложения, как раньше.
+   */
+  mediaFolder?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -1745,6 +1750,7 @@ export interface ElectronAPI {
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
   mediaKit(): Promise<MediaKit>;
+  mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
   mediaFillTemplate(id: string, values: Record<string, string>): Promise<{ prompt: string; empty: string[] }>;
   mediaAddReferences(kind: "image" | "text", taken: string[]): Promise<MediaReference[]>;
   mediaResolvePrompt(prompt: string, references: MediaReference[]): Promise<MediaResolvedPrompt>;

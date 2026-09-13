@@ -419,6 +419,33 @@ app.whenReady().then(async () => {
       await new Promise((r) => setTimeout(r, 800));
       check("раздел открывается", (await call(`!!document.querySelector(".media-form")`)) === true);
 
+      // Папка для готовых файлов выбирается там же, где смотрят на растущую
+      // историю, — а не в общих настройках, куда за этим не пойдут.
+      check("папка для готовых файлов предлагается прямо в разделе",
+        (await call(`[...document.querySelectorAll("label")].some(l => l.textContent.includes("Папка для готовых файлов"))`)) === true);
+      check("и сказано, где файлы лежат сейчас",
+        (await call(`document.body.textContent.includes("внутри папки данных приложения")`)) === true);
+      // Настройка обязана дойти до главного процесса: выбранная папка, которую
+      // видит только окно, не меняет ничего.
+      const сПапкой = path.join(workDir, "своя-папка");
+      fs.mkdirSync(сПапкой, { recursive: true });
+      const прежние = await call(`window.api.getSettings()`);
+      await call(`window.api.saveSettings(${JSON.stringify({ ...прежние, mediaFolder: сПапкой })})`);
+      const сохранено = await call(`window.api.getSettings()`);
+      check("выбранная папка сохраняется в настройках", сохранено.mediaFolder === сПапкой, String(сохранено.mediaFolder));
+      // И главное: история теперь читается ИЗ ЭТОЙ папки. Настройка, которую
+      // видит только окно, не меняет ничего.
+      fs.writeFileSync(path.join(сПапкой, "abc.json"), JSON.stringify({
+        id: "abc", type: "image", model: "м", prompt: "п", fileName: "abc.png", createdAt: Date.now(),
+      }));
+      fs.writeFileSync(path.join(сПапкой, "abc.png"), "");
+      const изСвоей = await call(`window.api.listMediaGenerations()`);
+      check("история читается из выбранной папки",
+        изСвоей.some((x) => x.id === "abc"), JSON.stringify(изСвоей.map((x) => x.id)));
+      check("перенос накопленного доступен из окна",
+        (await call(`typeof window.api.mediaMoveToFolder`)) === "function");
+      await call(`window.api.saveSettings(${JSON.stringify(прежние)})`);
+
       // Заготовка обязана доехать до ПОЛЯ промпта, а не «внутрь»: тридцать
       // строк указаний нельзя отправлять не глядя, их надо видеть и править.
       // Сначала переключаемся на видео: заготовки принадлежат своему типу, и на

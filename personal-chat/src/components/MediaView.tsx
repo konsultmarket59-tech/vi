@@ -61,6 +61,10 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const [params, setParams] = useState<Record<string, string>>({});
   const [design, setDesign] = useState<StoriesDesign | null>(null);
   const [openGroup, setOpenGroup] = useState<string>("");
+  // Своя папка для готовых файлов. Хранится в настройках, но выбирается здесь:
+  // думают о ней ровно в тот момент, когда смотрят на растущую историю.
+  const [mediaFolder, setMediaFolder] = useState(settings.mediaFolder || "");
+  const [moving, setMoving] = useState(false);
   // Заготовка промпта и то, чем заполнены её места. Выбранное здесь никуда не
   // уходит само: промпт собирается только по нажатию, и человек видит текст.
   const [templateId, setTemplateId] = useState("");
@@ -331,6 +335,32 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
    * поправить руками, дописать своё и позвать референсы через @ — всё как с
    * обычным промптом.
    */
+  /** Выбрать (или убрать) свою папку и запомнить её в настройках. */
+  async function chooseFolder(dir: string) {
+    setMediaFolder(dir);
+    await window.api.saveSettings({ ...settings, mediaFolder: dir });
+    await refreshHistory();
+  }
+
+  /** Перенести накопленное: без этого выбор папки решает задачу наполовину. */
+  async function moveToFolder() {
+    setMoving(true);
+    setError(null);
+    try {
+      const r = await window.api.mediaMoveToFolder(projectId || undefined);
+      setError(
+        r.moved
+          ? `Перенесено файлов: ${r.moved}${r.kept ? `, уже были на месте: ${r.kept}` : ""}.`
+          : "Переносить нечего — всё уже в вашей папке."
+      );
+      await refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMoving(false);
+    }
+  }
+
   async function applyTemplate() {
     if (!chosenTemplate) return;
     try {
@@ -1014,6 +1044,39 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                   `переменных: ${design.vars.length}. Уходит в промпт запретом придумывать другие.`}
             </p>
           )}
+
+          <label>Папка для готовых файлов</label>
+          <p className="hint">
+            Картинки и особенно ролики весят много и копятся быстро. Пока они лежат внутри
+            приложения, они раздувают именно его. Назовите свою папку — и файлы будут
+            складываться туда, а приложение останется лёгким.
+          </p>
+          <div className="folder-row">
+            {mediaFolder ? (
+              <span className="hint">{mediaFolder}</span>
+            ) : (
+              <span className="hint">Сейчас: внутри папки данных приложения</span>
+            )}
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                const dir = await window.api.sitesPickFolder("Папка для готовых файлов");
+                if (dir) await chooseFolder(dir);
+              }}
+            >
+              Выбрать папку
+            </button>
+            {mediaFolder && (
+              <>
+                <button className="btn btn-secondary" disabled={moving} onClick={moveToFolder}>
+                  {moving ? "Переношу…" : "Перенести накопленное"}
+                </button>
+                <button className="link-btn" onClick={() => chooseFolder("")}>
+                  Вернуть внутрь
+                </button>
+              </>
+            )}
+          </div>
 
           <label>Проект (сохранить результат в его папку media/)</label>
           <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
