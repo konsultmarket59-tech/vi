@@ -19,6 +19,8 @@ export interface MentionItem {
   insert: string;
   title: string;
   hint?: string;
+  /** Заголовок раздела, под которым пункт стоит в списке. */
+  group?: string;
 }
 
 interface Props {
@@ -52,6 +54,7 @@ export default function MentionBox({
   const area = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState<Open | null>(null);
   const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const list = useMemo(() => {
     if (!open) return [];
@@ -65,10 +68,21 @@ export default function MentionBox({
             (i.hint || "").toLowerCase().includes(q)
         )
       : source;
-    return found.slice(0, 30);
+    // Список НЕ обрезается. Раньше показывались первые тридцать, и половина
+    // команд просто не существовала для человека: он открывал список, видел
+    // конец на «/i» и считал, что остального нет. Длину держит прокрутка, а не
+    // отсечение, а найти нужное помогает поиск и заголовки разделов.
+    return found;
   }, [open, mentions, commands]);
 
   useEffect(() => setActive(0), [open?.query, open?.sign]);
+
+  // Выбранное стрелками обязано быть видно: в списке из ста пунктов подсветка
+  // за краем окна — это подсветка, которой нет.
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>(".mention-item.on");
+    el?.scrollIntoView({ block: "nearest" });
+  }, [active, open?.query]);
 
   /** Что набрано между знаком и кареткой. */
   function look(text: string, caret: number): Open | null {
@@ -138,23 +152,35 @@ export default function MentionBox({
         }}
       />
       {open && (
-        <div className="mention-list">
+        <div className="mention-list" ref={listRef}>
           {list.length ? (
-            list.map((item, i) => (
-              <button
-                key={item.id}
-                className={i === active ? "mention-item on" : "mention-item"}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => choose(item)}
-              >
-                <b>
-                  {open.sign}
-                  {item.insert}
-                </b>
-                <span>{item.title}</span>
-                {item.hint && <span className="mention-hint">{item.hint}</span>}
-              </button>
-            ))
+            <>
+              <p className="mention-count">
+                {list.length === 1 ? "1 пункт" : `Пунктов: ${list.length}`} — прокрутите или
+                продолжите набирать, чтобы отфильтровать
+              </p>
+              {list.map((item, i) => (
+                <div key={item.id}>
+                  {/* Заголовок раздела — только там, где раздел меняется:
+                      сто пунктов подряд без разделителей не просматриваются. */}
+                  {item.group && item.group !== list[i - 1]?.group && (
+                    <p className="mention-group">{item.group}</p>
+                  )}
+                  <button
+                    className={i === active ? "mention-item on" : "mention-item"}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => choose(item)}
+                  >
+                    <b>
+                      {open.sign}
+                      {item.insert}
+                    </b>
+                    <span>{item.title}</span>
+                    {item.hint && <span className="mention-hint">{item.hint}</span>}
+                  </button>
+                </div>
+              ))}
+            </>
           ) : (
             <p className="mention-empty">
               {open.sign === "@"

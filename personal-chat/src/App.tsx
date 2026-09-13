@@ -35,6 +35,24 @@ export default function App() {
   const [plugins, setPlugins] = useState<PluginConfig>({ productName: "Личный чат", modules: {}, source: "" });
   const [licence, setLicence] = useState<LicenceStatus | null>(null);
   const [view, setView] = useState<View>({ kind: "settings" });
+  // Скрыта ли боковая колонка. Запоминается между запусками: выбор раскладки
+  // человек делает один раз, а не каждое утро.
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem("боковая-колонка-скрыта") === "да";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("боковая-колонка-скрыта", sidebarHidden ? "да" : "нет");
+    } catch {
+      // Приватный режим или запрет на хранилище — раскладка просто не запомнится.
+    }
+  }, [sidebarHidden]);
+
   const [loaded, setLoaded] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [startupSlow, setStartupSlow] = useState(false);
@@ -140,8 +158,26 @@ export default function App() {
     view.kind === "project" || view.kind === "settings" || enabled(view.kind) ? view : { kind: "settings" as const };
 
   return (
-    <div className="app-shell">
+    <div className={sidebarHidden ? "app-shell sidebar-off" : "app-shell"}>
+      {/*
+        Боковую колонку можно убрать. Когда работаешь в разделе — рисуешь,
+        собираешь ролик, — список проектов и плагинов не нужен и только отнимает
+        ширину у того, ради чего раздел открыли. Кнопка возврата остаётся на
+        виду: колонка, которую не вернуть, — это не «скрыта», а «потеряна».
+        Выбор запоминается: скрывать её заново при каждом запуске — работа,
+        которую приложение должно делать само.
+      */}
+      {sidebarHidden && (
+        <button
+          className="sidebar-show"
+          title="Показать проекты и разделы"
+          onClick={() => setSidebarHidden(false)}
+        >
+          ☰
+        </button>
+      )}
       <Sidebar
+        onHide={() => setSidebarHidden(true)}
         projects={projects}
         view={activeView}
         modules={plugins.modules}
@@ -149,6 +185,7 @@ export default function App() {
         onSelectView={setView}
         onProjectsChange={setProjects}
       />
+      {!sidebarHidden && (
       <Splitter
         id="боковая-колонка"
         variable="--sidebar-width"
@@ -158,6 +195,7 @@ export default function App() {
         side="left"
         label="Граница боковой колонки"
       />
+      )}
       <main className="main-area">
         {crash && (
           <div className="crash-banner">
@@ -224,7 +262,7 @@ export default function App() {
           <DirectView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "media" && (
-          <MediaView projects={projects} settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />
+          <MediaView projects={projects} settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "github" && (
           <GitHubView settings={settings} onOpenSettings={() => setView({ kind: "settings" })} />

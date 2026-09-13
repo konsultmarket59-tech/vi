@@ -50,9 +50,11 @@ interface Props {
   productName: string;
   onSelectView: (v: View) => void;
   onProjectsChange: (projects: Project[]) => void;
+  /** Убрать колонку: в разделе она отнимает ширину у того, ради чего его открыли. */
+  onHide: () => void;
 }
 
-export default function Sidebar({ projects, view, modules, productName, onSelectView, onProjectsChange }: Props) {
+export default function Sidebar({ projects, view, modules, productName, onSelectView, onProjectsChange, onHide }: Props) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -109,7 +111,12 @@ export default function Sidebar({ projects, view, modules, productName, onSelect
 
   return (
     <div className="sidebar">
-      <div className="sidebar-title">{productName}</div>
+      <div className="sidebar-head">
+        <div className="sidebar-title">{productName}</div>
+        <button className="sidebar-hide" title="Скрыть колонку" onClick={onHide}>
+          ‹
+        </button>
+      </div>
 
       <div className="sidebar-section">
         <button className="btn btn-primary btn-block" onClick={createEmptyProject}>

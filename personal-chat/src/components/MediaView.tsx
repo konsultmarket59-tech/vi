@@ -13,7 +13,9 @@ import type {
   MediaType,
   Project,
   Settings,
+  Skill,
   StoriesDesign,
+  StoryboardFrame,
 } from "../lib/types";
 import { listModels, type ModelInfo } from "../lib/api";
 import MentionBox, { type MentionItem } from "./MentionBox";
@@ -28,6 +30,8 @@ const CURATED_BY_TYPE: Record<MediaType, ModelInfo[]> = {
 interface Props {
   projects: Project[];
   settings: Settings;
+  /** Навыки: ими промпт правят по существу — см. «Доработать промпт навыком». */
+  skills: Skill[];
   onOpenSettings: () => void;
 }
 
@@ -37,7 +41,7 @@ const TYPE_PLACEHOLDERS: Record<MediaType, { model: string; prompt: string }> = 
   audio: { model: "elevenlabs/sound-effect-v2", prompt: "Спокойная фоновая мелодия для рекламного ролика, 15 секунд" },
 };
 
-export default function MediaView({ projects, settings, onOpenSettings }: Props) {
+export default function MediaView({ projects, settings, skills, onOpenSettings }: Props) {
   const [type, setType] = useState<MediaType>("image");
   const [model, setModel] = useState(TYPE_PLACEHOLDERS.image.model);
   const [prompt, setPrompt] = useState("");
@@ -65,6 +69,21 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   // думают о ней ровно в тот момент, когда смотрят на растущую историю.
   const [mediaFolder, setMediaFolder] = useState(settings.mediaFolder || "");
   const [moving, setMoving] = useState(false);
+  // История по умолчанию свёрнута: она нужна изредка, а места занимает треть
+  // окна — ровно того места, где смотрят на сделанное. Выбор запоминается.
+  const [historyOpen, setHistoryOpen] = useState(() => {
+    try {
+      return localStorage.getItem("медиа-история-открыта") === "да";
+    } catch {
+      return false;
+    }
+  });
+  // Навык, которым правят промпт по существу, и его предложение. Предложение
+  // живёт отдельно от поля: заменить свой текст чужим без спроса — потерять
+  // свой текст.
+  const [skillId, setSkillId] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refined, setRefined] = useState<{ prompt: string; notes: string; raw: boolean } | null>(null);
   // Заготовка промпта и то, чем заполнены её места. Выбранное здесь никуда не
   // уходит само: промпт собирается только по нажатию, и человек видит текст.
   const [templateId, setTemplateId] = useState("");
@@ -77,7 +96,17 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
 
   // Видео-презентации и подкасты: модель пишет только сценарий, картинки,
   // голоса и сборку делает приложение.
-  const [mode, setMode] = useState<"single" | "script">("single");
+  const [mode, setMode] = useState<"single" | "script" | "storyboard">("single");
+  // Сториборд: шесть кадров из фотографии и, по желанию, ролик из них.
+  const [sbIdea, setSbIdea] = useState("");
+  const [sbKeep, setSbKeep] = useState("");
+  const [sbText, setSbText] = useState("");
+  const [sbFrames, setSbFrames] = useState<StoryboardFrame[]>([]);
+  const [sbProblems, setSbProblems] = useState<string[]>([]);
+  const [sbAnimate, setSbAnimate] = useState(false);
+  const [sbVideoModel, setSbVideoModel] = useState("");
+  const [sbBuilding, setSbBuilding] = useState(false);
+  const [sbDone, setSbDone] = useState("");
   const [scriptKinds, setScriptKinds] = useState<MediaScriptKind[]>([]);
   const [scriptKind, setScriptKind] = useState("presentation");
   const [source, setSource] = useState("");
@@ -339,6 +368,34 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
   const templatesForType = kit ? kit.templates.filter((t) => t.kind === type) : [];
   const chosenTemplate = kit ? kit.templates.find((x) => x.id === templateId) || null : null;
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("медиа-история-открыта", historyOpen ? "да" : "нет");
+    } catch {
+      // Приватный режим — раскладка просто не запомнится.
+    }
+  }, [historyOpen]);
+
+  // Что показывать на сцене: только что сделанное или открытое из истории.
+  const shown = historyPreview
+    ? historyPreview
+    : result && previewUrl
+      ? { item: result, url: previewUrl }
+      : null;
+
+  /*
+    Пропорции рамки ожидания берутся из тех же параметров, что уйдут в модель:
+    рамка, которая не совпадает с заказанным кадром, обманывает — человек
+    привыкает к одной форме и получает другую. Аудио формы не имеет, поэтому
+    для него квадрат.
+  */
+  const waitingRatio = (() => {
+    if (type === "audio") return "3 / 1";
+    const raw = params.aspect_ratio || (type === "video" ? "16:9" : "1:1");
+    const [w, h] = String(raw).split(":");
+    return Number(w) > 0 && Number(h) > 0 ? `${w} / ${h}` : "1 / 1";
+  })();
+
   /**
    * Собрать промпт по заготовке и положить его в поле.
    *
@@ -347,6 +404,89 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
    * поправить руками, дописать своё и позвать референсы через @ — всё как с
    * обычным промптом.
    */
+  /**
+   * Пропустить промпт через навык.
+   *
+   * Модель рисует что просят — и охотно рисует конструктив, которого не бывает.
+   * Заметить это может тот, кто знает предмет, а навык на этот случай уже
+   * написан: пусть он и правит текст, по своей части.
+   */
+  async function refineWithSkill() {
+    if (!skillId || !prompt.trim()) return;
+    setRefining(true);
+    setError(null);
+    try {
+      setRefined(await window.api.mediaRefinePrompt({ prompt, skillId, type }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefining(false);
+    }
+  }
+
+  /**
+   * Написать раскадровку.
+   *
+   * Текст сначала, картинки потом: шесть описаний правятся бесплатно, а шесть
+   * картинок и шесть роликов — нет.
+   */
+  async function writeStoryboard() {
+    setError(null);
+    setSbDone("");
+    setGenerating(true);
+    try {
+      const r = await window.api.writeStoryboard({
+        idea: sbIdea,
+        photos: references.filter((x) => x.kind === "image").map((x) => x.path),
+      });
+      setSbText(r.text);
+      setSbFrames(r.frames);
+      setSbProblems(r.problems);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  /** Разобрать правленый руками текст обратно в кадры. */
+  async function reparseStoryboard(text: string) {
+    setSbText(text);
+    const r = await window.api.parseStoryboard(text);
+    setSbFrames(r.frames);
+    setSbProblems(r.problems);
+  }
+
+  /** Заказать кадры и, если попросили, оживить их и склеить. */
+  async function buildStoryboard() {
+    setError(null);
+    setSbDone("");
+    setSbBuilding(true);
+    try {
+      const r = await window.api.buildStoryboard({
+        frames: sbFrames,
+        imageModel: model.trim(),
+        videoModel: sbVideoModel.trim(),
+        animate: sbAnimate,
+        projectId: projectId || undefined,
+        keep: sbKeep,
+        style: choice.style ? (kit?.styles.find((x) => x.id === choice.style)?.prompt || "") : "",
+        photos: references.filter((x) => x.kind === "image").map((x) => x.path),
+        params,
+      });
+      setSbDone(r.path);
+      if (r.failed.length) {
+        setError(`Не собрались кадры: ${r.failed.map((f) => `${f.index} (${f.error})`).join("; ")}`);
+      }
+      await refreshHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSbBuilding(false);
+      setScriptProgress(null);
+    }
+  }
+
   /** Выбрать (или убрать) свою папку и запомнить её в настройках. */
   async function chooseFolder(dir: string) {
     setMediaFolder(dir);
@@ -470,6 +610,12 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </button>
             <button className={mode === "script" ? "tab active" : "tab"} onClick={() => setMode("script")}>
               Презентация и подкаст
+            </button>
+            <button
+              className={mode === "storyboard" ? "tab active" : "tab"}
+              onClick={() => setMode("storyboard")}
+            >
+              Сториборд
             </button>
           </div>
 
@@ -681,6 +827,96 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </>
           )}
 
+          {mode === "storyboard" && (
+            <>
+              {/*
+                Одна картинка отвечает на вопрос «как это выглядит». Ролик
+                отвечает на вопрос «что происходит», и собрать его из одной
+                картинки нельзя: нужна последовательность, где каждый кадр
+                продолжает предыдущий. Шесть промптов руками, следя за тем,
+                чтобы герой, свет и место не менялись, — работа, ради которой
+                это и сделано.
+              */}
+              <label>Замысел</label>
+              <textarea
+                rows={3}
+                value={sbIdea}
+                placeholder="Что должно произойти за шесть кадров. Пусто — раскадровка придумается по фотографии."
+                onChange={(e) => setSbIdea(e.target.value)}
+              />
+              <label>Что не меняется от кадра к кадру</label>
+              <input
+                value={sbKeep}
+                placeholder="тот же дом, тот же свет, та же одежда"
+                onChange={(e) => setSbKeep(e.target.value)}
+              />
+              <p className="hint">
+                Фотографии-референсы приложите ниже: с каждым кадром уедут они же, иначе герой
+                и место будут меняться от кадра к кадру. Кадры рисует модель из поля «ID модели».
+              </p>
+              <button
+                className="btn btn-secondary"
+                onClick={writeStoryboard}
+                disabled={generating}
+              >
+                {generating ? "Раскадровка пишется…" : "Написать раскадровку"}
+              </button>
+
+              {!!sbProblems.length && (
+                <div className="media-problems">
+                  {sbProblems.map((p2) => (
+                    <p key={p2} className="hint">
+                      {p2}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {!!sbText && (
+                <>
+                  <label>Раскадровка — правится руками до трат</label>
+                  <textarea rows={10} value={sbText} onChange={(e) => reparseStoryboard(e.target.value)} />
+                  <p className="hint">Кадров разобрано: {sbFrames.length}.</p>
+                </>
+              )}
+
+              <label className="media-param">
+                <span>
+                  <input
+                    type="checkbox"
+                    checked={sbAnimate}
+                    onChange={(e) => setSbAnimate(e.target.checked)}
+                  />{" "}
+                  Оживить кадры и склеить ролик
+                </span>
+                <span className="media-param-hint">
+                  Без галочки из кадров всё равно соберётся ролик со стоп-кадрами: монтаж видно
+                  целиком, а на видео ничего не потрачено. С галочкой каждый кадр заказывается
+                  ещё и как видео — это шесть отдельных оплаченных заказов.
+                </span>
+              </label>
+              {sbAnimate && (
+                <>
+                  <label>ID модели видео</label>
+                  <input
+                    value={sbVideoModel}
+                    placeholder="kling/v2.6"
+                    onChange={(e) => setSbVideoModel(e.target.value)}
+                  />
+                </>
+              )}
+              {scriptProgress && (
+                <p className="hint">
+                  {scriptProgress.stage === "image" && `Кадр ${scriptProgress.index} из ${scriptProgress.total}`}
+                  {scriptProgress.stage === "video" && `Оживляю кадр ${scriptProgress.index} из ${scriptProgress.total}`}
+                  {scriptProgress.stage === "assemble" && "Склеиваю ролик…"}
+                  {scriptProgress.stage === "failed" && `Не вышло: ${scriptProgress.error || ""}`}
+                </p>
+              )}
+              {sbDone && <div className="media-result-card">Готово: {sbDone}</div>}
+            </>
+          )}
+
           <label>Тип</label>
           <div className="media-type-tabs">
             <button className={type === "image" ? "tab active" : "tab"} onClick={() => selectType("image")}>
@@ -714,7 +950,7 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             models.length > 0 && <p className="hint">Доступно моделей типа «{type}»: {models.length} — начните вводить, появятся варианты.</p>
           )}
 
-          {!!templatesForType.length && (
+          {mode !== "storyboard" && !!templatesForType.length && (
             <div className="media-forms">
               <label>Заготовка промпта (необязательно)</label>
               <p className="hint">
@@ -768,6 +1004,8 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             </div>
           )}
 
+          {mode !== "storyboard" && (
+            <>
           <label>Промпт</label>
           <MentionBox
             value={prompt}
@@ -784,7 +1022,8 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               id: c.id,
               insert: c.id,
               title: c.why,
-              hint: c.group,
+              hint: c.aka,
+              group: c.group,
             }))}
             emptyMentionHint="Референсов пока нет — добавьте их кнопкой ниже, и они появятся здесь."
           />
@@ -909,6 +1148,67 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               </div>
             </>
           )}
+            </>
+          )}
+
+          {mode !== "storyboard" && !!skills.length && (
+            <div className="media-refine">
+              <label>Доработать промпт навыком</label>
+              <p className="hint">
+                Модель рисует то, что просят, — и охотно рисует узел, которого в реальности не
+                бывает. Навык правит промпт по своей части: называет вещи принятыми терминами,
+                убирает то, что так не устроено, добавляет то, без чего кадр будет неверным.
+                Ваш текст при этом остаётся на месте — предложение показывается рядом.
+              </p>
+              <div className="folder-row">
+                <select value={skillId} onChange={(e) => setSkillId(e.target.value)}>
+                  <option value="">Без навыка</option>
+                  {skills.map((sk) => (
+                    <option key={sk.id} value={sk.id}>
+                      {sk.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="btn btn-secondary"
+                  disabled={!skillId || !prompt.trim() || refining}
+                  onClick={refineWithSkill}
+                >
+                  {refining ? "Навык читает…" : "Доработать"}
+                </button>
+              </div>
+              {refined && (
+                <div className="media-refined">
+                  {refined.raw ? (
+                    <p className="hint">
+                      Навык ответил не по разметке — ниже его ответ целиком, решайте сами, что
+                      из него брать.
+                    </p>
+                  ) : refined.notes ? (
+                    <>
+                      <span className="media-param-hint">Что исправлено:</span>
+                      <pre className="media-refined-notes">{refined.notes}</pre>
+                    </>
+                  ) : null}
+                  <textarea rows={5} readOnly value={refined.prompt} />
+                  <div className="folder-row">
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setPrompt(refined.prompt);
+                        setRefined(null);
+                      }}
+                    >
+                      Заменить промпт
+                    </button>
+                    <button className="link-btn" onClick={() => setRefined(null)}>
+                      оставить свой
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {kit && type !== "audio" && (
             <>
@@ -994,6 +1294,38 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                         checked={params[f.key] === "true"}
                         onChange={(e) => setParams({ ...params, [f.key]: e.target.checked ? "true" : "" })}
                       />
+                    ) : f.kind === "number" && f.min !== undefined && f.max !== undefined ? (
+                      /*
+                        Число с известными границами — ползунком. Поле ввода не
+                        говорит, что в него можно писать: «строгость к промпту»
+                        принимает от 1 до 20, и без подписи человек пишет 100 и
+                        получает отказ модели. У ползунка границы видны, а
+                        промахнуться мимо них нельзя.
+                        Пустое значение при этом остаётся возможным: незаполненное
+                        поле не уходит вовсе, и это лучше, чем навязанное
+                        умолчание, которое модель поняла бы иначе.
+                      */
+                      <div className="media-range">
+                        <span className="media-range-edge">{f.min}</span>
+                        <input
+                          type="range"
+                          value={params[f.key] || String(f.min)}
+                          min={f.min}
+                          max={f.max}
+                          step={f.step || 1}
+                          onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
+                        />
+                        <span className="media-range-edge">{f.max}</span>
+                        <span className="media-range-value">{params[f.key] || "не задано"}</span>
+                        {params[f.key] && (
+                          <button
+                            className="link-btn"
+                            onClick={() => setParams({ ...params, [f.key]: "" })}
+                          >
+                            сбросить
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type={f.kind === "number" ? "number" : "text"}
@@ -1001,6 +1333,11 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
                         min={f.min}
                         max={f.max}
                         step={f.step}
+                        placeholder={
+                          f.kind === "number" && (f.min !== undefined || f.max !== undefined)
+                            ? `от ${f.min ?? "—"} до ${f.max ?? "—"}`
+                            : undefined
+                        }
                         onChange={(e) => setParams({ ...params, [f.key]: e.target.value })}
                       />
                     )}
@@ -1121,7 +1458,15 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
             сгенерировать не видно».
           */}
           <div className="media-actions">
-          {mode === "script" ? (
+          {mode === "storyboard" ? (
+            <button
+              className="btn btn-primary"
+              onClick={buildStoryboard}
+              disabled={sbBuilding || !sbFrames.length || !model.trim() || (sbAnimate && !sbVideoModel.trim())}
+            >
+              {sbBuilding ? "Собираю кадры…" : sbAnimate ? "Сделать кадры и ролик" : "Сделать кадры"}
+            </button>
+          ) : mode === "script" ? (
             <button
               className="btn btn-primary"
               onClick={buildScript}
@@ -1140,19 +1485,51 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
           )}
 
           </div>
+        </div>
 
-          {result && previewUrl && (
-            <div className="media-result-card">
-              {result.type === "image" && <img src={previewUrl} alt={result.prompt} />}
-              {result.type === "video" && <video src={previewUrl} controls />}
-              {result.type === "audio" && <audio src={previewUrl} controls />}
+        {/*
+          Сцена: здесь и только здесь появляется результат. Раньше он вылезал
+          под формой, в колонке настроек, и картинка была шириной с поле ввода —
+          при том, что справа пустовала треть окна. Настройки слева, сделанное —
+          на всём оставшемся месте.
+        */}
+        <div className="media-stage">
+          {generating ? (
+            <div className="media-waiting" style={{ aspectRatio: waitingRatio }}>
+              <div className="media-waiting-glow" />
+              <span className="media-waiting-text">{status || "Модель считает…"}</span>
+              <span className="hint">{waitingRatio.replace("/", ":")} — как задано в параметрах</span>
+            </div>
+          ) : shown ? (
+            <div className="media-result-card media-stage-card">
+              {shown.item.type === "image" && <img src={shown.url} alt={shown.item.prompt} />}
+              {shown.item.type === "video" && <video src={shown.url} controls />}
+              {shown.item.type === "audio" && <audio src={shown.url} controls />}
               <div className="media-result-actions">
-                <span className="hint">{result.fileName}</span>
+                <span className="hint">{shown.item.fileName || shown.item.model}</span>
+                {historyPreview && (
+                  <button className="link-btn" onClick={() => setHistoryPreview(null)}>
+                    Закрыть
+                  </button>
+                )}
               </div>
             </div>
+          ) : (
+            <p className="hint media-stage-empty">
+              Здесь появится сделанное. Настройки — слева, готовое и прошлые работы — здесь.
+            </p>
           )}
         </div>
 
+        <button
+          className="media-history-toggle"
+          title={historyOpen ? "Скрыть историю" : "Показать историю"}
+          onClick={() => setHistoryOpen(!historyOpen)}
+        >
+          {historyOpen ? "›" : "🕘"}
+        </button>
+
+        {historyOpen && (
         <div className="media-history">
           {/*
             Незабранные заказы. Деньги за генерацию снимаются в момент
@@ -1242,20 +1619,8 @@ export default function MediaView({ projects, settings, onOpenSettings }: Props)
               </li>
             ))}
           </ul>
-          {historyPreview && (
-            <div className="media-result-card">
-              {historyPreview.item.type === "image" && <img src={historyPreview.url} alt="" />}
-              {historyPreview.item.type === "video" && <video src={historyPreview.url} controls />}
-              {historyPreview.item.type === "audio" && <audio src={historyPreview.url} controls />}
-              <div className="media-result-actions">
-                <span className="hint">{historyPreview.item.model}</span>
-                <button className="link-btn" onClick={() => setHistoryPreview(null)}>
-                  Закрыть
-                </button>
-              </div>
-            </div>
-          )}
         </div>
+        )}
       </div>
     </div>
   );

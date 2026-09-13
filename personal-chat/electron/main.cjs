@@ -864,6 +864,7 @@ async function saveSkillCreatorConversation(conv) {
 const media = require("./media.cjs");
 const mediakit = require("./mediakit.cjs");
 const mediaforms = require("./mediaforms.cjs");
+const storyboard = require("./storyboard.cjs");
 const mediarefs = require("./mediarefs.cjs");
 const mediascript = require("./mediascript.cjs");
 const github = require("./github.cjs");
@@ -2895,6 +2896,118 @@ ipcMain.handle("media:parseScript", (_e, kind, text) =>
  * человек должен видеть, на какой из них всё встало. Сорвавшаяся сцена не
  * останавливает остальные — из того, что собралось, ролик всё равно выйдет.
  */
+/**
+ * Сториборд: задание модели на шесть кадров.
+ *
+ * Пишется отдельно от картинок и заказывается отдельно: текст правится
+ * бесплатно, а шесть картинок и шесть роликов — нет.
+ */
+ipcMain.handle("media:storyboardPrompt", (_e, opts) => storyboard.buildStoryboardPrompt(opts || {}));
+
+ipcMain.handle("media:writeStoryboard", async (_e, { idea, photos }) => {
+  const settings = await loadSettings();
+  const текст = await callModelOnce(settings, [
+    { role: "system", content: "Вы раскадровщик. Отвечайте строго по разметке, без вступлений." },
+    { role: "user", content: storyboard.buildStoryboardPrompt({ idea, hasPhoto: !!(photos && photos.length) }) },
+  ]);
+  const frames = storyboard.parseStoryboard(текст);
+  return { text: текст, frames, problems: storyboard.problemsOf(frames) };
+});
+
+ipcMain.handle("media:parseStoryboard", (_e, text) => {
+  const frames = storyboard.parseStoryboard(text);
+  return { frames, problems: storyboard.problemsOf(frames) };
+});
+
+/**
+ * Сделать кадры сториборда и, если попросили, оживить их и склеить.
+ *
+ * Сорвавшийся кадр не останавливает остальные: из пяти собравшихся монтаж
+ * всё равно выйдет, а человек увидит, какой именно не вышел и почему.
+ * Оживление — отдельный шаг и стоит отдельных денег, поэтому включается
+ * явно; без него из кадров всё равно собирается ролик со стоп-кадрами, и
+ * посмотреть монтаж целиком можно, ничего не потратив на видео.
+ */
+ipcMain.handle("media:buildStoryboard", async (event, request) => {
+  const {
+    frames, imageModel, videoModel, animate, projectId, keep = "", style = "",
+    photos = [], params = {}, videoParams = {},
+  } = request || {};
+  if (!Array.isArray(frames) || !frames.length) throw new Error("Раскадровка пуста — делать нечего.");
+  if (!imageModel) throw new Error("Укажите модель для кадров.");
+  if (animate && !videoModel) throw new Error("Для оживления укажите модель видео.");
+
+  const root = await getRootPath();
+  const settings = await loadSettings();
+  const куда = await mediaTarget(projectId);
+  const bin = ffmpegPath();
+  const work = await fs.mkdtemp(path.join(app.getPath("temp"), "сториборд-"));
+  const send = (payload) => {
+    try {
+      event.sender.send("media:script-progress", payload);
+    } catch {
+      // окно могло закрыться посреди сборки
+    }
+  };
+
+  try {
+    const картинки = [];
+    const клипы = [];
+    const failed = [];
+    for (const [i, frame] of frames.entries()) {
+      const step = { index: i + 1, total: frames.length };
+      try {
+        send({ ...step, stage: "image" });
+        const кадр = await media.generate(root, {
+          ...куда,
+          baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "image", model: imageModel,
+          prompt: storyboard.framePrompt(frame, { keep, style }),
+          // Исходные фотографии уезжают с КАЖДЫМ кадром: модель не помнит
+          // предыдущий заказ, и без них герой меняется от кадра к кадру.
+          referenceImages: photos,
+          params: mediakit.buildParams("image", params || {}),
+          projectId,
+          meta: { recipe: `сториборд, кадр ${i + 1}` },
+        });
+        картинки.push(кадр.localPath);
+
+        if (animate) {
+          send({ ...step, stage: "video" });
+          const клип = await media.generate(root, {
+            ...куда,
+            baseUrl: settings.baseUrl, apiKey: settings.apiKey, type: "video", model: videoModel,
+            prompt: storyboard.motionPrompt(frame),
+            referenceImages: [кадр.localPath],
+            params: mediakit.buildParams("video", videoParams || {}),
+            projectId,
+            meta: { recipe: `сториборд, оживление кадра ${i + 1}` },
+          });
+          клипы.push(клип.localPath);
+        }
+      } catch (e) {
+        failed.push({ index: i + 1, error: e instanceof Error ? e.message : String(e) });
+        send({ ...step, stage: "failed", error: String(e && e.message) });
+      }
+    }
+
+    if (!картинки.length) throw new Error("Ни один кадр не собрался: " + failed.map((f) => f.error).join("; "));
+
+    send({ stage: "assemble", index: картинки.length, total: frames.length });
+    const dir = media.mediaDir(root, projectId, куда.outDir, куда.projectName);
+    await media.ensureDir(dir);
+    const out = path.join(dir, `сториборд-${Date.now()}.mp4`);
+    if (animate && клипы.length) {
+      await storyboard.joinClips(videostories.runFfmpeg, bin, клипы, work, out);
+    } else {
+      await storyboard.joinStills(videostories.runFfmpeg, bin, картинки, work, out);
+    }
+    send({ stage: "done" });
+    return { path: out, images: картинки, clips: клипы, animated: !!(animate && клипы.length), failed };
+  } finally {
+    await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 ipcMain.handle("media:buildPresentation", async (event, request) => {
   const { scenes, imageModel, voiceModel, voice, projectId, design, kit: kitChoice, params } = request || {};
   if (!Array.isArray(scenes) || !scenes.length) throw new Error("Сценарий пуст — собирать нечего.");
@@ -3057,6 +3170,57 @@ ipcMain.handle("media:collect", async (_e, id) => {
 });
 
 /** Забыть заказ: он не получится никогда (например, сервис его потерял). */
+/**
+ * Доработать промпт навыком.
+ *
+ * Промпт к картинке — это описание того, чего ещё нет, и написать его так,
+ * чтобы вышло верно ПО СУЩЕСТВУ, может только тот, кто знает предмет. Узел
+ * примыкания кровли к стене, опирание балки, пирог перекрытия — модель рисует
+ * то, что просят, и охотно рисует конструктив, которого не бывает. Человек,
+ * который это заметит, — автор навыка, а навык у неё уже написан.
+ *
+ * Поэтому здесь не «улучшайзер промптов», а буквальное применение выбранного
+ * навыка к тексту промпта: навык правит по своей части, приложение ничего не
+ * добавляет от себя. Результат возвращается ОТДЕЛЬНО, а не подменяет поле:
+ * заменить свой текст чужим без спроса — это потерять свой текст.
+ */
+ipcMain.handle("media:refinePrompt", async (_e, { prompt, skillId, type }) => {
+  const settings = await loadSettings();
+  const skill = (await listSkills()).find((s) => s.id === skillId);
+  if (!skill) throw new Error("Такого навыка нет.");
+  if (!String(prompt || "").trim()) throw new Error("Сначала напишите промпт — навыку нужно, что править.");
+
+  const что = type === "video" ? "ролика" : type === "audio" ? "звука" : "изображения";
+  const reply = await callModelOnce(settings, [
+    {
+      role: "system",
+      content:
+        `Вы дорабатываете промпт для генерации ${что} по правилам навыка, приложенного ниже. ` +
+        "Навык — инструкция к исполнению, а не справка: выполняйте его буквально, в своей предметной части. " +
+        "Правьте промпт ПО СУЩЕСТВУ: убирайте то, что в реальности так не устроено, добавляйте то, без чего " +
+        "изображение будет неверным, называйте вещи принятыми терминами. " +
+        "Не меняйте замысел, не добавляйте стилей, ракурсов и параметров съёмки, которых человек не просил, " +
+        "и не переводите текст на другой язык. " +
+        "Если промпт по части навыка править нечего, верните его как есть.\n\n" +
+        "Ответ — ДВА раздела и ничего больше:\n" +
+        "=== ПРОМПТ ===\n(готовый текст промпта)\n" +
+        "=== ЧТО ИСПРАВЛЕНО ===\n(короткий список правок, по одной на строку; если правок нет — «без правок»)\n\n" +
+        `=== НАВЫК: ${skill.name} ===\n${skill.description ? skill.description + "\n" : ""}${skill.content}`,
+    },
+    { role: "user", content: String(prompt) },
+  ]);
+
+  const text = String(reply || "");
+  const промпт = (text.split(/===\s*ПРОМПТ\s*===/i)[1] || "").split(/===\s*ЧТО ИСПРАВЛЕНО\s*===/i)[0].trim();
+  const правки = (text.split(/===\s*ЧТО ИСПРАВЛЕНО\s*===/i)[1] || "").trim();
+  // Ответ без разметки не превращается в пустой промпт молча: пустое поле
+  // выглядит как «навык всё стёр», а на деле модель просто ответила иначе.
+  if (!промпт) {
+    return { prompt: text.trim(), notes: "", raw: true };
+  }
+  return { prompt: промпт, notes: правки, raw: false };
+});
+
 /** Проверить журнал прямо сейчас, не дожидаясь очередного круга. */
 ipcMain.handle("media:sweepPending", () => sweepPending());
 
