@@ -197,7 +197,14 @@ function yandexHeaders(token) {
 
 async function yandexTest(token) {
   const json = await request(`${YANDEX_API}/`, { headers: yandexHeaders(token) });
-  return { ok: true, login: json?.user?.display_name || json?.user?.login || "" };
+  // Сначала логин, и только потом отображаемое имя. Яндекс в display_name
+  // отдаёт то, как человек подписан («Виктория Пылаева»), а Директу нужен
+  // именно логин латиницей: с подписью вместо логина баланс не приходит.
+  return {
+    ok: true,
+    login: json?.user?.login || json?.user?.display_name || "",
+    displayName: json?.user?.display_name || "",
+  };
 }
 
 function normalizeYandexEntry(item) {

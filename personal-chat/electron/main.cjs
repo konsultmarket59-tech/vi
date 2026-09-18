@@ -888,6 +888,9 @@ const exportDocs = require("./exportDocs.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
 const directaudit = require("./directaudit.cjs");
+const directtable = require("./directtable.cjs");
+const directknow = require("./directknow.cjs");
+const directwords = require("./directwords.cjs");
 const cloud = require("./cloud.cjs");
 const connectionError = require("./connectionError.cjs");
 
@@ -2417,6 +2420,9 @@ ipcMain.handle("direct:overview", async (_e, range) => {
     try {
       строка.campaigns = await direct.listCampaigns(account.token, account.directClientLogin);
       строка.stats = await direct.getStats(account.token, { ...период, clientLogin: account.directClientLogin });
+      строка.statsLimited = Boolean(строка.stats.limited);
+      строка.statsWhy = строка.stats.why || "";
+      строка.stats = [...строка.stats];
     } catch (e) {
       строка.error = e instanceof Error ? e.message : String(e);
       строка.howToFix = (e && e.howToFix) || "";
@@ -2435,7 +2441,40 @@ ipcMain.handle("direct:overview", async (_e, range) => {
     строка.totals = разбор.totals;
     итог.push(строка);
   }
-  return { range: период, accounts: итог };
+  // Одна таблица по всем аккаунтам сразу: сравнивать кампании из разных
+  // аккаунтов, переключаясь между ними, невозможно.
+  const строки = directtable.buildRows(итог);
+  return {
+    range: период,
+    accounts: итог,
+    rows: строки,
+    columns: directtable.COLUMNS,
+    defaultColumns: directtable.DEFAULT_COLUMNS,
+    states: directtable.STATES,
+    totals: directtable.totalsOf(строки),
+  };
+});
+
+/**
+ * «Почему тут такое число».
+ *
+ * Модели отдаются все числа строки и итоги по отбору — объяснить CPA, не видя
+ * CTR и конверсий, нельзя, получится общий текст про оптимизацию.
+ */
+ipcMain.handle("direct:explainCell", async (_e, payload) => {
+  const { columnId, value, row, totals, range } = payload || {};
+  const column =
+    directtable.COLUMNS.find((c) => c.id === columnId) ||
+    (String(columnId || "").startsWith("goal_")
+      ? { id: columnId, title: "Цель", explain: "Конверсии по одной конкретной цели Метрики." }
+      : null);
+  if (!column) throw new Error("Неизвестный столбец: " + columnId);
+  if (!row) throw new Error("Нет строки, про которую спрашивают.");
+  const settings = await loadSettings();
+  const текст = await callModelOnce(settings, [
+    { role: "user", content: directknow.explainCellPrompt({ column, value, row, totals, range }) },
+  ]);
+  return { column: column.title, value: value ?? null, text: текст };
 });
 
 /**
@@ -2444,6 +2483,62 @@ ipcMain.handle("direct:overview", async (_e, range) => {
  * Фразы грузятся отдельно и только по запросу: их тысячи, и тянуть их ради
  * обзорной таблицы — это лишние минуты ожидания и лишние баллы API.
  */
+/**
+ * Разбор поисковых запросов и площадок по одному аккаунту.
+ *
+ * Отчёты тяжёлые и готовятся по несколько секунд, поэтому это отдельная
+ * кнопка, а не часть общего обзора: заставлять ждать их при каждом обновлении
+ * таблицы — значит сделать таблицу бесполезной.
+ */
+ipcMain.handle("direct:words", async (_e, { accountId, dateFrom, dateTo } = {}) => {
+  const accounts = await allYandexAccounts();
+  const account = accounts.find((a) => a.id === accountId) || accounts[0];
+  if (!account) throw new Error("Аккаунт не найден — подключите его в «☁️ Облако».");
+  const период = {
+    dateFrom: dateFrom || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10),
+    dateTo: dateTo || new Date().toISOString().slice(0, 10),
+  };
+
+  let queries = [];
+  let queriesError = "";
+  try {
+    queries = await direct.getSearchQueries(account.token, { ...период, clientLogin: account.directClientLogin });
+  } catch (e) {
+    queriesError = e instanceof Error ? e.message : String(e);
+  }
+
+  let placements = [];
+  let placementsError = "";
+  try {
+    placements = await direct.getPlacements(account.token, { ...период, clientLogin: account.directClientLogin });
+  } catch (e) {
+    placementsError = e instanceof Error ? e.message : String(e);
+  }
+
+  const минус = directwords.minusCandidates(queries);
+  const лишние = directwords.wastefulQueries(queries);
+  const площадки = directwords.badPlacements(placements);
+  return {
+    account: { id: account.id, label: account.label || account.login },
+    range: период,
+    minus: минус,
+    queries: лишние,
+    placements: площадки,
+    waste: directwords.wasteTotal({ minus: минус, placements: площадки }),
+    text: directwords.describe({ minus: минус, queries: лишние, placements: площадки }),
+    queriesError,
+    placementsError,
+  };
+});
+
+/** Вордстат: сколько раз спрашивают и что спрашивают рядом. */
+ipcMain.handle("direct:wordstat", async (_e, { accountId, phrases, geoIds } = {}) => {
+  const accounts = await allYandexAccounts();
+  const account = accounts.find((a) => a.id === accountId) || accounts[0];
+  if (!account) throw new Error("Аккаунт не найден — подключите его в «☁️ Облако».");
+  return direct.wordstat(account.token, phrases, { geoIds });
+});
+
 ipcMain.handle("direct:audit", async (_e, { accountId, dateFrom, dateTo } = {}) => {
   const accounts = await allYandexAccounts();
   const account = accounts.find((a) => a.id === accountId) || accounts[0];
@@ -2534,7 +2629,11 @@ ipcMain.handle("direct:listAds", async (_e, campaignIds) => {
 
 ipcMain.handle("direct:getStats", async (_e, range) => {
   const { token, clientLogin } = await directAuth();
-  return direct.getStats(token, { ...range, clientLogin });
+  const rows = await direct.getStats(token, { ...range, clientLogin });
+  // Оговорка про урезанный набор полей живёт на самом массиве, а через IPC
+  // доезжают только элементы. Поэтому переносим её в отдельные поля здесь,
+  // пока данные ещё в главном процессе.
+  return { rows: [...rows], limited: Boolean(rows.limited), why: rows.why || "" };
 });
 
 // Mutations, run only after the user confirmed the agent's proposal in the UI.

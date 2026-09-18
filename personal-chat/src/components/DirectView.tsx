@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ConnectionStatus, { CHECKING, errorText, failed, ok } from "./ConnectionStatus";
 import type { ConnectionStatusValue } from "./ConnectionStatus";
 import type {
@@ -9,6 +9,9 @@ import type {
   DirectKeyword,
   DirectOverview,
   DirectStatRow,
+  DirectTableRow,
+  DirectWordsReport,
+  DirectWordstatItem,
   Settings,
   Skill,
 } from "../lib/types";
@@ -21,7 +24,7 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-type Tab = "all" | "campaigns" | "agent" | "settings";
+type Tab = "all" | "campaigns" | "words" | "agent" | "settings";
 
 /** Yandex's state/status codes, in words. */
 const STATE_LABEL: Record<string, string> = {
@@ -49,6 +52,33 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
   // горит» — про все три одновременно. Переключаться ради этого не надо.
   const [overview, setOverview] = useState<DirectOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  // Отбор и столбцы таблицы. Выбор столбцов запоминается: собирать нужный
+  // набор заново при каждом запуске — это работа, которую приложение обязано
+  // взять на себя.
+  const [stateFilter, setStateFilter] = useState("все");
+  const [accountFilter, setAccountFilter] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("cost");
+  const [sortDesc, setSortDesc] = useState(true);
+  const [showColumns, setShowColumns] = useState(false);
+  const [chosen, setChosen] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("direct-columns");
+      return saved ? (JSON.parse(saved) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [cell, setCell] = useState<{ title: string; value: string; text: string; loading: boolean } | null>(null);
+  // Минус-слова, лишние запросы и площадки — отдельной кнопкой: отчёты тяжёлые,
+  // и ждать их при каждом обновлении таблицы незачем.
+  const [words, setWords] = useState<DirectWordsReport | null>(null);
+  const [wordsLoading, setWordsLoading] = useState(false);
+  const [wordsAccount, setWordsAccount] = useState("");
+  const [wsPhrases, setWsPhrases] = useState("");
+  const [wsGeo, setWsGeo] = useState("");
+  const [wordstat, setWordstat] = useState<DirectWordstatItem[] | null>(null);
+  const [wordstatLoading, setWordstatLoading] = useState(false);
   const [audit, setAudit] = useState<DirectAudit | null>(null);
   const [auditing, setAuditing] = useState("");
   const [clientLogin, setClientLogin] = useState("");
@@ -125,11 +155,164 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     setOverviewLoading(true);
     setNote("");
     try {
-      setOverview(await window.api.directOverview({}));
+      const данные = await window.api.directOverview({});
+      setOverview(данные);
+      // Первый запуск: показываем набор столбцов по умолчанию, а не пустую
+      // таблицу с предложением её настроить.
+      if (!chosen.length) setChosen(данные.defaultColumns);
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e));
     } finally {
       setOverviewLoading(false);
+    }
+  }
+
+  function toggleColumn(id: string) {
+    setChosen((prev) => {
+      const next = prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id];
+      try {
+        localStorage.setItem("direct-columns", JSON.stringify(next));
+      } catch {
+        // Если хранилище недоступно, набор просто не запомнится — это не повод
+        // ломать таблицу.
+      }
+      return next;
+    });
+  }
+
+  /** Числа таблицы: суммы складываются, доли пересчитываются по суммам. */
+  function visibleRows(): DirectTableRow[] {
+    const запрос = search.trim().toLowerCase();
+    const rows = (overview?.rows || []).filter((row) => {
+      if (stateFilter !== "все" && row.state !== stateFilter) return false;
+      if (accountFilter.length && !accountFilter.includes(row.accountId)) return false;
+      if (запрос && !String(row.name || "").toLowerCase().includes(запрос)) return false;
+      return true;
+    });
+    return [...rows].sort((a, b) => {
+      const x = a[sortBy];
+      const y = b[sortBy];
+      if (typeof x === "number" || typeof y === "number") {
+        const nx = typeof x === "number" ? x : -Infinity;
+        const ny = typeof y === "number" ? y : -Infinity;
+        return sortDesc ? ny - nx : nx - ny;
+      }
+      return sortDesc
+        ? String(y ?? "").localeCompare(String(x ?? ""), "ru")
+        : String(x ?? "").localeCompare(String(y ?? ""), "ru");
+    });
+  }
+
+  /**
+   * Итоги по тому, что сейчас видно.
+   *
+   * Средние не усредняются, а пересчитываются по суммам: иначе кампания на
+   * триста рублей весит в среднем CPA столько же, сколько основная.
+   */
+  function totalsOf(rows: DirectTableRow[]): Record<string, number | null> {
+    const сумма = (поле: string) =>
+      rows.reduce((acc, row) => acc + (typeof row[поле] === "number" ? (row[поле] as number) : 0), 0);
+    const доля = (верх: number, низ: number, множитель = 1) => (низ ? (верх / низ) * множитель : null);
+    const cost = сумма("cost");
+    const clicks = сумма("clicks");
+    const impressions = сумма("impressions");
+    const conversions = сумма("conversions");
+    const revenue = сумма("revenue");
+    return {
+      cost,
+      clicks,
+      impressions,
+      conversions,
+      revenue,
+      ctr: доля(clicks, impressions, 100),
+      cpc: доля(cost, clicks),
+      cpm: доля(cost, impressions, 1000),
+      conversionRate: доля(conversions, clicks, 100),
+      cpa: доля(cost, conversions),
+      drr: доля(cost, revenue, 100),
+      roi: доля(revenue - cost, cost, 100),
+    };
+  }
+
+  function cellText(value: string | number | null, kind: string): string {
+    if (value === null || value === undefined || value === "") return "—";
+    if (kind === "текст" || kind === "дата") return String(value);
+    return Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+  }
+
+  /**
+   * «Почему тут такое число».
+   *
+   * Смысл кнопки не в том, чтобы показать определение показателя, а в том,
+   * чтобы разобрать именно эту кампанию: те же 40 ₽ за клик в поиске и в сети
+   * значат разное.
+   */
+  async function explainCell(row: DirectTableRow, columnId: string, title: string, value: string | number | null) {
+    setCell({ title, value: cellText(value, "число"), text: "", loading: true });
+    try {
+      const ответ = await window.api.explainDirectCell({
+        columnId,
+        value,
+        row,
+        totals: overview?.totals || null,
+        range: overview?.range || { dateFrom: "", dateTo: "" },
+      });
+      setCell({ title: `${title} · ${row.name}`, value: cellText(value, "число"), text: ответ.text, loading: false });
+    } catch (e) {
+      setCell({
+        title,
+        value: cellText(value, "число"),
+        text: e instanceof Error ? e.message : String(e),
+        loading: false,
+      });
+    }
+  }
+
+  const отобранные = useMemo(
+    visibleRows,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [overview, stateFilter, accountFilter, search, sortBy, sortDesc]
+  );
+  const итоги = useMemo(() => totalsOf(отобранные), [отобранные]);
+
+  async function loadWords() {
+    setWordsLoading(true);
+    setNote("");
+    try {
+      setWords(await window.api.directWords({ accountId: wordsAccount || undefined }));
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWordsLoading(false);
+    }
+  }
+
+  async function runWordstat() {
+    const фразы = wsPhrases
+      .split("\n")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (!фразы.length) {
+      setNote("Напишите хотя бы одну фразу — Вордстату нужно, что именно считать.");
+      return;
+    }
+    setWordstatLoading(true);
+    setNote("");
+    try {
+      setWordstat(
+        await window.api.directWordstat({
+          accountId: wordsAccount || undefined,
+          phrases: фразы,
+          geoIds: wsGeo
+            .split(/[,\s]+/)
+            .map((g) => Number(g))
+            .filter(Boolean),
+        })
+      );
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setWordstatLoading(false);
     }
   }
 
@@ -183,10 +366,15 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
         window.api.getDirectStats({ dateFrom, dateTo }),
         activeIds.length ? window.api.listDirectKeywords(activeIds) : Promise.resolve([]),
       ]);
-      setStats(report);
+      setStats(report.rows);
       setKeywords(keys);
-      setNote(`Загружено: кампаний ${list.length}, строк статистики ${report.length}, фраз ${keys.length}`);
-      setTimeout(() => setNote(null), 5000);
+      setNote(
+        `Загружено: кампаний ${list.length}, строк статистики ${report.rows.length}, фраз ${keys.length}` +
+          (report.limited ? `\n${report.why}` : "")
+      );
+      // Оговорку про урезанный отчёт не прячем — иначе непонятно, почему
+      // в таблице нет конверсий и дохода.
+      if (!report.limited) setTimeout(() => setNote(null), 5000);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -288,6 +476,9 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             <button className={tab === "campaigns" ? "tab active" : "tab"} onClick={() => setTab("campaigns")}>
               Кампании
             </button>
+            <button className={tab === "words" ? "tab active" : "tab"} onClick={() => setTab("words")}>
+              Слова и площадки
+            </button>
             <button className={tab === "agent" ? "tab active" : "tab"} onClick={openAgent}>
               🤖 Агент
             </button>
@@ -314,6 +505,166 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
                 </span>
               )}
             </div>
+
+            {overview && overview.rows.length > 0 && (
+              <div className="direct-table-block">
+                <div className="direct-filters">
+                  {overview.states.map((st) => (
+                    <button
+                      key={st.id}
+                      className={stateFilter === st.id ? "chip active" : "chip"}
+                      onClick={() => setStateFilter(st.id)}
+                    >
+                      {st.title}
+                      <span className="chip-count">
+                        {st.id === "все"
+                          ? overview.rows.length
+                          : overview.rows.filter((r) => r.state === st.id).length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="direct-filters">
+                  {overview.accounts.map((acc) => (
+                    <button
+                      key={acc.id}
+                      className={
+                        accountFilter.length === 0 || accountFilter.includes(acc.id) ? "chip active" : "chip"
+                      }
+                      onClick={() =>
+                        setAccountFilter((prev) =>
+                          prev.includes(acc.id) ? prev.filter((x) => x !== acc.id) : [...prev, acc.id]
+                        )
+                      }
+                    >
+                      {acc.label || acc.login}
+                    </button>
+                  ))}
+                  {accountFilter.length > 0 && (
+                    <button className="link-btn" onClick={() => setAccountFilter([])}>
+                      показать все аккаунты
+                    </button>
+                  )}
+                  <input
+                    className="input"
+                    style={{ maxWidth: 220 }}
+                    placeholder="Поиск по названию"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  <button className="link-btn" onClick={() => setShowColumns((v) => !v)}>
+                    {showColumns ? "скрыть столбцы" : `столбцы (${chosen.length})`}
+                  </button>
+                </div>
+
+                {showColumns && (
+                  <div className="direct-columns-picker">
+                    <p className="hint">
+                      Отметьте показатели, которые нужны в таблице. Пустой столбец означает, что Директ или
+                      Метрика этих данных не дают — например, доход считается только при настроенной
+                      электронной коммерции.
+                    </p>
+                    {Array.from(new Set(overview.columns.map((c) => c.group))).map((group) => (
+                      <div key={group} className="direct-columns-group">
+                        <b>{group}</b>
+                        {overview.columns
+                          .filter((c) => c.group === group)
+                          .map((c) => (
+                            <label key={c.id} className="checkbox-row" title={c.explain}>
+                              <input
+                                type="checkbox"
+                                checked={chosen.includes(c.id)}
+                                onChange={() => toggleColumn(c.id)}
+                              />
+                              {c.title}
+                            </label>
+                          ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <p className="hint">
+                  Нажмите на любое число в таблице — агент разберёт, почему оно такое и что с этим делать.
+                </p>
+
+                <div className="direct-table-wrap">
+                  <table className="direct-table">
+                    <thead>
+                      <tr>
+                        {overview.columns
+                          .filter((c) => chosen.includes(c.id))
+                          .map((c) => (
+                            <th
+                              key={c.id}
+                              title={c.explain}
+                              onClick={() => {
+                                if (sortBy === c.id) setSortDesc((v) => !v);
+                                else {
+                                  setSortBy(c.id);
+                                  setSortDesc(true);
+                                }
+                              }}
+                            >
+                              {c.title}
+                              {sortBy === c.id ? (sortDesc ? " ↓" : " ↑") : ""}
+                            </th>
+                          ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {отобранные.map((row) => (
+                        <tr key={`${row.accountId}-${row.campaignId}`}>
+                          {overview.columns
+                            .filter((c) => chosen.includes(c.id))
+                            .map((c) => (
+                              <td
+                                key={c.id}
+                                className={c.kind === "текст" || c.kind === "дата" ? "" : "num"}
+                                title={c.id === "state" ? row.stateNote : ""}
+                                onClick={() => explainCell(row, c.id, c.title, row[c.id])}
+                              >
+                                {cellText(row[c.id], c.kind)}
+                              </td>
+                            ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        {overview.columns
+                          .filter((c) => chosen.includes(c.id))
+                          .map((c) => {
+                            const значение = итоги[c.id];
+                            return (
+                              <td key={c.id} className={c.kind === "текст" || c.kind === "дата" ? "" : "num"}>
+                                {c.id === "name"
+                                  ? `Всего кампаний: ${отобранные.length}`
+                                  : значение === undefined
+                                    ? ""
+                                    : cellText(значение ?? null, c.kind)}
+                              </td>
+                            );
+                          })}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {cell && (
+                  <div className="direct-cell-answer">
+                    <div className="direct-account-head">
+                      <h3>{cell.title}</h3>
+                      <button className="link-btn" onClick={() => setCell(null)}>
+                        закрыть
+                      </button>
+                    </div>
+                    {cell.loading ? <p className="hint">Разбираю…</p> : <pre className="pre-wrap">{cell.text}</pre>}
+                  </div>
+                )}
+              </div>
+            )}
 
             {overview?.accounts.map((acc) => (
               <div key={acc.id} className="direct-account">
@@ -446,6 +797,198 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             {!overview && !overviewLoading && (
               <p className="hint">Нажмите «Обновить» — приложение обойдёт все подключённые аккаунты.</p>
             )}
+          </div>
+        )}
+
+        {tab === "words" && (
+          <div className="panel-section">
+            <p className="hint">
+              Здесь видно, по каким запросам на самом деле показывались объявления и на каких площадках сети
+              потрачены деньги. Разница между ключевой фразой и реальным запросом — это и есть то место, где
+              бюджет утекает незаметно: по одному запросу сорок рублей, а по слову целиком — несколько тысяч.
+            </p>
+            <div className="folder-row">
+              <select
+                className="input"
+                value={wordsAccount}
+                onChange={(e) => setWordsAccount(e.target.value)}
+                style={{ maxWidth: 260 }}
+              >
+                <option value="">Аккаунт: активный</option>
+                {cloudAccounts.yandex.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label || a.login}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn-primary" onClick={loadWords} disabled={wordsLoading}>
+                {wordsLoading ? "Собираю отчёты…" : "Разобрать запросы и площадки"}
+              </button>
+              {words && (
+                <span className="hint">
+                  Период: {words.range.dateFrom} — {words.range.dateTo}
+                </span>
+              )}
+            </div>
+
+            {words && (
+              <>
+                {(words.queriesError || words.placementsError) && (
+                  <p className="direct-howto">
+                    {words.queriesError && `Отчёт по запросам не пришёл: ${words.queriesError}\n`}
+                    {words.placementsError && `Отчёт по площадкам не пришёл: ${words.placementsError}`}
+                  </p>
+                )}
+
+                <div className="direct-account">
+                  <div className="direct-account-head">
+                    <h3>Кандидаты в минус-слова</h3>
+                    <span className="direct-balance">{money(words.waste.words)} ₽ без конверсий</span>
+                  </div>
+                  {words.minus.length === 0 ? (
+                    <p className="hint">Слов, на которые уходят деньги без отдачи, не нашлось.</p>
+                  ) : (
+                    <div className="direct-table-wrap">
+                      <table className="direct-table">
+                        <thead>
+                          <tr>
+                            <th>Слово</th>
+                            <th>Расход, ₽</th>
+                            <th>Клики</th>
+                            <th>Примеры запросов</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {words.minus.map((m) => (
+                            <tr key={m.word}>
+                              <td title={m.fix}>
+                                {m.word}
+                                {m.known ? " ⚑" : ""}
+                              </td>
+                              <td className="num">{money(m.cost)}</td>
+                              <td className="num">{m.clicks}</td>
+                              <td title={m.why}>{m.queries.slice(0, 3).join(" · ")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="hint">
+                    ⚑ — слово из списка тех, что почти всегда означают не покупателя. «Почти» здесь важное:
+                    «отзывы» мусор для продажи и не мусор для репутационной кампании, поэтому решение остаётся
+                    за вами. Приложение ничего не отключает само.
+                  </p>
+                </div>
+
+                <div className="direct-account">
+                  <div className="direct-account-head">
+                    <h3>Площадки под отключение</h3>
+                    <span className="direct-balance">{money(words.waste.placements)} ₽</span>
+                  </div>
+                  {words.placements.length === 0 ? (
+                    <p className="hint">Площадок с заметным расходом без конверсий не нашлось.</p>
+                  ) : (
+                    <div className="direct-table-wrap">
+                      <table className="direct-table">
+                        <thead>
+                          <tr>
+                            <th>Площадка</th>
+                            <th>Кампания</th>
+                            <th>Расход, ₽</th>
+                            <th>Клики</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {words.placements.map((p) => (
+                            <tr key={`${p.placement}-${p.campaign}`}>
+                              <td title={p.fix}>
+                                {p.placement}
+                                {p.app ? " 📱" : ""}
+                              </td>
+                              <td>{p.campaign}</td>
+                              <td className="num">{money(p.cost)}</td>
+                              <td className="num">{p.clicks}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="hint">📱 — мобильное приложение: клик там чаще всего случайный.</p>
+                </div>
+
+                <div className="folder-row">
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(words.text);
+                      setNote("Разбор скопирован.");
+                    }}
+                  >
+                    Скопировать разбор
+                  </button>
+                </div>
+              </>
+            )}
+
+            <div className="direct-account">
+              <div className="direct-account-head">
+                <h3>Вордстат</h3>
+              </div>
+              <p className="hint">
+                Сколько раз фразу спрашивают и что спрашивают рядом с ней. Отсюда берут и новые ключевые
+                фразы, и минус-слова — до того, как деньги потрачены. До десяти фраз за раз, по одной в
+                строке. Регион — номер из Яндекса (Пермский край — 50), можно оставить пустым.
+              </p>
+              <textarea
+                className="input"
+                rows={4}
+                placeholder={"дом из бруса\nкаркасный дом под ключ"}
+                value={wsPhrases}
+                onChange={(e) => setWsPhrases(e.target.value)}
+              />
+              <div className="folder-row">
+                <input
+                  className="input"
+                  style={{ maxWidth: 200 }}
+                  placeholder="Регион, например 50"
+                  value={wsGeo}
+                  onChange={(e) => setWsGeo(e.target.value)}
+                />
+                <button className="btn btn-primary" onClick={runWordstat} disabled={wordstatLoading}>
+                  {wordstatLoading ? "Вордстат считает…" : "Посчитать"}
+                </button>
+              </div>
+              {wordstat?.map((item) => (
+                <div key={item.phrase} className="direct-issues">
+                  <h4>{item.phrase}</h4>
+                  <div className="direct-table-wrap">
+                    <table className="direct-table">
+                      <thead>
+                        <tr>
+                          <th>Запрос</th>
+                          <th>Показов в месяц</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {item.with.slice(0, 50).map((w) => (
+                          <tr key={w.phrase}>
+                            <td>{w.phrase}</td>
+                            <td className="num">{money(w.shows)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {item.also.length > 0 && (
+                    <p className="hint">
+                      Искали также: {item.also.slice(0, 15).map((w) => w.phrase).join(" · ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
