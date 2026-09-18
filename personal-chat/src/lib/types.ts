@@ -877,6 +877,8 @@ export interface YandexConnectResult {
   needsCode?: boolean;
   /** The account that answered was already in the list, so it was refreshed, not added. */
   duplicate?: boolean;
+  /** Логины, уже подключённые, — чтобы сказать, какой выбрать в окне Яндекса. */
+  knownLogins?: string[];
 }
 
 export interface CloudEntry {
@@ -1944,11 +1946,14 @@ export interface ElectronAPI {
   saveDirectAgentConversation(conv: Conversation): Promise<Conversation>;
 
   connectYandexCloud(payload: {
+    /** Пустые — берутся у уже подключённого аккаунта: приложение одно на всех. */
     clientId: string;
     clientSecret: string;
     manualCode?: string;
     label?: string;
   }): Promise<YandexConnectResult>;
+  /** Забыть входы в Яндекс, запомненные окном подключения. Аккаунты остаются. */
+  forgetYandexSessions(): Promise<boolean>;
   setActiveYandexAccount(id: string): Promise<CloudAccounts>;
   removeYandexAccount(id: string): Promise<CloudAccounts>;
   renameYandexAccount(id: string, label: string): Promise<CloudAccounts>;

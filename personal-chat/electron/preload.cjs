@@ -242,6 +242,7 @@ contextBridge.exposeInMainWorld("api", {
   saveDirectAgentConversation: (conv) => ipcRenderer.invoke("direct:saveAgentConversation", conv),
 
   connectYandexCloud: (payload) => ipcRenderer.invoke("cloud:connectYandex", payload),
+  forgetYandexSessions: () => ipcRenderer.invoke("cloud:forgetYandexSessions"),
   setActiveYandexAccount: (id) => ipcRenderer.invoke("cloud:setActiveYandex", id),
   removeYandexAccount: (id) => ipcRenderer.invoke("cloud:removeYandex", id),
   renameYandexAccount: (id, label) => ipcRenderer.invoke("cloud:renameYandex", id, label),

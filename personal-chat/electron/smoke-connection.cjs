@@ -165,7 +165,22 @@ server.listen(0, "127.0.0.1", () => {
       await win.webContents.capturePage().then((img) =>
         fs.writeFileSync(path.join(os.tmpdir(), "chat-connection.png"), img.toPNG())
       );
-    } catch (e) {
+      console.log("\nподключение аккаунтов: ключи один раз, входы запоминаются");
+    const auth = require("./yandexAuth.cjs");
+    // Приложение на oauth.yandex.ru принадлежит разработчику, а не аккаунту:
+    // оно выдаёт токен любому, кто войдёт. Значит ключи одни на все аккаунты.
+    check("окно входа живёт в постоянной сессии",
+      /^persist:/.test(auth.OAUTH_PARTITION), auth.OAUTH_PARTITION);
+    // Постоянная сессия без принудительного подтверждения молча вернула бы
+    // токен уже подключённого аккаунта — force_confirm и есть то, что
+    // заставляет Яндекс показать список аккаунтов.
+    check("и всегда просит подтверждение — иначе вернётся тот же аккаунт",
+      /force_confirm=yes/.test(auth.authorizeUrl("abc")));
+    check("есть чем забыть входы", typeof auth.forgetSessions === "function");
+    check("пустой Client ID назван прямо",
+      (() => { try { auth.authorizeUrl(""); return false; } catch (e) { return /Не задан Client ID/.test(e.message); } })());
+
+  } catch (e) {
       failures++;
       console.log("  FAIL непойманная ошибка —", e.message);
     } finally {

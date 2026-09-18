@@ -2649,9 +2649,24 @@ ipcMain.handle("cloud:renameYandex", async (_e, id, label) => {
 async function connectYandex({ clientId, clientSecret, manualCode, label }) {
   const root = await getRootPath();
   const accounts = await cloud.getAccounts(root);
-  const id = (clientId || "").trim();
-  const secret = (clientSecret || "").trim();
-  if (!id || !secret) return { ok: false, error: "Заполните Client ID и Client secret." };
+  /*
+    Приложение на oauth.yandex.ru — одно на всех: оно принадлежит разработчику, а
+    не аккаунту, и выдаёт токен любому, кто войдёт и подтвердит. Значит и ID с
+    секретом одни и те же для всех аккаунтов, и требовать их заново на каждое
+    подключение — работа на пустом месте. Берём от уже подключённого, если поля
+    пустые.
+  */
+  const прежний = (accounts.yandex.accounts || []).find((a) => a.clientId && a.clientSecret);
+  const id = (clientId || "").trim() || (прежний ? прежний.clientId : "");
+  const secret = (clientSecret || "").trim() || (прежний ? прежний.clientSecret : "");
+  if (!id || !secret) {
+    return {
+      ok: false,
+      error:
+        "Заполните Client ID и Client secret — они берутся на oauth.yandex.ru у вашего приложения. " +
+        "Это нужно один раз: для следующих аккаунтов поля можно оставить пустыми.",
+    };
+  }
 
   let code = (manualCode || "").trim();
   if (!code) {
@@ -2697,6 +2712,7 @@ async function connectYandex({ clientId, clientSecret, manualCode, label }) {
       // one. Saying so matters: otherwise "подключено ✓" looks like success while the
       // list still holds a single account, which is exactly how this went wrong.
       duplicate: !!existing,
+      knownLogins: (accounts.yandex.accounts || []).map((a) => a.login).filter(Boolean),
       error: check.ok ? undefined : check.error,
     };
   } catch (e) {
@@ -2705,6 +2721,18 @@ async function connectYandex({ clientId, clientSecret, manualCode, label }) {
 }
 
 ipcMain.handle("cloud:connectYandex", (_e, payload) => connectYandex(payload || {}));
+
+/**
+ * Забыть входы в Яндекс, запомненные окном подключения.
+ *
+ * Нужна редко, но без неё не обойтись: не тот аккаунт «залип» первым в списке,
+ * компьютер общий, или просто хочется начать с чистого листа. Подключённые
+ * аккаунты при этом остаются на месте — стирается только память окна входа.
+ */
+ipcMain.handle("cloud:forgetYandexSessions", async () => {
+  await yandexAuth.forgetSessions(session);
+  return true;
+});
 
 ipcMain.handle("cloud:list", async (_e, provider, folder) => {
   return cloud.list(provider, await currentProviderToken(provider), folder);

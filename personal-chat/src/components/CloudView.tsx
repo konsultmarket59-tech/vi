@@ -50,6 +50,9 @@ export default function CloudView({ projects }: Props) {
   const [draftClientId, setDraftClientId] = useState("");
   const [draftClientSecret, setDraftClientSecret] = useState("");
   const [draftLabel, setDraftLabel] = useState("");
+
+  // Ключи уже где-то есть — значит спрашивать их заново незачем.
+  const hasCredentials = (accounts.yandex.accounts || []).some((a) => a.clientId && a.clientSecret);
   const [showConnectForm, setShowConnectForm] = useState(false);
   const [namePrompt, setNamePrompt] = useState<NamePromptRequest | null>(null);
 
@@ -171,8 +174,11 @@ export default function CloudView({ projects }: Props) {
           yandex: result.duplicate
             ? ok(
                 `Это тот же аккаунт, что уже в списке (${result.login}) — он обновлён, новый не добавился. ` +
-                  "В окне входа Яндекс подставляет последний использованный аккаунт: нажмите «Подключить» ещё раз " +
-                  "и в открывшемся окне выберите «Войти в другой аккаунт» (или сначала выйдите из текущего)."
+                  "Нажмите «Подключить Яндекс» ещё раз: окно помнит ваши входы и покажет их списком — " +
+                  "выберите другой аккаунт или «Добавить аккаунт», если нужного в списке пока нет." +
+                  (result.knownLogins?.length
+                    ? ` Уже подключены: ${result.knownLogins.join(", ")}.`
+                    : "")
               )
             : ok(`Подключено${result.login ? `: ${result.login}` : ""}. Токен сохранён на этом компьютере.`),
         }));
@@ -343,19 +349,46 @@ export default function CloudView({ projects }: Props) {
                 placeholder="название компании или проекта"
                 onChange={(e) => setDraftLabel(e.target.value)}
               />
-              <label>Client ID</label>
-              <input value={draftClientId} onChange={(e) => setDraftClientId(e.target.value)} />
-              <label>Client secret</label>
+              <label>Client ID{hasCredentials ? " (уже сохранён — можно не заполнять)" : ""}</label>
+              <input
+                value={draftClientId}
+                placeholder={hasCredentials ? "берётся от подключённого аккаунта" : ""}
+                onChange={(e) => setDraftClientId(e.target.value)}
+              />
+              <label>Client secret{hasCredentials ? " (уже сохранён — можно не заполнять)" : ""}</label>
               <input
                 type="password"
                 value={draftClientSecret}
+                placeholder={hasCredentials ? "берётся от подключённого аккаунта" : ""}
                 onChange={(e) => setDraftClientSecret(e.target.value)}
               />
+              {/*
+                Приложение на oauth.yandex.ru принадлежит разработчику, а не
+                аккаунту: оно выдаёт токен любому, кто войдёт и подтвердит.
+                Поэтому ключи вводятся один раз, а не на каждый аккаунт.
+              */}
               <p className="hint">
-                Одно приложение на oauth.yandex.ru подходит для всех аккаунтов — Client ID и secret вписывайте
-                те же самые. Различаться будет только аккаунт, под которым вы войдёте в открывшемся окне.
-                Окно каждый раз открывается «с нуля», без запомненного входа, поэтому Яндекс спросит логин.
-                Если он всё же показал уже знакомый аккаунт — выберите в окне «Войти в другой аккаунт».
+                {hasCredentials
+                  ? "Ключи уже сохранены — для следующего аккаунта поля можно оставить пустыми. Окно входа помнит " +
+                    "ваши входы: Яндекс покажет список аккаунтов, выберите нужный или «Добавить аккаунт»."
+                  : "Одно приложение на oauth.yandex.ru подходит для всех аккаунтов — вписать ключи нужно только " +
+                    "один раз. Дальше окно входа будет помнить ваши аккаунты и показывать их списком."}
+              </p>
+              <p className="hint">
+                Не тот аккаунт «залип» первым в списке или компьютер общий —{" "}
+                <button
+                  className="link-btn"
+                  onClick={async () => {
+                    await window.api.forgetYandexSessions();
+                    setTestResult((prev) => ({
+                      ...prev,
+                      yandex: ok("Входы в Яндекс забыты. В следующий раз окно спросит логин заново."),
+                    }));
+                  }}
+                >
+                  забыть входы в Яндекс
+                </button>
+                . Подключённые аккаунты останутся на месте — сотрётся только память окна входа.
               </p>
               <div className="settings-actions">
                 <button className="btn btn-primary" onClick={() => connectYandex(false)} disabled={connecting}>

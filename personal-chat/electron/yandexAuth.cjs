@@ -92,17 +92,32 @@ function refreshToken(clientId, clientSecret, token) {
  * open and the caller falls back to the manual field, which is why this resolves with
  * null rather than throwing.
  */
-function pickCodeInWindow(BrowserWindow, clientId, parent) {
+/**
+ * Общая, ПОСТОЯННАЯ сессия окна входа.
+ *
+ * Раньше каждое подключение шло в чистой сессии — чтобы Яндекс не подсунул молча
+ * уже подключённый аккаунт. Побочный эффект оказался дороже пользы: логин и
+ * пароль приходилось вводить заново для каждого аккаунта, а их три, и будут ещё.
+ *
+ * Правильный ответ — не стирать память, а СПРАШИВАТЬ. За это отвечает
+ * `force_confirm=yes` в адресе: Яндекс показывает экран подтверждения всегда, и
+ * когда в сессии несколько аккаунтов — показывает их списком, с «Добавить
+ * аккаунт» рядом. Один раз вошли — дальше выбираете из списка.
+ *
+ * Страховка от «молча не тот аккаунт» осталась, но переехала туда, где ей место:
+ * после обмена кода на токен приложение спрашивает у Яндекса, чей это логин, и
+ * сверяет со списком. Проверять итог надёжнее, чем надеяться на пустые куки.
+ */
+const OAUTH_PARTITION = "persist:yandex-oauth";
+
+/** Забыть входы в окне: нужный аккаунт «залип» или компьютер общий. */
+async function forgetSessions(session) {
+  await session.fromPartition(OAUTH_PARTITION).clearStorageData();
+}
+
+function pickCodeInWindow(BrowserWindow, clientId, parent, { fresh = false } = {}) {
   return new Promise((resolve) => {
-    // Каждое подключение — в собственной чистой сессии.
-    //
-    // Это и была причина, по которой второй аккаунт не добавлялся: окно жило в одной
-    // общей сессии, Яндекс видел куки уже подключённого аккаунта и молча возвращал код
-    // для него же — без экрана входа и без единого вопроса. Имя раздела без префикса
-    // "persist:" означает сессию в памяти, а уникальное имя — что она не делится с
-    // предыдущей попыткой; хранилище дополнительно чистится, чтобы вход начинался с
-    // чистого листа даже в пределах одного запуска приложения.
-    const partition = `yandex-oauth-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const partition = OAUTH_PARTITION;
     const win = new BrowserWindow({
       parent,
       width: 620,
@@ -176,9 +191,8 @@ function pickCodeInWindow(BrowserWindow, clientId, parent) {
       );
     });
 
-    win.webContents.session
-      .clearStorageData()
-      .catch(() => {})
+    // Чистим память только если попросили: обычный порядок — помнить входы.
+    (fresh ? win.webContents.session.clearStorageData().catch(() => {}) : Promise.resolve())
       .then(() => {
         if (win.isDestroyed()) return;
         let url;
@@ -195,4 +209,4 @@ function pickCodeInWindow(BrowserWindow, clientId, parent) {
   });
 }
 
-module.exports = { authorizeUrl, extractCode, exchangeCode, refreshToken, pickCodeInWindow };
+module.exports = { authorizeUrl, extractCode, exchangeCode, refreshToken, pickCodeInWindow, forgetSessions, OAUTH_PARTITION };
