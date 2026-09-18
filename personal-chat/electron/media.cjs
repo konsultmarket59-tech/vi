@@ -324,6 +324,18 @@ function coerceFromError(input, message) {
   return null;
 }
 
+/** Файл картинки — строкой data:, в том виде, в каком его принимает шлюз. */
+async function asDataUrl(file) {
+  const buffer = await fs.readFile(file);
+  const ext = path.extname(file).toLowerCase();
+  const mime =
+    ext === ".png" ? "image/png"
+      : ext === ".webp" ? "image/webp"
+        : ext === ".gif" ? "image/gif"
+          : "image/jpeg";
+  return { type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` };
+}
+
 async function generate(root, opts) {
   const { baseUrl, apiKey, type, model, prompt, referenceImagePath, extraParamsJson, params, projectId, onStatus, meta } = opts;
   const outDir = String(opts.outDir || "").trim();
@@ -358,22 +370,51 @@ async function generate(root, opts) {
   // Картинок-референсов может быть сколько угодно: работа устроена так, что
   // про каждую говорят своё — «ракурс отсюда, плашку отсюда». Порядок важен:
   // он совпадает с номерами, которые подставлены в промпт вместо обращений.
+  //
+  // Источника два: список с именами и старое одиночное поле. Раньше здесь
+  // стояло «или»: как только окно присылало список — пусть даже ПУСТОЙ, а оно
+  // присылает его всегда, — одиночный референс молча выбрасывался. Со стороны
+  // это выглядело так, будто модель не слушает картинку; на деле картинки в
+  // запросе не было вовсе.
+  //
+  // Поэтому теперь «и»: берём из обоих источников, без повторов. Приложенное
+  // человеком обязано уехать — из какого поля он его приложил, значения не
+  // имеет.
   const pictures = [];
-  if (Array.isArray(opts.referenceImages)) pictures.push(...opts.referenceImages.filter(Boolean));
-  else if (referenceImagePath) pictures.push(referenceImagePath);
+  const добавить = (файл) => {
+    const путь = String(файл || "").trim();
+    if (путь && !pictures.includes(путь)) pictures.push(путь);
+  };
+  if (Array.isArray(opts.referenceImages)) opts.referenceImages.forEach(добавить);
+  добавить(referenceImagePath);
   if (pictures.length) {
-    input.images = [];
-    for (const file of pictures) {
-      const buffer = await fs.readFile(file);
-      const ext = path.extname(file).toLowerCase();
-      const mime =
-        ext === ".png" ? "image/png"
-          : ext === ".webp" ? "image/webp"
-            : ext === ".gif" ? "image/gif"
-              : "image/jpeg";
-      input.images.push({ type: "base64", data: `data:${mime};base64,${buffer.toString("base64")}` });
+    const кадры = [];
+    for (const file of pictures) кадры.push(await asDataUrl(file));
+
+    /*
+      Как именно передать картинки — единого правила у шлюза нет. Одни модели
+      ждут список `images`, другие — одну `image`, третьи — `image_urls`.
+      Справочника нет, а угадывание стоит денег: неверное поле модель просто
+      не замечает и рисует по одному тексту, и со стороны это выглядит как
+      «не слушает референс».
+
+      Поэтому имя поля можно назвать самой: пусто — привычный список `images`.
+      Заодно поля, написанные руками в JSON, по-прежнему кладутся поверх.
+    */
+    const поле = String(opts.imageField || "").trim() || "images";
+    if (поле === "image" || поле === "image_url" || поле === "start_image") {
+      // Поле на одну картинку: уезжает первая, и об этом честно сказано выше в
+      // интерфейсе, чтобы человек не гадал, почему вторая не повлияла.
+      input[поле] = кадры[0];
+    } else {
+      input[поле] = кадры;
     }
   }
+
+  // Ключевые кадры видео: с чего начать и чем закончить. Модели, которые это
+  // умеют, ждут их отдельными полями, а не в общем списке картинок.
+  if (opts.firstFrame) input[String(opts.firstFrameField || "image").trim()] = await asDataUrl(opts.firstFrame);
+  if (opts.lastFrame) input[String(opts.lastFrameField || "end_image").trim()] = await asDataUrl(opts.lastFrame);
 
   // Папку проверяем ДО заказа. Внешний диск отключают, папку переименовывают —
   // и тогда заказ оплачен, а класть результат некуда. Дешевле упереться в это

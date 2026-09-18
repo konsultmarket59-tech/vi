@@ -46,7 +46,6 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
   const [model, setModel] = useState(TYPE_PLACEHOLDERS.image.model);
   const [prompt, setPrompt] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [referenceImagePath, setReferenceImagePath] = useState<string | null>(null);
   // Референсов может быть сколько угодно, и у каждого есть имя: в промпте к
   // ним обращаются через @ и говорят про каждый своё.
   const [references, setReferences] = useState<MediaReference[]>([]);
@@ -69,6 +68,11 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
   // думают о ней ровно в тот момент, когда смотрят на растущую историю.
   const [mediaFolder, setMediaFolder] = useState(settings.mediaFolder || "");
   const [moving, setMoving] = useState(false);
+  // Имя поля для картинок и ключевые кадры видео: единого правила у шлюза нет,
+  // и неверное поле модель молча не замечает — рисует по одному тексту.
+  const [imageField, setImageField] = useState("");
+  const [firstFrame, setFirstFrame] = useState("");
+  const [lastFrame, setLastFrame] = useState("");
   // История по умолчанию свёрнута: она нужна изредка, а места занимает треть
   // окна — ровно того места, где смотрят на сделанное. Выбор запоминается.
   const [historyOpen, setHistoryOpen] = useState(() => {
@@ -231,10 +235,6 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
     setChoice((prev) => ({ ...prev, [group]: prev[group] === id ? undefined : id }));
   }
 
-  async function pickReference() {
-    const filePath = await window.api.pickReferenceImage();
-    if (filePath) setReferenceImagePath(filePath);
-  }
 
   async function generate() {
     setGenerating(true);
@@ -248,8 +248,10 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
         type,
         model: model.trim(),
         prompt: prompt.trim(),
-        referenceImagePath: referenceImagePath || undefined,
         references,
+        imageField: imageField.trim() || undefined,
+        firstFrame: firstFrame || undefined,
+        lastFrame: lastFrame || undefined,
         extraParamsJson: showAdvanced ? extraParamsJson : undefined,
         projectId: projectId || undefined,
         kit: choice,
@@ -975,7 +977,7 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
               {chosenTemplate && (
                 <>
                   <p className="hint">{chosenTemplate.why}</p>
-                  {chosenTemplate.needsPhoto && !references.length && !referenceImagePath && (
+                  {chosenTemplate.needsPhoto && !references.length && (
                     <p className="hint">
                       Эта заготовка рассчитана на вашу картинку — приложите её референсом, иначе
                       модель будет придумывать сцену с нуля.
@@ -1132,20 +1134,78 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             </div>
           )}
 
-          {type !== "audio" && (
+          {type === "video" && (
             <>
-              <label>Один референс по-старому (необязательно)</label>
+              {/*
+                Ключевые кадры. «Оживить от одного фото к другому» — это не
+                референс стиля, а начало и конец движения, и модели принимают их
+                отдельными полями. В общем списке картинок они теряются: модель
+                не знает, какая из них первая, а какая последняя.
+              */}
+              <label>Ключевые кадры (необязательно)</label>
+              <p className="hint">
+                С какого кадра начать и каким закончить — модель построит движение между ними.
+                Умеют это не все модели видео; у тех, кто не умеет, поля просто не сработают.
+              </p>
               <div className="folder-row">
-                {referenceImagePath && <span className="hint">{referenceImagePath.split(/[\\/]/).pop()}</span>}
-                <button className="btn btn-secondary" onClick={pickReference}>
-                  Выбрать файл
+                <span className="hint">
+                  Первый: {firstFrame ? firstFrame.split(/[\\/]/).pop() : "не выбран"}
+                </span>
+                <button
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    const f = await window.api.pickReferenceImage();
+                    if (f) setFirstFrame(f);
+                  }}
+                >
+                  Выбрать
                 </button>
-                {referenceImagePath && (
-                  <button className="link-btn" onClick={() => setReferenceImagePath(null)}>
-                    Убрать
+                {firstFrame && (
+                  <button className="link-btn" onClick={() => setFirstFrame("")}>
+                    убрать
                   </button>
                 )}
               </div>
+              <div className="folder-row">
+                <span className="hint">
+                  Последний: {lastFrame ? lastFrame.split(/[\\/]/).pop() : "не выбран"}
+                </span>
+                <button
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    const f = await window.api.pickReferenceImage();
+                    if (f) setLastFrame(f);
+                  }}
+                >
+                  Выбрать
+                </button>
+                {lastFrame && (
+                  <button className="link-btn" onClick={() => setLastFrame("")}>
+                    убрать
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+          {type !== "audio" && (
+            <>
+              <label>Каким полем передать картинки (необязательно)</label>
+              <input
+                value={imageField}
+                placeholder="images — так принимает большинство"
+                onChange={(e) => setImageField(e.target.value)}
+              />
+              {/*
+                Единого правила у шлюза нет: одни модели ждут список `images`,
+                другие одну `image`. Неверное поле модель молча не замечает и
+                рисует по одному тексту — со стороны это и есть «не слушает
+                референс». Поэтому имя поля можно назвать самой.
+              */}
+              <p className="media-param-hint">
+                Пусто — уходит список <code>images</code>. Если модель ждёт одну картинку, напишите{" "}
+                <code>image</code> — уедет первая. Смотрите описание модели на polza.ai/models.
+              </p>
             </>
           )}
             </>
@@ -1217,7 +1277,14 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
                 Промпт собирается из выбранного: сначала что в кадре, потом стиль, ракурс, свет и
                 движение камеры. Ничего не выбрано — уходит только ваш текст.
               </p>
+              {/*
+                Эмоция стоит первой: это то, ЧТО происходит с героем, а всё
+                остальное — как это снято. В промпте она идёт сразу за темой,
+                и в списке логично быть на том же месте.
+              */}
+              {type === "image" && kitGroup("Эмоция", "emotion", kit.emotions)}
               {kitGroup("Стиль", "style", kit.styles)}
+              {kitGroup("Приём из кино", "cine", kit.cineTricks)}
               {type === "image" && kitGroup("Ракурс", "angle", kit.shotAngles)}
               {kitGroup("Свет", "lighting", kit.lighting)}
               {type === "video" && (
@@ -1231,10 +1298,12 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
                   {choice.camera && kitGroup("Темп", "pace", kit.paces)}
                 </>
               )}
-              {(choice.style || choice.camera || choice.angle || choice.lighting) && (
+              {(choice.style || choice.camera || choice.angle || choice.lighting || choice.emotion || choice.cine) && (
                 <div className="media-chosen">
                   {[
+                    entryName(kit.emotions, choice.emotion, "эмоция"),
                     entryName(kit.styles, choice.style, "стиль"),
+                    entryName(kit.cineTricks, choice.cine, "приём"),
                     entryName(kit.shotAngles, choice.angle, "ракурс"),
                     entryName(kit.lighting, choice.lighting, "свет"),
                     entryName(kit.cameraMoves, choice.camera, "камера"),
@@ -1247,7 +1316,7 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
                   </button>
                 </div>
               )}
-              {chosenStyle?.needsPhoto && !referenceImagePath && (
+              {chosenStyle?.needsPhoto && !references.length && (
                 <p className="hint">
                   Этот стиль рассчитан на обработку вашей фотографии — приложите её референсом ниже,
                   иначе модель нарисует предмет с нуля.

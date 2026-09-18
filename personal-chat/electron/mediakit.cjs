@@ -37,6 +37,68 @@ const PACES = [
  */
 const CAMERA_MOVES = [
   {
+    id: "phantom-glide", name: "Фантомный пролёт", en: "Phantom Glide",
+    what: "Камера неспешно, но неотвратимо скользит вперёд, проходит вплотную мимо героя и уходит дальше — в пространство за ним.",
+    why: "Один мир уступает место другому. Герой остаётся позади, а впереди открывается то, ради чего всё и снималось.",
+    prompt:
+      "Smooth continuous forward glide — unhurried but inevitable. The camera moves like air passing a body, like " +
+      "something that has already decided where it is going. The camera pushes forward and skims past the figure — " +
+      "close enough to feel the proximity, close enough that for one frame the person nearly fills the edge of the " +
+      "lens — then slides past and continues into the space beyond. The figure falls behind. The world ahead opens " +
+      "up. The foreground sweeps close to the lens, blurs slightly with proximity, then releases. One world gives " +
+      "way to another. The camera arrives beyond the foreground layer — new space fully revealed ahead — and eases " +
+      "naturally into stillness. The pass is complete",
+  },
+  {
+    id: "ground-level", name: "У самой земли", en: "Ground Level",
+    what: "Объектив прижат к земле, ниже некуда, и едет вровень с движением героя. Земля занимает большую часть кадра.",
+    why: "Фактура поверхности, следы, пыль становятся главными. Низкая точка делает обычный проход внушительным.",
+    prompt:
+      "PRIORITY — CAMERA DROPS TO GROUND LEVEL. The shooting point is pressed to the ground — the lens sits as low " +
+      "as physically possible, almost touching the surface. This is the non-negotiable condition of the entire shot. " +
+      "Movement: camera slides along the subject's movement path strictly at ground level or no higher than " +
+      "below-waist height. Speed: strictly match the subject — synchronized with footsteps or wheels. Framing: the " +
+      "ground occupies the majority of the frame and actively passes through it — surface texture, tracks, soil " +
+      "details and ground debris must be clearly readable throughout. End: the shot finishes with the camera held " +
+      "rigidly at ground level — low perspective is maintained and locked until the very last frame",
+  },
+  {
+    id: "pan-right-steady", name: "Ровная панорама вправо", en: "Truck Right",
+    what: "Камера с одной точки ровно поворачивается вправо, горизонт не заваливается, новые предметы входят справа.",
+    why: "Спокойный осмотр пространства. Ровность здесь и есть приём: любой рывок сразу выдаёт любительскую съёмку.",
+    prompt:
+      "Pan right. Movement: the camera rotates horizontally from a single fixed point, sweeping smoothly to the " +
+      "right. Speed: steady and even throughout, with no sudden jolts or acceleration. Framing: the horizon stays " +
+      "perfectly level as fresh scenery continuously enters from the right edge of the frame. End: the motion " +
+      "gradually comes to rest, landing on a well-defined and intentional final composition",
+  },
+  {
+    id: "crane-up-open", name: "Подъём крана", en: "Crane Up",
+    what: "Плавный вертикальный подъём через открытое пространство, герой остаётся читаемым.",
+    why: "Финальный кадр: масштаб раскрывается по мере подъёма. Классическое «отпускание» сцены.",
+    prompt:
+      "Crane up. Movement: travel smoothly upward through open space. Speed: slow controlled vertical lift. " +
+      "Framing: keep the subject or location readable as the camera rises. End: finish with the higher scale clearly visible",
+  },
+  {
+    id: "snorricam-rig", name: "Снорикам на теле", en: "Snorricam",
+    what: "Камера жёстко закреплена на груди героя: он неподвижен в кадре, а мир вокруг качается.",
+    why: "Зритель оказывается внутри состояния героя, а не рядом. Сильный приём для решимости и для тревоги.",
+    prompt:
+      "Shot on a body-mounted Snorricam camera. The camera is physically fixed to the subject's chest and torso, " +
+      "rigidly attached to the body relative to their movements — the subject stays locked in frame while the world " +
+      "behind them sways. The subject looks directly into the camera while walking slowly and deliberately forward",
+  },
+  {
+    id: "crash-zoom-punch", name: "Крэш-зум в деталь", en: "Crash Zoom",
+    what: "Резкий рывок объектива к главной детали, оба плана остаются читаемыми через смену масштаба.",
+    why: "Восклицательный знак: указывает, куда смотреть, мгновенно и без объяснений.",
+    prompt:
+      "Crash zoom in. Movement: snap the lens rapidly toward the main visual target. Speed: very fast and punchy. " +
+      "Framing: keep the key details readable through the sudden scale change. End: land on a bold tighter " +
+      "composition, close-up on the target",
+  },
+  {
     id: "static", name: "Статика", en: "Static Shot",
     what: "Камера неподвижна, всё движение — внутри кадра: люди, свет, ветер.",
     why: "Тишина и покой. Даёт разглядеть детали и делает любое следующее движение камеры в разы заметнее.",
@@ -521,7 +583,229 @@ function buildParams(type, values = {}) {
  * под предмет обозначается `[объект]` или `[PRODUCT]`; подставляется то, что
  * человек назвал сам.
  */
+/**
+ * Эмоции: что делает герой, а не как снят кадр.
+ *
+ * Отдельным списком, а не среди стилей, по существу дела: стиль отвечает на
+ * вопрос «как это выглядит», эмоция — «что с человеком происходит». Эти два
+ * выбора не заменяют друг друга и часто нужны вместе: холодный люксовый свет
+ * плюс хохот, который невозможно сдержать.
+ *
+ * Строки взяты как есть, с настоящих съёмок. Работают они на том, что описан
+ * не ярлык («радость»), а физическое действие: чьи руки, где, что со ртом и
+ * глазами. Модель рисует действие; ярлык она рисует как позу.
+ */
+const EMOTIONS = [
+  {
+    id: "rage-hair", name: "Ярость: рвёт волосы",
+    why: "Руки тянут волосы, рот кричит — расхристанная, неконтролируемая злость. Для обложек и кадров, где нужен предел.",
+    prompt: "Fashion close-up, hands pulling hair violently, mouth screaming, wild unhinged expression, chaotic rage",
+  },
+  {
+    id: "exhausted-palm", name: "Измотанность: ладонь в лоб",
+    why: "Ладонь давит в лоб, глаза закатываются, рот кривится. Усталость, которая уже не скрывается.",
+    prompt: "Close-up, palm pushing against forehead hard, eyes rolling up, exasperated exhausted look, mouth grimacing",
+  },
+  {
+    id: "migraine", name: "Боль: мигрень",
+    why: "Пальцы у висков, прищур, перекошенный рот. Физическая боль, а не грусть — читается сразу.",
+    prompt: "Fashion portrait, fingers pressed to temples, squinting in pain, migraine anguish expression, mouth twisted",
+  },
+  {
+    id: "laugh-burst", name: "Смех: не сдержать",
+    why: "Пальцы зажимают рот и не справляются, глаза зажмурены, плечи трясутся. Живой кадр, который невозможно отыграть позой.",
+    prompt:
+      "Beauty portrait, fingers covering mouth failing to contain laughter, eyes squeezed shut, " +
+      "explosive giggling expression, shoulders shaking",
+  },
+  {
+    id: "mock-grin", name: "Насмешка: злая ухмылка",
+    why: "Рука держит очки, рот в жёсткой кривой улыбке во весь кадр. Сарказм крупным планом.",
+    prompt:
+      "Extreme close-up shot, hand gripping sunglasses laughing mockingly, mouth twisted in cruel grin filling frame, " +
+      "sarcastic derisive expression, macro detail",
+  },
+  {
+    id: "overwhelmed-fists", name: "Бессилие: кулаки в щёки",
+    why: "Оба кулака в щёки, глаза зажмурены, видно напряжение. Когда всего слишком много.",
+    prompt:
+      "Close-up shot, both fists pressed to cheeks angrily, eyes squeezed shut, overwhelmed frustrated expression, tension visible",
+  },
+  {
+    id: "stressed-nose", name: "Раздражение: пальцы к переносице",
+    why: "Классический жест «сейчас взорвусь», глаза плотно закрыты. Сдержанная злость.",
+    prompt: "Beauty shot, fingers pinching bridge of nose, eyes closed tightly, stressed irritated expression, bracelets visible",
+  },
+  {
+    id: "menacing-eye", name: "Угроза: один глаз закрыт рукой",
+    why: "Рука закрывает глазницу, второй глаз смотрит с ненавистью. Опасный, тяжёлый кадр.",
+    prompt:
+      "Beauty portrait, hand covering eye socket aggressively, other eye glaring hatefully, menacing threatening look, bracelets visible",
+  },
+  {
+    id: "howling-laugh", name: "Хохот: рука на глазах",
+    why: "Рука закрывает глаза, рот в хохоте занимает низ кадра. Полная потеря контроля — и это хорошо.",
+    prompt:
+      "Intimate beauty shot, hand covering eyes laughing uncontrollably, mouth open in howl filling lower frame, " +
+      "losing it expression, bracelets macro visible",
+  },
+];
+
+/**
+ * Композиционные приёмы большого кино.
+ *
+ * Это не стиль и не движение камеры, а то, ЧЕМ удерживают внимание: нарушенный
+ * ритм, пустота вокруг героя, свет вместо деталей, масштаб, отражение, цвет как
+ * язык. Приём добавляется к любому промпту и работает поверх всего остального.
+ */
+const CINE_TRICKS = [
+  {
+    id: "broken-rhythm", name: "Нарушение ритма", en: "I, Robot",
+    why: "Много одинаковых предметов и один, который выбивается. Глаз находит его сам, объяснять не надо.",
+    prompt:
+      "Introduce a strong visual rhythm with many similar repeating objects, but make one element distinctly " +
+      "different to immediately draw attention. Inspired by the visual storytelling of \"I, Robot\"",
+  },
+  {
+    id: "negative-space", name: "Негативное пространство", en: "Прибытие",
+    why: "Много пустоты вокруг героя. Даёт тишину, загадку и глубину — работает там, где детали только мешают.",
+    prompt:
+      "Use generous negative space around the subject to create calmness, mystery and emotional depth. " +
+      "Inspired by the visual language of \"Arrival\"",
+  },
+  {
+    id: "light-first", name: "Свет ведёт взгляд", en: "Бегущий по лезвию 2049",
+    why: "Направленный свет показывает, куда смотреть, раньше, чем становятся видны детали.",
+    prompt:
+      "Use dramatic directional lighting to guide the viewer's eye and create atmosphere before details become " +
+      "visible. Inspired by \"Blade Runner 2049\"",
+  },
+  {
+    id: "vast-scale", name: "Масштаб", en: "Дюна",
+    why: "Крошечная фигура в огромном пространстве. Мгновенное ощущение величины — без единого слова.",
+    prompt:
+      "Emphasize an overwhelming sense of scale by placing a tiny human figure within a vast environment. " +
+      "Inspired by the epic compositions of \"Dune\"",
+  },
+  {
+    id: "reflections", name: "Отражения", en: "Матрица",
+    why: "Зеркала, стекло, вода. Добавляют слои и намёк на двойное дно.",
+    prompt:
+      "Use reflections in mirrors, glass or water to add visual layers and suggest duality or hidden meaning. " +
+      "Inspired by \"The Matrix\"",
+  },
+  {
+    id: "color-language", name: "Цвет как язык", en: "Герой",
+    why: "Одна цветовая гамма на весь кадр — цвет становится главным, что говорит сцена.",
+    prompt:
+      "Use a limited monochromatic color palette where color becomes the main emotional language of the scene. " +
+      "Inspired by the visual style of \"Hero\" (2002)",
+  },
+  {
+    id: "diptych", name: "Диптих 50/50",
+    why: "Кадр из двух половин: разные сюжеты, связанные смыслом и цветом. Граница ровная, без перехода — на этом всё и держится.",
+    prompt:
+      "COMPOSITION FINAL: strict 50/50 diptych, top 50% and bottom 50%, two separate scenes meeting exactly along " +
+      "a clean invisible horizontal line, no gradual transition, no blur between them, a sharp yet visually " +
+      "harmonious junction, both sections unified by the same camera, lens, film stock, lighting, palette and film grain structure",
+  },
+];
+
 const MORE_STYLES = [
+  {
+    id: "datamosh-heavy", name: "Datamosh (тяжёлый)",
+    why: "Агрессивный глитч сжатия: длинные смазанные шлейфы тянутся от тела и одежды, лицо при этом остаётся резким. Для обложек и концептуальных лукбуков.",
+    needsPhoto: true,
+    prompt:
+      "strong heavy datamosh effect, aggressive datamoshing glitch, digital compression glitch, severe codec error, " +
+      "extreme motion vector smear, heavy interframe glitch, broken MPEG glitch, MPEG compression artifacts, digital " +
+      "melting, pixel tearing, macroblock distortion, corrupted video frame, long smeared pixel trails, stretched " +
+      "glitch trails, body-attached digital smear, subject-derived glitch trails, clothing-attached pixel distortion, " +
+      "hair-attached glitch trails, RGB pixel separation, digital fragmentation, controlled editorial glitch, " +
+      "face sharp, identity preserved",
+  },
+  {
+    id: "jigsaw", name: "Пазл: разбор на кусочки",
+    why: "Тело распадается на настоящие картонные пазлы с фасками и замками, куски уплывают вправо вверх. Лицо остаётся резким.",
+    needsPhoto: true,
+    prompt:
+      "dense jigsaw puzzle disassembly, realistic puzzle piece fragmentation, body made of jigsaw pieces, " +
+      "subject-derived puzzle pieces, floating puzzle fragments, puzzle-shaped holes in silhouette, cardboard " +
+      "thickness, beveled paper edges, classic knobs and sockets, image fragments continuing from body, right-side " +
+      "disassembly, pieces drifting upward right, controlled puzzle cloud, luxury fashion surrealism, hyperreal " +
+      "paper craft, copper rim light, tiny soft shadows, face sharp, eyes sharp, identity preserved, clean background",
+  },
+  {
+    id: "liquid-wax", name: "Плавление: жидкий воск",
+    why: "Платье и кожа стекают густыми глянцевыми каплями, внизу глянцевая лужа. Лицо чистое и резкое — на этом контрасте всё и держится.",
+    needsPhoto: true,
+    prompt:
+      "liquid wax melting, glossy paint melt, candle sculpture melting, liquid fashion surrealism, body " +
+      "liquefaction, dress liquefying, fabric turning into liquid, skin turning into liquid, thick glossy drips, " +
+      "viscous drips, honey-like viscosity, long liquid strands, flowing liquid streams, half-dissolved legs, melted " +
+      "pool on the floor, glossy puddle, wax-like pool edges, slow ripples, liquid skin tone, liquid fabric color, " +
+      "continuous surface, drips starting inside the body, subject-only melting, glossy wet highlights, heavy liquid " +
+      "motion frozen in time, melt gradient, clean sharp face",
+  },
+  {
+    id: "light-painting", name: "Светопись на длинной выдержке",
+    why: "Светящиеся спиральные следы вокруг фигуры, холодная гамма. Движение видно на неподвижном кадре.",
+    needsPhoto: true,
+    prompt:
+      "long exposure light painting, luminous curved light trails, spiral neon streaks, cold white light, silver " +
+      "light trails, muted cyan, soft electric blue, blue-green accents, subtle violet highlights, trails in front " +
+      "and behind body, controlled editorial motion, face sharp in focus",
+  },
+  {
+    id: "porcelain-shatter", name: "Фарфор: взрыв осколками",
+    why: "Тело раскалывается угловатыми осколками с глянцевыми сколами, ниже бёдер — сильнее всего. Лицо целое.",
+    needsPhoto: true,
+    prompt:
+      "porcelain shatter, glass sculpture explosion, body fragmentation, dress fragmentation, deep fracture lines, " +
+      "angular shards, displaced chunks, silhouette gaps, spiral flying shards, glass dust, body-derived shards, " +
+      "skin-tone shards, fabric-texture shards, glossy fracture edges, copper rim light, hairline cracks, heavy " +
+      "fragmentation below hips, intact sharp face, identity preserved, clean background, high-speed frozen motion",
+  },
+  {
+    id: "pixel-stretch", name: "Растяжка пикселей вбок",
+    why: "Пиксели тянутся от фигуры до правого края сплошными полосами. Резкое лицо на фоне полного распада.",
+    needsPhoto: true,
+    prompt:
+      "full-width horizontal pixel drag, extreme slit-scan stretch, subject-derived pixel smear, body-attached " +
+      "streaks, continuous horizontal scanline bands, pixels stretched to right edge, no gap, fabric-colored bands, " +
+      "skin-tone streaks, subtle RGB split, sharp face, clean background",
+  },
+  {
+    id: "chrome-macro", name: "Хром-макро: предметка",
+    why: "Серебристо-хромовая монохромия с зеркальными бликами и звёздчатыми искрами на глубоком синем. Для украшений и мелких предметов.",
+    needsPhoto: false,
+    prompt:
+      "Extreme macro of [объект] in glossy liquid silver chrome, mirror reflections and subtle drips, surreal luxury " +
+      "concept, deep blue gradient background navy to soft blue, intense high-contrast lighting, strong specular " +
+      "hotspots, bright sparkle star bursts on chrome, blooming lens flare, deep blacks. Nikon Z8, 105mm f/2.8 " +
+      "Macro, f/8, 1/200s, ISO 400, single hard spotlight, subtle film grain, photorealistic",
+  },
+  {
+    id: "object-redesign", name: "Предмет в новой роли",
+    why: "Знакомая вещь ломает своё назначение и получает чужую функцию. Визуальный код считывается мгновенно — для концептов и каталогов.",
+    needsPhoto: false,
+    prompt:
+      "[объект] reimagined with a broken purpose and a new function, the object's original identity still instantly " +
+      "readable. Editorial product photography, muted tones, subtle film grain, soft natural light, minimal set, " +
+      "shot like a premium design catalog. Bold black product title with a short materials description in clean " +
+      "sans-serif typography placed in the corner",
+  },
+  {
+    id: "logo-as-object", name: "Логотип как реальный предмет",
+    why: "Загруженный логотип выкладывается настоящими предметами и становится физическим объектом. Геометрия сохраняется точно.",
+    needsPhoto: true,
+    prompt:
+      "Use the uploaded logo as the exact outline. Recreate it by arranging hundreds of small real objects, forming " +
+      "a giant version of the logo. Photo taken from slightly above at an angle, tilted horizon about five to seven " +
+      "degrees, casual snapshot feel. Direct on-camera flash, hard shadows, shiny reflections, slightly overexposed " +
+      "foreground, raw early digital camera look. Photorealistic, preserve the exact logo geometry and proportions. " +
+      "No text, no numbers, no letters, no watermarks anywhere in the image",
+  },
   {
     id: "luxury-campaign", name: "Кампейн модного дома",
     why:
@@ -777,6 +1061,8 @@ const MORE_STYLES = [
 const ALL_STYLES = [...MORE_STYLES, ...STYLES];
 
 const KIT = {
+  emotions: EMOTIONS,
+  cineTricks: CINE_TRICKS,
   paces: PACES,
   cameraMoves: CAMERA_MOVES,
   shotAngles: SHOT_ANGLES,
@@ -799,7 +1085,7 @@ function byId(list, id) {
  * потом движение камеры с темпом. Дизайн-система идёт последней и самой
  * жёсткой строкой — иначе модель считает её пожеланием.
  */
-function buildPrompt({ base = "", style, camera, pace, angle, lighting, design, subject = "", command } = {}) {
+function buildPrompt({ base = "", style, camera, pace, angle, lighting, design, subject = "", command, emotion, cine } = {}) {
   const parts = [];
   const body = String(base || "").trim();
   if (body) parts.push(body);
@@ -808,6 +1094,12 @@ function buildPrompt({ base = "", style, camera, pace, angle, lighting, design, 
   // это показать», и до стиля с ракурсом.
   const cmd = byId(COMMANDS, command);
   if (cmd) parts.push(cmd.prompt);
+
+  // Эмоция — это что происходит с героем, и стоит она сразу за темой: раньше
+  // стиля, ракурса и света. Поставить её после — значит получить кадр, снятый
+  // красиво, но с пустым лицом.
+  const em = byId(EMOTIONS, emotion);
+  if (em) parts.push(em.prompt);
 
   const st = byId(ALL_STYLES, style);
   if (st) {
@@ -822,6 +1114,11 @@ function buildPrompt({ base = "", style, camera, pace, angle, lighting, design, 
 
   const li = byId(LIGHTING, lighting);
   if (li) parts.push(li.prompt);
+
+  // Композиционный приём работает поверх всего кадра, поэтому идёт после
+  // частностей, но до движения камеры и дизайн-системы.
+  const ci = byId(CINE_TRICKS, cine);
+  if (ci) parts.push(ci.prompt);
 
   const cam = byId(CAMERA_MOVES, camera);
   if (cam) {
@@ -842,11 +1139,13 @@ function buildPrompt({ base = "", style, camera, pace, angle, lighting, design, 
 }
 
 /** Короткая опись выбранного — чтобы человек видел, из чего собран промпт. */
-function describeChoice({ style, camera, pace, angle, lighting, command } = {}) {
+function describeChoice({ style, camera, pace, angle, lighting, command, emotion, cine } = {}) {
   const names = [];
   const push = (item, prefix) => item && names.push(prefix + item.name);
   push(byId(COMMANDS, command), "формат: ");
+  push(byId(EMOTIONS, emotion), "эмоция: ");
   push(byId(ALL_STYLES, style), "стиль: ");
+  push(byId(CINE_TRICKS, cine), "приём: ");
   push(byId(SHOT_ANGLES, angle), "ракурс: ");
   push(byId(LIGHTING, lighting), "свет: ");
   const cam = byId(CAMERA_MOVES, camera);
@@ -858,6 +1157,8 @@ function describeChoice({ style, camera, pace, angle, lighting, command } = {}) 
 }
 
 module.exports = {
+  EMOTIONS,
+  CINE_TRICKS,
   PACES,
   COMMAND_ALIASES,
   MORE_STYLES,

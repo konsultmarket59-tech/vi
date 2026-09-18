@@ -3004,6 +3004,13 @@ ipcMain.handle("media:generate", async (event, payload) => {
     prompt,
     params: mediakit.buildParams(payload.type, payload.params || {}),
     referenceImages: resolved.images.map((r) => r.path).filter(Boolean),
+    // Как передать картинки и ключевые кадры — решает человек: единого
+    // правила у шлюза нет, а неверное поле модель молча не замечает.
+    imageField: payload.imageField,
+    firstFrame: payload.firstFrame,
+    lastFrame: payload.lastFrame,
+    firstFrameField: payload.firstFrameField,
+    lastFrameField: payload.lastFrameField,
     meta: {
       recipe: mediakit.describeChoice({ ...(kitChoice || {}), command: (kitChoice && kitChoice.command) || fromText }),
     },

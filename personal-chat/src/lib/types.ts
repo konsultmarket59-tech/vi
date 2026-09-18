@@ -693,6 +693,16 @@ export interface MediaGenerationRequest {
   /** Поля модели: пропорции, длительность, зерно и прочее. */
   params?: Record<string, string | number | boolean>;
   design?: StoriesDesign | null;
+  /**
+   * Каким полем передать картинки-референсы. Пусто — список `images`.
+   * Единого правила у шлюза нет: одни модели ждут `images`, другие `image`.
+   */
+  imageField?: string;
+  /** Ключевые кадры видео: с чего начать и чем закончить. */
+  firstFrame?: string;
+  lastFrame?: string;
+  firstFrameField?: string;
+  lastFrameField?: string;
 }
 
 export interface MediaGenerationResult {
@@ -1331,6 +1341,8 @@ export interface MediaTemplate {
 
 export interface MediaKit {
   templates: MediaTemplate[];
+  emotions: MediaKitEntry[];
+  cineTricks: MediaKitEntry[];
   paces: MediaKitEntry[];
   commands: MediaCommand[];
   commandGroups: { group: string; hint: string }[];
@@ -1378,6 +1390,10 @@ export interface MediaResolvedPrompt {
 export interface MediaKitChoice {
   /** Короткая команда формата: /anatomy, /beforeafter и прочие. */
   command?: string;
+  /** Что происходит с героем: ярость, хохот, боль. Идёт сразу за темой. */
+  emotion?: string;
+  /** Композиционный приём большого кино: масштаб, отражения, цвет как язык. */
+  cine?: string;
   style?: string;
   camera?: string;
   pace?: string;

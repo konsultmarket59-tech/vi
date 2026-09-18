@@ -203,6 +203,91 @@ app.whenReady().then(async () => {
     server.close();
     Object.assign(media.POLL_CONFIG.image, прежние);
 
+    console.log("\nприложенный референс доезжает из любого поля");
+    // Здесь была самая дорогая из ошибок: окно всегда шлёт список — пусть и
+    // пустой, — и старое одиночное поле молча выбрасывалось. Со стороны это
+    // выглядело как «модель не слушает референс»; на деле картинки в запросе
+    // не было вовсе.
+    {
+      const фото1 = path.join(dataRoot, "р1.png");
+      const фото2 = path.join(dataRoot, "р2.jpg");
+      fs.writeFileSync(фото1, Buffer.from("89504e470d0a1a0a", "hex"));
+      fs.writeFileSync(фото2, Buffer.from("ffd8ffe0", "hex"));
+
+      ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "k", type: "image", model: "м", prompt: "п",
+        referenceImagePath: фото1,
+        referenceImages: [],
+      });
+      check("одиночный референс уезжает, даже когда список пуст",
+        (принято.создание.input.images || []).length === 1,
+        JSON.stringify((принято.создание.input.images || []).length));
+      server.close();
+
+      ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "k", type: "image", model: "м", prompt: "п",
+        referenceImages: [фото1, фото2],
+      });
+      const кар = принято.создание.input.images || [];
+      check("несколько референсов уезжают все и по порядку",
+        кар.length === 2 && /image\/png/.test(кар[0].data) && /image\/jpeg/.test(кар[1].data),
+        JSON.stringify(кар.length));
+      server.close();
+
+      // Один и тот же файл из обоих источников — одна картинка, не две:
+      // дубль сбивает нумерацию, на которую ссылается промпт.
+      ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "k", type: "image", model: "м", prompt: "п",
+        referenceImagePath: фото1,
+        referenceImages: [фото1, фото2],
+      });
+      check("один и тот же файл не уезжает дважды",
+        (принято.создание.input.images || []).length === 2,
+        JSON.stringify((принято.создание.input.images || []).length));
+      server.close();
+
+      // У моделей, которые ждут одну картинку, поле называется иначе, и
+      // список они молча не замечают.
+      ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "k", type: "image", model: "м", prompt: "п",
+        referenceImages: [фото1, фото2],
+        imageField: "image",
+      });
+      check("названное поле на одну картинку получает первую",
+        typeof принято.создание.input.image === "object" && !принято.создание.input.images,
+        JSON.stringify(Object.keys(принято.создание.input)));
+      server.close();
+
+      // Ключевые кадры: «оживить от одного фото к другому» — это не референс
+      // стиля, а начало и конец движения, и поля у них отдельные.
+      ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "k", type: "video", model: "м", prompt: "п",
+        firstFrame: фото1, lastFrame: фото2,
+      });
+      check("первый и последний кадры уезжают отдельными полями",
+        !!принято.создание.input.image && !!принято.создание.input.end_image,
+        JSON.stringify(Object.keys(принято.создание.input)));
+      check("и не смешиваются с общим списком картинок", !принято.создание.input.images);
+      server.close();
+
+      // Имена полей у ключевых кадров тоже разные у разных моделей.
+      ({ server, принято, base } = await startServer({ readyAfter: 1 }));
+      await media.generate(dataRoot, {
+        baseUrl: base, apiKey: "k", type: "video", model: "м", prompt: "п",
+        firstFrame: фото1, lastFrame: фото2,
+        firstFrameField: "start_frame", lastFrameField: "last_frame",
+      });
+      check("имена полей ключевых кадров можно назвать своими",
+        !!принято.создание.input.start_frame && !!принято.создание.input.last_frame,
+        JSON.stringify(Object.keys(принято.создание.input)));
+      server.close();
+    }
+
     console.log("\nтип поля подгоняется по отказу модели");
     // У шлюза один адрес, а моделей за ним десятки: kling ждёт duration строкой,
     // другие — числом. Справочника нет, зато отказ называет и поле, и тип.
