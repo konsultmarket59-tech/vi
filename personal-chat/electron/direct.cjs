@@ -265,26 +265,156 @@ const REPORT_FIELDS = [
 ];
 
 /**
- * Какое из запрошенных полей не понравилось Директу.
+ * Варианты запроса отчёта.
  *
- * Директ в errorDetail пишет название поля прямым текстом — этого достаточно,
- * чтобы убрать именно его, а не весь расширенный набор. Разница существенная:
- * без этого из-за одного недоступного показателя пропадали бы и конверсии,
- * и доход, и отказы — всё, ради чего в таблицу и смотрят.
+ * Зачем это нужно. Директ отказал кодом 8000 «Некорректный запрос» и НЕ написал,
+ * что именно ему не понравилось: поле errorDetail в ответе пустое. Отступ на
+ * базовый набор полей тоже не помог — значит дело не в полях, а в самой форме
+ * запроса. Гадать в такой ситуации бессмысленно: у разных аккаунтов Директ
+ * принимает разное, и проверить это можно только запросом.
+ *
+ * Поэтому приложение пробует варианты по очереди — от самого подробного к самому
+ * простому — и останавливается на первом, который Директ принял. Рабочий вариант
+ * запоминается для аккаунта, чтобы в следующий раз начинать сразу с него.
+ *
+ * Каждый вариант — это отдельная догадка о причине отказа, и она записана
+ * словами: если сработал «без НДС», значит дело было в НДС, и это видно.
  */
-function blamedField(detail, fields) {
-  const текст = String(detail || "");
-  return fields.find((поле) => new RegExp(`\\b${поле}\\b`).test(текст)) || "";
+const REPORT_VARIANTS = [
+  {
+    id: "полный",
+    what: "все показатели за выбранный период",
+    fields: null,
+  },
+  {
+    id: "базовый",
+    what: "основные показатели за выбранный период",
+    fields: "base",
+  },
+  {
+    id: "без-ндс",
+    what: "основные показатели, суммы без НДС",
+    fields: "base",
+    tweak: (params) => ({ ...params, IncludeVAT: "NO" }),
+  },
+  {
+    id: "с-шапкой",
+    what: "основные показатели, отчёт с шапкой и итогами",
+    fields: "base",
+    // Часть аккаунтов отказывается отдавать отчёт без шапки. Шапку потом
+    // отрезаем сами — это дешевле, чем остаться без данных.
+    headers: { skipReportHeader: "false", skipReportSummary: "false" },
+  },
+  {
+    id: "последние-30",
+    what: "основные показатели за последние 30 дней",
+    fields: "base",
+    // Диапазон дат задаётся не датами, а названием периода: если Директ
+    // споткнулся именно о даты, этот вариант пройдёт.
+    tweak: (params) => {
+      const копия = { ...params, DateRangeType: "LAST_30_DAYS" };
+      копия.SelectionCriteria = {};
+      return копия;
+    },
+  },
+  {
+    id: "минимальный",
+    what: "только расход, показы и клики за последние 30 дней",
+    fields: ["CampaignId", "CampaignName", "Impressions", "Clicks", "Cost"],
+    tweak: (params) => {
+      const копия = { ...params, DateRangeType: "LAST_30_DAYS" };
+      копия.SelectionCriteria = {};
+      return копия;
+    },
+  },
+];
+
+/** Какой вариант сработал у аккаунта в прошлый раз — чтобы не перебирать заново. */
+const рабочийВариант = new Map();
+
+/** Последний отказ Директа целиком — для кнопки «показать ответ Яндекса». */
+let последнийОтвет = null;
+
+function lastReportAnswer() {
+  return последнийОтвет;
 }
 
-async function getStats(
-  token,
-  { dateFrom, dateTo, clientLogin, fields, goals, attributionModels, reportType = "CAMPAIGN_PERFORMANCE_REPORT" },
-  attempt = 0,
-  запасной = false,
-  убрано = []
-) {
-  const headers = {
+/**
+ * Один запрос отчёта — ровно один, без перебора и без повторов по полям.
+ *
+ * Отдельно от перебора, потому что у него своя забота: дождаться отчёта,
+ * который Директ готовит не сразу. Имя отчёта при этом НЕ меняется между
+ * попытками: у отложенного отчёта имя — это его адрес в очереди, и новое имя
+ * на каждой попытке заказывало бы новый отчёт вместо получения готового.
+ */
+async function requestReport({ headers, params, attempt = 0 }) {
+  const res = await fetch(DIRECT_REPORTS, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ params }),
+  });
+
+  if (res.status === 201 || res.status === 202) {
+    if (attempt >= 6) {
+      return { ok: false, status: res.status, text: "", error: { code: 0, message: "Отчёт слишком долго готовится." } };
+    }
+    const wait = Number(res.headers.get("retryIn") || 5) * 1000;
+    await new Promise((r) => setTimeout(r, Math.min(wait, 15000)));
+    return requestReport({ headers, params, attempt: attempt + 1 });
+  }
+
+  const text = await res.text();
+  if (!res.ok) return { ok: false, status: res.status, text, error: parseReportError(text) };
+  return { ok: true, status: res.status, text };
+}
+
+/** TSV в строки. Шапка и итоги отрезаются, если Директ их прислал. */
+function parseReportTsv(text, fields) {
+  const lines = String(text || "").trim().split("\n").filter(Boolean);
+  if (lines.length === 0) return [];
+  // Когда отчёт пришёл с шапкой, первая строка — это его название, а не
+  // названия столбцов. Отличаем по тому, есть ли в строке знакомые поля.
+  let первая = 0;
+  while (первая < lines.length && !fields.some((f) => lines[первая].includes(f))) первая++;
+  if (первая >= lines.length) return [];
+  const header = lines[первая].split("\t");
+  const rows = [];
+  for (const line of lines.slice(первая + 1)) {
+    const cells = line.split("\t");
+    // Строка итогов короче шапки — её пропускаем, она не кампания.
+    if (cells.length < header.length) continue;
+    const row = {};
+    header.forEach((name, i) => {
+      const raw = cells[i] ?? "";
+      const num = Number(raw.replace(",", "."));
+      row[name] = raw !== "" && !Number.isNaN(num) ? num : raw;
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Статистика по кампаниям.
+ *
+ * Перебирает варианты запроса, пока Директ не примет один из них, и возвращает
+ * строки отчёта. На массиве проставляются `variant`, `limited` и `why` — чем
+ * именно пришлось пожертвовать и почему; главный процесс переносит это в
+ * отдельные поля, потому что через IPC у массива доезжают только элементы.
+ */
+async function getStats(token, options = {}) {
+  const {
+    dateFrom,
+    dateTo,
+    clientLogin,
+    fields,
+    goals,
+    attributionModels,
+    reportType = "CAMPAIGN_PERFORMANCE_REPORT",
+    accountKey = "",
+  } = options;
+
+  const базовыеЗаголовки = {
     Authorization: `Bearer ${token}`,
     "Accept-Language": "ru",
     "Content-Type": "application/json; charset=utf-8",
@@ -293,123 +423,116 @@ async function getStats(
     skipReportHeader: "true",
     skipReportSummary: "true",
   };
-  if (clientLogin) headers["Client-Login"] = clientLogin;
+  if (clientLogin) базовыеЗаголовки["Client-Login"] = clientLogin;
 
   const запрошено = Array.isArray(fields) && fields.length ? fields : REPORT_FIELDS;
-  const набор = запасной ? BASE_REPORT_FIELDS : запрошено;
+  const ключ = `${accountKey}|${reportType}`;
 
-  const criteria = { DateFrom: dateFrom, DateTo: dateTo };
-  // Цели запрашиваются только когда они названы: с пустым списком Директ
-  // отказывает, а не возвращает «по всем целям».
-  if (!запасной && Array.isArray(goals) && goals.length) criteria.Goals = goals.map(String);
+  // Если у аккаунта уже известен рабочий вариант, начинаем с него: перебирать
+  // заново каждый раз — значит каждый раз ждать несколько отказов.
+  const известный = рабочийВариант.get(ключ);
+  const варианты = известный
+    ? [
+        ...REPORT_VARIANTS.filter((v) => v.id === известный),
+        ...REPORT_VARIANTS.filter((v) => v.id !== известный),
+      ]
+    : REPORT_VARIANTS;
 
-  const params = {
-    SelectionCriteria: criteria,
-    FieldNames: набор,
-    // Имя отчёта — латиницей. Оно уезжает в заголовок ответа, а заголовки
-    // принимают только латиницу: кириллица здесь ломала весь запрос молча.
-    ReportName: `report-${dateFrom}-${dateTo}-${Date.now()}`,
-    ReportType: reportType,
-    DateRangeType: "CUSTOM_DATE",
-    Format: "TSV",
-    IncludeVAT: "YES",
-  };
-  if (!запасной && criteria.Goals) {
-    // С названными целями Директ требует и модель атрибуции. Последний значимый
-    // переход — то, что в интерфейсе Директа стоит по умолчанию.
-    params.AttributionModels =
-      Array.isArray(attributionModels) && attributionModels.length ? attributionModels : ["LSC"];
-  }
+  const попытки = [];
+  for (const вариант of варианты) {
+    const набор = Array.isArray(вариант.fields)
+      ? вариант.fields
+      : вариант.fields === "base"
+        ? BASE_REPORT_FIELDS
+        : запрошено;
 
-  const res = await fetch(DIRECT_REPORTS, { method: "POST", headers, body: JSON.stringify({ params }) });
+    const criteria = { DateFrom: dateFrom, DateTo: dateTo };
+    // Цели запрашиваются только когда они названы: с пустым списком Директ
+    // отказывает, а не возвращает «по всем целям».
+    const целиНужны = вариант.fields === null && Array.isArray(goals) && goals.length;
+    if (целиНужны) criteria.Goals = goals.map(String);
 
-  if (res.status === 201 || res.status === 202) {
-    if (attempt >= 5) throw new Error("Отчёт слишком долго готовится. Попробуйте ещё раз через минуту.");
-    const wait = Number(res.headers.get("retryIn") || 5) * 1000;
-    await new Promise((r) => setTimeout(r, Math.min(wait, 15000)));
-    return getStats(
-      token,
-      { dateFrom, dateTo, clientLogin, fields, goals, attributionModels, reportType },
-      attempt + 1,
-      запасной,
-      убрано
-    );
-  }
-
-  const text = await res.text();
-  if (!res.ok) {
-    const отказ = parseReportError(text);
-    // Часть полей доступна не всякому аккаунту, и заранее узнать, каких именно,
-    // неоткуда. Поэтому один раз пробуем базовый набор: увидеть расход и клики
-    // человек должен в любом случае.
-    if (!запасной && отказ.code === 8000) {
-      // Сначала пробуем убрать ровно то поле, на которое Директ пожаловался,
-      // и оставить всё остальное.
-      const лишнее = blamedField(отказ.detail, набор.filter((поле) => !BASE_REPORT_FIELDS.includes(поле)));
-      if (лишнее && убрано.length < набор.length) {
-        const сузили = await getStats(
-          token,
-          {
-            dateFrom,
-            dateTo,
-            clientLogin,
-            fields: набор.filter((поле) => поле !== лишнее),
-            goals,
-            attributionModels,
-            reportType,
-          },
-          0,
-          false,
-          [...убрано, лишнее]
-        ).catch(() => null);
-        if (сузили) return сузили;
-      }
-      // Не помогло — показываем хотя бы основное: расход и клики человек
-      // должен увидеть в любом случае.
-      const базовый = await getStats(token, { dateFrom, dateTo, clientLogin, reportType }, 0, true, убрано).catch(
-        () => null
-      );
-      if (базовый) {
-        базовый.limited = true;
-        базовый.why =
-          "Директ не принял расширенный набор полей" +
-          (отказ.detail ? `: ${отказ.detail}` : "") +
-          ". Показаны основные показатели — расход, показы, клики, CTR, цена клика.";
-        return базовый;
-      }
+    let params = {
+      SelectionCriteria: criteria,
+      FieldNames: набор,
+      // Имя отчёта — латиницей: оно уезжает в заголовок ответа, а заголовки
+      // принимают только латиницу, и кириллица здесь ломала весь запрос молча.
+      ReportName: `report-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ReportType: reportType,
+      DateRangeType: "CUSTOM_DATE",
+      Format: "TSV",
+      IncludeVAT: "YES",
+    };
+    if (целиНужны) {
+      // С названными целями Директ требует и модель атрибуции. Последний
+      // значимый переход — то, что в интерфейсе Директа стоит по умолчанию.
+      params.AttributionModels =
+        Array.isArray(attributionModels) && attributionModels.length ? attributionModels : ["LSC"];
     }
-    const problem = new Error(
-      "Директ (отчёты): " +
-        (отказ.detail || отказ.message || text.slice(0, 200)) +
-        (отказ.code ? ` (код ${отказ.code})` : "") +
-        (отказ.requestId ? `\nНомер запроса: ${отказ.requestId}` : "")
-    );
-    problem.code = отказ.code;
-    problem.detail = отказ.detail;
-    throw problem;
+    if (вариант.tweak) params = вариант.tweak(params);
+
+    const заголовки = { ...базовыеЗаголовки, ...(вариант.headers || {}) };
+    const ответ = await requestReport({ headers: заголовки, params });
+
+    if (ответ.ok) {
+      рабочийВариант.set(ключ, вариант.id);
+      последнийОтвет = {
+        variant: вариант.id,
+        ok: true,
+        request: { ...params, FieldNames: набор },
+        headers: { ...заголовки, Authorization: "Bearer …" },
+        answer: String(ответ.text || "").slice(0, 4000),
+        tried: попытки,
+      };
+      const rows = parseReportTsv(ответ.text, набор);
+      if (вариант.id !== "полный") {
+        rows.limited = true;
+        rows.variant = вариант.id;
+        rows.why =
+          `Директ не принял подробный запрос и отказался объяснить, чем именно он плох. ` +
+          `Приложение перебрало варианты и получило ${вариант.what}. ` +
+          `Отказы по дороге: ${попытки.map((p) => `${p.variant} — ${p.reason}`).join("; ") || "нет"}.`;
+      }
+      return rows;
+    }
+
+    попытки.push({
+      variant: вариант.id,
+      code: ответ.error?.code || 0,
+      reason: ответ.error?.detail || ответ.error?.message || `HTTP ${ответ.status}`,
+      requestId: ответ.error?.requestId || "",
+      answer: String(ответ.text || "").slice(0, 2000),
+      request: params,
+    });
+
+    // Отказы, которые перебором не лечатся: дело не в форме запроса, и
+    // следующие варианты получат ровно тот же ответ.
+    const код = ответ.error?.code || 0;
+    if ([53, 54, 58, 152, 513, 514, 9000].includes(код)) break;
   }
 
-  const lines = text.trim().split("\n").filter(Boolean);
-  if (lines.length === 0) return [];
-  const header = lines[0].split("\t");
-  const rows = lines.slice(1).map((line) => {
-    const cells = line.split("\t");
-    const row = {};
-    header.forEach((name, i) => {
-      const raw = cells[i] ?? "";
-      const num = Number(raw.replace(",", "."));
-      row[name] = raw !== "" && !Number.isNaN(num) ? num : raw;
-    });
-    return row;
-  });
-  if (убрано.length) {
-    rows.limited = true;
-    rows.why =
-      "Директ не отдал по этому аккаунту: " +
-      убрано.join(", ") +
-      ". Остальные показатели в таблице настоящие — эти столбцы просто останутся пустыми.";
-  }
-  return rows;
+  рабочийВариант.delete(ключ);
+  последнийОтвет = { ok: false, tried: попытки, headers: { ...базовыеЗаголовки, Authorization: "Bearer …" } };
+
+  const первый = попытки[0] || {};
+  const problem = new Error(
+    "Директ (отчёты): " +
+      (первый.reason || "запрос отклонён") +
+      (первый.code ? ` (код ${первый.code})` : "") +
+      (первый.requestId ? `\nНомер запроса: ${первый.requestId}` : "") +
+      "\n\nПриложение попробовало " +
+      попытки.length +
+      " вариант(ов) запроса, и Директ отклонил каждый:\n" +
+      попытки.map((p) => `  • ${p.variant} — ${p.reason}`).join("\n") +
+      "\n\nЭто значит, что дело не в наборе показателей и не в периоде. " +
+      "Нажмите «Показать ответ Яндекса» — там точный запрос и точный ответ, " +
+      "их можно приложить к обращению в поддержку Директа."
+  );
+  problem.code = первый.code || 0;
+  problem.detail = первый.reason || "";
+  problem.howToFix = howToFix(первый.code || 0);
+  problem.tried = попытки;
+  throw problem;
 }
 
 /**
@@ -687,7 +810,9 @@ function parseAgentAction(text) {
 module.exports = {
   howToFix,
   looksLikeLogin,
-  blamedField,
+  REPORT_VARIANTS,
+  lastReportAnswer,
+  parseReportTsv,
   parseReportError,
   REPORT_FIELDS,
   BASE_REPORT_FIELDS,

@@ -2419,7 +2419,11 @@ ipcMain.handle("direct:overview", async (_e, range) => {
     }
     try {
       строка.campaigns = await direct.listCampaigns(account.token, account.directClientLogin);
-      строка.stats = await direct.getStats(account.token, { ...период, clientLogin: account.directClientLogin });
+      строка.stats = await direct.getStats(account.token, {
+        ...период,
+        clientLogin: account.directClientLogin,
+        accountKey: account.id,
+      });
       строка.statsLimited = Boolean(строка.stats.limited);
       строка.statsWhy = строка.stats.why || "";
       строка.stats = [...строка.stats];
@@ -2550,7 +2554,11 @@ ipcMain.handle("direct:audit", async (_e, { accountId, dateFrom, dateTo } = {}) 
     dateTo: dateTo || new Date().toISOString().slice(0, 10),
   };
   const campaigns = await direct.listCampaigns(account.token, account.directClientLogin);
-  const stats = await direct.getStats(account.token, { ...период, clientLogin: account.directClientLogin });
+  const stats = await direct.getStats(account.token, {
+    ...период,
+    clientLogin: account.directClientLogin,
+    accountKey: account.id,
+  });
   let keywords = [];
   if (campaigns.length) {
     try {
@@ -2628,13 +2636,27 @@ ipcMain.handle("direct:listAds", async (_e, campaignIds) => {
 });
 
 ipcMain.handle("direct:getStats", async (_e, range) => {
-  const { token, clientLogin } = await directAuth();
-  const rows = await direct.getStats(token, { ...range, clientLogin });
+  const { token, clientLogin, accountId } = await directAuth();
+  const rows = await direct.getStats(token, { ...range, clientLogin, accountKey: accountId });
   // Оговорка про урезанный набор полей живёт на самом массиве, а через IPC
   // доезжают только элементы. Поэтому переносим её в отдельные поля здесь,
   // пока данные ещё в главном процессе.
-  return { rows: [...rows], limited: Boolean(rows.limited), why: rows.why || "" };
+  return {
+    rows: [...rows],
+    limited: Boolean(rows.limited),
+    why: rows.why || "",
+    variant: rows.variant || "полный",
+  };
 });
+
+/**
+ * Точный запрос и точный ответ Яндекса по последнему отчёту.
+ *
+ * Нужно ровно тогда, когда Директ отказал и не объяснил причину: без этого
+ * человеку нечего показать поддержке, а мне — нечего чинить. Токен из запроса
+ * вырезан: он не должен попадать ни в экран, ни в письмо.
+ */
+ipcMain.handle("direct:lastReportAnswer", async () => direct.lastReportAnswer());
 
 // Mutations, run only after the user confirmed the agent's proposal in the UI.
 ipcMain.handle("direct:setCampaignState", async (_e, campaignId, resume) => {

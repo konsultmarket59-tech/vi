@@ -2067,6 +2067,8 @@ export interface ElectronAPI {
   testDirectConnection(): Promise<DirectTestResult>;
   directOverview(range?: { dateFrom?: string; dateTo?: string }): Promise<DirectOverview>;
   directAudit(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectAudit>;
+  /** Точный запрос и ответ Директа по последнему отчёту — без токена. */
+  lastDirectReportAnswer(): Promise<unknown>;
   directWords(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectWordsReport>;
   directWordstat(opts: { accountId?: string; phrases: string[]; geoIds?: number[] }): Promise<DirectWordstatItem[]>;
   explainDirectCell(payload: {
@@ -2082,7 +2084,7 @@ export interface ElectronAPI {
   getDirectStats(range: {
     dateFrom: string;
     dateTo: string;
-  }): Promise<{ rows: DirectStatRow[]; limited: boolean; why: string }>;
+  }): Promise<{ rows: DirectStatRow[]; limited: boolean; why: string; variant: string }>;
   setDirectCampaignState(id: number, resume: boolean): Promise<{ id: number; state: string }>;
   setDirectKeywordBid(id: number, bid: number): Promise<{ id: number; bid: number }>;
   buildDirectAgentPrompt(data: {

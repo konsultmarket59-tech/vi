@@ -79,6 +79,10 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
   const [wsGeo, setWsGeo] = useState("");
   const [wordstat, setWordstat] = useState<DirectWordstatItem[] | null>(null);
   const [wordstatLoading, setWordstatLoading] = useState(false);
+  // «Все» в выборе аккаунта. Это не переключение активного аккаунта Яндекса —
+  // он остаётся прежним; это только про то, чьи кампании показывать в таблице.
+  const [allAccounts, setAllAccounts] = useState(true);
+  const [rawAnswer, setRawAnswer] = useState<string>("");
   const [audit, setAudit] = useState<DirectAudit | null>(null);
   const [auditing, setAuditing] = useState("");
   const [clientLogin, setClientLogin] = useState("");
@@ -154,8 +158,9 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
   async function loadOverview() {
     setOverviewLoading(true);
     setNote("");
+    setRawAnswer("");
     try {
-      const данные = await window.api.directOverview({});
+      const данные = await window.api.directOverview({ dateFrom, dateTo });
       setOverview(данные);
       // Первый запуск: показываем набор столбцов по умолчанию, а не пустую
       // таблицу с предложением её настроить.
@@ -316,6 +321,177 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     }
   }
 
+
+  /**
+   * Сводная таблица кампаний.
+   *
+   * Живёт отдельной функцией, потому что показывается и на «Кампаниях», и —
+   * если понадобится — рядом с карточками аккаунтов. Дублировать сорок строк
+   * разметки ради этого не нужно.
+   */
+  function renderTable() {
+    if (!overview || overview.rows.length === 0) return null;
+    return (
+            <div className="direct-table-block">
+              <div className="direct-filters">
+                {overview.states.map((st) => (
+                  <button
+                    key={st.id}
+                    className={stateFilter === st.id ? "chip active" : "chip"}
+                    onClick={() => setStateFilter(st.id)}
+                  >
+                    {st.title}
+                    <span className="chip-count">
+                      {st.id === "все"
+                        ? overview.rows.length
+                        : overview.rows.filter((r) => r.state === st.id).length}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="direct-filters">
+                {overview.accounts.map((acc) => (
+                  <button
+                    key={acc.id}
+                    className={
+                      accountFilter.length === 0 || accountFilter.includes(acc.id) ? "chip active" : "chip"
+                    }
+                    onClick={() =>
+                      setAccountFilter((prev) =>
+                        prev.includes(acc.id) ? prev.filter((x) => x !== acc.id) : [...prev, acc.id]
+                      )
+                    }
+                  >
+                    {acc.label || acc.login}
+                  </button>
+                ))}
+                {accountFilter.length > 0 && (
+                  <button className="link-btn" onClick={() => setAccountFilter([])}>
+                    показать все аккаунты
+                  </button>
+                )}
+                <input
+                  className="input"
+                  style={{ maxWidth: 220 }}
+                  placeholder="Поиск по названию"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <button className="link-btn" onClick={() => setShowColumns((v) => !v)}>
+                  {showColumns ? "скрыть столбцы" : `столбцы (${chosen.length})`}
+                </button>
+              </div>
+
+              {showColumns && (
+                <div className="direct-columns-picker">
+                  <p className="hint">
+                    Отметьте показатели, которые нужны в таблице. Пустой столбец означает, что Директ или
+                    Метрика этих данных не дают — например, доход считается только при настроенной
+                    электронной коммерции.
+                  </p>
+                  {Array.from(new Set(overview.columns.map((c) => c.group))).map((group) => (
+                    <div key={group} className="direct-columns-group">
+                      <b>{group}</b>
+                      {overview.columns
+                        .filter((c) => c.group === group)
+                        .map((c) => (
+                          <label key={c.id} className="checkbox-row" title={c.explain}>
+                            <input
+                              type="checkbox"
+                              checked={chosen.includes(c.id)}
+                              onChange={() => toggleColumn(c.id)}
+                            />
+                            {c.title}
+                          </label>
+                        ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="hint">
+                Нажмите на любое число в таблице — агент разберёт, почему оно такое и что с этим делать.
+              </p>
+
+              <div className="direct-table-wrap">
+                <table className="direct-table">
+                  <thead>
+                    <tr>
+                      {overview.columns
+                        .filter((c) => chosen.includes(c.id))
+                        .map((c) => (
+                          <th
+                            key={c.id}
+                            title={c.explain}
+                            onClick={() => {
+                              if (sortBy === c.id) setSortDesc((v) => !v);
+                              else {
+                                setSortBy(c.id);
+                                setSortDesc(true);
+                              }
+                            }}
+                          >
+                            {c.title}
+                            {sortBy === c.id ? (sortDesc ? " ↓" : " ↑") : ""}
+                          </th>
+                        ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {отобранные.map((row) => (
+                      <tr key={`${row.accountId}-${row.campaignId}`}>
+                        {overview.columns
+                          .filter((c) => chosen.includes(c.id))
+                          .map((c) => (
+                            <td
+                              key={c.id}
+                              className={c.kind === "текст" || c.kind === "дата" ? "" : "num"}
+                              title={c.id === "state" ? row.stateNote : ""}
+                              onClick={() => explainCell(row, c.id, c.title, row[c.id])}
+                            >
+                              {cellText(row[c.id], c.kind)}
+                            </td>
+                          ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      {overview.columns
+                        .filter((c) => chosen.includes(c.id))
+                        .map((c) => {
+                          const значение = итоги[c.id];
+                          return (
+                            <td key={c.id} className={c.kind === "текст" || c.kind === "дата" ? "" : "num"}>
+                              {c.id === "name"
+                                ? `Всего кампаний: ${отобранные.length}`
+                                : значение === undefined
+                                  ? ""
+                                  : cellText(значение ?? null, c.kind)}
+                            </td>
+                          );
+                        })}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {cell && (
+                <div className="direct-cell-answer">
+                  <div className="direct-account-head">
+                    <h3>{cell.title}</h3>
+                    <button className="link-btn" onClick={() => setCell(null)}>
+                      закрыть
+                    </button>
+                  </div>
+                  {cell.loading ? <p className="hint">Разбираю…</p> : <pre className="pre-wrap">{cell.text}</pre>}
+                </div>
+              )}
+            </div>
+    );
+  }
+
   /** Подробный разбор одного аккаунта — с фразами, которых нет в обзоре. */
   async function runAudit(accountId: string) {
     setAuditing(accountId);
@@ -384,7 +560,33 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
 
   async function openAgent() {
     setTab("agent");
-    setAgentPrompt(await window.api.buildDirectAgentPrompt({ campaigns, stats, keywords }));
+    // Таблица кампаний собирается по всем аккаунтам, а переписка с агентом —
+    // по одному: советы «отключить кампанию» должны относиться к конкретному
+    // Директу. Поэтому данные активного аккаунта подтягиваются при открытии
+    // агента, а не при каждом обновлении таблицы.
+    let список = campaigns;
+    let отчёт = stats;
+    let фразы = keywords;
+    if (список.length === 0) {
+      try {
+        список = await window.api.listDirectCampaigns();
+        const активные = список.filter((c) => c.state === "ON" || c.state === "SUSPENDED").map((c) => c.id);
+        const [данные, ключи] = await Promise.all([
+          window.api.getDirectStats({ dateFrom, dateTo }),
+          активные.length ? window.api.listDirectKeywords(активные) : Promise.resolve([]),
+        ]);
+        отчёт = данные.rows;
+        фразы = ключи;
+        setCampaigns(список);
+        setStats(отчёт);
+        setKeywords(фразы);
+      } catch (e) {
+        // Без данных агент всё равно откроется: разговаривать о Директе можно
+        // и без выгрузки, а молчаливо не открыть вкладку — хуже.
+        setNote(e instanceof Error ? e.message : String(e));
+      }
+    }
+    setAgentPrompt(await window.api.buildDirectAgentPrompt({ campaigns: список, stats: отчёт, keywords: фразы }));
     const existing = await window.api.getDirectAgentConversation();
     if (existing) {
       setAgentConv(existing);
@@ -432,6 +634,9 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
       // Reload first: it reports its own progress, and would otherwise overwrite the
       // confirmation of what was just changed.
       await loadAccount();
+      // Сводная таблица собирается отдельно, и без этого в ней осталось бы
+      // прежнее состояние кампании — то самое, которое только что изменили.
+      if (overview) await loadOverview();
       setNote(done);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -445,7 +650,6 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     return `${a.action === "resume" ? "Запустить" : "Остановить"} кампанию #${a.target}`;
   }
 
-  const statsById = new Map(stats.map((r) => [r.CampaignId, r]));
 
   return (
     <div className="ops-view">
@@ -457,10 +661,20 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             {cloudAccounts.yandex.accounts.length > 0 && (
               <select
                 className="direct-account-picker"
-                value={activeAccount?.id ?? ""}
-                onChange={(e) => switchAccount(e.target.value)}
-                title="Аккаунт Яндекса — у каждого свой Директ"
+                value={allAccounts ? "*" : (activeAccount?.id ?? "")}
+                onChange={(e) => {
+                  if (e.target.value === "*") {
+                    setAllAccounts(true);
+                    setAccountFilter([]);
+                  } else {
+                    setAllAccounts(false);
+                    setAccountFilter([e.target.value]);
+                    switchAccount(e.target.value);
+                  }
+                }}
+                title="Чьи кампании показывать. «Все аккаунты» — кампании всех подключённых Директов сразу."
               >
+                <option value="*">Все аккаунты</option>
                 {cloudAccounts.yandex.accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label || a.login || "Без названия"}
@@ -506,165 +720,6 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
               )}
             </div>
 
-            {overview && overview.rows.length > 0 && (
-              <div className="direct-table-block">
-                <div className="direct-filters">
-                  {overview.states.map((st) => (
-                    <button
-                      key={st.id}
-                      className={stateFilter === st.id ? "chip active" : "chip"}
-                      onClick={() => setStateFilter(st.id)}
-                    >
-                      {st.title}
-                      <span className="chip-count">
-                        {st.id === "все"
-                          ? overview.rows.length
-                          : overview.rows.filter((r) => r.state === st.id).length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="direct-filters">
-                  {overview.accounts.map((acc) => (
-                    <button
-                      key={acc.id}
-                      className={
-                        accountFilter.length === 0 || accountFilter.includes(acc.id) ? "chip active" : "chip"
-                      }
-                      onClick={() =>
-                        setAccountFilter((prev) =>
-                          prev.includes(acc.id) ? prev.filter((x) => x !== acc.id) : [...prev, acc.id]
-                        )
-                      }
-                    >
-                      {acc.label || acc.login}
-                    </button>
-                  ))}
-                  {accountFilter.length > 0 && (
-                    <button className="link-btn" onClick={() => setAccountFilter([])}>
-                      показать все аккаунты
-                    </button>
-                  )}
-                  <input
-                    className="input"
-                    style={{ maxWidth: 220 }}
-                    placeholder="Поиск по названию"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                  <button className="link-btn" onClick={() => setShowColumns((v) => !v)}>
-                    {showColumns ? "скрыть столбцы" : `столбцы (${chosen.length})`}
-                  </button>
-                </div>
-
-                {showColumns && (
-                  <div className="direct-columns-picker">
-                    <p className="hint">
-                      Отметьте показатели, которые нужны в таблице. Пустой столбец означает, что Директ или
-                      Метрика этих данных не дают — например, доход считается только при настроенной
-                      электронной коммерции.
-                    </p>
-                    {Array.from(new Set(overview.columns.map((c) => c.group))).map((group) => (
-                      <div key={group} className="direct-columns-group">
-                        <b>{group}</b>
-                        {overview.columns
-                          .filter((c) => c.group === group)
-                          .map((c) => (
-                            <label key={c.id} className="checkbox-row" title={c.explain}>
-                              <input
-                                type="checkbox"
-                                checked={chosen.includes(c.id)}
-                                onChange={() => toggleColumn(c.id)}
-                              />
-                              {c.title}
-                            </label>
-                          ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <p className="hint">
-                  Нажмите на любое число в таблице — агент разберёт, почему оно такое и что с этим делать.
-                </p>
-
-                <div className="direct-table-wrap">
-                  <table className="direct-table">
-                    <thead>
-                      <tr>
-                        {overview.columns
-                          .filter((c) => chosen.includes(c.id))
-                          .map((c) => (
-                            <th
-                              key={c.id}
-                              title={c.explain}
-                              onClick={() => {
-                                if (sortBy === c.id) setSortDesc((v) => !v);
-                                else {
-                                  setSortBy(c.id);
-                                  setSortDesc(true);
-                                }
-                              }}
-                            >
-                              {c.title}
-                              {sortBy === c.id ? (sortDesc ? " ↓" : " ↑") : ""}
-                            </th>
-                          ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {отобранные.map((row) => (
-                        <tr key={`${row.accountId}-${row.campaignId}`}>
-                          {overview.columns
-                            .filter((c) => chosen.includes(c.id))
-                            .map((c) => (
-                              <td
-                                key={c.id}
-                                className={c.kind === "текст" || c.kind === "дата" ? "" : "num"}
-                                title={c.id === "state" ? row.stateNote : ""}
-                                onClick={() => explainCell(row, c.id, c.title, row[c.id])}
-                              >
-                                {cellText(row[c.id], c.kind)}
-                              </td>
-                            ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr>
-                        {overview.columns
-                          .filter((c) => chosen.includes(c.id))
-                          .map((c) => {
-                            const значение = итоги[c.id];
-                            return (
-                              <td key={c.id} className={c.kind === "текст" || c.kind === "дата" ? "" : "num"}>
-                                {c.id === "name"
-                                  ? `Всего кампаний: ${отобранные.length}`
-                                  : значение === undefined
-                                    ? ""
-                                    : cellText(значение ?? null, c.kind)}
-                              </td>
-                            );
-                          })}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-
-                {cell && (
-                  <div className="direct-cell-answer">
-                    <div className="direct-account-head">
-                      <h3>{cell.title}</h3>
-                      <button className="link-btn" onClick={() => setCell(null)}>
-                        закрыть
-                      </button>
-                    </div>
-                    {cell.loading ? <p className="hint">Разбираю…</p> : <pre className="pre-wrap">{cell.text}</pre>}
-                  </div>
-                )}
-              </div>
-            )}
 
             {overview?.accounts.map((acc) => (
               <div key={acc.id} className="direct-account">
@@ -695,6 +750,9 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
                   </div>
                 ) : (
                   <>
+                    {acc.statsLimited && acc.statsWhy && (
+                      <pre className="direct-howto">{acc.statsWhy}</pre>
+                    )}
                     {acc.totals && (
                       <p className="hint">
                         Показов {acc.totals.impressions}, кликов {acc.totals.clicks}, CTR{" "}
@@ -1041,57 +1099,70 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
               <label className="direct-date">
                 по <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
               </label>
-              <button className="btn btn-primary" onClick={loadAccount} disabled={loading}>
-                {loading ? "Загрузка…" : "Загрузить данные"}
+              <button className="btn btn-primary" onClick={loadOverview} disabled={overviewLoading}>
+                {overviewLoading ? "Загрузка…" : "Загрузить данные"}
               </button>
+              {overview && (
+                <span className="hint">
+                  Кампаний: {отобранные.length} из {overview.rows.length}
+                </span>
+              )}
             </div>
             <p className="hint">
-              Загружаются кампании, статистика за выбранный период и ключевые фразы работающих кампаний. Эти же
-              данные видит агент на соседней вкладке.
+              {allAccounts
+                ? "Показаны кампании всех подключённых аккаунтов сразу. Чтобы смотреть один — выберите его в списке слева вверху."
+                : `Показаны кампании аккаунта «${activeAccount?.label || activeAccount?.login || "—"}». Чтобы видеть все сразу — выберите «Все аккаунты».`}{" "}
+              Фильтры, столбцы и разбор по клику в ячейку — ниже.
             </p>
 
             {error && <div className="chat-error">{error}</div>}
-            {note && <p className="hint">{note}</p>}
+            {note && <p className="hint pre-wrap">{note}</p>}
 
-            {campaigns.length > 0 && (
-              <div className="ops-table-scroll">
-                <table className="ops-table">
-                  <thead>
-                    <tr>
-                      <th>Кампания</th>
-                      <th>Состояние</th>
-                      <th>Показы</th>
-                      <th>Клики</th>
-                      <th>CTR</th>
-                      <th>Расход</th>
-                      <th>Ср. цена клика</th>
-                      <th>Конверсии</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {campaigns.map((c) => {
-                      const row = statsById.get(c.id);
-                      return (
-                        <tr key={c.id}>
-                          <td>{c.name}</td>
-                          <td>{STATE_LABEL[c.state] || c.state}</td>
-                          <td>{row ? row.Impressions.toLocaleString("ru-RU") : "—"}</td>
-                          <td>{row ? row.Clicks.toLocaleString("ru-RU") : "—"}</td>
-                          <td>{row ? `${money(row.Ctr)}%` : "—"}</td>
-                          <td>{row ? money(row.Cost) : "—"}</td>
-                          <td>{row ? money(row.AvgCpc) : "—"}</td>
-                          <td>{row ? row.Conversions : "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            {(error || note) && (
+              <div className="folder-row">
+                <button
+                  className="link-btn"
+                  onClick={async () => {
+                    const ответ = await window.api.lastDirectReportAnswer();
+                    setRawAnswer(ответ ? JSON.stringify(ответ, null, 2) : "Запросов отчёта пока не было.");
+                  }}
+                >
+                  Показать ответ Яндекса
+                </button>
+                {rawAnswer && (
+                  <button
+                    className="link-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(rawAnswer);
+                      setNote("Ответ скопирован — его можно приложить к обращению в поддержку Директа.");
+                    }}
+                  >
+                    скопировать
+                  </button>
+                )}
               </div>
             )}
-            {campaigns.length === 0 && !loading && !error && (
+            {rawAnswer && (
+              <div className="direct-cell-answer">
+                <div className="direct-account-head">
+                  <h3>Точный запрос и ответ Директа</h3>
+                  <button className="link-btn" onClick={() => setRawAnswer("")}>
+                    закрыть
+                  </button>
+                </div>
+                <p className="hint">
+                  Токен из запроса вырезан — его нельзя показывать никому, включая поддержку.
+                </p>
+                <pre className="pre-wrap direct-raw">{rawAnswer}</pre>
+              </div>
+            )}
+
+            {renderTable()}
+
+            {!overview && !overviewLoading && !error && (
               <p className="hint">
-                Пока пусто. Нажмите «Загрузить данные» — если аккаунт ещё не подключён, приложение подскажет,
-                что сделать.
+                Пока пусто. Нажмите «Загрузить данные» — приложение обойдёт выбранные аккаунты. Если аккаунт
+                ещё не подключён, оно подскажет, что сделать.
               </p>
             )}
           </div>

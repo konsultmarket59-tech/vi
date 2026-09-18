@@ -2638,3 +2638,14 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
   font-size: 13px;
   margin: 0;
 }
+
+/* Сырой ответ Директа: это отладочный текст, его читают глазами по строкам. */
+.direct-raw {
+  max-height: 40vh;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-soft, #f6f7f9);
+  border-radius: 6px;
+  padding: 10px;
+}
