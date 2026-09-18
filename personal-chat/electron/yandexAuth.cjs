@@ -136,11 +136,61 @@ function pickCodeInWindow(BrowserWindow, clientId, parent) {
       }
     });
 
+    /**
+     * Не загрузилось — сказать почему, а не показывать белый экран.
+     *
+     * Белое окно без единого слова — худшее из возможных сообщений: человек не
+     * знает, ждать ему или закрывать, и уж точно не знает, что чинить. Причина
+     * же обычно простая и называется одним предложением: нет сети, мешает
+     * прокси, или Client ID такой, какого у Яндекса нет.
+     */
+    // Причина показывается ОДИН раз. Показ причины сам по себе уводит окно на
+    // другой адрес, и прерванная загрузка тут же рапортует «ERR_ABORTED» —
+    // если это не остановить, служебная ошибка затирает настоящую, и человек
+    // читает бессмыслицу вместо объяснения.
+    let причинаПоказана = false;
+    const показатьПричину = (текст) => {
+      if (win.isDestroyed() || причинаПоказана) return;
+      причинаПоказана = true;
+      const html =
+        "<!doctype html><meta charset=\"utf-8\">" +
+        "<style>body{font:14px/1.5 system-ui,sans-serif;margin:0;padding:28px;color:#111}" +
+        "h1{font-size:16px;margin:0 0 10px}code{background:#f2f3f5;padding:1px 4px;border-radius:4px}" +
+        "ul{padding-left:18px}li{margin-bottom:6px}</style>" +
+        `<h1>Страница входа Яндекса не открылась</h1><p>${текст}</p>` +
+        "<p>Что бывает чаще всего:</p><ul>" +
+        "<li>нет интернета или он идёт через прокси, который приложение не знает — проверьте «Настройки» → подключение;</li>" +
+        "<li>в поле <code>Client ID</code> попал не тот номер или лишние символы — сверьте его на oauth.yandex.ru;</li>" +
+        "<li>приложение на oauth.yandex.ru удалено или у него сменился идентификатор.</li>" +
+        "</ul><p>Закройте это окно и попробуйте снова, когда причина устранена.</p>";
+      win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html)).catch(() => {});
+    };
+
+    // Ошибка -3 — это отмена самим приложением (мы сами уводим окно), про неё
+    // сообщать нечего. Всё остальное человек должен увидеть.
+    win.webContents.on("did-fail-load", (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || settled || errorCode === -3) return;
+      показатьПричину(
+        `Яндекс не ответил: <code>${String(errorDescription || errorCode)}</code>.` +
+          (validatedURL ? `<br>Адрес: <code>${String(validatedURL).slice(0, 120)}</code>` : "")
+      );
+    });
+
     win.webContents.session
       .clearStorageData()
       .catch(() => {})
       .then(() => {
-        if (!win.isDestroyed()) win.loadURL(authorizeUrl(clientId));
+        if (win.isDestroyed()) return;
+        let url;
+        try {
+          url = authorizeUrl(clientId);
+        } catch (e) {
+          показатьПричину(String((e && e.message) || e));
+          return;
+        }
+        // loadURL отклоняется при сетевом отказе — без этого перехвата окно
+        // так и оставалось белым, а причина терялась в никуда.
+        win.loadURL(url).catch((e) => показатьПричину(String((e && e.message) || e)));
       });
   });
 }
