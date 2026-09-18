@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Личный чат — коробка · Агентство Динамика</title>
+<meta name="description" content="Коробочное десктопное приложение: ИИ-чат с проектами, навыками и пятнадцатью плагинами. Данные — файлами на вашем компьютере. Внедрение 150 000–190 000 ₽, кастомизация — по договорённости.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@700;800;900&display=swap" rel="stylesheet">
+<style>
+/* ===================================================================
+   Дизайн-система «Динамика»
+   Токены и приёмы взяты из hero.html (маркетинговый блок агентства) и
+   раздела «Фирменные цвета» README «Личного чата»: те же шрифты, тот же
+   розовый, те же жёсткие тени и рамки, тот же читаемый вариант розового
+   для текста (#C4004A — 5.6:1, чистый #FE3268 на светлом даёт 3.3:1).
+   =================================================================== */
+:root{
+  --ink:#0b0b0f;
+  --ink-soft:#23232b;
+  --paper:#ffffff;
+  --pink:#FE3268;
+  --pink-text:#C4004A;
+  --pink-soft:#ffd6e5;
+  --cyan:#26d4ff;
+  --cyan-soft:#d7f5ff;
+  --purple:#B23CC4;
+  --muted:#6b6b78;
+  --warm:#F7ECE7;
+  --neutral:#F7F6F3;
+  --shadow:6px 6px 0 var(--ink);
+  --shadow-lg:8px 10px 0 var(--ink);
+  --border:2.5px solid var(--ink);
+  --radius:14px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:17px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+img{max-width:100%;display:block}
+a{color:var(--pink-text)}
+:focus-visible{outline:3px solid var(--pink);outline-offset:3px;border-radius:4px}
+
+/* ---------- Раскладка ---------- */
+.wrap{max-width:1280px;margin:0 auto;padding:0 56px}
+.section{position:relative;padding:104px 0;border-top:var(--border)}
+.section:first-of-type{border-top:0}
+.section--warm{background:var(--warm)}
+.section--neutral{background:var(--neutral)}
+.section--ink{background:var(--ink);color:#fff}
+.section--ink a:not(.btn){color:var(--cyan)}
+/* Жёсткая тень цвета чернил на чернильном фоне не видна — на тёмных секциях
+   она становится циановой, иначе карточки теряют объём. */
+.section--ink .card{box-shadow:6px 6px 0 var(--cyan)}
+.section--ink .card:hover{box-shadow:8px 10px 0 var(--cyan)}
+.section--ink .btn{box-shadow:6px 6px 0 var(--cyan)}
+.section--ink .btn:hover{box-shadow:8px 8px 0 var(--cyan)}
+.section--ink .btn:active{box-shadow:2px 2px 0 var(--cyan)}
+/* Карточка на тёмной секции всё равно белая — подписи в ней читаются по светлому */
+.section--ink .card .small{color:var(--muted)}
+
+/* ---------- Типографика ---------- */
+.eyebrow{
+  display:inline-flex;align-items:center;gap:10px;
+  font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);
+}
+.eyebrow .dot{width:8px;height:8px;border-radius:50%;background:var(--pink);box-shadow:0 0 0 4px var(--pink-soft);flex:none}
+.section--ink .eyebrow{color:#a9a9b8}
+h1,h2,h3{font-family:"Unbounded","Manrope",sans-serif;letter-spacing:-.02em;margin:0}
+h1{font-weight:900;font-size:clamp(38px,6.6vw,104px);line-height:.94;text-transform:uppercase}
+h2{font-weight:800;font-size:clamp(30px,4.2vw,58px);line-height:1.02;text-transform:uppercase;margin:16px 0 0}
+h3{font-weight:700;font-size:20px;line-height:1.25}
+.lead{max-width:660px;margin:26px 0 0;font-size:19px;color:var(--ink-soft)}
+.section--ink .lead{color:#d6d6e0}
+.pink{color:var(--pink-text)}
+.mark{background:var(--cyan-soft);padding:0 .18em;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.small{font-size:15px;color:var(--muted)}
+.section--ink .small{color:#a9a9b8}
+
+/* ---------- Фон: пятна, искры, ромбы ---------- */
+.bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;mix-blend-mode:multiply;animation:float 14s ease-in-out infinite}
+.b1{width:520px;height:520px;left:-160px;bottom:-180px;background:radial-gradient(circle at 30% 30%,#b9ecff,#e6f8ff 60%,transparent 70%)}
+.b2{width:560px;height:560px;right:-160px;top:-180px;background:radial-gradient(circle at 60% 40%,#ffd6e5,#fff0f5 60%,transparent 70%);animation-delay:-6s}
+.b3{width:300px;height:300px;left:38%;top:58%;background:radial-gradient(circle at 50% 50%,#e9defc,#f4ecff 60%,transparent 70%);animation-delay:-3s;opacity:.5}
+@keyframes float{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(20px,-30px) scale(1.05)}}
+.spark{position:absolute;color:var(--ink);animation:spin 6s linear infinite;pointer-events:none;opacity:.9;z-index:1}
+@keyframes spin{0%{transform:rotate(0) scale(1)}50%{transform:rotate(180deg) scale(1.15)}100%{transform:rotate(360deg) scale(1)}}
+.diamond{width:14px;height:14px;background:var(--ink);transform:rotate(45deg);position:absolute;z-index:1}
+.stage{position:relative;z-index:2}
+
+/* ---------- Кнопки ---------- */
+.btn{
+  --bg:var(--pink);--fg:#fff;
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  text-decoration:none;appearance:none;
+  border:var(--border);background:var(--bg);color:var(--fg);
+  font-family:"Manrope",sans-serif;font-weight:700;font-size:17px;
+  padding:16px 30px;border-radius:6px;cursor:pointer;
+  box-shadow:var(--shadow);
+  transform:rotate(-1.5deg);
+  transition:transform .15s ease,box-shadow .15s ease;
+}
+.btn.cyan{--bg:var(--cyan);--fg:var(--ink);transform:rotate(1.5deg)}
+.btn.paper{--bg:var(--paper);--fg:var(--ink)}
+.btn:hover{transform:rotate(0) translate(-2px,-2px);box-shadow:8px 8px 0 var(--ink)}
+.btn:active{transform:translate(3px,3px);box-shadow:2px 2px 0 var(--ink)}
+.btn,.btn:visited,.btn:hover,.btn:active{color:var(--fg)}
+.cta-row{display:flex;gap:22px;flex-wrap:wrap;margin-top:38px}
+
+/* ---------- Карточки ---------- */
+.grid{display:grid;gap:26px;margin-top:52px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.card{
+  border:var(--border);border-radius:var(--radius);background:var(--paper);
+  box-shadow:var(--shadow);padding:28px;
+  transition:transform .15s ease,box-shadow .15s ease;
+}
+.card:hover{transform:translate(-2px,-2px);box-shadow:var(--shadow-lg)}
+.card .num{font-family:"Unbounded",sans-serif;font-weight:900;font-size:13px;letter-spacing:.1em;color:var(--pink-text)}
+.card p{margin:12px 0 0;font-size:16px;color:var(--ink-soft)}
+.card .ico{font-size:30px;line-height:1;margin-bottom:14px}
+.tag{
+  display:inline-block;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  border:2px solid var(--ink);border-radius:999px;padding:4px 12px;background:var(--cyan-soft);
+}
+.tag.pink{background:var(--pink-soft)}
+
+/* ---------- Конфигуратор ---------- */
+.conf{display:grid;grid-template-columns:1fr 360px;gap:32px;margin-top:52px;align-items:start}
+.plugins{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:0;padding:0;border:0}
+.plug{
+  display:flex;gap:14px;align-items:flex-start;
+  border:var(--border);border-radius:10px;background:var(--paper);
+  padding:14px 16px;cursor:pointer;box-shadow:3px 3px 0 var(--ink);
+  transition:transform .12s ease,box-shadow .12s ease,background .12s ease;
+}
+.plug:hover{transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--ink)}
+.plug input{
+  appearance:none;flex:none;width:22px;height:22px;margin:2px 0 0;
+  border:2.5px solid var(--ink);border-radius:5px;background:#fff;cursor:pointer;
+  display:grid;place-content:center;
+}
+.plug input::after{content:"";width:11px;height:11px;transform:scale(0);background:var(--ink);clip-path:polygon(14% 44%,0 60%,40% 100%,100% 18%,84% 0,39% 68%);transition:transform .1s ease}
+.plug input:checked{background:var(--pink);border-color:var(--ink)}
+.plug input:checked::after{transform:scale(1);background:#fff}
+.plug:has(input:checked){background:var(--pink-soft)}
+.plug b{display:block;font-size:16px;font-weight:700}
+.plug span{display:block;font-size:14px;color:var(--muted);margin-top:3px}
+.price-box{
+  position:sticky;top:24px;
+  border:var(--border);border-radius:var(--radius);background:var(--ink);color:#fff;
+  box-shadow:var(--shadow);padding:30px;
+}
+.price-box .num{font-family:"Unbounded",sans-serif;font-weight:900;font-size:44px;line-height:1;letter-spacing:-.03em}
+.price-box .cur{font-size:26px}
+.price-box hr{border:0;border-top:2px solid #35353f;margin:22px 0}
+.price-box dl{display:grid;grid-template-columns:1fr auto;gap:8px 16px;margin:0;font-size:15px}
+.price-box dt{color:#a9a9b8}
+.price-box dd{margin:0;text-align:right;font-weight:600}
+.price-note{font-size:14px;color:var(--cyan);margin-top:18px;min-height:40px}
+.linkbtn{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--pink-text);cursor:pointer;text-decoration:underline}
+
+/* ---------- Тарифы ---------- */
+.plan{display:flex;flex-direction:column;height:100%}
+.plan .price{font-family:"Unbounded",sans-serif;font-weight:900;font-size:34px;letter-spacing:-.02em;margin:18px 0 0}
+.plan ul{margin:20px 0 0;padding:0;list-style:none;font-size:16px;flex:1}
+.plan li{position:relative;padding-left:26px;margin-bottom:10px;color:var(--ink-soft)}
+.plan li::before{content:"";position:absolute;left:0;top:9px;width:12px;height:12px;background:var(--pink);transform:rotate(45deg)}
+.plan li.no::before{background:#cfcfd8}
+.plan .btn{margin-top:26px;align-self:flex-start}
+.plan--hero{background:var(--cyan-soft)}
+
+/* ---------- Шаги ---------- */
+.steps{counter-reset:s;display:grid;gap:0;margin-top:52px;border:var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);background:var(--paper)}
+.step{display:grid;grid-template-columns:96px 1fr 200px;gap:24px;padding:26px 28px;border-top:2.5px solid var(--ink);align-items:baseline}
+.step:first-child{border-top:0}
+.step .n{font-family:"Unbounded",sans-serif;font-weight:900;font-size:34px;color:var(--pink)}
+.step .when{font-size:15px;font-weight:700;color:var(--muted);text-align:right}
+.step p{margin:8px 0 0;font-size:16px;color:var(--ink-soft)}
+
+/* ---------- FAQ ---------- */
+.faq{margin-top:52px;border:var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);background:var(--paper)}
+.faq details{border-top:2.5px solid var(--ink)}
+.faq details:first-child{border-top:0}
+.faq summary{
+  cursor:pointer;list-style:none;padding:24px 28px;
+  font-family:"Unbounded",sans-serif;font-weight:700;font-size:17px;
+  display:flex;justify-content:space-between;gap:20px;align-items:center;
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font-size:28px;color:var(--pink-text);flex:none;line-height:1}
+.faq details[open] summary::after{content:"–"}
+.faq .ans{padding:0 28px 26px;font-size:16px;color:var(--ink-soft);max-width:900px}
+.faq .ans p{margin:0 0 10px}
+
+/* ---------- Таблица опций ---------- */
+.opts{width:100%;border-collapse:collapse;margin-top:52px;border:var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);background:var(--paper)}
+.opts th,.opts td{text-align:left;padding:18px 24px;border-top:2px solid var(--ink);font-size:16px;vertical-align:top}
+.opts thead th{background:var(--pink-soft);border-top:0;font-family:"Unbounded",sans-serif;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.opts td:last-child,.opts th:last-child{text-align:right;white-space:nowrap;font-weight:700}
+.opts td b{display:block}
+.opts td small{color:var(--muted);font-size:14px;font-weight:400}
+
+/* ---------- Подвал ---------- */
+footer{background:var(--ink);color:#fff;padding:72px 0 56px}
+footer .cols{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:40px}
+footer a{color:var(--cyan)}
+footer .logo{font-family:"Unbounded",sans-serif;font-weight:900;font-size:24px;text-transform:uppercase;letter-spacing:-.02em}
+footer ul{list-style:none;margin:14px 0 0;padding:0;font-size:16px}
+footer li{margin-bottom:8px}
+footer .rule{border:0;border-top:2px solid #35353f;margin:44px 0 24px}
+
+/* ---------- Шапка: текст и окно приложения ---------- */
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);gap:56px;align-items:center}
+.hero-copy .lead{max-width:none}
+
+/* Кегль ужат: рядом стоит окно приложения, и «КОМПЬЮТЕРЕ» в полный рост
+   уезжало бы под него. Отступ сверху — под краткую букву «Й», её надстрочный
+   знак иначе задевает подпись над заголовком. */
+.hero-copy h1{font-size:clamp(38px,5vw,78px);margin-top:22px}
+.hero-copy .cta-row{margin-top:34px}
+
+/* Макет окна приложения: не скриншот, а схема — что в меню и как выглядит ответ */
+.mock{
+  border:var(--border);border-radius:var(--radius);background:var(--paper);
+  box-shadow:10px 12px 0 var(--ink);transform:rotate(-1.2deg);overflow:hidden;
+  font-size:13px;line-height:1.4;
+}
+.mock-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:2.5px solid var(--ink);background:var(--warm)}
+.mock-bar i{width:11px;height:11px;border-radius:50%;background:var(--pink);border:2px solid var(--ink)}
+.mock-bar i:nth-child(2){background:var(--cyan)}
+.mock-bar i:nth-child(3){background:#fff}
+.mock-bar b{margin-left:8px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.mock-body{display:grid;grid-template-columns:168px 1fr;min-height:330px}
+.mock-side{border-right:2.5px solid var(--ink);background:var(--warm);padding:14px 0}
+.mock-side .cap{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:0 14px 10px}
+.mock-side ul{list-style:none;margin:0;padding:0}
+.mock-side li{padding:7px 14px;border-left:3px solid transparent;color:var(--ink-soft);white-space:nowrap}
+.mock-side li.on{border-left-color:var(--pink);background:#fff;font-weight:700}
+.mock-side .more{margin:12px 14px 0;padding-top:10px;border-top:2px dashed #d8cfc9;font-size:11px;color:var(--muted);white-space:normal}
+.mock-main{padding:16px;display:flex;flex-direction:column;gap:10px;background:var(--neutral)}
+.bub{border:2px solid var(--ink);border-radius:10px;padding:9px 12px;max-width:88%}
+.bub.you{align-self:flex-end;background:var(--pink-soft)}
+.bub.ai{align-self:flex-start;background:#fff}
+.mock-file{
+  align-self:flex-start;display:inline-flex;align-items:center;gap:7px;
+  border:2px solid var(--ink);border-radius:8px;background:var(--cyan-soft);
+  padding:7px 11px;font-weight:700;box-shadow:3px 3px 0 var(--ink);
+}
+.mock-path{margin-top:auto;font-size:11px;color:var(--muted)}
+
+/* ---------- Адаптация ---------- */
+@media (max-width:1200px){
+  .wrap{padding:0 40px}
+  .conf{grid-template-columns:1fr 320px}
+  .hero-grid{gap:36px}
+  .mock-body{grid-template-columns:148px 1fr}
+}
+/* Ниже 1080 окно приложения только мешало бы: текст и кнопка важнее */
+@media (max-width:1080px){
+  .hero-grid{grid-template-columns:1fr}
+  .mock{display:none}
+  .hero-copy h1{font-size:clamp(38px,8.4vw,92px)}
+  .hero-copy .lead{max-width:660px}
+}
+@media (max-width:1024px){
+  .section{padding:80px 0}
+  .g3{grid-template-columns:repeat(2,1fr)}
+  .conf{grid-template-columns:1fr}
+  .price-box{position:static}
+  .step{grid-template-columns:64px 1fr;}
+  .step .when{grid-column:2;text-align:left}
+}
+@media (max-width:768px){
+  body{font-size:16px}
+  .wrap{padding:0 24px}
+  .section{padding:64px 0}
+  .g2,.g3,.plugins{grid-template-columns:1fr}
+  footer .cols{grid-template-columns:1fr}
+  .opts thead{display:none}
+  .opts tr{display:block;border-top:2px solid var(--ink)}
+  .opts tr:first-child{border-top:0}
+  .opts td{display:block;border-top:0;padding:6px 20px}
+  .opts td:first-child{padding-top:18px}
+  .opts td:last-child{text-align:left;padding-bottom:18px}
+}
+@media (max-width:480px){
+  .wrap{padding:0 16px}
+  .btn{padding:14px 22px;font-size:15px}
+  .cta-row{gap:14px}
+  .spark,.diamond{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================ ПЕРВЫЙ ЭКРАН ============================ -->
+<header class="section" id="top">
+  <div class="bg" aria-hidden="true">
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  </div>
+  <span class="spark" style="left:62%;top:150px;font-size:22px;color:var(--pink)" aria-hidden="true">✦</span>
+  <span class="spark" style="left:5%;top:52%;font-size:20px" aria-hidden="true">✦</span>
+  <span class="spark" style="right:14%;bottom:12%;font-size:18px;color:var(--pink)" aria-hidden="true">✦</span>
+  <div class="diamond" style="left:22px;top:46%;background:var(--cyan)" aria-hidden="true"></div>
+
+  <div class="wrap stage">
+   <div class="hero-grid">
+    <div class="hero-copy">
+    <div class="eyebrow"><span class="dot"></span> Коробочное решение · Агентство Динамика</div>
+
+    <h1>Свой ИИ<br>на своём<br><span class="pink">компьютере</span></h1>
+
+    <p class="lead">
+      «Личный чат» — десктопное приложение: чат с проектами и навыками, как в Claude,
+      плюс пятнадцать рабочих разделов — Excel, Word, документооборот, финмодель, видео,
+      Директ, боты. <strong>Проекты, документы, переписка и навыки лежат обычными файлами
+      у вас на диске</strong> — не в облаке и не у нас.
+    </p>
+    <p class="lead">
+      Коробку ставим под ваш набор задач: выбираете разделы — собираем сборку с вашим
+      названием и фирменным стилем. <span class="mark">Внедрение — 150 000–190 000 ₽.</span>
+      Кастомные плагины — по договорённости.
+    </p>
+
+    <div class="cta-row">
+      <a class="btn" href="#configurator">Собрать свою коробку</a>
+      <a class="btn cyan" href="#custom">Нужен свой плагин</a>
+    </div>
+    </div><!-- /hero-copy -->
+
+    <div class="mock" aria-hidden="true">
+      <div class="mock-bar"><i></i><i></i><i></i><b>Личный чат</b></div>
+      <div class="mock-body">
+        <div class="mock-side">
+          <div class="cap">Проект · Девелопер</div>
+          <ul>
+            <li class="on">💬 Чат</li>
+            <li>🧩 Навыки</li>
+            <li>📗 Excel</li>
+            <li>📁 Документооборот</li>
+            <li>💹 Финмодель</li>
+            <li>📣 Яндекс Директ</li>
+          </ul>
+          <div class="more">+ ещё 9 разделов<br>включаются при сборке</div>
+        </div>
+        <div class="mock-main">
+          <div class="bub you">Собери акт за август по статистике размещений</div>
+          <div class="bub ai">Взял ваш шаблон и доп. соглашение, посчитал по площадкам. Нумерация продолжает вашу — акт №&nbsp;14.</div>
+          <div class="mock-file">📄 Акт №14 · август.docx</div>
+          <div class="mock-path">Документы \ Личный чат \ projects \ Девелопер</div>
+        </div>
+      </div>
+    </div>
+   </div><!-- /hero-grid -->
+
+    <div class="grid g3" style="margin-top:72px">
+      <div class="card">
+        <div class="ico" aria-hidden="true">🧱</div>
+        <h3>Ядро не отключается</h3>
+        <p>Чат с выбором модели, проекты с инструкциями и документами, навыки, задачи по
+           расписанию, файлы с компьютера, настройки. Это есть в любой сборке.</p>
+      </div>
+      <div class="card">
+        <div class="ico" aria-hidden="true">🧩</div>
+        <h3>15 плагинов на выбор</h3>
+        <p>Выключённый раздел исчезает из меню и не открывается, даже если попасть в него
+           иначе. Набор задаётся при сборке — без форка кода.</p>
+      </div>
+      <div class="card">
+        <div class="ico" aria-hidden="true">🔒</div>
+        <h3>Данные остаются у вас</h3>
+        <p>Папка «Документы» на вашем компьютере или на сетевом диске. Ключ к моделям —
+           в системных настройках приложения, в репозиторий он не попадает.</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ ЧТО ВНУТРИ ЯДРА ============================ -->
+<section class="section section--neutral" id="core">
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> База, одинаковая у всех сборок</div>
+    <h2>Что работает<br>сразу из коробки</h2>
+    <p class="lead">Эти шесть вещей не отключаются ни в одной конфигурации — иначе это уже не «Личный чат».</p>
+
+    <div class="grid g3">
+      <div class="card">
+        <div class="num">01</div>
+        <h3>Чат с любой моделью</h3>
+        <p>Подключение по OpenAI-совместимому адресу (по умолчанию Polza.ai) своим ключом.
+           Список моделей подгружается с сервиса. Видно, подключилось или нет, и по какой
+           причине не подключилось — человеческим текстом, а не кодом ошибки.</p>
+      </div>
+      <div class="card">
+        <div class="num">02</div>
+        <h3>Проекты как в Claude.ai</h3>
+        <p>Своя инструкция, свои документы, своя история переписки. Ссылка «Что видит
+           ассистент» разворачивает ровно тот промпт, который уходит модели, — видно,
+           подключился документ или нет.</p>
+      </div>
+      <div class="card">
+        <div class="num">03</div>
+        <h3>Навыки и конструктор</h3>
+        <p>Библиотека переиспользуемых инструкций, подключается к нужным проектам
+           галочкой. Новый навык можно описать словами — ассистент задаст вопросы и
+           соберёт его. Готовые импортируются файлом.</p>
+      </div>
+      <div class="card">
+        <div class="num">04</div>
+        <h3>Задачи по расписанию</h3>
+        <p>Регулярные задачи внутри проекта: приложение само запускает их по времени и
+           складывает выдачи, чтобы не запускать один и тот же разбор руками.</p>
+      </div>
+      <div class="card">
+        <div class="num">05</div>
+        <h3>Интернет и голос</h3>
+        <p>Поиск и чтение страниц, когда для ответа нужны свежие данные — со ссылками на
+           источники. Реплику можно надиктовать: распознавание работает на этом же
+           компьютере, запись никуда не уходит.</p>
+      </div>
+      <div class="card">
+        <div class="num">06</div>
+        <h3>Файлы, а не база данных</h3>
+        <p>Проекты, документы, чаты и навыки — обычные папки и файлы. Их видно в
+           проводнике, можно положить на сетевой диск, скопировать, забрать с собой.
+           Кнопка «Открыть папку проекта» — прямо из приложения.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ КОНФИГУРАТОР ============================ -->
+<section class="section" id="configurator">
+  <div class="bg" aria-hidden="true"><div class="blob b2" style="opacity:.4"></div></div>
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> Цены и опции</div>
+    <h2>Соберите набор —<br>цена посчитается</h2>
+    <p class="lead">
+      База — <strong>150 000 ₽</strong>, в неё входит ядро и любые <strong>пять</strong>
+      плагинов. Каждый следующий — <strong>+10 000 ₽</strong>. Полная сборка со всеми
+      пятнадцатью — <strong>190 000 ₽</strong>, дальше цена не растёт.
+    </p>
+
+    <div class="conf">
+      <div>
+        <fieldset class="plugins" id="plugins">
+          <legend class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Плагины</legend>
+
+          <label class="plug"><input type="checkbox" checked>
+            <span><b>📗 Excel</b><span>Настоящие .xlsx с вашего диска и живым пересчётом формул. Агент правит таблицу, правку видно до применения.</span></span></label>
+
+          <label class="plug"><input type="checkbox" checked>
+            <span><b>📘 Word</b><span>Договоры, ТЗ, КП. Документ разбирается на пронумерованные блоки — ими и оперирует агент, предлагая правку.</span></span></label>
+
+          <label class="plug"><input type="checkbox" checked>
+            <span><b>📁 Документооборот</b><span>Акты, счета, ТЗ по вашим шаблонам и реквизитам. Хранятся только пути к файлам — правите шаблон у себя, документ уже новый.</span></span></label>
+
+          <label class="plug"><input type="checkbox" checked>
+            <span><b>📊 Визуализация данных</b><span>Дашборды, графики, майнд-карты, таймлайны из таблицы, документа или скриншота выгрузки. Палитра — ваша.</span></span></label>
+
+          <label class="plug"><input type="checkbox" checked>
+            <span><b>💹 Финмодель</b><span>Прогноз, P&amp;L, налоги, окупаемость, NPV и IRR. Все числа считает код, агент отвечает за допущения и заключение.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🎬 Видео-сторис</b><span>Вертикальные ролики поверх своего или стокового видео: плашки, таймлайны, иконки, голова в кружке. Сборка на вашем компьютере.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🎙 Видеотека</b><span>Разговор с содержимым своих записей: расшифровка папок и ответы строго по ним — со ссылкой на файл и минуту.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🏠 Каталог</b><span>Пересборка выгрузки 1С в файл для магазина Тильды: заголовки, категории, описания по вариациям, фото и SEO.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🌐 Сайты</b><span>Лендинг или многостраничник блоками, готовыми к переносу в Тильду. Дизайн-система — закон, а не пожелание.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🧹 Клининг</b><span>Разбор папок и сверка документов: агент предлагает план по вашей логике имён, вы утверждаете — приложение раскладывает.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🎨 Медиа</b><span>Картинки, видео и звук через единый Media API тем же ключом. Сториборд из шести кадров, референсы, ключевые кадры.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>☁️ Облако</b><span>Яндекс Диск и Google Диск: смотреть папки, забирать файлы сразу в документы проекта, выкладывать результат обратно.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>📣 Яндекс Директ</b><span>Все аккаунты одной таблицей, баланс, разбор кампаний, слов и площадок. Нужна одобренная заявка на API — это требование Яндекса.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🐙 GitHub</b><span>Репозитории, файлы, коммиты и запуск сборки — через обычный REST API, без установки Git на компьютер.</span></span></label>
+
+          <label class="plug"><input type="checkbox">
+            <span><b>🤖 Чат-боты и воронки</b><span>Бот отвечает по базе знаний вашего проекта, помнит переписку с каждым отдельно. Или сценарная воронка, если нужна жёсткая логика.</span></span></label>
+        </fieldset>
+
+        <p class="small" style="margin-top:20px">
+          <button type="button" class="linkbtn" id="all">Отметить все пятнадцать</button> ·
+          <button type="button" class="linkbtn" id="none">Снять всё</button> ·
+          набор всегда можно поменять позже: это пересборка, а не переписывание кода.
+        </p>
+      </div>
+
+      <aside class="price-box" aria-live="polite">
+        <div class="eyebrow" style="color:#a9a9b8"><span class="dot"></span> Внедрение</div>
+        <p class="num" style="margin:14px 0 0"><span id="total">150 000</span> <span class="cur">₽</span></p>
+        <hr>
+        <dl>
+          <dt>Ядро и настройки</dt><dd>включено</dd>
+          <dt>Плагинов выбрано</dt><dd><span id="count">5</span> из 15</dd>
+          <dt>Из них в базе</dt><dd>5</dd>
+          <dt>Сверх базы</dt><dd><span id="extra">0</span> × 10 000 ₽</dd>
+        </dl>
+        <p class="price-note" id="note">Ровно базовая комплектация.</p>
+        <a class="btn cyan" href="#contact" style="width:100%">Обсудить сборку</a>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ТАРИФЫ ============================ -->
+<section class="section section--warm" id="plans">
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> Три способа начать</div>
+    <h2>Что входит<br>в каждый вариант</h2>
+
+    <div class="grid g3">
+      <article class="card plan">
+        <span class="tag">База</span>
+        <h3 style="margin-top:16px">Коробка. База</h3>
+        <p class="price">150 000 ₽</p>
+        <p class="small">разово, срок — 5–7 рабочих дней</p>
+        <ul>
+          <li>Ядро целиком: чат, проекты, навыки, задачи, файлы</li>
+          <li>Любые 5 плагинов из 15</li>
+          <li>Ваше название приложения и фирменные цвета</li>
+          <li>Сборка установщика под Windows</li>
+          <li>Установка и настройка ключей</li>
+          <li>Обучение команды, две встречи</li>
+          <li>Месяц сопровождения</li>
+          <li class="no">Демо-копии и вшитый ключ — опцией</li>
+        </ul>
+        <a class="btn" href="#contact">Взять базу</a>
+      </article>
+
+      <article class="card plan plan--hero">
+        <span class="tag pink">Чаще всего берут</span>
+        <h3 style="margin-top:16px">Коробка. Полная</h3>
+        <p class="price">190 000 ₽</p>
+        <p class="small">разово, срок — 7–10 рабочих дней</p>
+        <ul>
+          <li>Всё из базы</li>
+          <li><strong>Все 15 плагинов</strong> — дешевле, чем добирать поштучно</li>
+          <li>Демо-копии для тестовой группы: срок, привязка к компьютеру, отзыв</li>
+          <li>Сборка с предустановленным ключом и разделом «Расход моделей»</li>
+          <li>До 10 предустановленных навыков — видно название, не виден текст</li>
+          <li>Фирменный стиль под ваш бренд, а не только палитра Динамики</li>
+          <li>Месяц сопровождения</li>
+        </ul>
+        <a class="btn" href="#contact">Взять полную</a>
+      </article>
+
+      <article class="card plan">
+        <span class="tag">Под задачу</span>
+        <h3 style="margin-top:16px">Кастомизация</h3>
+        <p class="price">Цена договорная</p>
+        <p class="small">оцениваем после разговора, от двух недель</p>
+        <ul>
+          <li>Свой плагин под ваш процесс — новый раздел в меню</li>
+          <li>Интеграция с вашей CRM, 1С, порталом, прайсом</li>
+          <li>Свои форматы документов и отчётов</li>
+          <li>Роли и разграничение доступа внутри команды</li>
+          <li>Отдельное приложение на том же ядре</li>
+          <li>Оценка в часах до начала работ, фиксируем в ТЗ</li>
+        </ul>
+        <a class="btn cyan" href="#custom">Смотреть примеры</a>
+      </article>
+    </div>
+
+    <p class="small" style="margin-top:28px;max-width:760px">
+      Цены — за внедрение коробки. Работа моделей оплачивается отдельно и напрямую сервису
+      по факту расхода: приложение работает на вашем ключе, мы в этой цепочке не посредники.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ ОПЦИИ СВЕРХ КОРОБКИ ============================ -->
+<section class="section" id="options">
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> Опции сверх внедрения</div>
+    <h2>Что можно<br>докупить отдельно</h2>
+    <p class="lead">Всё это входит в полную сборку. К базе добавляется по отдельности — если нужно именно это, а не все пятнадцать плагинов.</p>
+
+    <table class="opts">
+      <thead>
+        <tr><th scope="col">Опция</th><th scope="col">Что это даёт</th><th scope="col">Цена</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Дополнительный плагин</b><small>сверх пяти в базе</small></td>
+          <td>Любой раздел из пятнадцати. С девятого плагина выгоднее взять полную сборку — там потолок 190 000 ₽.</td>
+          <td>10 000 ₽</td>
+        </tr>
+        <tr>
+          <td><b>Демо-копии для тестовой группы</b><small>лицензии по сроку и компьютеру</small></td>
+          <td>Копия просит файл активации, работает до указанной даты на конкретном компьютере, подписана именем человека. Отзыв — списком. К концу срока копия сама собирает отчёт: версия, система, журнал ошибок — без документов и переписки.</td>
+          <td>25 000 ₽</td>
+        </tr>
+        <tr>
+          <td><b>Сборка с предустановленным ключом</b><small>и учётом расхода</small></td>
+          <td>Поле ключа скрыто, вместо него раздел «Расход моделей»: какие модели, сколько токенов и на какую сумму за день, неделю и месяц. Честно: ключ лежит внутри приложения на чужом компьютере — заводите под группу отдельный ключ с небольшим балансом.</td>
+          <td>20 000 ₽</td>
+        </tr>
+        <tr>
+          <td><b>Предустановленные навыки</b><small>набор до 10 штук</small></td>
+          <td>Ваши методики зашиты в сборку: название и описание видно, текст навыка в окно приложения не передаётся и не редактируется. Свои навыки пользователь по-прежнему пишет и правит свободно.</td>
+          <td>15 000 ₽</td>
+        </tr>
+        <tr>
+          <td><b>Фирменный стиль под ваш бренд</b><small>вместо палитры Динамики</small></td>
+          <td>Название приложения, иконка, цвета интерфейса, графиков и экспортируемых документов. Читаемый вариант акцентного цвета считается автоматически — контраст текста проходит WCAG AA, а не «на глаз».</td>
+          <td>20 000 ₽</td>
+        </tr>
+        <tr>
+          <td><b>Сопровождение</b><small>после первого месяца</small></td>
+          <td>Обновления сборки, ответы на вопросы команды, мелкие правки набора разделов и навыков.</td>
+          <td>15 000 ₽ / мес</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================ КАСТОМНЫЕ ПЛАГИНЫ ============================ -->
+<section class="section section--ink" id="custom">
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> Кастомизация · цена договорная</div>
+    <h2>Небольшие плагины<br>под ваш процесс</h2>
+    <p class="lead">
+      Плагин — это отдельный раздел в меню со своим экраном, своими настройками и своим
+      агентом. Ядро при этом остаётся общим: те же проекты, те же навыки, тот же ключ.
+      Ниже — примеры того, что уже собрано на этом ядре. Каждый из них меньше, чем кажется:
+      это одна задача, доведённая до конца, а не «ещё одна CRM».
+    </p>
+
+    <div class="grid g3">
+      <article class="card" style="background:var(--paper);color:var(--ink)">
+        <div class="ico" aria-hidden="true">🏗</div>
+        <h3>Стройка</h3>
+        <p>Посёлок открывается картой. Нажали на дом — видите по нему то, что положено
+           видеть вашей роли: директору, снабжению, прорабу, заказчику по ссылке. Сметы,
+           график работ, исполнительная документация. Проект остаётся у архитектора,
+           прайс — у снабжения: программа знает только пути.</p>
+        <p class="small" style="margin-top:14px"><strong>Кому:</strong> застройщик, подрядчик, посёлок из 20+ домов</p>
+      </article>
+
+      <article class="card" style="background:var(--paper);color:var(--ink)">
+        <div class="ico" aria-hidden="true">❄️</div>
+        <h3>Холодные лиды</h3>
+        <p>Сбор компаний по нише и городу, проверка соцсетей и сайта, квалификация по
+           вашим критериям, персональное первое сообщение и карточка в PDF. Что прошло
+           фильтр — уезжает в Битрикс24 сделкой, что не прошло — остаётся с причиной
+           отказа, а не молча пропадает.</p>
+        <p class="small" style="margin-top:14px"><strong>Кому:</strong> отдел продаж, агентство, B2B-услуги</p>
+      </article>
+
+      <article class="card" style="background:var(--paper);color:var(--ink)">
+        <div class="ico" aria-hidden="true">🧾</div>
+        <h3>ОРД и акты</h3>
+        <p>Маркировка рекламы: креативы, ERID, ведомость по площадкам и сроки подачи.
+           Из статистики размещений собирается акт выполненных работ по вашему шаблону и
+           доп. соглашению — с нумерацией, которая продолжает вашу, а не начинается
+           с единицы каждый месяц.</p>
+        <p class="small" style="margin-top:14px"><strong>Кому:</strong> агентство, блогер с договорами, рекламодатель</p>
+      </article>
+
+      <article class="card" style="background:var(--paper);color:var(--ink)">
+        <div class="ico" aria-hidden="true">💬</div>
+        <h3>Отчёт заказчику</h3>
+        <p>Раз в месяц собирает из Директа, соцсетей и вашей таблицы один документ:
+           что сделано, сколько заявок, какая цена лида, что с этим делать дальше.
+           Тон и структура — ваши, из навыка. Отправляется как PDF или уходит в папку
+           проекта заказчика.</p>
+        <p class="small" style="margin-top:14px"><strong>Кому:</strong> агентство на абонентке, маркетолог на нескольких проектах</p>
+      </article>
+
+      <article class="card" style="background:var(--paper);color:var(--ink)">
+        <div class="ico" aria-hidden="true">🏷</div>
+        <h3>Прайс и КП</h3>
+        <p>Прайс живёт в вашем Excel и остаётся источником правды. Выбрали позиции —
+           получили коммерческое предложение в фирменном .docx с актуальными ценами,
+           скидкой по правилу и сроком действия. Поменяли прайс — следующее КП уже
+           с новыми цифрами.</p>
+        <p class="small" style="margin-top:14px"><strong>Кому:</strong> производство, опт, монтажные работы</p>
+      </article>
+
+      <article class="card" style="background:var(--paper);color:var(--ink)">
+        <div class="ico" aria-hidden="true">🎤</div>
+        <h3>Заметки с объекта</h3>
+        <p>Прораб надиктовал голосом — приложение расшифровало на месте, разложило по
+           дому и дате, вытащило, что докупить и что переделать, и добавило строку в
+           график. Без интернета на объекте: распознавание работает на компьютере,
+           синхронизация — когда связь появится.</p>
+        <p class="small" style="margin-top:14px"><strong>Кому:</strong> стройка, сервис, выездные бригады</p>
+      </article>
+    </div>
+
+    <div class="cta-row">
+      <a class="btn" href="#contact">Рассказать про свой процесс</a>
+      <a class="btn paper" href="#how">Как это происходит</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ КАК ПРОХОДИТ ВНЕДРЕНИЕ ============================ -->
+<section class="section section--neutral" id="how">
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> Порядок работы</div>
+    <h2>Как проходит<br>внедрение</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="n">01</div>
+        <div>
+          <h3>Разговор и подбор набора</h3>
+          <p>Час по видео: что за команда, какие задачи руками занимают больше всего
+             времени, какие файлы и шаблоны уже есть. На выходе — список разделов и
+             честный ответ, что коробка закроет, а что придётся допиливать.</p>
+        </div>
+        <div class="when">бесплатно, 1 день</div>
+      </div>
+      <div class="step">
+        <div class="n">02</div>
+        <div>
+          <h3>Сборка под вас</h3>
+          <p>Набор разделов, название приложения, фирменные цвета, предустановленные
+             навыки. Собирается установщик под Windows. Никакого форка кода: конфигурация
+             сборки — это файл, а не отдельная ветка, поэтому обновления приходят всем.</p>
+        </div>
+        <div class="when">5–7 рабочих дней</div>
+      </div>
+      <div class="step">
+        <div class="n">03</div>
+        <div>
+          <h3>Установка и ключи</h3>
+          <p>Ставим на компьютеры, подключаем ключ к моделям, прокси, если интернет идёт
+             через него, доступы к Диску, Директу, GitHub и ботам. Показываем, где лежит
+             папка с данными, и договариваемся, куда её бэкапить.</p>
+        </div>
+        <div class="when">1–2 дня</div>
+      </div>
+      <div class="step">
+        <div class="n">04</div>
+        <div>
+          <h3>Обучение</h3>
+          <p>Две встречи: первая — как устроены проекты и навыки, вторая — через неделю,
+             по реальным вопросам, которые за эту неделю накопились. Вторая полезнее
+             первой: до неё вопросов просто нет.</p>
+        </div>
+        <div class="when">2 встречи по 1,5 ч</div>
+      </div>
+      <div class="step">
+        <div class="n">05</div>
+        <div>
+          <h3>Месяц сопровождения</h3>
+          <p>Правим навыки и шаблоны под то, как вы реально работаете, добираем разделы,
+             чиним то, что вылезло. Дальше — по желанию, отдельной опцией.</p>
+        </div>
+        <div class="when">включено</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ЧЕСТНО ============================ -->
+<section class="section" id="faq">
+  <div class="wrap stage">
+    <div class="eyebrow"><span class="dot"></span> Без сюрпризов после оплаты</div>
+    <h2>Честно про<br>границы</h2>
+    <p class="lead">Эти вещи лучше узнать до внедрения, а не на второй неделе работы.</p>
+
+    <div class="faq">
+      <details open>
+        <summary>Сколько стоит работа моделей и почему это не входит в цену</summary>
+        <div class="ans">
+          <p>Приложение работает на <strong>вашем ключе</strong> к OpenAI-совместимому
+             сервису — по умолчанию Polza.ai. Вы платите сервису напрямую по факту
+             расхода, мы в этой цепочке не посредники и наценку не берём.</p>
+          <p>Порядок величин зависит от модели и объёма: чат с документами проекта тратит
+             заметно больше, чем короткий вопрос, потому что база знаний проекта уходит
+             модели заново с каждым сообщением. В сборке с предустановленным ключом есть
+             раздел «Расход моделей» — видно, сколько и на что ушло.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Где лежат данные и кто отвечает за бэкап</summary>
+        <div class="ans">
+          <p>Папка в «Документах» на вашем компьютере — или на сетевом диске, если команда
+             работает вместе. Внутри обычные файлы: проекты, документы, чаты, навыки. Мы
+             к ним доступа не имеем.</p>
+          <p>Обратная сторона: <strong>бэкап — ваша ответственность</strong>. Настроим
+             копирование папки при установке, но следить за тем, что оно работает,
+             придётся вам или вашему айтишнику.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Про защиту копий — без иллюзий</summary>
+        <div class="ans">
+          <p>Демо-лицензия привязывает копию к компьютеру и сроку, ключ в управляемой
+             сборке скрыт из настроек, предустановленные навыки не передаются в окно
+             приложения. Это защита от копирования между коллегами и от случайного
+             скриншота.</p>
+          <p>Это <strong>не защита от человека, который распакует установщик</strong>.
+             Настоящая защита ключа — отдельный ключ с небольшим балансом и возможность
+             его отозвать.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Яндекс Директ требует одобренной заявки на API</summary>
+        <div class="ans">
+          <p>Пока заявка на доступ к API не одобрена, Директ возвращает отказ любому
+             приложению, даже с верным токеном. Это требование Яндекса, обойти его нечем.
+             Заявка подаётся один раз на приложение, а не на каждый аккаунт — дальше
+             работают все ваши аккаунты. Поможем её подать, но сроки одобрения не наши.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Windows покажет предупреждение при первом запуске</summary>
+        <div class="ans">
+          <p>Установщик не подписан цифровой подписью, поэтому SmartScreen один раз скажет
+             «Windows защитила ваш компьютер»: «Подробнее» → «Выполнить в любом случае».
+             Подпись — это отдельный ежегодный сертификат; если она принципиальна для
+             вашей службы безопасности, посчитаем её отдельной опцией.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Что будет, если понадобится раздел, которого не взяли</summary>
+        <div class="ans">
+          <p>Пересборка, а не переписывание. Набор разделов — это файл конфигурации рядом
+             с приложением, поэтому добрать раздел можно в любой момент: 10 000 ₽ и новый
+             установщик. Данные и настройки при этом остаются на месте.</p>
+        </div>
+      </details>
+      <details>
+        <summary>А если нужного раздела нет вообще</summary>
+        <div class="ans">
+          <p>Тогда это кастомный плагин — примеры выше. Схема одна: описываем процесс,
+             оцениваем в часах, фиксируем в ТЗ, делаем. <strong>Цена договорная</strong>,
+             потому что честно назвать её до разговора нельзя: разброс между «ещё один
+             отчёт» и «интеграция с вашей 1С» — десятикратный.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ ФИНАЛЬНЫЙ CTA ============================ -->
+<section class="section section--warm" id="contact">
+  <div class="bg" aria-hidden="true"><div class="blob b1"></div><div class="blob b3"></div></div>
+  <span class="spark" style="right:12%;top:18%;font-size:24px;color:var(--pink)" aria-hidden="true">✦</span>
+  <div class="diamond" style="left:8%;bottom:22%" aria-hidden="true"></div>
+  <div class="wrap stage" style="text-align:center">
+    <div class="eyebrow" style="justify-content:center"><span class="dot"></span> Следующий шаг</div>
+    <h2 style="max-width:22ch;margin-inline:auto">Час разговора&nbsp;—<br>и понятно, ваше это или нет</h2>
+    <p class="lead" style="margin-inline:auto;text-align:center">
+      Расскажите, что у вас за команда и какая работа руками съедает больше всего времени.
+      В ответ — набор разделов, срок и точная цена. Если коробка не закроет задачу,
+      скажем об этом на этом же созвоне.
+    </p>
+    <div class="cta-row" style="justify-content:center">
+      <a class="btn" href="mailto:hello@dynamicbrands.ru?subject=%D0%9B%D0%B8%D1%87%D0%BD%D1%8B%D0%B9%20%D1%87%D0%B0%D1%82%20%E2%80%94%20%D0%BA%D0%BE%D1%80%D0%BE%D0%B1%D0%BA%D0%B0">Написать на почту</a>
+      <a class="btn cyan" href="#configurator">Вернуться к конфигуратору</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <div class="logo">Динамика</div>
+        <p class="small" style="margin-top:14px;max-width:38ch">
+          Агентство полного цикла: маркетинг, SMM, брендинг, дизайн-системы и разработка.
+          Пермь. «Личный чат» — наш рабочий инструмент, который мы ставим клиентам коробкой.
+        </p>
+      </div>
+      <div>
+        <div class="eyebrow"><span class="dot"></span> Разделы</div>
+        <ul>
+          <li><a href="#core">Что в ядре</a></li>
+          <li><a href="#configurator">Конфигуратор и цены</a></li>
+          <li><a href="#options">Опции сверх коробки</a></li>
+          <li><a href="#custom">Кастомные плагины</a></li>
+          <li><a href="#how">Как проходит внедрение</a></li>
+          <li><a href="#faq">Честно про границы</a></li>
+        </ul>
+      </div>
+      <div>
+        <div class="eyebrow"><span class="dot"></span> Связь</div>
+        <ul>
+          <li><a href="mailto:hello@dynamicbrands.ru">hello@dynamicbrands.ru</a></li>
+        </ul>
+        <p class="small" style="margin-top:16px">
+          Работа моделей оплачивается отдельно и напрямую сервису.
+        </p>
+      </div>
+    </div>
+    <hr class="rule">
+    <p class="small">© Агентство Динамика · Dynamic Brands. Цены действуют на момент публикации страницы.</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var BASE = 150000, INCLUDED = 5, STEP = 10000, CAP = 190000;
+
+  var boxes  = Array.prototype.slice.call(document.querySelectorAll('#plugins input[type=checkbox]'));
+  var elTotal = document.getElementById('total');
+  var elCount = document.getElementById('count');
+  var elExtra = document.getElementById('extra');
+  var elNote  = document.getElementById('note');
+
+  function money(n){ return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+
+  function render(){
+    var picked = boxes.filter(function(b){ return b.checked; }).length;
+    var extra  = Math.max(0, picked - INCLUDED);
+    var total  = Math.min(CAP, BASE + extra * STEP);
+
+    elCount.textContent = picked;
+    elExtra.textContent = extra;
+    elTotal.textContent = money(total);
+
+    if (picked === boxes.length) {
+      elNote.textContent = 'Полная сборка: все пятнадцать разделов за 190 000 ₽.';
+    } else if (total === CAP) {
+      elNote.textContent = 'Потолок достигнут — за те же деньги можно взять все пятнадцать.';
+    } else if (picked < INCLUDED) {
+      elNote.textContent = 'В базу входит пять плагинов — осталось выбрать ещё ' +
+        (INCLUDED - picked) + ', цена та же.';
+    } else if (picked === INCLUDED) {
+      elNote.textContent = 'Ровно базовая комплектация.';
+    } else {
+      elNote.textContent = 'Ещё ' + Math.ceil((CAP - total) / STEP) +
+        ' — и это потолок 190 000 ₽, дальше цена не растёт.';
+    }
+  }
+
+  boxes.forEach(function(b){ b.addEventListener('change', render); });
+  document.getElementById('all').addEventListener('click', function(){
+    boxes.forEach(function(b){ b.checked = true; }); render();
+  });
+  document.getElementById('none').addEventListener('click', function(){
+    boxes.forEach(function(b){ b.checked = false; }); render();
+  });
+  render();
+})();
+</script>
+</body>
+</html>
