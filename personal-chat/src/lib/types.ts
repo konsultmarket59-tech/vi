@@ -769,11 +769,74 @@ export interface DirectAccountRow {
   error: string;
   howToFix: string;
   balanceError: string;
+  /** Отчёт пришёл без части столбцов — и почему именно. */
+  statsLimited?: boolean;
+  statsWhy?: string;
+}
+
+/** Один столбец сводной таблицы — и то, что агент про него знает. */
+export interface DirectColumn {
+  id: string;
+  title: string;
+  kind: "текст" | "дата" | "число" | "деньги" | "процент";
+  group: string;
+  explain: string;
+}
+
+/** Одна кампания в сводной таблице: поля кампании плюс посчитанные показатели. */
+export interface DirectTableRow {
+  accountId: string;
+  account: string;
+  campaignId: number | string;
+  name: string;
+  state: string;
+  /** Почему показы не идут — то, что в Директе написано мелким текстом. */
+  stateNote: string;
+  strategy: string;
+  placement: string;
+  startDate: string;
+  cost: number;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  conversions: number | null;
+  conversionRate: number | null;
+  cpa: number | null;
+  revenue: number | null;
+  drr: number | null;
+  roi: number | null;
+  bounceRate: number | null;
+  pageviews: number | null;
+  [goal: string]: string | number | null;
+}
+
+export interface DirectTableTotals {
+  campaigns: number;
+  cost: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  conversionRate: number | null;
+  cpa: number | null;
+  drr: number | null;
+  roi: number | null;
 }
 
 export interface DirectOverview {
   range: { dateFrom: string; dateTo: string };
   accounts: DirectAccountRow[];
+  /** Все кампании всех подключённых аккаунтов одной таблицей. */
+  rows: DirectTableRow[];
+  columns: DirectColumn[];
+  defaultColumns: string[];
+  states: { id: string; title: string }[];
+  totals: DirectTableTotals;
 }
 
 export interface DirectAudit {
@@ -786,6 +849,63 @@ export interface DirectAudit {
   issues: DirectIssue[];
   totals: DirectTotals;
   text: string;
+}
+
+/** Кандидат в минус-слова: расход сложен по слову, а не по одному запросу. */
+export interface DirectMinusWord {
+  word: string;
+  cost: number;
+  clicks: number;
+  impressions: number;
+  conversions: number;
+  queries: string[];
+  /** Слово из известного мусорного списка — «бесплатно», «своими руками». */
+  known: boolean;
+  why: string;
+  fix: string;
+}
+
+export interface DirectWastefulQuery {
+  query: string;
+  campaign: string;
+  criterion: string;
+  cost: number;
+  clicks: number;
+  conversions: number;
+}
+
+export interface DirectBadPlacement {
+  placement: string;
+  campaign: string;
+  network: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+  ctr: number | null;
+  /** Мобильное приложение, а не сайт: клик там чаще всего случайный. */
+  app: boolean;
+  why: string;
+  fix: string;
+}
+
+export interface DirectWordsReport {
+  account: { id: string; label: string };
+  range: { dateFrom: string; dateTo: string };
+  minus: DirectMinusWord[];
+  queries: DirectWastefulQuery[];
+  placements: DirectBadPlacement[];
+  waste: { words: number; placements: number };
+  text: string;
+  /** Отчёт мог не прийти — тогда здесь причина, а не пустой список. */
+  queriesError: string;
+  placementsError: string;
+}
+
+export interface DirectWordstatItem {
+  phrase: string;
+  with: { phrase: string; shows: number }[];
+  also: { phrase: string; shows: number }[];
 }
 
 export interface DirectSettings {
@@ -1947,10 +2067,22 @@ export interface ElectronAPI {
   testDirectConnection(): Promise<DirectTestResult>;
   directOverview(range?: { dateFrom?: string; dateTo?: string }): Promise<DirectOverview>;
   directAudit(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectAudit>;
+  directWords(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectWordsReport>;
+  directWordstat(opts: { accountId?: string; phrases: string[]; geoIds?: number[] }): Promise<DirectWordstatItem[]>;
+  explainDirectCell(payload: {
+    columnId: string;
+    value: string | number | null;
+    row: DirectTableRow;
+    totals: DirectTableTotals | null;
+    range: { dateFrom: string; dateTo: string };
+  }): Promise<{ column: string; value: string | number | null; text: string }>;
   listDirectCampaigns(): Promise<DirectCampaign[]>;
   listDirectKeywords(campaignIds: number[]): Promise<DirectKeyword[]>;
   listDirectAds(campaignIds: number[]): Promise<DirectAd[]>;
-  getDirectStats(range: { dateFrom: string; dateTo: string }): Promise<DirectStatRow[]>;
+  getDirectStats(range: {
+    dateFrom: string;
+    dateTo: string;
+  }): Promise<{ rows: DirectStatRow[]; limited: boolean; why: string }>;
   setDirectCampaignState(id: number, resume: boolean): Promise<{ id: number; state: string }>;
   setDirectKeywordBid(id: number, bid: number): Promise<{ id: number; bid: number }>;
   buildDirectAgentPrompt(data: {

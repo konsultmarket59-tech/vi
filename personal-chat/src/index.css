@@ -2504,3 +2504,137 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
 .direct-issue.level-высокий { border-left-color: var(--danger, #c0392b); }
 .direct-issue.level-средний { border-left-color: #d9822b; }
 .direct-issue.level-низкий { border-left-color: var(--border); }
+
+/* ---------- Директ: одна таблица кампаний по всем аккаунтам ---------- */
+
+.direct-table-block {
+  margin-bottom: 18px;
+}
+
+.direct-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.chip-count {
+  margin-left: 6px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.direct-columns-picker {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.direct-columns-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 8px;
+}
+
+.direct-columns-group b {
+  width: 100%;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Таблица широкая по замыслу: столбцов много, и прокрутка тут честнее, чем
+   спрятанные показатели. Шапка липкая — иначе на сорока кампаниях непонятно,
+   на какой столбец смотришь. */
+.direct-table-wrap {
+  overflow: auto;
+  max-height: 60vh;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.direct-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.direct-table th,
+.direct-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.direct-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-soft, #f6f7f9);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+}
+
+.direct-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.direct-table td.num:hover {
+  background: var(--bg-soft, #f6f7f9);
+  color: var(--accent-text);
+}
+
+.direct-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-soft, #f6f7f9);
+  font-weight: 600;
+  border-top: 1px solid var(--border-strong);
+}
+
+.direct-cell-answer {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.pre-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 13px;
+  margin: 0;
+}

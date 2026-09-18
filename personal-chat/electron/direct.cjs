@@ -8,6 +8,8 @@
 // Reports are the exception — a separate endpoint returning TSV, sometimes with a
 // "come back later" status instead of data.
 
+const directknow = require("./directknow.cjs");
+
 const DIRECT_API = "https://api.direct.yandex.com/json/v5";
 const DIRECT_REPORTS = "https://api.direct.yandex.com/v5/reports";
 
@@ -216,7 +218,72 @@ async function listKeywords(token, campaignIds, clientLogin) {
  * instead of queueing them, which is what these are; the retry is the safety net for
  * when it queues anyway.
  */
-async function getStats(token, { dateFrom, dateTo, clientLogin }, attempt = 0) {
+/**
+ * Разобрать отказ сервиса отчётов.
+ *
+ * Отчёты отвечают не JSON-ом, а XML-ом, и самое нужное лежит в `errorDetail`:
+ * `errorMessage` — это категория вроде «Некорректный запрос», по которой чинить
+ * нечего. Раньше текст просто обрезался на трёхстах знаках — ровно на том
+ * месте, где написана причина, и человек видел простыню без единого полезного
+ * слова.
+ */
+function parseReportError(xml) {
+  const text = String(xml || "");
+  const pick = (tag) => {
+    const m = new RegExp(`<(?:\\w+:)?${tag}>([\\s\\S]*?)</(?:\\w+:)?${tag}>`).exec(text);
+    return m ? m[1].trim() : "";
+  };
+  return {
+    code: Number(pick("errorCode")) || 0,
+    message: pick("errorMessage"),
+    detail: pick("errorDetail"),
+    requestId: pick("requestId"),
+  };
+}
+
+/**
+ * Поля отчёта, которые заведомо принимает любой аккаунт.
+ *
+ * Отступ на этот набор нужен, когда Директ отказывается от расширенного:
+ * часть полей доступна не всем и не всегда, а увидеть расход и клики человек
+ * должен в любом случае. Лучше базовый отчёт с оговоркой, чем пустой экран.
+ */
+const BASE_REPORT_FIELDS = ["CampaignId", "CampaignName", "Impressions", "Clicks", "Ctr", "Cost", "AvgCpc"];
+
+/** Всё, что приложение умеет показывать в таблице кампаний. */
+const REPORT_FIELDS = [
+  ...BASE_REPORT_FIELDS,
+  "Conversions",
+  "ConversionRate",
+  "CostPerConversion",
+  // Позиции показа Яндекс из API убрал вместе со сменой аукциона, и запрос с
+  // таким полем отклоняется целиком. Поэтому его здесь нет.
+  "BounceRate",
+  "AvgPageviews",
+  "Revenue",
+  "Profit",
+];
+
+/**
+ * Какое из запрошенных полей не понравилось Директу.
+ *
+ * Директ в errorDetail пишет название поля прямым текстом — этого достаточно,
+ * чтобы убрать именно его, а не весь расширенный набор. Разница существенная:
+ * без этого из-за одного недоступного показателя пропадали бы и конверсии,
+ * и доход, и отказы — всё, ради чего в таблицу и смотрят.
+ */
+function blamedField(detail, fields) {
+  const текст = String(detail || "");
+  return fields.find((поле) => new RegExp(`\\b${поле}\\b`).test(текст)) || "";
+}
+
+async function getStats(
+  token,
+  { dateFrom, dateTo, clientLogin, fields, goals, attributionModels, reportType = "CAMPAIGN_PERFORMANCE_REPORT" },
+  attempt = 0,
+  запасной = false,
+  убрано = []
+) {
   const headers = {
     Authorization: `Bearer ${token}`,
     "Accept-Language": "ru",
@@ -228,35 +295,104 @@ async function getStats(token, { dateFrom, dateTo, clientLogin }, attempt = 0) {
   };
   if (clientLogin) headers["Client-Login"] = clientLogin;
 
-  const res = await fetch(DIRECT_REPORTS, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      params: {
-        SelectionCriteria: { DateFrom: dateFrom, DateTo: dateTo },
-        FieldNames: ["CampaignId", "CampaignName", "Impressions", "Clicks", "Ctr", "Cost", "AvgCpc", "Conversions"],
-        ReportName: `Отчёт ${dateFrom}—${dateTo} ${Date.now()}`,
-        ReportType: "CAMPAIGN_PERFORMANCE_REPORT",
-        DateRangeType: "CUSTOM_DATE",
-        Format: "TSV",
-        IncludeVAT: "YES",
-      },
-    }),
-  });
+  const запрошено = Array.isArray(fields) && fields.length ? fields : REPORT_FIELDS;
+  const набор = запасной ? BASE_REPORT_FIELDS : запрошено;
+
+  const criteria = { DateFrom: dateFrom, DateTo: dateTo };
+  // Цели запрашиваются только когда они названы: с пустым списком Директ
+  // отказывает, а не возвращает «по всем целям».
+  if (!запасной && Array.isArray(goals) && goals.length) criteria.Goals = goals.map(String);
+
+  const params = {
+    SelectionCriteria: criteria,
+    FieldNames: набор,
+    // Имя отчёта — латиницей. Оно уезжает в заголовок ответа, а заголовки
+    // принимают только латиницу: кириллица здесь ломала весь запрос молча.
+    ReportName: `report-${dateFrom}-${dateTo}-${Date.now()}`,
+    ReportType: reportType,
+    DateRangeType: "CUSTOM_DATE",
+    Format: "TSV",
+    IncludeVAT: "YES",
+  };
+  if (!запасной && criteria.Goals) {
+    // С названными целями Директ требует и модель атрибуции. Последний значимый
+    // переход — то, что в интерфейсе Директа стоит по умолчанию.
+    params.AttributionModels =
+      Array.isArray(attributionModels) && attributionModels.length ? attributionModels : ["LSC"];
+  }
+
+  const res = await fetch(DIRECT_REPORTS, { method: "POST", headers, body: JSON.stringify({ params }) });
 
   if (res.status === 201 || res.status === 202) {
     if (attempt >= 5) throw new Error("Отчёт слишком долго готовится. Попробуйте ещё раз через минуту.");
     const wait = Number(res.headers.get("retryIn") || 5) * 1000;
     await new Promise((r) => setTimeout(r, Math.min(wait, 15000)));
-    return getStats(token, { dateFrom, dateTo, clientLogin }, attempt + 1);
+    return getStats(
+      token,
+      { dateFrom, dateTo, clientLogin, fields, goals, attributionModels, reportType },
+      attempt + 1,
+      запасной,
+      убрано
+    );
   }
+
   const text = await res.text();
-  if (!res.ok) throw new Error(`Директ (отчёты): ${text.slice(0, 300)}`);
+  if (!res.ok) {
+    const отказ = parseReportError(text);
+    // Часть полей доступна не всякому аккаунту, и заранее узнать, каких именно,
+    // неоткуда. Поэтому один раз пробуем базовый набор: увидеть расход и клики
+    // человек должен в любом случае.
+    if (!запасной && отказ.code === 8000) {
+      // Сначала пробуем убрать ровно то поле, на которое Директ пожаловался,
+      // и оставить всё остальное.
+      const лишнее = blamedField(отказ.detail, набор.filter((поле) => !BASE_REPORT_FIELDS.includes(поле)));
+      if (лишнее && убрано.length < набор.length) {
+        const сузили = await getStats(
+          token,
+          {
+            dateFrom,
+            dateTo,
+            clientLogin,
+            fields: набор.filter((поле) => поле !== лишнее),
+            goals,
+            attributionModels,
+            reportType,
+          },
+          0,
+          false,
+          [...убрано, лишнее]
+        ).catch(() => null);
+        if (сузили) return сузили;
+      }
+      // Не помогло — показываем хотя бы основное: расход и клики человек
+      // должен увидеть в любом случае.
+      const базовый = await getStats(token, { dateFrom, dateTo, clientLogin, reportType }, 0, true, убрано).catch(
+        () => null
+      );
+      if (базовый) {
+        базовый.limited = true;
+        базовый.why =
+          "Директ не принял расширенный набор полей" +
+          (отказ.detail ? `: ${отказ.detail}` : "") +
+          ". Показаны основные показатели — расход, показы, клики, CTR, цена клика.";
+        return базовый;
+      }
+    }
+    const problem = new Error(
+      "Директ (отчёты): " +
+        (отказ.detail || отказ.message || text.slice(0, 200)) +
+        (отказ.code ? ` (код ${отказ.code})` : "") +
+        (отказ.requestId ? `\nНомер запроса: ${отказ.requestId}` : "")
+    );
+    problem.code = отказ.code;
+    problem.detail = отказ.detail;
+    throw problem;
+  }
 
   const lines = text.trim().split("\n").filter(Boolean);
   if (lines.length === 0) return [];
   const header = lines[0].split("\t");
-  return lines.slice(1).map((line) => {
+  const rows = lines.slice(1).map((line) => {
     const cells = line.split("\t");
     const row = {};
     header.forEach((name, i) => {
@@ -266,8 +402,15 @@ async function getStats(token, { dateFrom, dateTo, clientLogin }, attempt = 0) {
     });
     return row;
   });
+  if (убрано.length) {
+    rows.limited = true;
+    rows.why =
+      "Директ не отдал по этому аккаунту: " +
+      убрано.join(", ") +
+      ". Остальные показатели в таблице настоящие — эти столбцы просто останутся пустыми.";
+  }
+  return rows;
 }
-
 
 /**
  * Баланс аккаунта.
@@ -281,7 +424,21 @@ async function getStats(token, { dateFrom, dateTo, clientLogin }, attempt = 0) {
  */
 const DIRECT_LIVE_V4 = "https://api.direct.yandex.ru/live/v4/json/";
 
+/**
+ * Логин ли это.
+ *
+ * Аккаунт в приложении человек называет по-своему — «Болдино», «Виктория
+ * Пылаева». Если такое имя уйдёт в Logins, Директ ответит, что логина не
+ * существует, и баланс просто не покажется. Логин в Яндексе всегда латиницей,
+ * поэтому кириллическое имя — это подпись, а не логин, и запрашивать баланс
+ * надо без отбора: по самому токену.
+ */
+function looksLikeLogin(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9._@-]*$/.test(String(value || "").trim());
+}
+
 async function getBalance(token, login) {
+  const отбор = looksLikeLogin(login) ? { Logins: [String(login).trim()] } : {};
   const res = await fetch(DIRECT_LIVE_V4, {
     method: "POST",
     headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -289,7 +446,7 @@ async function getBalance(token, login) {
       method: "AccountManagement",
       token,
       locale: "ru",
-      param: { Action: "Get", SelectionCriteria: login ? { Logins: [login] } : {} },
+      param: { Action: "Get", SelectionCriteria: отбор },
     }),
   });
   const body = await res.json().catch(() => ({}));
@@ -302,13 +459,110 @@ async function getBalance(token, login) {
   const account = (body.data?.Accounts || [])[0];
   if (!account) return null;
   return {
-    login: account.Login || login || "",
+    login: account.Login || (looksLikeLogin(login) ? String(login).trim() : ""),
     amount: Number(account.Amount || 0),
     currency: account.Currency || "RUB",
     // Долг и предупреждение о нём — то, ради чего на баланс и смотрят.
     debt: Number(account.Debt || 0),
     discount: Number(account.Discount || 0),
   };
+}
+
+/**
+ * Поисковые запросы — то, по чему на самом деле показывались.
+ *
+ * Разница между ключевыми фразами и поисковыми запросами — это и есть место,
+ * где утекают деньги: фраза «дом из бруса» ловит и «дом из бруса своими
+ * руками», и «дом из бруса отзывы». Пока не видно самих запросов, минус-слова
+ * добавляют наугад.
+ */
+async function getSearchQueries(token, { dateFrom, dateTo, clientLogin }) {
+  return getStats(token, {
+    dateFrom,
+    dateTo,
+    clientLogin,
+    reportType: "SEARCH_QUERY_PERFORMANCE_REPORT",
+    fields: ["Query", "CampaignId", "CampaignName", "Criterion", "MatchType", "Impressions", "Clicks", "Cost", "Conversions"],
+  });
+}
+
+/**
+ * Площадки рекламной сети.
+ *
+ * В РСЯ расход расходится по сотням площадок, и часть из них — приложения со
+ * случайными нажатиями. Увидеть их можно только этим отчётом.
+ */
+async function getPlacements(token, { dateFrom, dateTo, clientLogin }) {
+  return getStats(token, {
+    dateFrom,
+    dateTo,
+    clientLogin,
+    reportType: "CUSTOM_REPORT",
+    fields: ["Placement", "AdNetworkType", "CampaignId", "CampaignName", "Impressions", "Clicks", "Cost", "Conversions"],
+  });
+}
+
+/**
+ * Вордстат.
+ *
+ * Живёт только в старом Live v4 — в API v5 его нет. Работает отложенно:
+ * отчёт сначала заказывают, потом ждут, потом забирают и удаляют за собой.
+ * Очередь отчётов у аккаунта небольшая, поэтому за собой надо именно убирать,
+ * иначе следующий заказ упрётся в лимит.
+ */
+async function liveV4(token, method, param) {
+  const res = await fetch(DIRECT_LIVE_V4, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ method, token, locale: "ru", param }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body.error_code || body.error_str) {
+    const problem = new Error(`${method}: ${body.error_detail || body.error_str} (код ${body.error_code})`);
+    problem.code = Number(body.error_code);
+    problem.howToFix = howToFix(Number(body.error_code));
+    throw problem;
+  }
+  return body.data;
+}
+
+async function wordstat(token, phrases, { geoIds = [], timeoutMs = 90000 } = {}) {
+  const слова = (Array.isArray(phrases) ? phrases : [phrases])
+    .map((p) => String(p || "").trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  if (!слова.length) throw new Error("Не задано ни одной фразы для Вордстата.");
+
+  const reportId = await liveV4(token, "CreateNewWordstatReport", {
+    Phrases: слова,
+    GeoID: (geoIds || []).map(Number).filter(Boolean),
+  });
+
+  const начало = Date.now();
+  // Отчёт готовится не мгновенно. Опрашиваем редко: частые опросы Директ
+  // считает за превышение и отвечает отказом, а не ускоряет подготовку.
+  for (;;) {
+    const список = (await liveV4(token, "GetWordstatReportList", {})) || [];
+    const наш = список.find((r) => Number(r.ReportID) === Number(reportId));
+    if (наш && String(наш.StatusReport).toLowerCase() === "done") break;
+    if (Date.now() - начало > timeoutMs) {
+      await liveV4(token, "DeleteWordstatReport", Number(reportId)).catch(() => {});
+      throw new Error("Вордстат готовит отчёт дольше обычного. Попробуйте ещё раз через минуту.");
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+
+  const данные = (await liveV4(token, "GetWordstatReport", Number(reportId))) || [];
+  await liveV4(token, "DeleteWordstatReport", Number(reportId)).catch(() => {
+    // Не удалить отчёт — не беда: он сам вытеснится следующими.
+  });
+
+  return данные.map((item) => ({
+    phrase: item.Phrase || "",
+    /** Что ещё искали вместе с этой фразой — отсюда берут и ключи, и минус-слова. */
+    with: (item.SearchedWith || []).map((w) => ({ phrase: w.Phrase, shows: Number(w.Shows) || 0 })),
+    also: (item.SearchedAlso || []).map((w) => ({ phrase: w.Phrase, shows: Number(w.Shows) || 0 })),
+  }));
 }
 
 /** Turns a campaign on or off. The only mutation exposed, and it goes through confirmation. */
@@ -407,7 +661,12 @@ WHY: <одно предложение: зачем это делать>
 === ДАННЫЕ АККАУНТА ===`;
 
 function buildAgentPrompt(data) {
-  return `${AGENT_PROMPT_HEADER}\n${toAgentText(data)}`;
+  // Знания Директа идут перед данными, а не после: без них модель объясняет
+  // числа общими словами про «оптимизацию», не зная ни про обучение стратегий,
+  // ни про то, что конверсии приходят из Метрики.
+  return `${AGENT_PROMPT_HEADER.replace("=== ДАННЫЕ АККАУНТА ===", `${directknow.KNOWLEDGE}\n\n=== ДАННЫЕ АККАУНТА ===`)}\n${toAgentText(
+    data
+  )}`;
 }
 
 /** Parses the agent's proposed action. */
@@ -427,6 +686,11 @@ function parseAgentAction(text) {
 
 module.exports = {
   howToFix,
+  looksLikeLogin,
+  blamedField,
+  parseReportError,
+  REPORT_FIELDS,
+  BASE_REPORT_FIELDS,
   getBalance,
   testConnection,
   listCampaigns,
@@ -434,6 +698,9 @@ module.exports = {
   listAds,
   listKeywords,
   getStats,
+  getSearchQueries,
+  getPlacements,
+  wordstat,
   setCampaignState,
   setKeywordBid,
   buildAgentPrompt,
