@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage, webContents } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
@@ -1493,7 +1493,23 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // Раздел «Браузер» открывает настоящие сайты внутри окна тегом <webview>.
+      // Без этого флага тег просто не существует, а с ним — обязателен обработчик
+      // will-attach-webview ниже: он и делает чужую страницу безопасной.
+      webviewTag: true,
     },
+  });
+
+  // Чужой сайт внутри приложения не должен получить ничего из приложения.
+  // Настройки вкладки задаются разметкой в окне, поэтому проверять их нужно здесь,
+  // в главном процессе: preload снимается всегда, доступ к Node запрещается всегда,
+  // а изолированный контекст включается, даже если разметка попросит обратное.
+  win.webContents.on("will-attach-webview", (_event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.webSecurity = true;
+    params.allowpopups = false;
   });
 
   // Electron denies opening a new window/tab for target="_blank" links by default —
@@ -5556,4 +5572,509 @@ ipcMain.handle("cleanup:saveLedger", async (_e, sheets, defaultName) => {
   });
   if (result.canceled || !result.filePath) return null;
   return cleanup.writeLedgerWorkbook(sheets, result.filePath);
+});
+
+// ---------- Браузер: роли, разговоры, переговорки, телефон ----------
+//
+// Раздел, ради которого сделаны roles.cjs (кто говорит), agents.cjs (как идёт
+// разговор) и mobile.cjs (как то же самое открывается с телефона). Здесь всё
+// остальное: страница, которую человек смотрит, проект, в контексте которого он
+// работает, обращение к модели с поиском в интернете и сохранение результата в
+// Word, Excel, PDF и PNG.
+//
+// Почему ответы ролей считаются здесь, а не в окне, как обычный чат. Переговорка
+// из трёх специалистов в два круга — это семь обращений к модели подряд. Такой
+// разговор должен доживать до конца, даже если человек ушёл в другой раздел,
+// свернул окно или отвечает с телефона, где вкладку в любой момент выгружает
+// система. Поэтому ход считает главный процесс, а окно и телефон одинаково
+// подписаны на события и спрашивают, что уже готово.
+
+const roles = require("./roles.cjs");
+const agents = require("./agents.cjs");
+const mobile = require("./mobile.cjs");
+
+/** Сколько раз подряд роль может сходить в интернет внутри одной реплики. */
+const BROWSER_TOOL_ROUNDS = 4;
+/** В задании (человека рядом нет) поиск глубже: иначе «серфинг» кончается на первой странице. */
+const TASK_TOOL_ROUNDS = 10;
+/** Сколько картинок из переписки уходит модели. Каждая — примерно тысяча токенов. */
+const MAX_CHAT_IMAGES = 4;
+/** Готовые ходы живут в памяти, пока их не заберут: после этого их можно забыть. */
+const JOB_TTL_MS = 30 * 60 * 1000;
+
+const browserJobs = new Map();
+
+function browserDir(root) {
+  return path.join(root, "browser");
+}
+
+async function browserRoles() {
+  return roles.list(await getRootPath());
+}
+
+/** Роли этого разговора в порядке списка; пустой разговор ведёт ассистент. */
+async function chatRoles(chat, all) {
+  const list = all || (await browserRoles());
+  const picked = chat.roleIds.map((id) => list.find((r) => r.id === id)).filter(Boolean);
+  if (picked.length === 0) {
+    const fallback = list.find((r) => r.id === "assistant") || list[0];
+    if (fallback) picked.push(fallback);
+  }
+  return picked;
+}
+
+/**
+ * Системный промпт роли: сама роль, проект, состав переговорки и открытая
+ * страница. Проект подключается тем же способом, что и в обычном чате, — это и
+ * есть «агенты в контексте проекта»: инструкции и документы проекта роль видит
+ * так же, как их видит ассистент на вкладке проекта.
+ */
+async function buildRoleSystem({ role, chat, roomRoles, page, mode }) {
+  let projectPrompt = "";
+  if (chat.projectId) {
+    try {
+      projectPrompt = await buildSystemPrompt(chat.projectId);
+    } catch (e) {
+      // Проект могли удалить, пока разговор лежал в списке. Терять из-за этого
+      // весь разговор нельзя — работаем без контекста проекта.
+      console.error("Контекст проекта недоступен:", e.message);
+    }
+  }
+  return roles.buildSystemPrompt({
+    role,
+    projectPrompt,
+    page,
+    room: chat.kind === "room" ? { roles: roomRoles } : null,
+    mode,
+  });
+}
+
+/** Что роль сейчас делает в интернете — строкой, которую видно в окне и на телефоне. */
+function describeRoleTool(role, replyText) {
+  const call = websearch.parseToolCall(replyText);
+  if (!call) return `${role.emoji} ${role.name} думает…`;
+  return call.kind === "search"
+    ? `${role.emoji} ${role.name} ищет в интернете: «${call.query}»…`
+    : `${role.emoji} ${role.name} читает ${call.url}…`;
+}
+
+/**
+ * Одна реплика роли: запрос к модели и цикл поиска, пока роль не ответит словами.
+ *
+ * Модель берётся из роли, если она там задана, и из общих настроек, если нет.
+ * Это и есть «любые модели по API»: дешёвую работу (собрать ссылки) можно
+ * отдать дешёвой модели, а разбор фотографии — той, которая видит картинки.
+ */
+async function askRole({ role, system, userContent, images = [], settings, mode, onProgress }) {
+  const roleSettings = role.model ? { ...settings, model: role.model } : settings;
+  const webOn = settings.searchEnabled !== false && role.web !== false;
+  const content =
+    images.length > 0
+      ? [{ type: "text", text: userContent }, ...images.map((url) => ({ type: "image_url", image_url: { url } }))]
+      : userContent;
+  const messages = [
+    buildSystemMessage(system + (webOn ? "\n\n" + websearch.WEB_TOOLS_HINT : ""), roleSettings),
+    { role: "user", content },
+  ];
+
+  let reply = await callModelOnce(roleSettings, messages);
+  if (webOn) {
+    const limit = mode === "task" ? TASK_TOOL_ROUNDS : BROWSER_TOOL_ROUNDS;
+    for (let round = 0; round < limit; round++) {
+      const output = await websearch.runTools(reply, settings);
+      if (output == null) break;
+      onProgress?.(describeRoleTool(role, reply));
+      messages.push({ role: "assistant", content: reply });
+      messages.push({ role: "user", content: output });
+      reply = await callModelOnce(roleSettings, messages);
+    }
+  }
+  return String(reply || "").trim();
+}
+
+/** Последние картинки переписки — их роль должна видеть, а не читать имена файлов. */
+async function recentImages(messages) {
+  const paths = [];
+  for (let i = messages.length - 1; i >= 0 && paths.length < MAX_CHAT_IMAGES; i--) {
+    for (const att of messages[i].attachments || []) {
+      if (att.kind === "image" && att.path && !paths.includes(att.path)) paths.push(att.path);
+    }
+  }
+  const images = [];
+  for (const file of paths.reverse()) {
+    try {
+      images.push(await readFileAsDataUrl(file));
+    } catch {
+      // Файл переместили или удалили — роль просто не увидит эту картинку.
+    }
+  }
+  return images;
+}
+
+function pruneBrowserJobs() {
+  const now = Date.now();
+  for (const [id, job] of browserJobs) {
+    if (job.done && now - job.finishedAt > JOB_TTL_MS) browserJobs.delete(id);
+  }
+}
+
+function browserJobStatus(jobId) {
+  const job = browserJobs.get(jobId);
+  if (!job) return { done: true, error: "", speaking: "", messages: [] };
+  return { done: job.done, error: job.error, speaking: job.speaking, messages: job.messages };
+}
+
+/**
+ * Принимает сообщение человека и запускает ход: одну реплику роли или круги
+ * переговорки. Возвращается сразу — с номером хода, по которому и окно, и
+ * телефон следят за тем, что происходит.
+ */
+async function browserSend({ chatId, text = "", attachments = [], page = null, mode = "chat" }) {
+  pruneBrowserJobs();
+  const root = await getRootPath();
+  const chat = await agents.read(root, chatId);
+  const all = await browserRoles();
+  const picked = await chatRoles(chat, all);
+  const settings = await loadSettings();
+
+  chat.messages.push(agents.userMessage(text, attachments));
+  if (/^(Новый разговор|Новая переговорка)$/.test(chat.title) && text.trim()) {
+    chat.title = text.trim().slice(0, 60);
+  }
+  const saved = await agents.save(root, chat);
+
+  const jobId = crypto.randomUUID();
+  const job = {
+    id: jobId,
+    chatId,
+    done: false,
+    error: "",
+    speaking: `${picked[0]?.emoji || ""} ${picked[0]?.name || "Роль"} думает…`,
+    messages: [],
+    stop: false,
+    finishedAt: 0,
+  };
+  browserJobs.set(jobId, job);
+
+  const images = await recentImages(saved.messages);
+
+  const emit = (payload) => broadcast("browser:progress", { jobId, chatId, ...payload });
+
+  (async () => {
+    const work = { ...saved, messages: [...saved.messages] };
+    // Запись на диск идёт цепочкой: реплики приходят одна за другой, и два
+    // одновременных сохранения одного файла оставили бы в нём половину разговора.
+    let writes = Promise.resolve();
+    const systems = new Map();
+
+    const ask = async (role, userContent) => {
+      if (!systems.has(role.id)) {
+        systems.set(role.id, await buildRoleSystem({ role, chat: work, roomRoles: picked, page, mode }));
+      }
+      job.speaking = `${role.emoji} ${role.name} думает…`;
+      emit({ type: "speaking", roleId: role.id, text: job.speaking });
+      return askRole({
+        role,
+        system: systems.get(role.id),
+        userContent,
+        images,
+        settings,
+        mode,
+        onProgress: (line) => {
+          job.speaking = line;
+          emit({ type: "tool", roleId: role.id, text: line });
+        },
+      });
+    };
+
+    try {
+      await agents.runDiscussion({
+        chat: work,
+        roles: picked,
+        ask,
+        mode,
+        shouldStop: () => job.stop,
+        onEvent: (event) => {
+          if (event.type !== "message") return;
+          job.messages.push(event.message);
+          work.messages.push(event.message);
+          const snapshot = { ...work, messages: [...work.messages] };
+          writes = writes.then(() => agents.save(root, snapshot)).catch((e) => {
+            console.error("Не удалось сохранить реплику:", e.message);
+          });
+          emit({ type: "message", message: event.message });
+        },
+      });
+    } catch (e) {
+      job.error = e instanceof Error ? e.message : String(e);
+    }
+    await writes;
+    job.done = true;
+    job.speaking = "";
+    job.finishedAt = Date.now();
+    emit({ type: "done", error: job.error });
+  })();
+
+  return { jobId, chat: saved };
+}
+
+/**
+ * Страница для чтения: адрес — открываем, всё остальное — ищем.
+ *
+ * Это тот же путь, которым ходит ассистент, и он нужен там, где встроенного окна
+ * браузера нет: на телефоне и в задании, которое роль выполняет сама.
+ */
+async function browserReadPage(input) {
+  const settings = await loadSettings();
+  const raw = String(input || "").trim();
+  if (!raw) throw new Error("Не задан адрес страницы.");
+  const looksLikeUrl = /^https?:\/\//i.test(raw) || /^[\w-]+(\.[\w-]+)+([/?#]|$)/.test(raw);
+  if (!looksLikeUrl) {
+    const results = await websearch.search(raw, settings);
+    return { url: "", title: `Поиск: ${raw}`, text: websearch.formatSearchResults(raw, results) };
+  }
+  const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  return websearch.fetchPage(url);
+}
+
+/** Снимок встроенного окна браузера — чтобы роль видела страницу, а не только её текст. */
+async function capturePageById(webContentsId) {
+  const contents = webContents.fromId(Number(webContentsId));
+  if (!contents) throw new Error("Окно страницы уже закрыто.");
+  const image = await contents.capturePage();
+  const resized = image.getSize().width > 1100 ? image.resize({ width: 1100 }) : image;
+  return `data:image/png;base64,${resized.toPNG().toString("base64")}`;
+}
+
+/** Открытые вкладки и закладки: человек закрыл приложение — вернулся к тому же. */
+async function browserTabs() {
+  const root = await getRootPath();
+  return readJson(path.join(browserDir(root), "tabs.json"), { tabs: [], bookmarks: [] });
+}
+
+async function saveBrowserTabs(data) {
+  const root = await getRootPath();
+  const dir = browserDir(root);
+  await ensureDir(dir);
+  const payload = {
+    tabs: Array.isArray(data?.tabs) ? data.tabs.slice(0, 20) : [],
+    bookmarks: Array.isArray(data?.bookmarks) ? data.bookmarks.slice(0, 200) : [],
+  };
+  await fs.writeFile(path.join(dir, "tabs.json"), JSON.stringify(payload, null, 2), "utf-8");
+  return payload;
+}
+
+/**
+ * Фотография с телефона. Кладётся в папку проекта (если разговор ведётся в
+ * проекте) или в папку раздела — и дальше это обычный файл на компьютере,
+ * который роль видит как приложенную картинку.
+ */
+async function saveBrowserPhoto(name, dataUrl, projectId) {
+  const match = /^data:([^;]+);base64,(.+)$/s.exec(String(dataUrl || ""));
+  if (!match) throw new Error("Телефон прислал файл в непонятном виде.");
+  const root = await getRootPath();
+  const dir = projectId ? docsDir(root, projectId) : path.join(browserDir(root), "с-телефона");
+  await ensureDir(dir);
+  const ext = path.extname(name || "") || (match[1] === "image/png" ? ".png" : ".jpg");
+  const base = sanitizeFileName(path.basename(name || "фото", path.extname(name || "")) || "фото");
+  const file = path.join(dir, `${base}-${Date.now()}${ext}`);
+  const bytes = Buffer.from(match[2], "base64");
+  await fs.writeFile(file, bytes);
+  return { name: path.basename(file), path: file, kind: "image", size: bytes.length };
+}
+
+/** Markdown реплик в HTML — для PDF и PNG, которые печатаются из страницы. */
+let browserMarked = null;
+async function renderChatHtml(title, sections) {
+  if (!browserMarked) browserMarked = import("marked").then((m) => m.marked);
+  const marked = await browserMarked;
+  const escapeHtml = (s) =>
+    String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const body = sections
+    .map(
+      (s) =>
+        `<section><div class="who">${escapeHtml(s.role || "")}</div>${marked.parse(s.content || "")}</section>`
+    )
+    .join("\n");
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<style>
+  body { font: 15px/1.5 "Segoe UI", system-ui, sans-serif; color: #16181d; margin: 32px; }
+  h1 { font-size: 26px; }
+  section { margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #e6e8ef; }
+  .who { font-weight: 600; color: #4f7cff; margin-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  th, td { border: 1px solid #d8dbe4; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f2f4fa; }
+  code { background: #f2f4fa; padding: 1px 4px; border-radius: 4px; }
+  img { max-width: 100%; }
+</style></head><body><h1>${escapeHtml(title)}</h1>${body}</body></html>`;
+}
+
+/**
+ * Сохраняет разговор (или только итог встречи) файлом.
+ *
+ * `ask: true` — обычное «Сохранить как» из окна приложения. `ask: false` — путь
+ * для телефона: диалог сохранения открылся бы на компьютере, у которого в этот
+ * момент никого нет, поэтому файл молча ложится в папку проекта, а телефону
+ * возвращается путь.
+ */
+async function saveBrowserResult({ chatId, format = "docx", scope = "all", ask = false }) {
+  const root = await getRootPath();
+  const chat = await agents.read(root, chatId);
+  const sections = scope === "summary" ? agents.summarySections(chat) : agents.exportSections(chat);
+  if (sections.length === 0) throw new Error("В разговоре пока нечего сохранять.");
+  const title = chat.title;
+
+  if (ask) {
+    if (format === "docx" || format === "xlsx") {
+      return exportChatToFile({ title, sections, defaultName: title, projectId: chat.projectId }, format);
+    }
+    const html = await renderChatHtml(title, sections);
+    const payload = { html, defaultName: title, projectId: chat.projectId };
+    return format === "pdf" ? exportHtmlToPdf(payload) : exportHtmlToPng(payload);
+  }
+
+  const dir = await resolveExportDir(chat.projectId);
+  const file = path.join(dir, `${sanitizeFileName(title)}.${format}`);
+  if (format === "docx" || format === "xlsx") {
+    const buffer =
+      format === "docx"
+        ? await exportDocs.buildDocx({ title, sections })
+        : await exportDocs.buildXlsx({ title, sections });
+    await exportDocs.writeBuffer(file, buffer);
+    return file;
+  }
+  if (format === "pdf" || format === "png") {
+    const html = await renderChatHtml(title, sections);
+    if (format === "png") {
+      const image = await captureHtmlAsImage(html);
+      await fs.writeFile(file, image.toPNG());
+      return file;
+    }
+    const { win, tmpFile } = await renderHtmlInHiddenWindow(html);
+    try {
+      const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: "A4" });
+      await fs.writeFile(file, pdf);
+    } finally {
+      await cleanupHiddenWindow(win, tmpFile);
+    }
+    return file;
+  }
+  throw new Error(`Неизвестный формат «${format}». Доступны docx, xlsx, pdf и png.`);
+}
+
+// ---------- телефон ----------
+
+async function phoneConfig() {
+  const root = await getRootPath();
+  const saved = await readJson(path.join(browserDir(root), "phone.json"), null);
+  return {
+    enabled: Boolean(saved?.enabled),
+    port: Number(saved?.port) || mobile.DEFAULT_PORT,
+    code: saved?.code || mobile.newCode(),
+  };
+}
+
+async function savePhoneConfig(patch) {
+  const root = await getRootPath();
+  const dir = browserDir(root);
+  await ensureDir(dir);
+  const next = { ...(await phoneConfig()), ...patch };
+  await fs.writeFile(path.join(dir, "phone.json"), JSON.stringify(next, null, 2), "utf-8");
+  return next;
+}
+
+/**
+ * Что телефону разрешено просить у компьютера. Список закрытый: всё, чего здесь
+ * нет, недоступно, даже если кто-то в сети знает код доступа.
+ */
+const phoneMethods = {
+  state: async () => {
+    const root = await getRootPath();
+    const [roleList, chats, projects] = await Promise.all([browserRoles(), agents.list(root), listProjects()]);
+    return {
+      roles: roleList.map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, color: r.color, tagline: r.tagline })),
+      chats,
+      projects: projects.map((p) => ({ id: p.id, name: p.name })),
+    };
+  },
+  openChat: async (id) => agents.read(await getRootPath(), id),
+  createChat: async (data) => agents.save(await getRootPath(), agents.newChat(data || {})),
+  deleteChat: async (id) => agents.remove(await getRootPath(), id),
+  sendStart: async (chatId, text, attachments, page) =>
+    browserSend({ chatId, text, attachments: attachments || [], page: page || null, mode: "chat" }),
+  jobStatus: async (jobId) => browserJobStatus(jobId),
+  readPage: async (url) => browserReadPage(url),
+  savePhoto: async (name, dataUrl, projectId) => saveBrowserPhoto(name, dataUrl, projectId),
+  saveChat: async (chatId, format) => saveBrowserResult({ chatId, format, ask: false }),
+};
+
+async function startPhoneServer(config) {
+  const cfg = config || (await phoneConfig());
+  return mobile.start({ port: cfg.port, code: cfg.code, methods: phoneMethods });
+}
+
+// ---------- IPC раздела ----------
+
+ipcMain.handle("browser:listRoles", () => browserRoles());
+ipcMain.handle("browser:saveRole", async (_e, role) => roles.save(await getRootPath(), role));
+ipcMain.handle("browser:resetRole", async (_e, id) => roles.remove(await getRootPath(), id));
+
+ipcMain.handle("browser:listChats", async () => agents.list(await getRootPath()));
+ipcMain.handle("browser:openChat", async (_e, id) => agents.read(await getRootPath(), id));
+ipcMain.handle("browser:createChat", async (_e, data) => agents.save(await getRootPath(), agents.newChat(data || {})));
+ipcMain.handle("browser:updateChat", async (_e, chat) => agents.save(await getRootPath(), chat));
+ipcMain.handle("browser:deleteChat", async (_e, id) => agents.remove(await getRootPath(), id));
+
+ipcMain.handle("browser:send", (_e, payload) => browserSend(payload || {}));
+ipcMain.handle("browser:jobStatus", (_e, jobId) => browserJobStatus(jobId));
+ipcMain.handle("browser:stopJob", (_e, jobId) => {
+  const job = browserJobs.get(jobId);
+  if (job) job.stop = true;
+  return Boolean(job);
+});
+
+ipcMain.handle("browser:readPage", (_e, url) => browserReadPage(url));
+ipcMain.handle("browser:capturePage", (_e, id) => capturePageById(id));
+ipcMain.handle("browser:getTabs", () => browserTabs());
+ipcMain.handle("browser:saveTabs", (_e, data) => saveBrowserTabs(data));
+ipcMain.handle("browser:savePhoto", (_e, name, dataUrl, projectId) => saveBrowserPhoto(name, dataUrl, projectId));
+ipcMain.handle("browser:saveResult", (_e, payload) => saveBrowserResult({ ...(payload || {}), ask: true }));
+
+ipcMain.handle("browser:phoneStatus", async () => {
+  const cfg = await phoneConfig();
+  return { ...mobile.status(), code: cfg.code, port: cfg.port, enabled: cfg.enabled };
+});
+ipcMain.handle("browser:phoneStart", async (_e, port) => {
+  const cfg = await savePhoneConfig({ enabled: true, ...(port ? { port: Number(port) } : {}) });
+  try {
+    const status = await startPhoneServer(cfg);
+    return { ...status, code: cfg.code, enabled: true };
+  } catch (e) {
+    await savePhoneConfig({ enabled: false });
+    throw e;
+  }
+});
+ipcMain.handle("browser:phoneStop", async () => {
+  await savePhoneConfig({ enabled: false });
+  return { ...(await mobile.stop()), enabled: false };
+});
+ipcMain.handle("browser:phoneNewCode", async () => {
+  const cfg = await savePhoneConfig({ code: mobile.newCode() });
+  if (mobile.status().running) await startPhoneServer(cfg);
+  return { ...mobile.status(), code: cfg.code, enabled: cfg.enabled };
+});
+
+// Телефон, включённый вчера, должен работать и сегодня, без похода в настройки.
+app.whenReady().then(async () => {
+  try {
+    const cfg = await phoneConfig();
+    if (cfg.enabled) await startPhoneServer(cfg);
+  } catch (e) {
+    console.error("Не удалось поднять доступ с телефона:", e.message);
+  }
+});
+
+app.on("before-quit", () => {
+  void mobile.stop();
 });

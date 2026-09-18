@@ -1764,6 +1764,116 @@ export interface ReportInfo {
   log: { total: number; errors: number; since: string };
 }
 
+
+// ---------- Браузер: роли, разговоры, переговорки, телефон ----------
+
+/** Ролевая модель: специалист со своим порядком работы. */
+export interface RoleModel {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+  tagline: string;
+  prompt: string;
+  /** Пусто — модель из общих настроек. */
+  model: string;
+  /** Разрешён ли этой роли поиск в интернете. */
+  web: boolean;
+  /** Встроенная роль: её можно изменить, но не удалить — только вернуть как было. */
+  builtIn: boolean;
+  /** Встроенная роль, которую человек изменил. */
+  edited: boolean;
+}
+
+export interface RoleChatMessage {
+  id: string;
+  /** "me" — человек, иначе id роли. */
+  from: string;
+  name: string;
+  emoji?: string;
+  color?: string;
+  content: string;
+  attachments?: ChatAttachment[];
+  /** Реплика-итог встречи. */
+  summary?: boolean;
+  round?: number;
+  createdAt: number;
+}
+
+export interface RoleChat {
+  id: string;
+  /** Разговор один на один или переговорка на несколько ролей. */
+  kind: "role" | "room";
+  title: string;
+  roleIds: string[];
+  projectId: string;
+  /** Сколько кругов идёт обсуждение в переговорке. */
+  rounds: number;
+  messages: RoleChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RoleChatSummary {
+  id: string;
+  kind: "role" | "room";
+  title: string;
+  roleIds: string[];
+  projectId: string;
+  rounds: number;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Ход: одна реплика или круги переговорки, которые считает главный процесс. */
+export interface RoleJobStatus {
+  done: boolean;
+  error: string;
+  /** Кто сейчас говорит или что ищет — строкой для показа. */
+  speaking: string;
+  messages: RoleChatMessage[];
+}
+
+export interface RoleProgressEvent {
+  jobId: string;
+  chatId: string;
+  type: "speaking" | "tool" | "message" | "done";
+  roleId?: string;
+  text?: string;
+  message?: RoleChatMessage;
+  error?: string;
+}
+
+/** Страница, прочитанная приложением (не окном браузера). */
+export interface ReadPage {
+  url: string;
+  title: string;
+  text: string;
+}
+
+/** Вкладка встроенного браузера. */
+export interface BrowserTab {
+  id: string;
+  title: string;
+  url: string;
+}
+
+export interface BrowserTabsState {
+  tabs: BrowserTab[];
+  bookmarks: BrowserTab[];
+}
+
+export interface PhoneStatus {
+  running: boolean;
+  enabled: boolean;
+  port: number;
+  code: string;
+  error: string;
+  addresses: { name: string; address: string; url: string }[];
+  devices: number;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -2299,6 +2409,46 @@ export interface ElectronAPI {
   readTaskRun(projectId: string, runId: string): Promise<Conversation | null>;
   deleteTaskRun(projectId: string, runId: string): Promise<TaskRunSummary[]>;
 
+  // Браузер: роли, разговоры, переговорки, телефон
+  listRoles(): Promise<RoleModel[]>;
+  saveRole(role: Partial<RoleModel> & { id?: string; name: string }): Promise<RoleModel>;
+  resetRole(id: string): Promise<RoleModel | null>;
+  listRoleChats(): Promise<RoleChatSummary[]>;
+  openRoleChat(id: string): Promise<RoleChat>;
+  createRoleChat(data: {
+    kind: "role" | "room";
+    roleIds: string[];
+    projectId?: string;
+    rounds?: number;
+    title?: string;
+  }): Promise<RoleChat>;
+  updateRoleChat(chat: RoleChat): Promise<RoleChat>;
+  deleteRoleChat(id: string): Promise<boolean>;
+  sendToRoles(payload: {
+    chatId: string;
+    text: string;
+    attachments?: ChatAttachment[];
+    page?: { url: string; title: string; text: string } | null;
+    mode?: "chat" | "task";
+  }): Promise<{ jobId: string; chat: RoleChat }>;
+  roleJobStatus(jobId: string): Promise<RoleJobStatus>;
+  stopRoleJob(jobId: string): Promise<boolean>;
+  readWebPage(url: string): Promise<ReadPage>;
+  capturePage(webContentsId: number): Promise<string>;
+  getBrowserTabs(): Promise<BrowserTabsState>;
+  saveBrowserTabs(data: BrowserTabsState): Promise<BrowserTabsState>;
+  saveBrowserPhoto(name: string, dataUrl: string, projectId: string): Promise<ChatAttachment>;
+  saveRoleChatResult(payload: {
+    chatId: string;
+    format: "docx" | "xlsx" | "pdf" | "png";
+    scope?: "all" | "summary";
+  }): Promise<string | null>;
+  phoneStatus(): Promise<PhoneStatus>;
+  phoneStart(port?: number): Promise<PhoneStatus>;
+  phoneStop(): Promise<PhoneStatus>;
+  phoneNewCode(): Promise<PhoneStatus>;
+  onRoleProgress(callback: (payload: RoleProgressEvent) => void): () => void;
+
   // профиль проекта
   readProjectProfile(projectId: string): Promise<{ profile: ProjectProfile | null; stale: boolean }>;
   buildProfileRequest(projectId: string): Promise<string>;
@@ -2312,3 +2462,9 @@ declare global {
     api: ElectronAPI;
   }
 }
+
+/*
+ * Тег <webview> из Electron React уже знает: его свойства (src, partition и
+ * прочие) объявлены в типах React как WebViewHTMLAttributes. Поэтому объявлять
+ * его здесь заново не нужно — раздел «Браузер» пользуется готовым типом.
+ */

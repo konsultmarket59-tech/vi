@@ -24,6 +24,7 @@ const MODULE_IDS = [
   "library",
   "catalog",
   "sites",
+  "browser",
   "cleanup",
   "media",
   "cloud",

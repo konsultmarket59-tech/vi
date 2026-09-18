@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Личный чат — телефон</title>
+    <style>
+      /*
+        Страница для телефона написана вручную и без единой библиотеки. Причина
+        простая: её отдаёт компьютер по домашней сети, и она должна открыться на
+        любом телефоне сразу — без сборки, без загрузки скриптов из интернета и
+        без обновления, когда собран новый экран приложения.
+      */
+      :root {
+        --bg: #f6f7fb;
+        --card: #ffffff;
+        --text: #16181d;
+        --muted: #6b7280;
+        --line: #e3e6ef;
+        --accent: #4f7cff;
+        --safe: env(safe-area-inset-bottom, 0px);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #12141a;
+          --card: #1b1e26;
+          --text: #eef0f6;
+          --muted: #9aa1b1;
+          --line: #2a2f3a;
+        }
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      body {
+        margin: 0;
+        font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding-bottom: calc(64px + var(--safe));
+      }
+      header {
+        position: sticky; top: 0; z-index: 5;
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 14px;
+        background: var(--card);
+        border-bottom: 1px solid var(--line);
+      }
+      header h1 { font-size: 17px; margin: 0; flex: 1; font-weight: 600; }
+      main { padding: 14px; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        margin-bottom: 12px;
+      }
+      button {
+        font: inherit;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--text);
+        border-radius: 12px;
+        padding: 11px 14px;
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+      button.ghost { border: none; background: transparent; color: var(--accent); padding: 8px; }
+      button:disabled { opacity: .5; }
+      input, textarea, select {
+        font: inherit; width: 100%;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--bg);
+        color: var(--text);
+      }
+      textarea { resize: vertical; min-height: 60px; }
+      .row { display: flex; gap: 8px; align-items: center; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+      .role {
+        display: flex; flex-direction: column; gap: 4px;
+        text-align: left; align-items: flex-start;
+      }
+      .role .emoji { font-size: 22px; }
+      .role .name { font-weight: 600; }
+      .role .tag { color: var(--muted); font-size: 13px; }
+      .muted { color: var(--muted); font-size: 14px; }
+      .msg { margin-bottom: 14px; }
+      .msg .who { font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--muted); }
+      .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .msg.me .body { background: var(--accent); color: #fff; padding: 10px 12px; border-radius: 14px; }
+      .msg.agent .body { background: var(--card); border: 1px solid var(--line); padding: 10px 12px; border-radius: 14px; }
+      .msg.summary .body { border-color: var(--accent); }
+      .composer {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        padding: 10px 12px calc(10px + var(--safe));
+        background: var(--card); border-top: 1px solid var(--line);
+        display: flex; gap: 8px; align-items: flex-end;
+      }
+      .tabs {
+        position: fixed; left: 0; right: 0; bottom: 0;
+        display: flex; background: var(--card); border-top: 1px solid var(--line);
+        padding-bottom: var(--safe);
+      }
+      .tabs button { flex: 1; border: none; border-radius: 0; background: transparent; font-size: 13px; padding: 10px 4px; }
+      .tabs button.on { color: var(--accent); font-weight: 600; }
+      .chip {
+        display: inline-flex; gap: 6px; align-items: center;
+        border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; margin: 0 6px 6px 0;
+        font-size: 14px; background: var(--card);
+      }
+      .chip.on { border-color: var(--accent); color: var(--accent); }
+      .error { color: #c62828; font-size: 14px; margin-top: 8px; }
+      .status { font-size: 14px; color: var(--muted); padding: 6px 0; }
+      a { color: var(--accent); }
+      .reader { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      const api = {
+        token: localStorage.getItem("токен") || "",
+        async login(code) {
+          const res = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Не удалось войти.");
+          api.token = data.token;
+          localStorage.setItem("токен", data.token);
+        },
+        async call(method, ...args) {
+          const res = await fetch("/api/call", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + api.token },
+            body: JSON.stringify({ method, args }),
+          });
+          if (res.status === 401) {
+            api.token = "";
+            localStorage.removeItem("токен");
+            render();
+            throw new Error("Нужно войти заново.");
+          }
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Ошибка на компьютере.");
+          return data.result;
+        },
+      };
+
+      const state = {
+        screen: "roles",
+        roles: [],
+        chats: [],
+        projects: [],
+        chat: null,
+        busy: "",
+        error: "",
+        page: null,
+        pickedRoles: [],
+        projectId: "",
+        rounds: 2,
+        attachments: [],
+      };
+
+      const el = (html) => {
+        const t = document.createElement("template");
+        t.innerHTML = html.trim();
+        return t.content.firstElementChild;
+      };
+      const esc = (s) =>
+        String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+      async function load() {
+        const data = await api.call("state");
+        state.roles = data.roles;
+        state.chats = data.chats;
+        state.projects = data.projects;
+      }
+
+      function tabs() {
+        const items = [
+          ["roles", "🧑‍💼 Роли"],
+          ["chats", "💬 Разговоры"],
+          ["page", "🌐 Страница"],
+        ];
+        return `<div class="tabs">${items
+          .map(([id, label]) => `<button data-tab="${id}" class="${state.screen === id ? "on" : ""}">${label}</button>`)
+          .join("")}</div>`;
+      }
+
+      function renderLogin() {
+        const view = el(`<div>
+          <header><h1>Личный чат</h1></header>
+          <main>
+            <div class="card">
+              <p>Введите код доступа — он показан на компьютере в разделе «Браузер → Телефон».</p>
+              <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" />
+              <p><button class="primary" id="enter" style="width:100%">Войти</button></p>
+              <div class="error" id="err"></div>
+            </div>
+          </main>
+        </div>`);
+        view.querySelector("#enter").onclick = async () => {
+          try {
+            await api.login(view.querySelector("#code").value.trim());
+            await load();
+            render();
+          } catch (e) {
+            view.querySelector("#err").textContent = e.message;
+          }
+        };
+        return view;
+      }
+
+      function renderRoles() {
+        const picking = state.pickedRoles.length > 0;
+        const view = el(`<div>
+          <header><h1>Команда</h1>${
+            picking ? `<button class="ghost" id="room">Собрать переговорку (${state.pickedRoles.length})</button>` : ""
+          }</header>
+          <main>
+            <p class="muted">Нажмите на роль — начнётся разговор один на один. Длинное нажатие отмечает роль
+            для переговорки, где несколько специалистов обсуждают задачу между собой.</p>
+            ${
+              state.projects.length > 0
+                ? `<div class="card">
+                    <label class="muted" for="project">Проект для контекста — роли увидят его инструкции и документы</label>
+                    <select id="project">
+                      <option value="">без проекта</option>
+                      ${state.projects
+                        .map(
+                          (p) =>
+                            `<option value="${esc(p.id)}" ${p.id === state.projectId ? "selected" : ""}>${esc(
+                              p.name
+                            )}</option>`
+                        )
+                        .join("")}
+                    </select>
+                  </div>`
+                : ""
+            }
+            <div class="grid">
+              ${state.roles
+                .map(
+                  (r) => `<button class="card role ${state.pickedRoles.includes(r.id) ? "on" : ""}" data-role="${r.id}"
+                    style="${state.pickedRoles.includes(r.id) ? "border-color:" + r.color : ""}">
+                    <span class="emoji">${r.emoji}</span>
+                    <span class="name">${esc(r.name)}</span>
+                    <span class="tag">${esc(r.tagline)}</span>
+                  </button>`
+                )
+                .join("")}
+            </div>
+          </main>
+          ${tabs()}
+        </div>`);
+
+        const projectPicker = view.querySelector("#project");
+        if (projectPicker) projectPicker.onchange = () => (state.projectId = projectPicker.value);
+
+        view.querySelectorAll("[data-role]").forEach((node) => {
+          const id = node.dataset.role;
+          let timer = null;
+          const pick = () => {
+            state.pickedRoles = state.pickedRoles.includes(id)
+              ? state.pickedRoles.filter((x) => x !== id)
+              : [...state.pickedRoles, id];
+            render();
+          };
+          node.addEventListener("touchstart", () => {
+            timer = setTimeout(pick, 450);
+          });
+          node.addEventListener("touchend", () => clearTimeout(timer));
+          node.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            pick();
+          });
+          node.onclick = async () => {
+            if (state.pickedRoles.length > 0) return pick();
+            await openNewChat("role", [id]);
+          };
+        });
+        const roomBtn = view.querySelector("#room");
+        if (roomBtn) roomBtn.onclick = () => openNewChat("room", state.pickedRoles);
+        return view;
+      }
+
+      async function openNewChat(kind, roleIds) {
+        if (kind === "room" && roleIds.length < 2) {
+          alert("Для переговорки нужны хотя бы две роли.");
+          return;
+        }
+        state.busy = "Создаю…";
+        render();
+        try {
+          const chat = await api.call("createChat", {
+            kind,
+            roleIds,
+            projectId: state.projectId,
+            rounds: state.rounds,
+          });
+          state.chat = chat;
+          state.pickedRoles = [];
+          state.screen = "chat";
+          await load();
+        } catch (e) {
+          state.error = e.message;
+        }
+        state.busy = "";
+        render();
+      }
+
+      function renderChats() {
+        const view = el(`<div>
+          <header><h1>Разговоры</h1></header>
+          <main>
+            ${
+              state.chats.length === 0
+                ? `<p class="muted">Разговоров пока нет. Откройте вкладку «Роли».</p>`
+                : state.chats
+                    .map((c) => {
+                      const names = c.roleIds
+                        .map((id) => state.roles.find((r) => r.id === id))
+                        .filter(Boolean)
+                        .map((r) => r.emoji + " " + r.name)
+                        .join(", ");
+                      return `<button class="card" style="width:100%;text-align:left" data-chat="${c.id}">
+                        <div style="font-weight:600">${c.kind === "room" ? "🏛 " : ""}${esc(c.title)}</div>
+                        <div class="muted">${esc(names)} · ${c.messageCount} реплик</div>
+                      </button>`;
+                    })
+                    .join("")
+            }
+          </main>
+          ${tabs()}
+        </div>`);
+        view.querySelectorAll("[data-chat]").forEach((node) => {
+          node.onclick = async () => {
+            state.busy = "Открываю…";
+            render();
+            state.chat = await api.call("openChat", node.dataset.chat);
+            state.screen = "chat";
+            state.busy = "";
+            render();
+          };
+        });
+        return view;
+      }
+
+      function renderChat() {
+        const chat = state.chat;
+        const view = el(`<div>
+          <header>
+            <button class="ghost" id="back">‹</button>
+            <h1>${esc(chat.title)}</h1>
+            <button class="ghost" id="save">💾</button>
+          </header>
+          <main style="padding-bottom:110px">
+            ${chat.messages
+              .map(
+                (m) => `<div class="msg ${m.from === "me" ? "me" : "agent"} ${m.summary ? "summary" : ""}">
+                  <div class="who">${m.from === "me" ? "Вы" : esc((m.emoji || "") + " " + m.name)}</div>
+                  <div class="body">${esc(m.content)}</div>
+                </div>`
+              )
+              .join("")}
+            <div class="status" id="status">${esc(state.busy)}</div>
+            <div class="error">${esc(state.error)}</div>
+          </main>
+          <div class="composer">
+            <label class="ghost" style="padding:10px">📷<input type="file" accept="image/*" id="photo" class="hidden" /></label>
+            <textarea id="text" rows="1" placeholder="${
+              chat.kind === "room" ? "Задача для переговорки. @Имя — обратиться к участнику" : "Сообщение"
+            }"></textarea>
+            <button class="primary" id="send">➤</button>
+          </div>
+        </div>`);
+
+        view.querySelector("#back").onclick = () => {
+          state.screen = "chats";
+          state.error = "";
+          render();
+        };
+        view.querySelector("#send").onclick = () => sendMessage(view.querySelector("#text").value);
+        view.querySelector("#photo").onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          state.busy = "Отправляю фотографию на компьютер…";
+          render();
+          const reader = new FileReader();
+          reader.onload = async () => {
+            try {
+              const att = await api.call("savePhoto", file.name, reader.result, chat.projectId || "");
+              state.attachments.push(att);
+              state.busy = "Фотография на компьютере: " + att.name;
+            } catch (err) {
+              state.error = err.message;
+              state.busy = "";
+            }
+            render();
+          };
+          reader.readAsDataURL(file);
+        };
+        view.querySelector("#save").onclick = () => saveResult(chat);
+        const main = view.querySelector("main");
+        setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
+        void main;
+        return view;
+      }
+
+      async function sendMessage(text, page) {
+        const chat = state.chat;
+        if (!text.trim() && state.attachments.length === 0) return;
+        state.error = "";
+        chat.messages.push({ from: "me", name: "Вы", content: text, createdAt: Date.now() });
+        state.busy = "Отправлено…";
+        render();
+        try {
+          const job = await api.call("sendStart", chat.id, text, state.attachments, page || null);
+          state.attachments = [];
+          await poll(job.jobId);
+        } catch (e) {
+          state.error = e.message;
+          state.busy = "";
+          render();
+        }
+      }
+
+      async function poll(jobId) {
+        // Комната из трёх ролей в два круга — это семь обращений к модели, то есть
+        // минуты. Ответ по одному запросу телефон бы не дождался (мобильные браузеры
+        // рвут долгие соединения), поэтому компьютер считает в фоне, а телефон
+        // спрашивает, что уже готово.
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 1500));
+          let job;
+          try {
+            job = await api.call("jobStatus", jobId);
+          } catch (e) {
+            state.error = e.message;
+            state.busy = "";
+            render();
+            return;
+          }
+          if (job.messages && job.messages.length) {
+            const known = new Set(state.chat.messages.map((m) => m.id).filter(Boolean));
+            for (const m of job.messages) if (!known.has(m.id)) state.chat.messages.push(m);
+          }
+          state.busy = job.done ? "" : job.speaking || "Думают…";
+          if (job.error) state.error = job.error;
+          render();
+          if (job.done) {
+            state.chat = await api.call("openChat", state.chat.id);
+            await load();
+            render();
+            return;
+          }
+        }
+      }
+
+      async function saveResult(chat) {
+        const format = prompt("В каком виде сохранить на компьютере? docx, xlsx, pdf или png", "docx");
+        if (!format) return;
+        state.busy = "Сохраняю…";
+        render();
+        try {
+          const file = await api.call("saveChat", chat.id, format.trim().toLowerCase());
+          state.busy = "Сохранено: " + file;
+        } catch (e) {
+          state.error = e.message;
+          state.busy = "";
+        }
+        render();
+      }
+
+      function renderPage() {
+        const view = el(`<div>
+          <header><h1>Страница</h1></header>
+          <main>
+            <div class="card">
+              <div class="row">
+                <input id="url" placeholder="адрес сайта или запрос" value="${esc(state.page ? state.page.url : "")}" />
+                <button class="primary" id="go">→</button>
+              </div>
+              <p class="muted">Страницу открывает компьютер и присылает сюда текстом — так работают и сайты,
+              которые в телефоне открываться не хотят. Для покупок и входа в личные кабинеты используйте
+              обычный браузер телефона.</p>
+            </div>
+            ${
+              state.page
+                ? `<div class="card">
+                    <h2 style="font-size:17px;margin:0 0 4px">${esc(state.page.title || state.page.url)}</h2>
+                    <div class="muted" style="margin-bottom:10px"><a href="${esc(
+                      state.page.url
+                    )}" target="_blank" rel="noreferrer">открыть в браузере телефона</a></div>
+                    <div class="row" style="margin-bottom:10px">
+                      <select id="who">${state.roles
+                        .map((r) => `<option value="${r.id}">${r.emoji} ${esc(r.name)}</option>`)
+                        .join("")}</select>
+                      <button id="ask">Обсудить</button>
+                    </div>
+                    <div class="reader">${esc(state.page.text || "")}</div>
+                  </div>`
+                : ""
+            }
+            <div class="error">${esc(state.error)}</div>
+            <div class="status">${esc(state.busy)}</div>
+          </main>
+          ${tabs()}
+        </div>`);
+        view.querySelector("#go").onclick = async () => {
+          const url = view.querySelector("#url").value.trim();
+          if (!url) return;
+          state.busy = "Компьютер открывает страницу…";
+          state.error = "";
+          render();
+          try {
+            state.page = await api.call("readPage", url);
+          } catch (e) {
+            state.error = e.message;
+          }
+          state.busy = "";
+          render();
+        };
+        const ask = view.querySelector("#ask");
+        if (ask) {
+          ask.onclick = async () => {
+            const roleId = view.querySelector("#who").value;
+            state.busy = "Создаю разговор…";
+            render();
+            try {
+              const chat = await api.call("createChat", {
+                kind: "role",
+                roleIds: [roleId],
+                projectId: state.projectId,
+                page: { url: state.page.url, title: state.page.title },
+              });
+              state.chat = chat;
+              state.screen = "chat";
+              state.busy = "";
+              render();
+              // Страницу компьютер уже прочитал — отдаём её роли сразу, чтобы
+              // она не ходила за ней второй раз.
+              await sendMessage("Посмотри эту страницу и скажи своё мнение по ней.", state.page);
+            } catch (e) {
+              state.error = e.message;
+              state.busy = "";
+              render();
+            }
+          };
+        }
+        return view;
+      }
+
+      function render() {
+        const app = document.getElementById("app");
+        app.innerHTML = "";
+        let view;
+        if (!api.token) view = renderLogin();
+        else if (state.screen === "chat" && state.chat) view = renderChat();
+        else if (state.screen === "chats") view = renderChats();
+        else if (state.screen === "page") view = renderPage();
+        else view = renderRoles();
+        app.appendChild(view);
+        view.querySelectorAll("[data-tab]").forEach((node) => {
+          node.onclick = () => {
+            state.screen = node.dataset.tab;
+            state.error = "";
+            render();
+          };
+        });
+      }
+
+      (async () => {
+        if (api.token) {
+          try {
+            await load();
+          } catch {
+            api.token = "";
+            localStorage.removeItem("токен");
+          }
+        }
+        render();
+      })();
+    </script>
+  </body>
+</html>

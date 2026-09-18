@@ -13,6 +13,7 @@ export type View =
   | { kind: "library" }
   | { kind: "catalog" }
   | { kind: "sites" }
+  | { kind: "browser" }
   | { kind: "cleanup" }
   | { kind: "cloud" }
   | { kind: "direct" }
@@ -35,6 +36,7 @@ const MODULE_ITEMS = [
   { id: "library", label: "🎙 Видеотека" },
   { id: "catalog", label: "🏠 Каталог" },
   { id: "sites", label: "🌐 Сайты" },
+  { id: "browser", label: "🧭 Браузер" },
   { id: "cleanup", label: "🧹 Клининг" },
   { id: "media", label: "🎨 Медиа" },
   { id: "cloud", label: "☁️ Облако" },

@@ -338,6 +338,34 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
     getGitHubAgentConversation: (owner, repo) => ipcRenderer.invoke("github:getAgentConversation", owner, repo),
   saveGitHubAgentConversation: (owner, repo, conv) => ipcRenderer.invoke("github:saveAgentConversation", owner, repo, conv),
 
+  // Браузер: роли, разговоры, переговорки, телефон
+  listRoles: () => ipcRenderer.invoke("browser:listRoles"),
+  saveRole: (role) => ipcRenderer.invoke("browser:saveRole", role),
+  resetRole: (id) => ipcRenderer.invoke("browser:resetRole", id),
+  listRoleChats: () => ipcRenderer.invoke("browser:listChats"),
+  openRoleChat: (id) => ipcRenderer.invoke("browser:openChat", id),
+  createRoleChat: (data) => ipcRenderer.invoke("browser:createChat", data),
+  updateRoleChat: (chat) => ipcRenderer.invoke("browser:updateChat", chat),
+  deleteRoleChat: (id) => ipcRenderer.invoke("browser:deleteChat", id),
+  sendToRoles: (payload) => ipcRenderer.invoke("browser:send", payload),
+  roleJobStatus: (jobId) => ipcRenderer.invoke("browser:jobStatus", jobId),
+  stopRoleJob: (jobId) => ipcRenderer.invoke("browser:stopJob", jobId),
+  readWebPage: (url) => ipcRenderer.invoke("browser:readPage", url),
+  capturePage: (webContentsId) => ipcRenderer.invoke("browser:capturePage", webContentsId),
+  getBrowserTabs: () => ipcRenderer.invoke("browser:getTabs"),
+  saveBrowserTabs: (data) => ipcRenderer.invoke("browser:saveTabs", data),
+  saveBrowserPhoto: (name, dataUrl, projectId) => ipcRenderer.invoke("browser:savePhoto", name, dataUrl, projectId),
+  saveRoleChatResult: (payload) => ipcRenderer.invoke("browser:saveResult", payload),
+  phoneStatus: () => ipcRenderer.invoke("browser:phoneStatus"),
+  phoneStart: (port) => ipcRenderer.invoke("browser:phoneStart", port),
+  phoneStop: () => ipcRenderer.invoke("browser:phoneStop"),
+  phoneNewCode: () => ipcRenderer.invoke("browser:phoneNewCode"),
+  onRoleProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("browser:progress", listener);
+    return () => ipcRenderer.removeListener("browser:progress", listener);
+  },
+
   // media generation
   generateMedia: (payload) => ipcRenderer.invoke("media:generate", payload),
   mediaKit: () => ipcRenderer.invoke("media:kit"),
