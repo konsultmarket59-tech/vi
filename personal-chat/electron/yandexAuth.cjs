@@ -92,17 +92,32 @@ function refreshToken(clientId, clientSecret, token) {
  * open and the caller falls back to the manual field, which is why this resolves with
  * null rather than throwing.
  */
-function pickCodeInWindow(BrowserWindow, clientId, parent) {
+/**
+ * Общая, ПОСТОЯННАЯ сессия окна входа.
+ *
+ * Раньше каждое подключение шло в чистой сессии — чтобы Яндекс не подсунул молча
+ * уже подключённый аккаунт. Побочный эффект оказался дороже пользы: логин и
+ * пароль приходилось вводить заново для каждого аккаунта, а их три, и будут ещё.
+ *
+ * Правильный ответ — не стирать память, а СПРАШИВАТЬ. За это отвечает
+ * `force_confirm=yes` в адресе: Яндекс показывает экран подтверждения всегда, и
+ * когда в сессии несколько аккаунтов — показывает их списком, с «Добавить
+ * аккаунт» рядом. Один раз вошли — дальше выбираете из списка.
+ *
+ * Страховка от «молча не тот аккаунт» осталась, но переехала туда, где ей место:
+ * после обмена кода на токен приложение спрашивает у Яндекса, чей это логин, и
+ * сверяет со списком. Проверять итог надёжнее, чем надеяться на пустые куки.
+ */
+const OAUTH_PARTITION = "persist:yandex-oauth";
+
+/** Забыть входы в окне: нужный аккаунт «залип» или компьютер общий. */
+async function forgetSessions(session) {
+  await session.fromPartition(OAUTH_PARTITION).clearStorageData();
+}
+
+function pickCodeInWindow(BrowserWindow, clientId, parent, { fresh = false } = {}) {
   return new Promise((resolve) => {
-    // Каждое подключение — в собственной чистой сессии.
-    //
-    // Это и была причина, по которой второй аккаунт не добавлялся: окно жило в одной
-    // общей сессии, Яндекс видел куки уже подключённого аккаунта и молча возвращал код
-    // для него же — без экрана входа и без единого вопроса. Имя раздела без префикса
-    // "persist:" означает сессию в памяти, а уникальное имя — что она не делится с
-    // предыдущей попыткой; хранилище дополнительно чистится, чтобы вход начинался с
-    // чистого листа даже в пределах одного запуска приложения.
-    const partition = `yandex-oauth-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const partition = OAUTH_PARTITION;
     const win = new BrowserWindow({
       parent,
       width: 620,
@@ -136,13 +151,62 @@ function pickCodeInWindow(BrowserWindow, clientId, parent) {
       }
     });
 
-    win.webContents.session
-      .clearStorageData()
-      .catch(() => {})
+    /**
+     * Не загрузилось — сказать почему, а не показывать белый экран.
+     *
+     * Белое окно без единого слова — худшее из возможных сообщений: человек не
+     * знает, ждать ему или закрывать, и уж точно не знает, что чинить. Причина
+     * же обычно простая и называется одним предложением: нет сети, мешает
+     * прокси, или Client ID такой, какого у Яндекса нет.
+     */
+    // Причина показывается ОДИН раз. Показ причины сам по себе уводит окно на
+    // другой адрес, и прерванная загрузка тут же рапортует «ERR_ABORTED» —
+    // если это не остановить, служебная ошибка затирает настоящую, и человек
+    // читает бессмыслицу вместо объяснения.
+    let причинаПоказана = false;
+    const показатьПричину = (текст) => {
+      if (win.isDestroyed() || причинаПоказана) return;
+      причинаПоказана = true;
+      const html =
+        "<!doctype html><meta charset=\"utf-8\">" +
+        "<style>body{font:14px/1.5 system-ui,sans-serif;margin:0;padding:28px;color:#111}" +
+        "h1{font-size:16px;margin:0 0 10px}code{background:#f2f3f5;padding:1px 4px;border-radius:4px}" +
+        "ul{padding-left:18px}li{margin-bottom:6px}</style>" +
+        `<h1>Страница входа Яндекса не открылась</h1><p>${текст}</p>` +
+        "<p>Что бывает чаще всего:</p><ul>" +
+        "<li>нет интернета или он идёт через прокси, который приложение не знает — проверьте «Настройки» → подключение;</li>" +
+        "<li>в поле <code>Client ID</code> попал не тот номер или лишние символы — сверьте его на oauth.yandex.ru;</li>" +
+        "<li>приложение на oauth.yandex.ru удалено или у него сменился идентификатор.</li>" +
+        "</ul><p>Закройте это окно и попробуйте снова, когда причина устранена.</p>";
+      win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html)).catch(() => {});
+    };
+
+    // Ошибка -3 — это отмена самим приложением (мы сами уводим окно), про неё
+    // сообщать нечего. Всё остальное человек должен увидеть.
+    win.webContents.on("did-fail-load", (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || settled || errorCode === -3) return;
+      показатьПричину(
+        `Яндекс не ответил: <code>${String(errorDescription || errorCode)}</code>.` +
+          (validatedURL ? `<br>Адрес: <code>${String(validatedURL).slice(0, 120)}</code>` : "")
+      );
+    });
+
+    // Чистим память только если попросили: обычный порядок — помнить входы.
+    (fresh ? win.webContents.session.clearStorageData().catch(() => {}) : Promise.resolve())
       .then(() => {
-        if (!win.isDestroyed()) win.loadURL(authorizeUrl(clientId));
+        if (win.isDestroyed()) return;
+        let url;
+        try {
+          url = authorizeUrl(clientId);
+        } catch (e) {
+          показатьПричину(String((e && e.message) || e));
+          return;
+        }
+        // loadURL отклоняется при сетевом отказе — без этого перехвата окно
+        // так и оставалось белым, а причина терялась в никуда.
+        win.loadURL(url).catch((e) => показатьПричину(String((e && e.message) || e)));
       });
   });
 }
 
-module.exports = { authorizeUrl, extractCode, exchangeCode, refreshToken, pickCodeInWindow };
+module.exports = { authorizeUrl, extractCode, exchangeCode, refreshToken, pickCodeInWindow, forgetSessions, OAUTH_PARTITION };

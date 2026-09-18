@@ -233,6 +233,50 @@ app.whenReady().then(async () => {
       опись.includes("Mixed Media") && опись.includes("Эффект Вертиго") && опись.includes("плавно"), опись);
     check("невыбранное в опись не лезет", !kit.describeChoice({}).length);
 
+    console.log("\nэмоции и приёмы кино");
+    check("эмоций девять", kit.EMOTIONS.length === 9, String(kit.EMOTIONS.length));
+    // Работает не ярлык «радость», а описанное физическое действие: чьи руки,
+    // где, что со ртом и глазами. Ярлык модель рисует как позу.
+    check("эмоция описана действием, а не ярлыком",
+      kit.EMOTIONS.every((e) => /hand|finger|fist|palm|mouth|eyes/i.test(e.prompt)),
+      kit.EMOTIONS.filter((e) => !/hand|finger|fist|palm|mouth|eyes/i.test(e.prompt)).map((e) => e.id).join(", "));
+    check("у каждой эмоции сказано, зачем она", kit.EMOTIONS.every((e) => e.why && e.why.length > 30));
+    check("приёмов кино семь", kit.CINE_TRICKS.length === 7, String(kit.CINE_TRICKS.length));
+    check("диптих требует ровной границы без перехода",
+      /no gradual transition, no blur/.test(kit.CINE_TRICKS.find((c) => c.id === "diptych").prompt));
+
+    // Эмоция идёт сразу за темой — раньше стиля и света. Поставить её после
+    // значит получить кадр, снятый красиво, но с пустым лицом.
+    const сЭмоцией = kit.buildPrompt({
+      base: "портрет", emotion: "rage-hair", style: "luxury-campaign", cine: "negative-space", subject: "a woman",
+    });
+    check("эмоция стоит раньше стиля",
+      сЭмоцией.indexOf("pulling hair") < сЭмоцией.indexOf("Luxury fashion"), сЭмоцией.slice(0, 120));
+    check("приём кино стоит после стиля",
+      сЭмоцией.indexOf("Luxury fashion") < сЭмоцией.indexOf("negative space"));
+    check("выбранное видно в описи",
+      /эмоция: Ярость/.test(kit.describeChoice({ emotion: "rage-hair" }))
+        && /приём: Негативное/.test(kit.describeChoice({ cine: "negative-space" })));
+
+    console.log("\nновые движения камеры и эффекты");
+    for (const id of ["phantom-glide", "ground-level", "pan-right-steady", "crane-up-open", "snorricam-rig", "crash-zoom-punch"]) {
+      check(`движение «${id}» на месте`, kit.CAMERA_MOVES.some((c) => c.id === id));
+    }
+    for (const id of ["datamosh-heavy", "jigsaw", "liquid-wax", "light-painting", "porcelain-shatter", "pixel-stretch"]) {
+      check(`эффект «${id}» на месте`, kit.KIT.styles.some((x) => x.id === id));
+    }
+    // Все эти эффекты держатся на одном: лицо остаётся резким, всё остальное
+    // распадается. Без этого выходит не приём, а испорченный кадр.
+    check("в эффектах распада лицо объявлено резким",
+      ["datamosh-heavy", "jigsaw", "liquid-wax", "porcelain-shatter", "pixel-stretch"].every((id) =>
+        /face sharp|sharp face/i.test(kit.KIT.styles.find((x) => x.id === id).prompt)
+      ));
+    check("у всех приёмов уникальные номера",
+      (() => {
+        const ids = [...kit.CAMERA_MOVES, ...kit.KIT.styles, ...kit.EMOTIONS, ...kit.CINE_TRICKS].map((x) => x.id);
+        return new Set(ids).size === ids.length;
+      })());
+
     console.log("\nсториборд");
     const sb = require("./storyboard.cjs");
     const раскадровка = sb.parseStoryboard([

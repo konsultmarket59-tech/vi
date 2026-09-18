@@ -229,6 +229,8 @@ contextBridge.exposeInMainWorld("api", {
   getDirectSettings: () => ipcRenderer.invoke("direct:getSettings"),
   saveDirectSettings: (patch) => ipcRenderer.invoke("direct:saveSettings", patch),
   testDirectConnection: () => ipcRenderer.invoke("direct:testConnection"),
+  directOverview: (range) => ipcRenderer.invoke("direct:overview", range),
+  directAudit: (opts) => ipcRenderer.invoke("direct:audit", opts),
   listDirectCampaigns: () => ipcRenderer.invoke("direct:listCampaigns"),
   listDirectKeywords: (campaignIds) => ipcRenderer.invoke("direct:listKeywords", campaignIds),
   listDirectAds: (campaignIds) => ipcRenderer.invoke("direct:listAds", campaignIds),
@@ -240,6 +242,7 @@ contextBridge.exposeInMainWorld("api", {
   saveDirectAgentConversation: (conv) => ipcRenderer.invoke("direct:saveAgentConversation", conv),
 
   connectYandexCloud: (payload) => ipcRenderer.invoke("cloud:connectYandex", payload),
+  forgetYandexSessions: () => ipcRenderer.invoke("cloud:forgetYandexSessions"),
   setActiveYandexAccount: (id) => ipcRenderer.invoke("cloud:setActiveYandex", id),
   removeYandexAccount: (id) => ipcRenderer.invoke("cloud:removeYandex", id),
   renameYandexAccount: (id, label) => ipcRenderer.invoke("cloud:renameYandex", id, label),

@@ -693,6 +693,16 @@ export interface MediaGenerationRequest {
   /** Поля модели: пропорции, длительность, зерно и прочее. */
   params?: Record<string, string | number | boolean>;
   design?: StoriesDesign | null;
+  /**
+   * Каким полем передать картинки-референсы. Пусто — список `images`.
+   * Единого правила у шлюза нет: одни модели ждут `images`, другие `image`.
+   */
+  imageField?: string;
+  /** Ключевые кадры видео: с чего начать и чем закончить. */
+  firstFrame?: string;
+  lastFrame?: string;
+  firstFrameField?: string;
+  lastFrameField?: string;
 }
 
 export interface MediaGenerationResult {
@@ -716,6 +726,67 @@ export interface MediaGenerationResult {
 }
 
 export type CloudProvider = "yandex" | "google";
+
+
+/** Одна найденная слабость и что с ней делать. Числа — в «почему». */
+export interface DirectIssue {
+  level: "высокий" | "средний" | "низкий";
+  what: string;
+  why: string;
+  fix: string;
+}
+
+export interface DirectTotals {
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+  ctr: number;
+  avgCpc: number;
+  cpa: number;
+}
+
+export interface DirectBalance {
+  login: string;
+  amount: number;
+  currency: string;
+  debt: number;
+  discount: number;
+}
+
+/** Строка обзора: один аккаунт со своими кампаниями, балансом и разбором. */
+export interface DirectAccountRow {
+  id: string;
+  label: string;
+  login: string;
+  clientLogin: string;
+  campaigns: DirectCampaign[];
+  stats: Record<string, string | number>[];
+  balance: DirectBalance | null;
+  issues: DirectIssue[];
+  totals: DirectTotals | null;
+  /** Почему по этому аккаунту ничего не пришло — и как это починить. */
+  error: string;
+  howToFix: string;
+  balanceError: string;
+}
+
+export interface DirectOverview {
+  range: { dateFrom: string; dateTo: string };
+  accounts: DirectAccountRow[];
+}
+
+export interface DirectAudit {
+  account: { id: string; label: string; login: string };
+  range: { dateFrom: string; dateTo: string };
+  balance: DirectBalance | null;
+  campaigns: DirectCampaign[];
+  stats: Record<string, string | number>[];
+  keywordCount: number;
+  issues: DirectIssue[];
+  totals: DirectTotals;
+  text: string;
+}
 
 export interface DirectSettings {
   /** Needed only when an agency account acts for a client; empty otherwise. */
@@ -816,6 +887,8 @@ export interface YandexConnectResult {
   needsCode?: boolean;
   /** The account that answered was already in the list, so it was refreshed, not added. */
   duplicate?: boolean;
+  /** Логины, уже подключённые, — чтобы сказать, какой выбрать в окне Яндекса. */
+  knownLogins?: string[];
 }
 
 export interface CloudEntry {
@@ -1268,6 +1341,8 @@ export interface MediaTemplate {
 
 export interface MediaKit {
   templates: MediaTemplate[];
+  emotions: MediaKitEntry[];
+  cineTricks: MediaKitEntry[];
   paces: MediaKitEntry[];
   commands: MediaCommand[];
   commandGroups: { group: string; hint: string }[];
@@ -1315,6 +1390,10 @@ export interface MediaResolvedPrompt {
 export interface MediaKitChoice {
   /** Короткая команда формата: /anatomy, /beforeafter и прочие. */
   command?: string;
+  /** Что происходит с героем: ярость, хохот, боль. Идёт сразу за темой. */
+  emotion?: string;
+  /** Композиционный приём большого кино: масштаб, отражения, цвет как язык. */
+  cine?: string;
   style?: string;
   camera?: string;
   pace?: string;
@@ -1866,6 +1945,8 @@ export interface ElectronAPI {
   getDirectSettings(): Promise<DirectSettings>;
   saveDirectSettings(patch: Partial<DirectSettings>): Promise<DirectSettings>;
   testDirectConnection(): Promise<DirectTestResult>;
+  directOverview(range?: { dateFrom?: string; dateTo?: string }): Promise<DirectOverview>;
+  directAudit(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectAudit>;
   listDirectCampaigns(): Promise<DirectCampaign[]>;
   listDirectKeywords(campaignIds: number[]): Promise<DirectKeyword[]>;
   listDirectAds(campaignIds: number[]): Promise<DirectAd[]>;
@@ -1881,11 +1962,14 @@ export interface ElectronAPI {
   saveDirectAgentConversation(conv: Conversation): Promise<Conversation>;
 
   connectYandexCloud(payload: {
+    /** Пустые — берутся у уже подключённого аккаунта: приложение одно на всех. */
     clientId: string;
     clientSecret: string;
     manualCode?: string;
     label?: string;
   }): Promise<YandexConnectResult>;
+  /** Забыть входы в Яндекс, запомненные окном подключения. Аккаунты остаются. */
+  forgetYandexSessions(): Promise<boolean>;
   setActiveYandexAccount(id: string): Promise<CloudAccounts>;
   removeYandexAccount(id: string): Promise<CloudAccounts>;
   renameYandexAccount(id: string, label: string): Promise<CloudAccounts>;
