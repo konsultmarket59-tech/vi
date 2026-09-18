@@ -232,6 +232,7 @@ contextBridge.exposeInMainWorld("api", {
   directOverview: (range) => ipcRenderer.invoke("direct:overview", range),
   directAudit: (opts) => ipcRenderer.invoke("direct:audit", opts),
   explainDirectCell: (payload) => ipcRenderer.invoke("direct:explainCell", payload),
+  lastDirectReportAnswer: () => ipcRenderer.invoke("direct:lastReportAnswer"),
   directWords: (opts) => ipcRenderer.invoke("direct:words", opts),
   directWordstat: (opts) => ipcRenderer.invoke("direct:wordstat", opts),
   listDirectCampaigns: () => ipcRenderer.invoke("direct:listCampaigns"),

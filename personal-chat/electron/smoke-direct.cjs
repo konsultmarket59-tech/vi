@@ -137,51 +137,95 @@ app.whenReady().then(async () => {
     check("остановленный аккаунт назван прямо",
       всеНаПаузе.issues.some((i) => /Ни одной работающей кампании/.test(i.what)));
 
-    console.log("\nотчёт не пропадает целиком из-за одного поля");
-    // Это ровно то, что она видела: <errorCode>8000</errorCode> на всех трёх
-    // аккаунтах и пустая таблица. Настоящего Директа здесь нет, поэтому ответы
-    // подменяются — проверяется поведение приложения, а не Яндекса.
+    console.log("\nотказ 8000 без объяснения: приложение перебирает варианты");
+    // Это ровно то, что она видела: код 8000, пустой errorDetail и пустая
+    // таблица во всех трёх аккаунтах. Настоящего Директа здесь нет, поэтому
+    // ответы подменяются — проверяется поведение приложения, а не Яндекса.
     const отказXML = (детали) =>
       `<?xml version="1.0"?><reports:reportDownloadError xmlns:reports="http://api.direct.yandex.com/v5/reports">` +
       `<reports:ApiError><reports:requestId>777</reports:requestId><reports:errorCode>8000</reports:errorCode>` +
       `<reports:errorMessage>Некорректный запрос</reports:errorMessage>` +
       `<reports:errorDetail>${детали}</reports:errorDetail></reports:ApiError></reports:reportDownloadError>`;
 
-    const разобран = direct.parseReportError(отказXML("Поле FieldNames содержит недопустимое значение: Profit"));
+    const разобран = direct.parseReportError(отказXML("Поле FieldNames содержит недопустимое значение"));
     check("причина отказа берётся из ответа Яндекса, а не обрезается",
-      разобран.code === 8000 && /Profit/.test(разобран.detail) && разобран.requestId === "777",
+      разобран.code === 8000 && разобран.requestId === "777" && /FieldNames/.test(разобран.detail),
       JSON.stringify(разобран));
 
     const настоящийFetch = global.fetch;
-    const запросы = [];
-    global.fetch = async (url, opts) => {
+    let попыток = [];
+    const ответДиректа = (тело) => {
+      const поля = тело.params.FieldNames.join("\t");
+      const строка = тело.params.FieldNames.map((f) => (f === "CampaignName" ? "Тест" : "10")).join("\t");
+      return { ok: true, status: 200, headers: new Map(), text: async () => `${поля}\n${строка}` };
+    };
+
+    // Директ принимает только запрос за «последние 30 дней»: всё, что с датами,
+    // он отклоняет кодом 8000 и ничего не объясняет.
+    global.fetch = async (_url, opts) => {
       const тело = JSON.parse(opts.body);
-      запросы.push(тело.params.FieldNames);
-      if (тело.params.FieldNames.includes("Profit")) {
+      попыток.push(тело.params);
+      if (тело.params.DateRangeType !== "LAST_30_DAYS") {
+        return { ok: false, status: 400, headers: new Map(), text: async () => отказXML("") };
+      }
+      return ответДиректа(тело);
+    };
+    try {
+      const отчёт = await direct.getStats("токен", {
+        dateFrom: "2026-08-01",
+        dateTo: "2026-09-17",
+        accountKey: "a1",
+      });
+      check("отчёт всё-таки получен", Array.isArray(отчёт) && отчёт.length === 1, отчёт && отчёт.length);
+      check("варианты пробовались по очереди, от подробного к простому",
+        попыток.length >= 5 && попыток[0].FieldNames.length > попыток[1].FieldNames.length,
+        попыток.length);
+      check("человеку сказано, чем пришлось пожертвовать и почему",
+        отчёт.limited === true && /перебрало варианты/.test(отчёт.why || ""), отчёт.why);
+      check("имя отчёта латиницей — кириллица ломает заголовки",
+        !попыток.some((p) => /[А-Яа-яЁё]/.test(p.ReportName)));
+
+      // Перебирать заново каждый раз — значит каждый раз ждать несколько
+      // отказов. Рабочий вариант запоминается.
+      попыток = [];
+      await direct.getStats("токен", { dateFrom: "2026-08-01", dateTo: "2026-09-17", accountKey: "a1" });
+      check("в следующий раз сразу берётся рабочий вариант", попыток.length === 1, попыток.length);
+
+      // Отказы, которые перебором не лечатся, перебирать бессмысленно.
+      попыток = [];
+      global.fetch = async (_url, opts) => {
+        попыток.push(JSON.parse(opts.body).params);
         return {
           ok: false,
           status: 400,
           headers: new Map(),
-          text: async () => отказXML("Поле FieldNames содержит недопустимое значение: Profit"),
+          text: async () =>
+            отказXML("Нет доступа").replace("<reports:errorCode>8000", "<reports:errorCode>58"),
         };
-      }
-      const шапка = тело.params.FieldNames.join("\t");
-      const строка = тело.params.FieldNames.map((f) => (f === "CampaignName" ? "Тест" : "10")).join("\t");
-      return { ok: true, status: 200, headers: new Map(), text: async () => `${шапка}\n${строка}` };
-    };
-    try {
-      const отчёт = await direct.getStats("токен", { dateFrom: "2025-09-01", dateTo: "2025-09-17" });
-      check("отчёт всё-таки пришёл", Array.isArray(отчёт) && отчёт.length === 1);
-      check("выпало только то поле, на которое пожаловался Директ",
-        запросы.length === 2 && !запросы[1].includes("Profit") && запросы[1].includes("Conversions"),
-        JSON.stringify(запросы));
-      check("человеку сказано, какого столбца не хватает",
-        отчёт.limited === true && /Profit/.test(отчёт.why || ""), отчёт.why);
-      check("имя отчёта латиницей — кириллица ломает заголовки",
-        !/[А-Яа-яЁё]/.test(JSON.stringify(запросы)));
+      };
+      let отказ = null;
+      await direct.getStats("токен", { dateFrom: "2026-08-01", dateTo: "2026-09-17", accountKey: "a2" }).catch(
+        (e) => {
+          отказ = e;
+        }
+      );
+      check("на «заявка не одобрена» перебор прекращается сразу", попыток.length === 1, попыток.length);
+      check("и человеку сказано, что с этим делать",
+        отказ && String(отказ.howToFix || "").length > 50, отказ && отказ.howToFix);
     } finally {
       global.fetch = настоящийFetch;
     }
+
+    console.log("\nотчёт с шапкой и итогами читается так же");
+    // Часть аккаунтов отдаёт отчёт только с шапкой. Первая строка тогда — это
+    // название отчёта, а последняя — итоги: ни то ни другое не кампания.
+    const сШапкой = direct.parseReportTsv(
+      'Отчёт за период\nCampaignId\tCampaignName\tClicks\n1\tПоиск\t10\n2\tСети\t5\nИтого\n',
+      ["CampaignId", "CampaignName", "Clicks"]
+    );
+    check("название отчёта строкой таблицы не считается", сШапкой.length === 2, сШапкой.length);
+    check("и строка итогов тоже", !сШапкой.some((r) => String(r.CampaignId).includes("Итого")));
+    check("числа разобраны числами", сШапкой[0].Clicks === 10, сШапкой[0].Clicks);
 
     console.log("\nбаланс просят по логину, а не по подписи");
     // «Виктория Пылаева» — это подпись в Яндексе, а не логин. Именно из-за неё
