@@ -887,6 +887,7 @@ const profile = require("./profile.cjs");
 const exportDocs = require("./exportDocs.cjs");
 const yandexAuth = require("./yandexAuth.cjs");
 const direct = require("./direct.cjs");
+const directaudit = require("./directaudit.cjs");
 const cloud = require("./cloud.cjs");
 const connectionError = require("./connectionError.cjs");
 
@@ -2343,6 +2344,151 @@ async function directAuth() {
 
 // The client login belongs to the account, not to the Direct module: a different
 // Yandex account means a different Direct, quite possibly a non-agency one.
+/**
+ * Все подключённые аккаунты Яндекса — с обновлёнными токенами.
+ *
+ * Директ до сих пор смотрел только в активный аккаунт, а работа устроена иначе:
+ * кампании живут в трёх аккаунтах сразу, и вопрос «где сейчас горит» — про все
+ * три одновременно. Переключаться между ними, чтобы это увидеть, — это и есть
+ * та работа, которой быть не должно.
+ */
+async function allYandexAccounts() {
+  const root = await getRootPath();
+  const accounts = await cloud.getAccounts(root);
+  const list = accounts?.yandex?.accounts || [];
+  const ready = [];
+  for (const raw of list) {
+    if (!raw.token && !raw.refreshToken) continue;
+    try {
+      const { account, renewed } = await cloud.ensureYandexToken(raw);
+      if (renewed) await cloud.saveAccounts(root, cloud.withYandexAccount(await cloud.getAccounts(root), account));
+      ready.push(account);
+    } catch (e) {
+      // Один просроченный аккаунт не должен уносить с собой остальные: его
+      // место в списке останется, но с объяснением, что с ним не так.
+      ready.push({ ...raw, tokenError: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return ready;
+}
+
+/**
+ * Общая картина по всем аккаунтам сразу: кампании, баланс, статистика, разбор.
+ *
+ * Каждый аккаунт считается сам по себе и сам по себе падает: отказ одного —
+ * это строка «вот с этим аккаунтом вот что», а не пустой экран вместо всех
+ * трёх. Ровно так же с балансом: его в API v5 нет вовсе, он берётся из старого
+ * Live v4, и его отсутствие не должно скрывать кампании.
+ */
+ipcMain.handle("direct:overview", async (_e, range) => {
+  const accounts = await allYandexAccounts();
+  if (!accounts.length) {
+    throw new Error(
+      "Не подключено ни одного аккаунта Яндекса. Откройте «☁️ Облако» → «Подключение» и добавьте аккаунты — " +
+        "Директ работает на тех же токенах."
+    );
+  }
+  const период = {
+    dateFrom: range?.dateFrom || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10),
+    dateTo: range?.dateTo || new Date().toISOString().slice(0, 10),
+  };
+
+  const итог = [];
+  for (const account of accounts) {
+    const строка = {
+      id: account.id,
+      label: account.label || account.login || account.id,
+      login: account.login || "",
+      clientLogin: account.directClientLogin || "",
+      campaigns: [],
+      stats: [],
+      balance: null,
+      issues: [],
+      totals: null,
+      error: "",
+      howToFix: "",
+      balanceError: "",
+    };
+    if (account.tokenError) {
+      строка.error = account.tokenError;
+      итог.push(строка);
+      continue;
+    }
+    try {
+      строка.campaigns = await direct.listCampaigns(account.token, account.directClientLogin);
+      строка.stats = await direct.getStats(account.token, { ...период, clientLogin: account.directClientLogin });
+    } catch (e) {
+      строка.error = e instanceof Error ? e.message : String(e);
+      строка.howToFix = (e && e.howToFix) || "";
+    }
+    try {
+      строка.balance = await direct.getBalance(account.token, account.directClientLogin || account.login);
+    } catch (e) {
+      строка.balanceError = e instanceof Error ? e.message : String(e);
+    }
+    const разбор = directaudit.findIssues({
+      campaigns: строка.campaigns,
+      stats: строка.stats,
+      balance: строка.balance,
+    });
+    строка.issues = разбор.issues;
+    строка.totals = разбор.totals;
+    итог.push(строка);
+  }
+  return { range: период, accounts: итог };
+});
+
+/**
+ * Подробный разбор одного аккаунта: к кампаниям и статистике добавляются фразы.
+ *
+ * Фразы грузятся отдельно и только по запросу: их тысячи, и тянуть их ради
+ * обзорной таблицы — это лишние минуты ожидания и лишние баллы API.
+ */
+ipcMain.handle("direct:audit", async (_e, { accountId, dateFrom, dateTo } = {}) => {
+  const accounts = await allYandexAccounts();
+  const account = accounts.find((a) => a.id === accountId) || accounts[0];
+  if (!account) throw new Error("Аккаунт не найден — подключите его в «☁️ Облако».");
+  if (account.tokenError) throw new Error(account.tokenError);
+
+  const период = {
+    dateFrom: dateFrom || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10),
+    dateTo: dateTo || new Date().toISOString().slice(0, 10),
+  };
+  const campaigns = await direct.listCampaigns(account.token, account.directClientLogin);
+  const stats = await direct.getStats(account.token, { ...период, clientLogin: account.directClientLogin });
+  let keywords = [];
+  if (campaigns.length) {
+    try {
+      keywords = await direct.listKeywords(
+        account.token,
+        campaigns.map((c) => c.id),
+        account.directClientLogin
+      );
+    } catch {
+      // Фраз может не быть вовсе (например, только мастер кампаний) — это не
+      // повод обрывать разбор всего остального.
+    }
+  }
+  let balance = null;
+  try {
+    balance = await direct.getBalance(account.token, account.directClientLogin || account.login);
+  } catch {
+    // см. выше: баланс живёт в старом API и его отсутствие не должно ничего ломать
+  }
+  const разбор = directaudit.findIssues({ campaigns, stats, keywords, balance });
+  return {
+    account: { id: account.id, label: account.label || account.login, login: account.login || "" },
+    range: период,
+    balance,
+    campaigns,
+    stats,
+    keywordCount: keywords.length,
+    issues: разбор.issues,
+    totals: разбор.totals,
+    text: directaudit.describe(разбор),
+  };
+});
+
 ipcMain.handle("direct:getSettings", async () => {
   const account = await currentYandexAccount();
   return {

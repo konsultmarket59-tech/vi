@@ -717,6 +717,67 @@ export interface MediaGenerationResult {
 
 export type CloudProvider = "yandex" | "google";
 
+
+/** Одна найденная слабость и что с ней делать. Числа — в «почему». */
+export interface DirectIssue {
+  level: "высокий" | "средний" | "низкий";
+  what: string;
+  why: string;
+  fix: string;
+}
+
+export interface DirectTotals {
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+  ctr: number;
+  avgCpc: number;
+  cpa: number;
+}
+
+export interface DirectBalance {
+  login: string;
+  amount: number;
+  currency: string;
+  debt: number;
+  discount: number;
+}
+
+/** Строка обзора: один аккаунт со своими кампаниями, балансом и разбором. */
+export interface DirectAccountRow {
+  id: string;
+  label: string;
+  login: string;
+  clientLogin: string;
+  campaigns: DirectCampaign[];
+  stats: Record<string, string | number>[];
+  balance: DirectBalance | null;
+  issues: DirectIssue[];
+  totals: DirectTotals | null;
+  /** Почему по этому аккаунту ничего не пришло — и как это починить. */
+  error: string;
+  howToFix: string;
+  balanceError: string;
+}
+
+export interface DirectOverview {
+  range: { dateFrom: string; dateTo: string };
+  accounts: DirectAccountRow[];
+}
+
+export interface DirectAudit {
+  account: { id: string; label: string; login: string };
+  range: { dateFrom: string; dateTo: string };
+  balance: DirectBalance | null;
+  campaigns: DirectCampaign[];
+  stats: Record<string, string | number>[];
+  keywordCount: number;
+  issues: DirectIssue[];
+  totals: DirectTotals;
+  text: string;
+}
+
 export interface DirectSettings {
   /** Needed only when an agency account acts for a client; empty otherwise. */
   clientLogin: string;
@@ -1866,6 +1927,8 @@ export interface ElectronAPI {
   getDirectSettings(): Promise<DirectSettings>;
   saveDirectSettings(patch: Partial<DirectSettings>): Promise<DirectSettings>;
   testDirectConnection(): Promise<DirectTestResult>;
+  directOverview(range?: { dateFrom?: string; dateTo?: string }): Promise<DirectOverview>;
+  directAudit(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectAudit>;
   listDirectCampaigns(): Promise<DirectCampaign[]>;
   listDirectKeywords(campaignIds: number[]): Promise<DirectKeyword[]>;
   listDirectAds(campaignIds: number[]): Promise<DirectAd[]>;

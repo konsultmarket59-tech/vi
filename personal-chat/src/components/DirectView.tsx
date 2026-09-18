@@ -4,8 +4,10 @@ import type { ConnectionStatusValue } from "./ConnectionStatus";
 import type {
   CloudAccounts,
   Conversation,
+  DirectAudit,
   DirectCampaign,
   DirectKeyword,
+  DirectOverview,
   DirectStatRow,
   Settings,
   Skill,
@@ -19,7 +21,7 @@ interface Props {
   onOpenSettings: () => void;
 }
 
-type Tab = "campaigns" | "agent" | "settings";
+type Tab = "all" | "campaigns" | "agent" | "settings";
 
 /** Yandex's state/status codes, in words. */
 const STATE_LABEL: Record<string, string> = {
@@ -42,7 +44,13 @@ function money(value: number): string {
 }
 
 export default function DirectView({ settings, skills, onOpenSettings }: Props) {
-  const [tab, setTab] = useState<Tab>("campaigns");
+  const [tab, setTab] = useState<Tab>("all");
+  // Все аккаунты сразу: кампании живут в трёх Директах, и вопрос «где сейчас
+  // горит» — про все три одновременно. Переключаться ради этого не надо.
+  const [overview, setOverview] = useState<DirectOverview | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [audit, setAudit] = useState<DirectAudit | null>(null);
+  const [auditing, setAuditing] = useState("");
   const [clientLogin, setClientLogin] = useState("");
   const [cloudAccounts, setCloudAccounts] = useState<CloudAccounts>({
     yandex: { activeId: "", accounts: [] },
@@ -106,6 +114,37 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     setTimeout(() => setNote(null), 2500);
   }
 
+
+  /**
+   * Обзор по всем аккаунтам.
+   *
+   * Каждый аккаунт считается сам по себе и сам по себе падает: отказ одного —
+   * это строка «вот с этим аккаунтом вот что», а не пустой экран вместо всех.
+   */
+  async function loadOverview() {
+    setOverviewLoading(true);
+    setNote("");
+    try {
+      setOverview(await window.api.directOverview({}));
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOverviewLoading(false);
+    }
+  }
+
+  /** Подробный разбор одного аккаунта — с фразами, которых нет в обзоре. */
+  async function runAudit(accountId: string) {
+    setAuditing(accountId);
+    setNote("");
+    try {
+      setAudit(await window.api.directAudit({ accountId }));
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuditing("");
+    }
+  }
   async function test() {
     setTesting(true);
     setConnection(CHECKING);
@@ -243,6 +282,9 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             )}
           </div>
           <div className="project-tabs">
+            <button className={tab === "all" ? "tab active" : "tab"} onClick={() => setTab("all")}>
+              Все аккаунты
+            </button>
             <button className={tab === "campaigns" ? "tab active" : "tab"} onClick={() => setTab("campaigns")}>
               Кампании
             </button>
@@ -254,6 +296,158 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             </button>
           </div>
         </div>
+
+        {tab === "all" && (
+          <div className="panel-section">
+            <p className="hint">
+              Все подключённые аккаунты Яндекса сразу: кампании, расход за последние 30 дней, баланс и
+              найденные слабые места. Переключаться между аккаунтами для этого не нужно — и не нужно
+              помнить, в каком из них что настроено.
+            </p>
+            <div className="folder-row">
+              <button className="btn btn-primary" onClick={loadOverview} disabled={overviewLoading}>
+                {overviewLoading ? "Собираю по всем аккаунтам…" : "Обновить"}
+              </button>
+              {overview && (
+                <span className="hint">
+                  Период: {overview.range.dateFrom} — {overview.range.dateTo}
+                </span>
+              )}
+            </div>
+
+            {overview?.accounts.map((acc) => (
+              <div key={acc.id} className="direct-account">
+                <div className="direct-account-head">
+                  <h3>{acc.label}</h3>
+                  {acc.login && <span className="hint">{acc.login}</span>}
+                  {acc.balance ? (
+                    <span className={acc.balance.amount <= 0 ? "direct-balance empty" : "direct-balance"}>
+                      {money(acc.balance.amount)} {acc.balance.currency}
+                      {acc.balance.debt ? ` · долг ${money(acc.balance.debt)}` : ""}
+                    </span>
+                  ) : (
+                    <span className="hint" title={acc.balanceError}>
+                      баланс недоступен
+                    </span>
+                  )}
+                </div>
+
+                {acc.error ? (
+                  <div className="warning-banner">
+                    {acc.error}
+                    {/*
+                      Код ошибки сам по себе человеку ничего не говорит. Разница
+                      между «нет доступа» и «заявка не подана» — это разница
+                      между «сломалось» и «надо сходить и нажать вот здесь».
+                    */}
+                    {acc.howToFix && <pre className="direct-howto">{acc.howToFix}</pre>}
+                  </div>
+                ) : (
+                  <>
+                    {acc.totals && (
+                      <p className="hint">
+                        Показов {acc.totals.impressions}, кликов {acc.totals.clicks}, CTR{" "}
+                        {acc.totals.ctr.toFixed(2)}%, расход {money(acc.totals.cost)}, конверсий{" "}
+                        {acc.totals.conversions}
+                        {acc.totals.cpa ? `, цена конверсии ${money(acc.totals.cpa)}` : ""}
+                      </p>
+                    )}
+                    {acc.campaigns.length === 0 ? (
+                      <p className="hint">Кампаний в этом аккаунте нет.</p>
+                    ) : (
+                      <div className="ops-table-scroll">
+                        <table className="ops-table">
+                          <thead>
+                            <tr>
+                              <th>Кампания</th>
+                              <th>Состояние</th>
+                              <th>Показы</th>
+                              <th>Клики</th>
+                              <th>CTR</th>
+                              <th>Расход</th>
+                              <th>Конверсии</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {acc.campaigns.map((c) => {
+                              const row = acc.stats.find((r) => String(r.CampaignId) === String(c.id));
+                              return (
+                                <tr key={c.id}>
+                                  <td>{c.name}</td>
+                                  <td>{STATE_LABEL[c.state] || c.state}</td>
+                                  <td>{row ? row.Impressions : "—"}</td>
+                                  <td>{row ? row.Clicks : "—"}</td>
+                                  <td>{row ? `${row.Ctr}%` : "—"}</td>
+                                  <td>{row ? money(Number(row.Cost)) : "—"}</td>
+                                  <td>{row ? row.Conversions ?? "—" : "—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {!!acc.issues.length && (
+                      <div className="direct-issues">
+                        <h4>Слабые места</h4>
+                        {acc.issues.map((i, n) => (
+                          <div key={n} className={`direct-issue level-${i.level}`}>
+                            <b>{i.what}</b>
+                            <span className="hint">{i.why}</span>
+                            <span>{i.fix}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => runAudit(acc.id)}
+                      disabled={auditing === acc.id}
+                    >
+                      {auditing === acc.id ? "Разбираю…" : "Разобрать подробно (с фразами)"}
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+
+            {audit && (
+              <div className="direct-account">
+                <h3>Подробный разбор: {audit.account.label}</h3>
+                <p className="hint">
+                  {audit.range.dateFrom} — {audit.range.dateTo} · кампаний {audit.campaigns.length} · фраз{" "}
+                  {audit.keywordCount}
+                </p>
+                {/*
+                  Арифметика посчитана кодом, а не моделью: решения здесь
+                  денежные, и ошибка в числе стоит настоящих денег. Каждая
+                  находка несёт числа, по которым она сделана.
+                */}
+                <pre className="direct-howto">{audit.text}</pre>
+                <div className="folder-row">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      navigator.clipboard.writeText(audit.text);
+                      setNote("Разбор скопирован — можно отдать его агенту или вставить в отчёт.");
+                    }}
+                  >
+                    Скопировать разбор
+                  </button>
+                  <button className="link-btn" onClick={() => setAudit(null)}>
+                    закрыть
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!overview && !overviewLoading && (
+              <p className="hint">Нажмите «Обновить» — приложение обойдёт все подключённые аккаунты.</p>
+            )}
+          </div>
+        )}
 
         {tab === "settings" && (
           <div className="panel-section">

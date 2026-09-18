@@ -2437,3 +2437,70 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
 .media-history-toggle:hover {
   background: var(--bg-soft, #f3f4f6);
 }
+
+/*
+ * Директ: все аккаунты сразу. Каждый аккаунт — своя карточка со своим балансом
+ * и своими находками, потому что отвечать за них приходится по отдельности.
+ */
+.direct-account {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.direct-account-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.direct-account-head h3 {
+  margin: 0;
+}
+
+.direct-balance {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Нулевой баланс — не «ещё одно число»: при нём показы стоят целиком. */
+.direct-balance.empty {
+  color: var(--danger, #c0392b);
+}
+
+.direct-howto {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  background: var(--bg-soft, #f6f7f9);
+  border-radius: 6px;
+  padding: 10px;
+  margin: 8px 0 0;
+}
+
+.direct-issues {
+  margin-top: 12px;
+}
+
+.direct-issues h4 {
+  margin: 0 0 6px;
+}
+
+.direct-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+/* Уровень виден цветом полосы: начинать надо с денег, а не с мелочей. */
+.direct-issue.level-высокий { border-left-color: var(--danger, #c0392b); }
+.direct-issue.level-средний { border-left-color: #d9822b; }
+.direct-issue.level-низкий { border-left-color: var(--border); }

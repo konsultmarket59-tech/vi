@@ -15,6 +15,58 @@ const DIRECT_REPORTS = "https://api.direct.yandex.com/v5/reports";
  * One API call. `clientLogin` is required when the token belongs to an agency
  * account acting for a client, and harmless to omit for a direct advertiser.
  */
+/**
+ * Что делать с отказом Директа.
+ *
+ * Код ошибки сам по себе человеку ничего не говорит, а формулировки Яндекса
+ * написаны для того, кто уже знает, где эта настройка лежит. Разница между
+ * «нет доступа» и «заявка не подана» — это разница между «сломалось» и «надо
+ * сходить и нажать вот здесь», и её обязано объяснять приложение.
+ *
+ * Отдельно про 58. Это НЕ ошибка приложения и не чинится кодом: Яндекс требует,
+ * чтобы у приложения был одобренный доступ к API Директа. Заявка подаётся
+ * человеком в интерфейсе Директа и рассматривается несколько рабочих дней.
+ * Пока она не одобрена, API не отдаёт ничего — ни кампаний, ни статистики.
+ */
+function howToFix(code) {
+  switch (code) {
+    case 58:
+      return [
+        "Это не сбой приложения и не чинится настройками: Яндекс требует, чтобы у вашего приложения",
+        "с oauth.yandex.ru был ОДОБРЕННЫЙ доступ к API Директа. Порядок такой:",
+        "",
+        "1. Зайдите в Директ под тем аккаунтом, чьи кампании нужны.",
+        "2. Откройте страницу заявки: https://direct.yandex.ru/registered/main.pl?cmd=apiSettings",
+        "   (в интерфейсе: «Настройки» → «Настройки API» / «Доступ к API»).",
+        "3. Заполните заявку на доступ к API для вашего приложения — понадобится его ID",
+        "   с oauth.yandex.ru и описание, зачем нужен доступ.",
+        "4. Дождитесь одобрения. Обычно несколько рабочих дней; о решении Яндекс пишет письмом.",
+        "",
+        "Заявка подаётся ОДИН раз на приложение, а не на каждый аккаунт: после одобрения",
+        "тем же приложением можно работать со всеми вашими аккаунтами.",
+      ].join("\n");
+    case 53:
+      return "Токен не передан или просрочен. Подключите аккаунт заново: «☁️ Облако» → «Подключение».";
+    case 54:
+      return (
+        "У токена нет прав на Директ. В приложении на oauth.yandex.ru отметьте права Яндекс.Директа " +
+        "(direct:api) и получите токен заново — права добавляются только новым токеном."
+      );
+    case 513:
+    case 514:
+      return "Слишком много запросов за раз. Подождите минуту и повторите — это ограничение Яндекса, не приложения.";
+    case 152:
+      return "На аккаунте закончились баллы API Директа. Они начисляются заново, обычно в течение суток.";
+    case 9000:
+      return (
+        "Логин клиента указан для неагентского аккаунта. Если это ваш собственный аккаунт, поле " +
+        "«Логин клиента» надо оставить пустым."
+      );
+    default:
+      return "";
+  }
+}
+
 async function call(token, service, method, params, { clientLogin, sandbox } = {}) {
   const base = sandbox ? DIRECT_API.replace("api.direct", "api-sandbox.direct") : DIRECT_API;
   const headers = {
@@ -47,7 +99,12 @@ async function call(token, service, method, params, { clientLogin, sandbox } = {
     // error_detail is the field that actually explains what to fix; error_string is
     // a category like "Недостаточно прав".
     const detail = body.error.error_detail || body.error.error_string || "неизвестная ошибка";
-    throw new Error(`Директ: ${detail} (код ${body.error.error_code})`);
+    const code = Number(body.error.error_code);
+    const problem = new Error(`Директ: ${detail} (код ${code})`);
+    problem.code = code;
+    problem.howToFix = howToFix(code);
+    if (problem.howToFix) problem.message += `\n\n${problem.howToFix}`;
+    throw problem;
   }
   return body.result || {};
 }
@@ -211,6 +268,49 @@ async function getStats(token, { dateFrom, dateTo, clientLogin }, attempt = 0) {
   });
 }
 
+
+/**
+ * Баланс аккаунта.
+ *
+ * В API v5 баланса нет вовсе — он живёт в старом Live v4, и это не выбор
+ * приложения, а то, как устроен Директ. Токен и права те же самые, поэтому
+ * лишних действий от человека не требуется.
+ *
+ * Отказ здесь не обрывает всё остальное: не увидеть баланс неприятно, но
+ * кампании и статистика от этого не перестают работать.
+ */
+const DIRECT_LIVE_V4 = "https://api.direct.yandex.ru/live/v4/json/";
+
+async function getBalance(token, login) {
+  const res = await fetch(DIRECT_LIVE_V4, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({
+      method: "AccountManagement",
+      token,
+      locale: "ru",
+      param: { Action: "Get", SelectionCriteria: login ? { Logins: [login] } : {} },
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body.error_code || body.error_str) {
+    const problem = new Error(`Баланс: ${body.error_detail || body.error_str} (код ${body.error_code})`);
+    problem.code = Number(body.error_code);
+    problem.howToFix = howToFix(Number(body.error_code));
+    throw problem;
+  }
+  const account = (body.data?.Accounts || [])[0];
+  if (!account) return null;
+  return {
+    login: account.Login || login || "",
+    amount: Number(account.Amount || 0),
+    currency: account.Currency || "RUB",
+    // Долг и предупреждение о нём — то, ради чего на баланс и смотрят.
+    debt: Number(account.Debt || 0),
+    discount: Number(account.Discount || 0),
+  };
+}
+
 /** Turns a campaign on or off. The only mutation exposed, and it goes through confirmation. */
 async function setCampaignState(token, campaignId, resume, clientLogin) {
   const method = resume ? "resume" : "suspend";
@@ -326,6 +426,8 @@ function parseAgentAction(text) {
 }
 
 module.exports = {
+  howToFix,
+  getBalance,
   testConnection,
   listCampaigns,
   listAdGroups,
