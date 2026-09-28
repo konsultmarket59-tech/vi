@@ -360,6 +360,20 @@ function setById(html, id, inner) {
 const ICON_KEYS = ["plot", "pen", "layers", "home", "sun"];
 
 /**
+ * Двоеточие после ключа.
+ *
+ * Без него «Облицовка» и «кирпич» стоят двумя строками на экране, но в тексте
+ * слипаются в «Облицовкакирпич» — именно так их копируют, так их читает вслух
+ * экранный диктор и так же их читает поисковик: у него текстовый слой, а не
+ * картинка.
+ */
+function keyLabel(k) {
+  const s = String(k ?? "").trim();
+  if (!s) return "";
+  return /[:.!?]$/.test(s) ? s : `${s}:`;
+}
+
+/**
  * Тот же текст, что нарисует скрипт, — но прямо в коде страницы.
  *
  * Робот Яндекса выполняет скрипты не всегда, и страница, которая рисуется
@@ -386,7 +400,10 @@ function prefill(html, house) {
     out,
     "nzhKv",
     house.intro.items
-      .map((it, i) => `<li data-ico="${ICON_KEYS[i % ICON_KEYS.length]}"><div><b>${p(it.k)}</b><span>${p(it.v)}</span></div></li>`)
+      .map(
+        (it, i) =>
+          `<li data-ico="${ICON_KEYS[i % ICON_KEYS.length]}"><div><b>${p(keyLabel(it.k))}</b> <span>${p(it.v)}</span></div></li>`
+      )
       .join("")
   );
   out = setById(out, "nzhSpecs", house.specs.map((s) => `<div><dt>${p(s[0])}</dt><dd>${p(s[1])}</dd></div>`).join(""));
@@ -560,6 +577,7 @@ module.exports = {
   jsonLd,
   pageUrlFor,
   checkHouse,
+  keyLabel,
   prefill,
   renderPage,
   sharedStyles,
