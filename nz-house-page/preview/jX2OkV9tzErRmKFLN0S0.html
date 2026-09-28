@@ -36,7 +36,7 @@
 .nzh ul{padding:0;list-style:none}
 .nzh img{max-width:100%;display:block}
 .nzh :where(a){color:inherit}
-.nzh button,.nzh input{font:inherit;color:inherit}
+.nzh :where(button,input){font:inherit;color:inherit}
 .nzh :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 
 .nzh-wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,3.5vw,40px)}
@@ -48,21 +48,19 @@
 .nzh-panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow);padding:clamp(20px,3.4vw,44px)}
 
 /* ---------- Кнопки: скругление 100 ---------- */
-.nzh-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;border:0;cursor:pointer;font-family:var(--text);font-weight:700;font-size:15px;letter-spacing:.01em;padding:16px 28px;border-radius:var(--pill);text-decoration:none;transition:background .18s ease,transform .18s ease,box-shadow .18s ease;white-space:nowrap}
+.nzh-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;border:2px solid transparent;cursor:pointer;font-family:var(--text);font-weight:700;font-size:15px;letter-spacing:.01em;padding:15px 28px;border-radius:var(--pill);text-decoration:none;transition:background .18s ease,color .18s ease,border-color .18s ease,transform .18s ease;white-space:nowrap}
 .nzh-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.nzh-btn--primary{background:var(--brand);color:#fff;box-shadow:0 10px 24px -8px rgba(38,26,126,.6)}
-.nzh-btn--primary:hover{background:var(--brand-700);transform:translateY(-1px)}
-.nzh-btn--white{background:#fff;color:var(--brand)}
-.nzh-btn--white:hover{transform:translateY(-1px);box-shadow:0 10px 24px -10px rgba(0,0,0,.35)}
-.nzh-btn--ghost{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-.nzh-btn--ghost:hover{background:rgba(255,255,255,.26)}
-.nzh-btn--line{background:transparent;color:var(--brand-ink);border:1.5px solid color-mix(in srgb,var(--brand) 30%,transparent)}
-.nzh-btn--line:hover{background:color-mix(in srgb,var(--brand) 7%,transparent)}
-.nzh-btn--sm{padding:11px 18px;font-size:13.5px}
+.nzh-btn--primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 10px 24px -8px rgba(38,26,126,.6)}
+.nzh-btn--primary:hover{background:var(--brand-700);border-color:var(--brand-700);transform:translateY(-1px)}
+.nzh-btn--white{background:#fff;border-color:#fff;color:var(--brand)}
+.nzh-btn--white:hover{background:var(--brand);border-color:#fff;color:#fff}
+.nzh-btn--ghost{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.6);color:#fff;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.nzh-btn--ghost:hover{background:rgba(255,255,255,.26);border-color:#fff}
+.nzh-btn--line{background:transparent;border-color:color-mix(in srgb,var(--brand) 35%,transparent);color:var(--brand-ink)}
+.nzh-btn--line:hover{background:var(--brand);border-color:var(--brand);color:#fff}
+.nzh-btn--sm{padding:10px 18px;font-size:13.5px}
 
 .nzh-glass{background:rgba(28,19,97,.42);-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(1.2);backdrop-filter:blur(var(--glass-blur)) saturate(1.2);border:1px solid rgba(255,255,255,.16);color:#fff;box-shadow:0 14px 40px -12px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.18)}
-.nzh-pill{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;letter-spacing:.03em;padding:8px 14px;border-radius:var(--pill);background:rgba(255,255,255,.16);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.32);color:#fff}
-.nzh-pill--ok::before{content:"";width:8px;height:8px;border-radius:50%;background:#6EE7A0}
 
 /* ---------- Первый экран (под прозрачной шапкой Тильды) ---------- */
 .nzh-hero{position:relative;isolation:isolate;overflow:hidden;background:var(--brand-700);color:#fff;min-height:clamp(640px,92vh,900px);display:flex}
@@ -73,9 +71,8 @@
   linear-gradient(90deg,rgba(28,19,97,.86) 0%,rgba(28,19,97,.5) 45%,rgba(28,19,97,.05) 78%),
   linear-gradient(180deg,rgba(15,10,45,0) 60%,rgba(15,10,45,.6) 100%)}
 .nzh-hero__in{width:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:36px;padding-top:calc(var(--nzh-header) + 32px);padding-bottom:clamp(28px,4vw,48px)}
-.nzh-hero__pills{display:flex;flex-wrap:wrap;gap:8px}
-.nzh-hero__kicker{font-size:13px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;opacity:.85;margin-top:22px}
-.nzh-hero__title{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(64px,10vw,132px);line-height:.86;letter-spacing:.005em;margin-top:8px}
+.nzh-hero__kicker{font-size:13px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;opacity:.85}
+.nzh-hero__title{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(60px,9vw,124px);line-height:.9;letter-spacing:.005em;margin-top:8px;white-space:nowrap}
 .nzh-hero__sub{margin-top:18px;max-width:46ch;font-size:clamp(16px,1.5vw,19px);font-weight:500;opacity:.92}
 .nzh-hero__cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
 .nzh-hero__bottom{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch}
@@ -218,7 +215,7 @@
   .nzh-mbar .nzh-btn{flex:1;padding:14px 10px;font-size:14px}
   .nzh-foot{padding-bottom:110px}
 }
-@media (max-width:520px){ .nzh-row2{grid-template-columns:1fr} .nzh-map iframe{height:460px} }
+@media (max-width:520px){ .nzh-hero__title{white-space:normal} .nzh-row2{grid-template-columns:1fr} .nzh-map iframe{height:460px} }
 @media (prefers-reduced-motion:reduce){ .nzh *{transition:none!important;animation:none!important} }
 </style>
 
@@ -229,7 +226,6 @@
     <div class="nzh-hero__scrim"></div>
     <div class="nzh-wrap nzh-hero__in">
       <div>
-        <div class="nzh-hero__pills" id="nzhPills"></div>
         <p class="nzh-hero__kicker" id="nzhKicker"></p>
         <h1 class="nzh-hero__title" id="nzhTitle"></h1>
         <p class="nzh-hero__sub" id="nzhSub"></p>
@@ -481,32 +477,7 @@ var HOUSE = {
       "59:32:3980009:10792"
     ]
   ],
-  "packages": [
-    {
-      "name": "Тёплый контур",
-      "price": 6700000,
-      "priceNote": "с участком 8 соток",
-      "text": "Фундамент УШП, стены, кровля. Фасад: планкен и металл. Окна и двери установлены. Дом закрыт и готов к внутренним работам."
-    },
-    {
-      "name": "White Box",
-      "price": 7800000,
-      "priceNote": "с участком 8 соток",
-      "text": "Всё из «Тёплого контура» плюс: тёплый пол в два контура и котёл «Эван» 9 кВт; электрика 15 кВт с подготовкой под умный дом; приточная вентиляция КИВ в каждой комнате; скважина и два незамерзающих крана; септик «МАЛАХИТ 5 ПР»; котельная с нержавеющими трубами, трапом и местом под газовый котёл; оштукатуренные стены и выполненная стяжка; двунаправленная подсветка фасада; благоустройство по дизайн-коду посёлка."
-    },
-    {
-      "name": "Комфорт",
-      "price": 9000000,
-      "priceNote": "с участком 8 соток",
-      "text": "Всё из «White Box» плюс чистовая отделка интерьера, санузлы с микроцементом на стенах, сантехника и бойлер. Готов к заселению."
-    },
-    {
-      "name": "С мебелью",
-      "price": 10000000,
-      "priceNote": "с участком 8 соток",
-      "text": "Всё из «Комфорта» плюс мебель во всех помещениях, кухонный гарнитур и техника."
-    }
-  ],
+  "packages": [],
   "sections": [
     {
       "title": "Конструктив",
@@ -653,12 +624,8 @@ if (CONFIG.heroVideo){
 } else if (photos[0]){
   var hi = document.createElement("img"); hi.alt = photos[0].alt; withFallback(hi, 0); hi.src = photos[0].src; hm.appendChild(hi);
 }
-$("nzhPills").innerHTML =
-  '<span class="nzh-pill nzh-pill--ok">' + esc(H.statusLabel) + '</span>' +
-  '<span class="nzh-pill">' + esc(H.village) + '</span>' +
-  (H.plotArea ? '<span class="nzh-pill">Участок ' + esc(H.plotArea) + ' сот. в цене</span>' : "");
 $("nzhKicker").textContent = H.village + " · " + H.address;
-$("nzhTitle").innerHTML = "Дом<br>" + esc(H.houseArea) + " м²";
+$("nzhTitle").textContent = "Дом " + H.houseArea + " м²";
 $("nzhSub").textContent = H.subtitle;
 $("nzhPrice").textContent = rub(H.price);
 $("nzhFacts").innerHTML = H.facts.map(function(f){ return '<div class="nzh-fact"><dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd></div>'; }).join("");

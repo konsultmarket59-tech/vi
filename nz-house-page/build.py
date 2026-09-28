@@ -135,6 +135,10 @@ def build_house(row, x, data_date):
         elif sec["items"]:
             build.append(sec)
 
+    # готовый дом продаётся в конкретном виде — комплектации ему не показываем
+    if (row.get("Mark") or "").strip() == "готов":
+        packages = []
+
     village, _, address = row["Title"].partition(",")
     village, address = village.strip(), address.strip()
     area = row.get("Characteristics:площадь дома") or (x or {}).get("area") or ""
