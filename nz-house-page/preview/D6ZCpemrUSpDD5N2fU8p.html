@@ -1,0 +1,841 @@
+<!-- ============================================================
+     Лендинг дома · «Новая Земля»
+     Вставляется в Тильду блоком T123 «HTML-код».
+     Шапка — от Тильды (прозрачная, лежит поверх первого экрана).
+     Данные дома собраны build.py из выгрузки Tilda Store (CSV) и таблицы «Дома в продаже» (XLSX).
+     ============================================================ -->
+<title>Дом 85 м², Ландышевая, 28</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=Raleway:wght@400;500;600;700&display=swap">
+<style>
+/* ---------- Токены дизайн-системы «Новая Земля» v1.0 ---------- */
+.nzh{
+  /* Настройка под Тильду: высота прозрачной шапки и отступ липкой навигации */
+  --nzh-header:110px;       /* сколько места сверху занимает шапка Тильды */
+  --nzh-sticky-top:0px;     /* если шапка Тильды фиксируется при скролле — поставьте её высоту */
+
+  --brand:#261A7E; --brand-700:#1C1361; --accent:#5D74FF; --accent-2:#7F92FF;
+  --ink:#373736; --ink-2:#6E6E78; --ink-3:#9A9AA6;
+  --bg:#EEF0F6; --panel:#FFFFFF; --panel-2:#F7F8FB; --line:#E6E8F1; --line-2:#EEF0F6;
+  --brand-ink:#261A7E;
+  --display:"Alumni Sans","Arial Narrow",system-ui,sans-serif;
+  --text:"Raleway","Helvetica Neue",Arial,sans-serif;
+  --r-xl:30px; --r-lg:22px; --r-md:16px; --r-sm:11px; --pill:100px;
+  --shadow-sm:0 2px 10px rgba(38,26,126,.06);
+  --shadow:0 12px 40px -12px rgba(38,26,126,.18);
+  --glass-blur:19px;
+
+  font-family:var(--text);color:var(--ink);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1200px 700px at 78% 20%, rgba(93,116,255,.10), transparent 60%),
+    linear-gradient(180deg,#EEF0F6,#E9EBF2);
+  background-color:var(--bg);
+}
+.nzh *,.nzh *::before,.nzh *::after{box-sizing:border-box}
+.nzh h1,.nzh h2,.nzh h3,.nzh p,.nzh ul,.nzh dl,.nzh dd{margin:0}
+.nzh ul{padding:0;list-style:none}
+.nzh img{max-width:100%;display:block}
+.nzh :where(a){color:inherit}
+.nzh button,.nzh input{font:inherit;color:inherit}
+.nzh :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+.nzh-wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,3.5vw,40px)}
+.nzh-sec{padding-block:clamp(48px,6vw,88px) 0;scroll-margin-top:calc(var(--nzh-sticky-top) + 84px)}
+.nzh-label{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+.nzh-h2{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(38px,4.6vw,58px);line-height:.95;letter-spacing:.005em;color:var(--brand-ink);text-wrap:balance}
+.nzh-head{display:grid;gap:12px;margin-bottom:clamp(24px,3vw,36px);max-width:760px}
+.nzh-lead{color:var(--ink-2);font-size:17px;max-width:60ch}
+.nzh-panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow);padding:clamp(20px,3.4vw,44px)}
+
+/* ---------- Кнопки: скругление 100 ---------- */
+.nzh-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;border:0;cursor:pointer;font-family:var(--text);font-weight:700;font-size:15px;letter-spacing:.01em;padding:16px 28px;border-radius:var(--pill);text-decoration:none;transition:background .18s ease,transform .18s ease,box-shadow .18s ease;white-space:nowrap}
+.nzh-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.nzh-btn--primary{background:var(--brand);color:#fff;box-shadow:0 10px 24px -8px rgba(38,26,126,.6)}
+.nzh-btn--primary:hover{background:var(--brand-700);transform:translateY(-1px)}
+.nzh-btn--white{background:#fff;color:var(--brand)}
+.nzh-btn--white:hover{transform:translateY(-1px);box-shadow:0 10px 24px -10px rgba(0,0,0,.35)}
+.nzh-btn--ghost{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.45);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.nzh-btn--ghost:hover{background:rgba(255,255,255,.26)}
+.nzh-btn--line{background:transparent;color:var(--brand-ink);border:1.5px solid color-mix(in srgb,var(--brand) 30%,transparent)}
+.nzh-btn--line:hover{background:color-mix(in srgb,var(--brand) 7%,transparent)}
+.nzh-btn--sm{padding:11px 18px;font-size:13.5px}
+
+.nzh-glass{background:rgba(28,19,97,.42);-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(1.2);backdrop-filter:blur(var(--glass-blur)) saturate(1.2);border:1px solid rgba(255,255,255,.16);color:#fff;box-shadow:0 14px 40px -12px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.18)}
+.nzh-pill{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;letter-spacing:.03em;padding:8px 14px;border-radius:var(--pill);background:rgba(255,255,255,.16);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.32);color:#fff}
+.nzh-pill--ok::before{content:"";width:8px;height:8px;border-radius:50%;background:#6EE7A0}
+
+/* ---------- Первый экран (под прозрачной шапкой Тильды) ---------- */
+.nzh-hero{position:relative;isolation:isolate;overflow:hidden;background:var(--brand-700);color:#fff;min-height:clamp(640px,92vh,900px);display:flex}
+.nzh-hero__media{position:absolute;inset:0;z-index:-2}
+.nzh-hero__media img,.nzh-hero__media video{width:100%;height:100%;object-fit:cover}
+.nzh-hero__scrim{position:absolute;inset:0;z-index:-1;background:
+  linear-gradient(180deg,rgba(15,10,45,.62) 0%,rgba(15,10,45,0) calc(var(--nzh-header) + 60px)),
+  linear-gradient(90deg,rgba(28,19,97,.86) 0%,rgba(28,19,97,.5) 45%,rgba(28,19,97,.05) 78%),
+  linear-gradient(180deg,rgba(15,10,45,0) 60%,rgba(15,10,45,.6) 100%)}
+.nzh-hero__in{width:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:36px;padding-top:calc(var(--nzh-header) + 32px);padding-bottom:clamp(28px,4vw,48px)}
+.nzh-hero__pills{display:flex;flex-wrap:wrap;gap:8px}
+.nzh-hero__kicker{font-size:13px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;opacity:.85;margin-top:22px}
+.nzh-hero__title{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(64px,10vw,132px);line-height:.86;letter-spacing:.005em;margin-top:8px}
+.nzh-hero__sub{margin-top:18px;max-width:46ch;font-size:clamp(16px,1.5vw,19px);font-weight:500;opacity:.92}
+.nzh-hero__cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+.nzh-hero__bottom{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch}
+.nzh-price{border-radius:var(--r-lg);padding:18px 24px}
+.nzh-price .nzh-label{color:rgba(255,255,255,.72)}
+.nzh-price b{display:block;font-family:var(--display);font-weight:800;font-size:clamp(40px,4.4vw,56px);line-height:.95;margin-top:6px;font-variant-numeric:tabular-nums}
+.nzh-price span{display:block;margin-top:6px;font-size:14px;opacity:.88}
+.nzh-facts{display:flex;flex-wrap:wrap;border-radius:var(--r-lg);padding:8px}
+.nzh-fact{padding:12px 18px}
+.nzh-fact dt{font-size:11px;letter-spacing:.14em;text-transform:uppercase;opacity:.72;font-weight:700}
+.nzh-fact dd{margin-top:4px;font-family:var(--display);font-weight:800;font-size:34px;line-height:1;font-variant-numeric:tabular-nums}
+
+/* ---------- Навигация по лендингу под первым экраном ---------- */
+.nzh-nav{position:sticky;top:var(--nzh-sticky-top);z-index:20;background:color-mix(in srgb,#EEF0F6 80%,transparent);-webkit-backdrop-filter:blur(20px) saturate(1.3);backdrop-filter:blur(20px) saturate(1.3);border-bottom:1px solid var(--line)}
+.nzh-nav__in{display:flex;gap:8px;overflow-x:auto;padding-block:12px;scrollbar-width:none}
+.nzh-nav__in::-webkit-scrollbar{display:none}
+.nzh-nav a{flex:none;padding:10px 18px;border-radius:var(--pill);font-size:14px;font-weight:600;text-decoration:none;color:var(--ink-2);background:var(--panel);border:1px solid var(--line);transition:.15s}
+.nzh-nav a:hover{color:var(--brand)}
+.nzh-nav a.is-active{background:var(--brand);border-color:var(--brand);color:#fff}
+.nzh-nav__cta{margin-left:auto}
+.nzh-nav .nzh-nav__cta{background:var(--brand);color:#fff;border-color:var(--brand)}
+
+/* ---------- О доме ---------- */
+.nzh-about{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(24px,5vw,64px);align-items:start}
+.nzh-about__lead{font-size:clamp(20px,2vw,24px);font-weight:600;line-height:1.35;color:var(--ink);max-width:40ch}
+.nzh-about__text{display:grid;gap:14px;margin-top:20px;color:var(--ink-2);max-width:62ch}
+.nzh-kv{display:grid;gap:10px;margin-top:24px}
+.nzh-kv li{display:grid;grid-template-columns:40px 1fr;gap:14px;align-items:start;padding:16px 18px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:var(--r-md)}
+.nzh-kv b{display:block;font-size:15px;color:var(--ink)}
+.nzh-kv span{font-size:14.5px;color:var(--ink-2)}
+.nzh-ico{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--accent) 16%,var(--panel));color:var(--brand)}
+.nzh-ico svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.nzh-specs{background:var(--panel-2);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:6px 22px}
+.nzh-specs div{display:flex;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+.nzh-specs div:last-child{border-bottom:0}
+.nzh-specs dt{color:var(--ink-2)}
+.nzh-specs dd{font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.nzh-draw{margin-top:18px;width:100%;height:auto;opacity:.9}
+
+/* ---------- Галерея ---------- */
+.nzh-gallery{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:clamp(140px,15vw,220px);gap:12px}
+.nzh-g{position:relative;overflow:hidden;border-radius:var(--r-md);border:0;padding:0;cursor:zoom-in;background:linear-gradient(150deg,var(--brand),var(--brand-700))}
+.nzh-gallery[data-count="1"] .nzh-g{grid-column:1/-1;grid-row:span 2}
+.nzh-gallery[data-count="2"] .nzh-g{grid-column:span 2;grid-row:span 2}
+.nzh-gallery:not([data-count="1"]):not([data-count="2"]) .nzh-g:first-child{grid-column:span 2;grid-row:span 2}
+.nzh-g img{width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.16,1,.3,1)}
+.nzh-g:hover img{transform:scale(1.04)}
+.nzh-g__scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,10,45,0) 55%,rgba(15,10,45,.5) 100%);pointer-events:none}
+.nzh-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.nzh-play i{width:60px;height:60px;border-radius:50%;background:rgba(255,255,255,.22);border:1.5px solid rgba(255,255,255,.7);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
+.nzh-play i::after{content:"";border-left:16px solid #fff;border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px}
+.nzh-g__tag{position:absolute;left:12px;bottom:12px;font-size:12px;font-weight:700;color:#fff;padding:6px 12px;border-radius:var(--pill);background:rgba(28,19,97,.6);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.nzh-viewer{position:fixed;inset:0;z-index:99999;background:rgba(16,12,43,.95);display:flex;align-items:center;justify-content:center;padding:72px 16px 24px}
+.nzh-viewer[hidden]{display:none}
+.nzh-viewer__media{width:min(1200px,100%);display:flex;justify-content:center}
+.nzh-viewer__media img,.nzh-viewer__media video{max-width:100%;max-height:calc(100vh - 120px);border-radius:14px}
+.nzh-viewer__media iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:14px;max-height:calc(100vh - 120px)}
+.nzh-viewer__bar{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center;color:#fff;font-weight:600;font-size:14px}
+.nzh-viewer__nav{display:flex;gap:8px}
+
+/* ---------- Комплектации ---------- */
+.nzh-packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.nzh-pack{display:flex;flex-direction:column;gap:14px;padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-sm)}
+.nzh-pack__step{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.nzh-pack h3{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:32px;line-height:.95;color:var(--brand-ink)}
+.nzh-pack__price{font-family:var(--display);font-weight:800;font-size:30px;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.nzh-pack__price small{display:block;font-family:var(--text);font-size:13px;font-weight:500;color:var(--ink-2);margin-top:4px}
+.nzh-pack p{font-size:14px;color:var(--ink-2)}
+.nzh-pack .nzh-btn{margin-top:auto;align-self:flex-start}
+.nzh-pack--dark{background:linear-gradient(150deg,var(--brand),var(--brand-700));border-color:var(--brand-700);color:#fff}
+.nzh-pack--dark h3,.nzh-pack--dark .nzh-pack__price{color:#fff}
+.nzh-pack--dark p,.nzh-pack--dark .nzh-pack__price small{color:rgba(255,255,255,.78)}
+.nzh-pack--dark .nzh-pack__step{color:var(--accent-2)}
+
+/* ---------- Как устроен дом ---------- */
+.nzh-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+.nzh-tab{padding:11px 20px;border-radius:var(--pill);border:1.5px solid var(--line);background:var(--panel-2);font-weight:700;font-size:14px;cursor:pointer;color:var(--ink-2)}
+.nzh-tab[aria-selected="true"]{background:var(--brand);border-color:var(--brand);color:#fff}
+.nzh-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.nzh-card{padding:20px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:var(--r-md)}
+.nzh-card b{display:block;font-size:15.5px;margin-bottom:6px;color:var(--ink)}
+.nzh-card span{font-size:14px;color:var(--ink-2)}
+
+/* ---------- Карта ---------- */
+.nzh-map{position:relative;border-radius:var(--r-lg);overflow:hidden;border:1px solid var(--line);background:var(--panel-2)}
+.nzh-map iframe{display:block;width:100%;height:600px;border:0}
+.nzh-map__stub{min-height:420px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;background:
+  radial-gradient(color-mix(in srgb,var(--brand) 22%,transparent) 1px,transparent 1px) 0 0/14px 14px,var(--panel-2);color:var(--ink-2)}
+.nzh-map__stub b{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:30px;color:var(--brand-ink)}
+.nzh-map__bar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;margin-top:16px;font-size:14px;color:var(--ink-2)}
+
+/* ---------- Ипотека ---------- */
+.nzh-calc{display:grid;grid-template-columns:1fr 1fr;gap:clamp(16px,2.2vw,24px)}
+.nzh-calc__form{display:grid;gap:22px;align-content:start}
+.nzh-fld{display:grid;gap:8px}
+.nzh-fld label{display:flex;justify-content:space-between;gap:12px;font-size:14px;color:var(--ink-2);font-weight:600}
+.nzh-fld output{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.nzh-fld input[type=range]{width:100%;accent-color:var(--brand)}
+.nzh-field{display:block;width:100%;font-size:15px;color:var(--ink);background:var(--panel);border:1.4px solid var(--line);border-radius:var(--pill);padding:13px 20px}
+.nzh-field:focus{border-color:var(--accent);outline:none}
+.nzh-check{display:flex;gap:10px;align-items:flex-start;font-size:15px;font-weight:500;cursor:pointer}
+.nzh-check input{margin-top:3px;width:18px;height:18px;accent-color:var(--brand)}
+.nzh-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.nzh-res{position:relative;overflow:hidden;border-radius:var(--r-lg);background:linear-gradient(150deg,var(--brand),var(--brand-700));color:#fff;padding:clamp(22px,3vw,34px);display:flex;flex-direction:column;gap:22px}
+.nzh-res::after{content:"";position:absolute;right:-90px;top:-90px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(127,146,255,.45),transparent 70%);pointer-events:none}
+.nzh-res .nzh-label{color:rgba(255,255,255,.7)}
+.nzh-monthly{font-family:var(--display);font-weight:800;font-size:clamp(60px,7vw,88px);line-height:.9;margin-top:6px;font-variant-numeric:tabular-nums}
+.nzh-res dl{position:relative;z-index:1;border-radius:var(--r-md);padding:4px 18px}
+.nzh-res dl div{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.18);font-size:14.5px}
+.nzh-res dl div:last-child{border-bottom:0}
+.nzh-res dt{opacity:.8}
+.nzh-res dd{font-weight:700;font-variant-numeric:tabular-nums}
+.nzh-res .nzh-btn{position:relative;z-index:1;align-self:flex-start}
+.nzh-note{font-size:12.5px;opacity:.7;margin-top:auto}
+
+/* ---------- Условия + призыв ---------- */
+.nzh-terms{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.nzh-final{position:relative;overflow:hidden;border-radius:var(--r-xl);color:#fff;padding:clamp(28px,5vw,64px);margin-top:clamp(48px,6vw,88px);display:grid;grid-template-columns:1.2fr 1fr;gap:28px;align-items:end;isolation:isolate}
+.nzh-final__bg{position:absolute;inset:0;z-index:-2;width:100%;height:100%;object-fit:cover}
+.nzh-final::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(28,19,97,.92) 30%,rgba(28,19,97,.45))}
+.nzh-final__title{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(44px,6vw,80px);line-height:.88}
+.nzh-final p{margin-top:14px;opacity:.88;max-width:44ch}
+.nzh-final__cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.nzh-share{border-radius:var(--r-lg);padding:20px}
+.nzh-share__row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.nzh-foot{padding-block:28px 64px;font-size:12px;color:var(--ink-3);display:grid;gap:4px}
+
+.nzh-mbar{display:none}
+
+@media (max-width:960px){
+  .nzh-about,.nzh-calc,.nzh-final{grid-template-columns:1fr}
+  .nzh-hero__scrim{background:
+    linear-gradient(180deg,rgba(15,10,45,.62) 0%,rgba(15,10,45,.2) calc(var(--nzh-header) + 60px),rgba(28,19,97,.35) 50%,rgba(15,10,45,.85) 100%)}
+  .nzh-hero__cta .nzh-btn{flex:1 1 100%}
+  .nzh-price,.nzh-facts{width:100%}
+  .nzh-fact{flex:1 1 45%}
+  .nzh-gallery{grid-template-columns:1fr 1fr;grid-auto-rows:clamp(130px,34vw,220px)}
+  .nzh-nav__cta{display:none}
+  .nzh-mbar{display:flex;gap:8px;position:fixed;z-index:30;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,#EEF0F6 86%,transparent);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border-top:1px solid var(--line)}
+  .nzh-mbar .nzh-btn{flex:1;padding:14px 10px;font-size:14px}
+  .nzh-foot{padding-bottom:110px}
+}
+@media (max-width:520px){ .nzh-row2{grid-template-columns:1fr} .nzh-map iframe{height:460px} }
+@media (prefers-reduced-motion:reduce){ .nzh *{transition:none!important;animation:none!important} }
+</style>
+
+<div class="nzh" id="nzh">
+  <!-- 1. Первый экран -->
+  <section class="nzh-hero" id="nzh-top">
+    <div class="nzh-hero__media" id="nzhHeroMedia"></div>
+    <div class="nzh-hero__scrim"></div>
+    <div class="nzh-wrap nzh-hero__in">
+      <div>
+        <div class="nzh-hero__pills" id="nzhPills"></div>
+        <p class="nzh-hero__kicker" id="nzhKicker"></p>
+        <h1 class="nzh-hero__title" id="nzhTitle"></h1>
+        <p class="nzh-hero__sub" id="nzhSub"></p>
+        <div class="nzh-hero__cta">
+          <a class="nzh-btn nzh-btn--white nzh-js-book" href="#">Записаться на просмотр <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="nzh-btn nzh-btn--ghost" href="#nzh-mortgage">Рассчитать ипотеку</a>
+        </div>
+      </div>
+      <div class="nzh-hero__bottom">
+        <div class="nzh-price nzh-glass">
+          <p class="nzh-label">Цена дома с участком</p>
+          <b id="nzhPrice"></b>
+          <span>или от <strong id="nzhHeroMonthly"></strong> в месяц в ипотеку*</span>
+        </div>
+        <dl class="nzh-facts nzh-glass" id="nzhFacts"></dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Навигация по лендингу -->
+  <nav class="nzh-nav" aria-label="Разделы">
+    <div class="nzh-wrap nzh-nav__in" id="nzhNav"></div>
+  </nav>
+
+  <div class="nzh-wrap">
+    <!-- 3. О доме -->
+    <section class="nzh-sec" id="nzh-about">
+      <div class="nzh-panel nzh-about">
+        <div>
+          <div class="nzh-head"><span class="nzh-label">О доме</span><h2 class="nzh-h2" id="nzhAboutTitle"></h2></div>
+          <p class="nzh-about__lead" id="nzhLead"></p>
+          <div class="nzh-about__text" id="nzhAboutText"></div>
+          <ul class="nzh-kv" id="nzhKv"></ul>
+        </div>
+        <div>
+          <dl class="nzh-specs" id="nzhSpecs"></dl>
+          <img class="nzh-draw" src="assets/draw-house-1.png" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Фото и видео -->
+    <section class="nzh-sec" id="nzh-photos">
+      <div class="nzh-head"><span class="nzh-label">Фото и видео</span><h2 class="nzh-h2">Как выглядит дом</h2></div>
+      <div class="nzh-gallery" id="nzhGallery"></div>
+    </section>
+
+    <!-- 5. Комплектации -->
+    <section class="nzh-sec" id="nzh-packs" hidden>
+      <div class="nzh-head"><span class="nzh-label">Комплектации</span><h2 class="nzh-h2">Выберите, в каком виде забрать дом</h2><p class="nzh-lead">Участок входит в стоимость в любой комплектации.</p></div>
+      <div class="nzh-packs" id="nzhPacks"></div>
+    </section>
+
+    <!-- 6. Как устроен дом -->
+    <section class="nzh-sec" id="nzh-build" hidden>
+      <div class="nzh-panel">
+        <div class="nzh-head"><span class="nzh-label">Технологии</span><h2 class="nzh-h2">Как устроен дом</h2></div>
+        <div class="nzh-tabs" role="tablist" id="nzhTabs"></div>
+        <div class="nzh-cards" id="nzhCards"></div>
+      </div>
+    </section>
+
+    <!-- 7. Карта -->
+    <section class="nzh-sec" id="nzh-map">
+      <div class="nzh-head"><span class="nzh-label">Расположение</span><h2 class="nzh-h2" id="nzhMapTitle"></h2></div>
+      <div class="nzh-map" id="nzhMap"></div>
+      <div class="nzh-map__bar"><span id="nzhMapNote"></span><a class="nzh-btn nzh-btn--line nzh-btn--sm" id="nzhMapLink" target="_blank" rel="noopener">Открыть карту целиком <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a></div>
+    </section>
+
+    <!-- 8. Ипотека -->
+    <section class="nzh-sec" id="nzh-mortgage">
+      <div class="nzh-panel">
+        <div class="nzh-head"><span class="nzh-label">Ипотека</span><h2 class="nzh-h2">Сколько выйдет в месяц</h2><p class="nzh-lead">Семейная ипотека и материнский капитал принимаются. Платёж пересчитывается сразу.</p></div>
+        <div class="nzh-calc">
+          <form class="nzh-calc__form" onsubmit="return false">
+            <div class="nzh-fld"><label for="nzhCPrice">Стоимость <output id="nzhOPrice"></output></label><input type="range" id="nzhCPrice" step="10000"></div>
+            <div class="nzh-fld"><label for="nzhCDown">Первый взнос <output id="nzhODown"></output></label><input type="range" id="nzhCDown" min="0" step="10000"></div>
+            <label class="nzh-check" for="nzhCMat"><input type="checkbox" id="nzhCMat"><span>Добавить материнский капитал к взносу</span></label>
+            <div class="nzh-fld" id="nzhMatF" hidden><label for="nzhCMatSum">Сумма маткапитала, ₽</label><input class="nzh-field" type="number" id="nzhCMatSum" inputmode="numeric" min="0" step="1000" placeholder="Например, 690 000"></div>
+            <div class="nzh-row2">
+              <div class="nzh-fld"><label for="nzhCTerm">Срок <output id="nzhOTerm"></output></label><input type="range" id="nzhCTerm" min="5" max="30" step="1"></div>
+              <div class="nzh-fld"><label for="nzhCRate">Ставка, % годовых</label><input class="nzh-field" type="number" id="nzhCRate" inputmode="decimal" min="0.1" max="40" step="0.1"></div>
+            </div>
+          </form>
+          <div class="nzh-res">
+            <div><p class="nzh-label">Ежемесячный платёж</p><div class="nzh-monthly" id="nzhRM"></div></div>
+            <dl class="nzh-glass">
+              <div><dt>Сумма кредита</dt><dd id="nzhRL"></dd></div>
+              <div><dt>Первый взнос всего</dt><dd id="nzhRD"></dd></div>
+              <div><dt>Переплата за срок</dt><dd id="nzhRO"></dd></div>
+            </dl>
+            <a class="nzh-btn nzh-btn--white nzh-js-book" href="#">Получить расчёт от банка</a>
+            <p class="nzh-note">*Расчёт предварительный. Ставку и платёж подтверждает банк после одобрения заявки.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. Условия покупки -->
+    <section class="nzh-sec" id="nzh-terms" hidden>
+      <div class="nzh-head"><span class="nzh-label">Покупка</span><h2 class="nzh-h2">Условия покупки</h2></div>
+      <ul class="nzh-terms" id="nzhTerms"></ul>
+    </section>
+
+    <!-- 10. Финальный призыв + поделиться -->
+    <section class="nzh-final" id="nzh-visit">
+      <img class="nzh-final__bg" id="nzhFinalBg" alt="">
+      <div>
+        <div class="nzh-final__title">Приезжайте<br>посмотреть дом</div>
+        <p>Бесплатная экскурсия по посёлку, показ дома и планировки. Поможем с ипотекой.</p>
+        <div class="nzh-final__cta">
+          <a class="nzh-btn nzh-btn--white nzh-js-book" href="#">Записаться на просмотр <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="nzh-btn nzh-btn--ghost" id="nzhPhone"></a>
+        </div>
+      </div>
+      <div class="nzh-share nzh-glass">
+        <p class="nzh-label" style="color:rgba(255,255,255,.72)">Поделиться домом</p>
+        <div class="nzh-share__row">
+          <a class="nzh-btn nzh-btn--ghost nzh-btn--sm" id="nzhShTg" target="_blank" rel="noopener">Telegram</a>
+          <a class="nzh-btn nzh-btn--ghost nzh-btn--sm" id="nzhShVk" target="_blank" rel="noopener">VK</a>
+          <a class="nzh-btn nzh-btn--ghost nzh-btn--sm" id="nzhShWa" target="_blank" rel="noopener">WhatsApp</a>
+          <button class="nzh-btn nzh-btn--white nzh-btn--sm" type="button" id="nzhShCopy">Скопировать ссылку</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="nzh-foot" id="nzhFoot"></div>
+  </div>
+
+  <div class="nzh-mbar">
+    <a class="nzh-btn nzh-btn--line" href="#nzh-mortgage">Ипотека</a>
+    <a class="nzh-btn nzh-btn--primary nzh-js-book" href="#">Записаться на просмотр</a>
+  </div>
+
+  <div class="nzh-viewer" id="nzhViewer" hidden>
+    <div class="nzh-viewer__bar"><span id="nzhVCount"></span>
+      <div class="nzh-viewer__nav">
+        <button class="nzh-btn nzh-btn--ghost nzh-btn--sm" type="button" id="nzhVPrev" aria-label="Предыдущее">←</button>
+        <button class="nzh-btn nzh-btn--ghost nzh-btn--sm" type="button" id="nzhVNext" aria-label="Следующее">→</button>
+        <button class="nzh-btn nzh-btn--white nzh-btn--sm" type="button" id="nzhVClose">Закрыть</button>
+      </div>
+    </div>
+    <div class="nzh-viewer__media" id="nzhVMedia"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+/* =================================================================
+   НАСТРОЙКИ — можно править прямо в блоке Тильды
+   ================================================================= */
+var CONFIG = {
+  /* Попап-форма Тильды для записи на просмотр (блок BF502 и т.п.).
+     В форме заведите скрытое поле с именем "house" — в него подставится адрес дома. */
+  bookingPopup: "#popup:zapis",
+  phone: "+7 950 474 07 07",
+  mortgage: { rate: 6, termYears: 30, downPercent: 20 },
+
+  /* Карта посёлка. Подставьте координаты дома и нужный масштаб. */
+  mapSrc: "https://nt.newland159.ru/index.php?lon=55.94764&lat=57.87664&zoom=12",
+
+  /* Видео на первый экран вместо фото (mp4). Пусто — будет фото. */
+  heroVideo: "",
+
+  /* ДОПОЛНИТЕЛЬНЫЕ ФОТО И ВИДЕО — вставляйте ссылки сюда.
+     Фото: загрузите в Тильду (Медиа → Загрузить) и вставьте ссылку static.tildacdn.com/...
+     Видео: ссылка для встраивания VK / Rutube / YouTube или прямая ссылка на .mp4
+       { type:"photo", src:"https://static.tildacdn.com/.../photo.jpg", alt:"Кухня-гостиная" },
+       { type:"video", src:"https://vk.com/video_ext.php?oid=-000&id=000&hd=2", poster:"" },
+       { type:"video", src:"https://site.ru/tour.mp4", poster:"https://.../cover.jpg" }            */
+  extraMedia: [
+  {
+    "type": "video",
+    "src": "house-orbit-b.mp4",
+    "poster": "assets/house-long.webp",
+    "alt": "Облёт дома (пример вставленного видео)"
+  }
+]
+};
+
+/* ДАННЫЕ ДОМА — собраны из выгрузки Tilda Store и таблицы «Дома в продаже» */
+var HOUSE = {
+  "externalId": "D6ZCpemrUSpDD5N2fU8p",
+  "cadastral": "59:32:3980009:10793",
+  "title": "Болдино Лайф, Ландышевая, 28",
+  "village": "Болдино Лайф",
+  "address": "Ландышевая, 28",
+  "houseArea": "85",
+  "plotArea": "10",
+  "price": 9270000,
+  "statusLabel": "Готов к заселению",
+  "subtitle": "Дом из газоблока. Участок 10 сот. входит в стоимость.",
+  "aboutTitle": "Дом 85 м² в посёлке «Болдино Лайф»",
+  "intro": {
+    "lead": "Одноэтажный жилой дом из автоклавного газобетона, продаётся с земельным участком.",
+    "paras": [],
+    "items": [
+      {
+        "k": "Участок",
+        "v": "10 соток, включён в стоимость."
+      },
+      {
+        "k": "Наружная отделка",
+        "v": "Планкен из лиственницы камерной сушки с заводской окраской, металлические элементы по авторским эскизам."
+      },
+      {
+        "k": "Планировка",
+        "v": "Свободная, без несущих перегородок — за счёт ферменной кровли. 2 или 3 спальни на выбор, перепланировка возможна в любой момент без сноса стен."
+      }
+    ]
+  },
+  "facts": [
+    [
+      "Дом",
+      "85 м²"
+    ],
+    [
+      "Участок",
+      "10 сот."
+    ],
+    [
+      "Готовность",
+      "Готов"
+    ]
+  ],
+  "specs": [
+    [
+      "Посёлок",
+      "Болдино Лайф"
+    ],
+    [
+      "Адрес",
+      "Ландышевая, 28"
+    ],
+    [
+      "Площадь дома",
+      "85 м²"
+    ],
+    [
+      "Участок",
+      "10 сот."
+    ],
+    [
+      "Состояние",
+      "Готов к заселению"
+    ],
+    [
+      "Кадастровый номер",
+      "59:32:3980009:10793"
+    ]
+  ],
+  "packages": [
+    {
+      "name": "Тёплый контур",
+      "price": 6700000,
+      "priceNote": "с участком 8 соток",
+      "text": "Фундамент УШП, стены, кровля. Фасад: планкен и металл. Окна и двери установлены. Дом закрыт и готов к внутренним работам."
+    },
+    {
+      "name": "White Box",
+      "price": 7800000,
+      "priceNote": "с участком 8 соток",
+      "text": "Всё из «Тёплого контура» плюс: тёплый пол в два контура и котёл «Эван» 9 кВт; электрика 15 кВт с подготовкой под умный дом; приточная вентиляция КИВ в каждой комнате; скважина и два незамерзающих крана; септик «МАЛАХИТ 5 ПР»; котельная с нержавеющими трубами, трапом и местом под газовый котёл; оштукатуренные стены и выполненная стяжка; двунаправленная подсветка фасада; благоустройство по дизайн-коду посёлка."
+    },
+    {
+      "name": "Комфорт",
+      "price": 9000000,
+      "priceNote": "с участком 8 соток",
+      "text": "Всё из «White Box» плюс чистовая отделка интерьера, санузлы с микроцементом на стенах, сантехника и бойлер. Готов к заселению."
+    },
+    {
+      "name": "С мебелью",
+      "price": 10000000,
+      "priceNote": "с участком 8 соток",
+      "text": "Всё из «Комфорта» плюс мебель во всех помещениях, кухонный гарнитур и техника."
+    }
+  ],
+  "sections": [
+    {
+      "title": "Конструктив",
+      "items": [
+        {
+          "k": "Фундамент",
+          "v": "УШП: плита 120 мм и ЭППС 100 мм по всему периметру. Бетон B25/F200/W6. Дренажная труба, профилированная мембрана PLANTER Geo."
+        },
+        {
+          "k": "Стены",
+          "v": "470 мм: газобетон «Теплит» D400 400 мм + обрешётка 50 мм (вентилируемый зазор) + планкен 20 мм. Армированный железобетонный пояс по периметру."
+        },
+        {
+          "k": "Кровля",
+          "v": "Ферменная — несущих перегородок в доме нет. Фальцевая кликфальц «СанМеталл Север». Утепление 250 мм по низу фермы. Двойные снегозадержатели в базовой комплектации."
+        },
+        {
+          "k": "Карниз",
+          "v": "Открытый, из планкена камерной сушки, покрыт маслом."
+        },
+        {
+          "k": "Чердак",
+          "v": "Холодное чердачное пространство для хранения. Скрытый люк. Место под сезонные вещи и кондиционеры."
+        },
+        {
+          "k": "Металлические элементы",
+          "v": "Толстый металл с полиуретановым лаком: откосы, карнизы, элементы фасада. Выполнены по авторским эскизам."
+        },
+        {
+          "k": "Окна",
+          "v": "70-й профиль, энергосберегающее напыление, увеличенный панорамный формат. Подоконник 600 мм из керамогранита — рассчитан на то, чтобы на нём сидеть."
+        },
+        {
+          "k": "Входная дверь",
+          "v": "Металлическая с терморазрывом. Без промерзания и конденсата при −35 °C."
+        }
+      ]
+    },
+    {
+      "title": "Инженерия",
+      "items": [
+        {
+          "k": "Отопление",
+          "v": "Два контура тёплого пола: основной и усиленный вдоль панорамных окон. Радиаторов нет. Электрокотёл «Эван Next» 9 кВт."
+        },
+        {
+          "k": "Вентиляция",
+          "v": "Приточная, клапаны КИВ в каждом жилом помещении. Клапан утеплён: впускает воздух и удерживает тепло."
+        },
+        {
+          "k": "Электричество",
+          "v": "15 кВт. Скрытая проводка с подстаканниками, запас групп автоматов, выводы под систему «умный дом»."
+        },
+        {
+          "k": "Водоснабжение",
+          "v": "Скважина. Два наружных незамерзающих крана с внутренней запорной арматурой — на зиму перекрывать не нужно."
+        },
+        {
+          "k": "Канализация",
+          "v": "Септик «МАЛАХИТ 5 ПР», принудительный. Работает независимо от рельефа участка, обслуживание раз в 1–2 года."
+        },
+        {
+          "k": "Котельная",
+          "v": "Трубы из нержавеющей стали. Аварийный трап — при протечке дом не затопит. Зарезервировано место под газовый котёл."
+        }
+      ]
+    },
+    {
+      "title": "Благоустройство",
+      "items": [
+        {
+          "k": "Подсветка фасада",
+          "v": "Двунаправленные фасадные светильники в базовой комплектации."
+        },
+        {
+          "k": "Терраса",
+          "v": "От 20 до 50 м², стоимость рассчитывается индивидуально."
+        }
+      ]
+    }
+  ],
+  "terms": [
+    {
+      "k": "Участок",
+      "v": "8 соток входят в стоимость дома в любой комплектации."
+    },
+    {
+      "k": "Оплата",
+      "v": "Ипотека, рассрочка. Онлайн-расчёт ипотеки — boldino59.ru/calk."
+    },
+    {
+      "k": "Сопровождение",
+      "v": "Юридическое сопровождение сделки."
+    },
+    {
+      "k": "Просмотр",
+      "v": "Бесплатная экскурсия по посёлку, показ дома и планировки, поддержка при получении ипотеки"
+    }
+  ],
+  "photos": [
+    "https://static.tildacdn.com/stor6331-3532-4864-b033-306534613639/ebc4966d66423a143b2abbdfd38230f8.png"
+  ],
+  "dataDate": "22.09.2026"
+};
+
+/* Только для превью: запасные фото, если внешние ссылки не открываются */
+var PREVIEW_FALLBACK = [
+  "assets/house-wide.webp",
+  "assets/house-2.webp",
+  "assets/int-kitchen.webp",
+  "assets/int-bedroom.webp",
+  "assets/house-3.webp",
+  "assets/house-long.webp"
+];
+
+/* ================================================================= */
+var root = document.getElementById("nzh");
+var $ = function(id){ return document.getElementById(id); };
+var esc = function(s){ var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; };
+var rub = function(n){ return Math.round(n).toLocaleString("ru-RU") + " ₽"; };
+var ICONS = {
+  home:'<path d="M3 11 12 4l9 7"/><path d="M5 10v9h14v-9"/>',
+  plot:'<path d="M4 5h16v14H4zM4 9h16"/>',
+  pen:'<path d="M4 20 20 4M8 4h12v12"/>',
+  layers:'<path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  check:'<path d="m5 12 5 5 9-10"/>'
+};
+function icon(k){ return '<span class="nzh-ico"><svg viewBox="0 0 24 24">' + (ICONS[k] || ICONS.check) + '</svg></span>'; }
+function withFallback(img, i){
+  if (!PREVIEW_FALLBACK.length) return;
+  img.addEventListener("error", function once(){ img.removeEventListener("error", once); img.src = PREVIEW_FALLBACK[i % PREVIEW_FALLBACK.length]; });
+}
+
+var H = HOUSE;
+var media = H.photos.map(function(src, i){ return { type:"photo", src:src, alt:H.title + ", фото " + (i + 1) }; })
+  .concat(CONFIG.extraMedia || []);
+var photos = media.filter(function(m){ return m.type === "photo"; });
+
+/* ---- Первый экран ---- */
+var hm = $("nzhHeroMedia");
+if (CONFIG.heroVideo){
+  hm.innerHTML = '<video muted playsinline autoplay loop preload="metadata" src="' + esc(CONFIG.heroVideo) + '"' + (photos[0] ? ' poster="' + esc(photos[0].src) + '"' : "") + '></video>';
+} else if (photos[0]){
+  var hi = document.createElement("img"); hi.alt = photos[0].alt; withFallback(hi, 0); hi.src = photos[0].src; hm.appendChild(hi);
+}
+$("nzhPills").innerHTML =
+  '<span class="nzh-pill nzh-pill--ok">' + esc(H.statusLabel) + '</span>' +
+  '<span class="nzh-pill">' + esc(H.village) + '</span>' +
+  (H.plotArea ? '<span class="nzh-pill">Участок ' + esc(H.plotArea) + ' сот. в цене</span>' : "");
+$("nzhKicker").textContent = H.village + " · " + H.address;
+$("nzhTitle").innerHTML = "Дом<br>" + esc(H.houseArea) + " м²";
+$("nzhSub").textContent = H.subtitle;
+$("nzhPrice").textContent = rub(H.price);
+$("nzhFacts").innerHTML = H.facts.map(function(f){ return '<div class="nzh-fact"><dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd></div>'; }).join("");
+
+/* ---- Навигация ---- */
+var NAV = [["nzh-about","О доме"],["nzh-photos","Фото"],["nzh-packs","Комплектации"],["nzh-build","Как устроен"],["nzh-map","На карте"],["nzh-mortgage","Ипотека"],["nzh-terms","Условия"]];
+
+/* ---- О доме ---- */
+$("nzhAboutTitle").textContent = H.aboutTitle;
+$("nzhLead").textContent = H.intro.lead || "";
+$("nzhAboutText").innerHTML = H.intro.paras.map(function(p){ return "<p>" + esc(p) + "</p>"; }).join("");
+var kvIcons = ["plot","pen","layers","home","sun"];
+$("nzhKv").innerHTML = H.intro.items.map(function(it, i){
+  return "<li>" + icon(kvIcons[i % kvIcons.length]) + "<div><b>" + esc(it.k) + "</b><span>" + esc(it.v) + "</span></div></li>";
+}).join("");
+$("nzhSpecs").innerHTML = H.specs.map(function(s){ return "<div><dt>" + esc(s[0]) + "</dt><dd>" + esc(s[1]) + "</dd></div>"; }).join("");
+
+/* ---- Галерея ---- */
+var gal = $("nzhGallery");
+gal.setAttribute("data-count", Math.min(media.length, 3));
+media.forEach(function(m, i){
+  var b = document.createElement("button");
+  b.type = "button"; b.className = "nzh-g"; b.setAttribute("aria-label", "Открыть: " + (m.alt || "видео"));
+  var cover = m.type === "video" ? m.poster : m.src;
+  if (cover){ var im = document.createElement("img"); im.loading = "lazy"; im.alt = m.alt || ""; withFallback(im, i); im.src = cover; b.appendChild(im); }
+  b.insertAdjacentHTML("beforeend", '<span class="nzh-g__scrim"></span>' + (m.type === "video" ? '<span class="nzh-play"><i></i></span><span class="nzh-g__tag">Видео</span>' : ""));
+  b.addEventListener("click", function(){ openV(i); });
+  gal.appendChild(b);
+});
+var cur = 0;
+function isFile(u){ return /\.(mp4|webm|mov)(\?|$)/i.test(u); }
+function openV(i){
+  cur = (i + media.length) % media.length;
+  var m = media[cur], box = $("nzhVMedia");
+  if (m.type === "video"){
+    box.innerHTML = isFile(m.src)
+      ? '<video controls autoplay playsinline src="' + esc(m.src) + '"' + (m.poster ? ' poster="' + esc(m.poster) + '"' : "") + '></video>'
+      : '<iframe src="' + esc(m.src) + '" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe>';
+  } else {
+    box.innerHTML = ""; var im = document.createElement("img"); im.alt = m.alt || ""; withFallback(im, cur); im.src = m.src; box.appendChild(im);
+  }
+  $("nzhVCount").textContent = (cur + 1) + " / " + media.length;
+  $("nzhViewer").hidden = false;
+}
+function closeV(){ $("nzhViewer").hidden = true; $("nzhVMedia").innerHTML = ""; }
+$("nzhVClose").onclick = closeV;
+$("nzhVPrev").onclick = function(){ openV(cur - 1); };
+$("nzhVNext").onclick = function(){ openV(cur + 1); };
+$("nzhViewer").addEventListener("click", function(e){ if (e.target.id === "nzhViewer") closeV(); });
+document.addEventListener("keydown", function(e){
+  if ($("nzhViewer").hidden) return;
+  if (e.key === "Escape") closeV();
+  if (e.key === "ArrowLeft") openV(cur - 1);
+  if (e.key === "ArrowRight") openV(cur + 1);
+});
+
+/* ---- Комплектации ---- */
+if (H.packages.length){
+  $("nzh-packs").hidden = false;
+  $("nzhPacks").innerHTML = H.packages.map(function(p, i){
+    var dark = i === H.packages.length - 1;
+    return '<article class="nzh-pack' + (dark ? " nzh-pack--dark" : "") + '">' +
+      '<span class="nzh-pack__step">Комплектация ' + (i + 1) + '</span>' +
+      '<h3>' + esc(p.name) + '</h3>' +
+      (p.price ? '<div class="nzh-pack__price">' + rub(p.price) + '<small>' + esc(p.priceNote || "") + '</small></div>' : "") +
+      '<p>' + esc(p.text) + '</p>' +
+      (p.price ? '<button class="nzh-btn ' + (dark ? "nzh-btn--white" : "nzh-btn--line") + ' nzh-btn--sm" type="button" data-price="' + p.price + '">Рассчитать ипотеку</button>' : "") +
+      '</article>';
+  }).join("");
+  $("nzhPacks").addEventListener("click", function(e){
+    var b = e.target.closest("[data-price]"); if (!b) return;
+    setPrice(+b.getAttribute("data-price"));
+    $("nzh-mortgage").scrollIntoView({behavior:"smooth"});
+  });
+}
+
+/* ---- Как устроен дом ---- */
+if (H.sections.length){
+  $("nzh-build").hidden = false;
+  var tabs = $("nzhTabs");
+  H.sections.forEach(function(s, i){
+    var t = document.createElement("button");
+    t.type = "button"; t.className = "nzh-tab"; t.setAttribute("role", "tab"); t.textContent = s.title;
+    t.addEventListener("click", function(){ showTab(i); });
+    tabs.appendChild(t);
+  });
+  function showTab(i){
+    [].forEach.call(tabs.children, function(t, j){ t.setAttribute("aria-selected", i === j ? "true" : "false"); });
+    $("nzhCards").innerHTML = H.sections[i].items.map(function(it){
+      return '<div class="nzh-card">' + (it.k ? "<b>" + esc(it.k) + "</b>" : "") + "<span>" + esc(it.v) + "</span></div>";
+    }).join("");
+  }
+  showTab(0);
+}
+
+/* ---- Карта ---- */
+$("nzhMapTitle").textContent = H.village + ", " + H.address;
+$("nzhMapNote").textContent = "Кадастровый номер " + H.cadastral;
+$("nzhMapLink").href = CONFIG.mapSrc;
+if (PREVIEW_FALLBACK.length){
+  $("nzhMap").innerHTML = '<div class="nzh-map__stub"><b>Здесь будет карта посёлка</b><span>В превью сторонние карты не встраиваются. В Тильде тут откроется интерактивная карта.</span></div>';
+} else {
+  $("nzhMap").innerHTML = '<iframe src="' + esc(CONFIG.mapSrc) + '" allowfullscreen loading="lazy" title="Карта посёлка ' + esc(H.village) + '"></iframe>';
+}
+
+/* ---- Ипотека ---- */
+var cP = $("nzhCPrice"), cD = $("nzhCDown"), cT = $("nzhCTerm"), cR = $("nzhCRate"), cM = $("nzhCMat"), cMS = $("nzhCMatSum");
+var mg = CONFIG.mortgage;
+var minP = Math.min.apply(null, [H.price].concat(H.packages.map(function(p){ return p.price || H.price; })));
+var maxP = Math.max.apply(null, [H.price].concat(H.packages.map(function(p){ return p.price || H.price; })));
+cP.min = Math.floor(minP * .8 / 10000) * 10000; cP.max = Math.ceil(maxP * 1.2 / 10000) * 10000;
+cT.value = mg.termYears; cR.value = mg.rate;
+function setPrice(p){ cP.value = p; cD.max = p; cD.value = Math.round(p * mg.downPercent / 100 / 10000) * 10000; recalc(); }
+function ann(loan, rate, y){ var n = y * 12, r = rate / 1200; if (loan <= 0) return 0; return r > 0 ? loan * r / (1 - Math.pow(1 + r, -n)) : loan / n; }
+function yrs(n){ var a = n % 10, b = n % 100; return n + " " + (a === 1 && b !== 11 ? "год" : a >= 2 && a <= 4 && (b < 12 || b > 14) ? "года" : "лет"); }
+function recalc(){
+  var p = +cP.value; cD.max = p;
+  var d = Math.min(+cD.value, p), mat = cM.checked ? Math.max(0, +cMS.value || 0) : 0;
+  var tot = Math.min(p, d + mat), loan = p - tot, m = ann(loan, Math.max(0, +cR.value || 0), +cT.value);
+  $("nzhOPrice").textContent = rub(p); $("nzhODown").textContent = rub(d); $("nzhOTerm").textContent = yrs(+cT.value);
+  $("nzhRM").textContent = rub(m); $("nzhRL").textContent = rub(loan); $("nzhRD").textContent = rub(tot);
+  $("nzhRO").textContent = rub(Math.max(0, m * cT.value * 12 - loan));
+}
+[cP, cD, cT, cR, cMS].forEach(function(x){ x.addEventListener("input", recalc); });
+cM.addEventListener("change", function(){ $("nzhMatF").hidden = !cM.checked; recalc(); });
+setPrice(H.price);
+$("nzhHeroMonthly").textContent = rub(ann(H.price * (1 - mg.downPercent / 100), mg.rate, mg.termYears));
+
+/* ---- Условия ---- */
+if (H.terms.length){
+  $("nzh-terms").hidden = false;
+  $("nzhTerms").innerHTML = H.terms.map(function(it){
+    return '<li class="nzh-card">' + (it.k ? "<b>" + esc(it.k) + "</b>" : "") + "<span>" + esc(it.v) + "</span></li>";
+  }).join("");
+}
+
+/* ---- Навигация: только по существующим разделам ---- */
+var nav = $("nzhNav");
+nav.innerHTML = NAV.filter(function(n){ return !$(n[0]).hidden; }).map(function(n){
+  return '<a href="#' + n[0] + '" data-sec="' + n[0] + '">' + n[1] + "</a>";
+}).join("") + '<a class="nzh-nav__cta nzh-js-book" href="#">Записаться на просмотр</a>';
+if ("IntersectionObserver" in window){
+  var links = nav.querySelectorAll("[data-sec]");
+  var io = new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if (!e.isIntersecting) return;
+      links.forEach(function(a){ a.classList.toggle("is-active", a.getAttribute("data-sec") === e.target.id); });
+    });
+  }, {rootMargin:"-45% 0px -50% 0px"});
+  NAV.forEach(function(n){ var s = $(n[0]); if (s && !s.hidden) io.observe(s); });
+}
+
+/* ---- Запись на просмотр: попап Тильды + адрес дома в скрытое поле ---- */
+root.querySelectorAll(".nzh-js-book").forEach(function(a){
+  a.setAttribute("href", CONFIG.bookingPopup);
+  a.addEventListener("click", function(){
+    setTimeout(function(){
+      document.querySelectorAll('input[name="house"]').forEach(function(inp){ inp.value = H.village + ", " + H.address + " (" + H.externalId + ")"; });
+    }, 300);
+  });
+});
+
+/* ---- Финал, контакты, поделиться ---- */
+var fb = $("nzhFinalBg"), fp = photos[1] || photos[0];
+if (fp){ withFallback(fb, 1); fb.src = fp.src; }
+$("nzhPhone").textContent = CONFIG.phone;
+$("nzhPhone").href = "tel:" + CONFIG.phone.replace(/[^\d+]/g, "");
+var url = location.href.split("#")[0];
+var text = "Дом " + H.houseArea + " м² — " + H.village + ", " + H.address;
+$("nzhShTg").href = "https://t.me/share/url?url=" + encodeURIComponent(url) + "&text=" + encodeURIComponent(text);
+$("nzhShVk").href = "https://vk.com/share.php?url=" + encodeURIComponent(url) + "&title=" + encodeURIComponent(text);
+$("nzhShWa").href = "https://wa.me/?text=" + encodeURIComponent(text + " " + url);
+$("nzhShCopy").addEventListener("click", function(){
+  var b = this;
+  try { navigator.clipboard.writeText(url).then(function(){ b.textContent = "Ссылка скопирована"; setTimeout(function(){ b.textContent = "Скопировать ссылку"; }, 2200); }, function(){ b.textContent = url; }); }
+  catch (_) { b.textContent = url; }
+});
+$("nzhFoot").innerHTML = "<span>Кадастровый номер: " + esc(H.cadastral) + " · Внешний код: " + esc(H.externalId) + "</span><span>Цена и статус — по данным на " + esc(H.dataDate) + ". Информация не является публичной офертой.</span>";
+})();
+</script>
