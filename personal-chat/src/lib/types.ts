@@ -313,6 +313,44 @@ export interface SiteSummary {
   updated: string;
 }
 
+export interface CatalogPageConfig {
+  /** Адрес сайта. Без него в разметке не будет ни ссылок, ни хлебных крошек. */
+  site: string;
+  catalogUrl: string;
+  /** Правило адреса страницы: `https://сайт/house/{id}`; {id} — External ID, {sku} — кадастровый. */
+  pageUrl: string;
+  organization: string;
+  phone: string;
+  region: string;
+  /** Попап записи на просмотр в Тильде, например `#popup:zapis`. */
+  bookingPopup: string;
+  mapSrc: string;
+  mortgage: { rate: number; termYears: number; downPercent: number };
+  /** Общий стиль отдельным файлом — иначе код не помещается в ячейку таблицы. */
+  sharedStyles: boolean;
+}
+
+/** Одна собранная страница дома в списке. */
+export interface CatalogPageRow {
+  address: string;
+  cadastral: string;
+  externalId: string;
+  title: string;
+  file: string;
+  bytes: number;
+  /** Помещается ли код в ячейку Excel. */
+  fits: boolean;
+}
+
+export interface CatalogPagesPreview {
+  total: number;
+  problems: string[];
+  sharedStyles: boolean;
+  stylesBytes: number;
+  list: CatalogPageRow[];
+  sample: { address: string; file: string; html: string } | null;
+}
+
 export interface CatalogConfig {
   exportPath: string;
   previousPath: string;
@@ -343,6 +381,8 @@ export interface CatalogConfig {
    * указывали бы на удалённые товары.
    */
   carryIds: boolean;
+  /** Настройки страниц домов: всё, что нужно разметке и формам Тильды. */
+  pages: CatalogPageConfig;
 }
 
 /** Заготовка описания: одна на вариацию «площадь + облицовка». */
@@ -1873,6 +1913,17 @@ export interface ElectronAPI {
     problems: string[];
     /** Пустые колонки-ключи, которые не попали в файл. */
     dropped: string[];
+  }>;
+  catalogPagesPreview(opts?: { only?: string }): Promise<CatalogPagesPreview>;
+  catalogBuildPages(): Promise<{
+    dir: string;
+    csvFile: string;
+    xlsxFile: string;
+    pages: number;
+    /** Сколько страниц не поместилось в ячейку таблицы и лежат только файлами. */
+    tooLong: number;
+    stylesFile: string;
+    problems: string[];
   }>;
 
   // видеотека

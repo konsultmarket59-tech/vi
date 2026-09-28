@@ -3725,6 +3725,7 @@ const videostories = require("./videostories.cjs");
 const library = require("./library.cjs");
 const speech = require("./speech.cjs");
 const catalog = require("./catalog.cjs");
+const catalogpage = require("./catalogpage.cjs");
 const sites = require("./sites.cjs");
 
 /**
@@ -4327,10 +4328,50 @@ function catalogConfigFile(root) {
   return path.join(root, "catalog", "config.json");
 }
 
+/**
+ * Настройки страниц домов.
+ *
+ * Отдельно от настроек каталога, потому что это про сайт, а не про выгрузку:
+ * адрес сайта, название компании, телефон. Пустые поля — не беда: разметка
+ * соберётся без них, но приложение об этом скажет. Придумывать за человека
+ * адрес его сайта нельзя — неверная ссылка в разметке хуже, чем её отсутствие.
+ */
+const PAGE_DEFAULTS = {
+  site: "",
+  catalogUrl: "",
+  /** Правило адреса страницы: `https://сайт/house/{id}`; {id} — External ID, {sku} — кадастровый. */
+  pageUrl: "",
+  organization: "",
+  phone: "",
+  region: "",
+  /** Попап записи на просмотр в Тильде. */
+  bookingPopup: "#popup:zapis",
+  mapSrc: "",
+  mortgage: { rate: 6, termYears: 30, downPercent: 20 },
+  /** Общий стиль отдельным файлом: иначе код не помещается в ячейку таблицы. */
+  sharedStyles: true,
+};
+
+const CATALOG_DEFAULTS = {
+  exportPath: "",
+  previousPath: "",
+  outputDir: "",
+  villages: {},
+  septics: {},
+  streetNames: [],
+  photoMode: "all",
+  photoSource: "tilda",
+  carryIds: false,
+  pages: PAGE_DEFAULTS,
+};
+
 async function loadCatalogConfig() {
   const root = await getRootPath();
   try {
-    return JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+    const stored = JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+    // Слитие с умолчаниями, а не голое чтение: иначе настройки, добавленные
+    // позже, не появятся у того, кто уже пользовался разделом.
+    return { ...CATALOG_DEFAULTS, ...stored, pages: { ...PAGE_DEFAULTS, ...(stored.pages || {}) } };
   } catch {
     return {
       exportPath: "",
@@ -4523,6 +4564,78 @@ ipcMain.handle("catalog:build", async () => {
   await catalog.toXlsx(rows, xlsxFile, columns);
   const dropped = catalog.ID_COLUMNS.filter((c) => !columns.includes(c));
   return { csvFile, xlsxFile, rows: rows.length, problems: result.problems, dropped };
+});
+
+/**
+ * Страницы домов: показать, что получится, не записывая ничего на диск.
+ *
+ * Отдаётся одна страница целиком — её видно в окне и можно открыть глазами, —
+ * и размеры остальных. Пересылать в окно сорок страниц по тридцать килобайт
+ * незачем: смотреть их всё равно по одной.
+ */
+ipcMain.handle("catalog:pagesPreview", async (_e, { only } = {}) => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
+  const template = await catalogpage.readTemplate();
+  const config = (result.config || {}).pages || {};
+  const { pages, problems } = catalogpage.buildPages(rows, config, template);
+  const chosen = pages.find((p) => p.cadastral === only || p.externalId === only) || pages[0] || null;
+  return {
+    total: pages.length,
+    problems,
+    sharedStyles: Boolean(config.sharedStyles),
+    stylesBytes: config.sharedStyles ? catalogpage.sharedStyles(template).length : 0,
+    list: pages.map((p) => ({
+      address: p.address,
+      cadastral: p.cadastral,
+      externalId: p.externalId,
+      title: p.title,
+      file: p.file,
+      bytes: p.bytes,
+      fits: p.fits,
+    })),
+    sample: chosen ? { address: chosen.address, file: chosen.file, html: chosen.html } : null,
+  };
+});
+
+/**
+ * Страницы домов на диск: файлами и одной таблицей «адрес — код».
+ *
+ * Таблица нужна затем, что вставлять код в Тильду человек будет по одному дому:
+ * открыл строку, скопировал соседнюю ячейку, вставил в блок «HTML-код».
+ */
+ipcMain.handle("catalog:buildPages", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const dir = result.config.outputDir;
+  if (!dir) throw new Error("Не выбрана папка, куда сохранить страницы.");
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
+  const template = await catalogpage.readTemplate();
+  const config = (result.config || {}).pages || {};
+  const { pages, problems } = catalogpage.buildPages(rows, config, template);
+  if (!pages.length) throw new Error("В каталоге нет ни одного дома — страницы собирать не из чего.");
+
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const pagesDir = path.join(dir, `страницы-домов-${stamp}`);
+  const styles = config.sharedStyles ? catalogpage.sharedStyles(template) : "";
+  await catalogpage.writePages(pagesDir, pages, styles);
+
+  const table = catalogpage.pagesTable(pages);
+  const csvFile = path.join(pagesDir, "адреса-и-код.csv");
+  const xlsxFile = path.join(pagesDir, "адреса-и-код.xlsx");
+  await fs.writeFile(csvFile, catalog.toCsv(table, catalogpage.PAGE_COLUMNS), "utf-8");
+  await catalog.toXlsx(table, xlsxFile, catalogpage.PAGE_COLUMNS);
+
+  return {
+    dir: pagesDir,
+    csvFile,
+    xlsxFile,
+    pages: pages.length,
+    tooLong: pages.filter((p) => !p.fits).length,
+    stylesFile: styles ? path.join(pagesDir, "общий-стиль.html") : "",
+    problems,
+  };
 });
 
 // ---------- сайты ----------

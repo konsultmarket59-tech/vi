@@ -190,6 +190,8 @@ contextBridge.exposeInMainWorld("api", {
   catalogEdits: () => ipcRenderer.invoke("catalog:edits"),
   catalogSaveEdits: (edits) => ipcRenderer.invoke("catalog:saveEdits", edits),
   catalogBuild: () => ipcRenderer.invoke("catalog:build"),
+  catalogPagesPreview: (opts) => ipcRenderer.invoke("catalog:pagesPreview", opts || {}),
+  catalogBuildPages: () => ipcRenderer.invoke("catalog:buildPages"),
 
   // видеотека
   libraryConfig: () => ipcRenderer.invoke("library:config"),
