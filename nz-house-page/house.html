@@ -1,0 +1,668 @@
+<title>Дом 100 м² в Акварелях</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
+<style>
+  /* Токены из дизайн-системы «Новой Земли» (hero-блок): графит, белый, светлое дерево, Montserrat + Inter */
+  :root{
+    --graphite-900:#1A1A1A;
+    --graphite-700:#34322F;
+    --white:#FFFFFF;
+    --wood-light:#D3B497;
+    --wood:#A9825F;
+    --wood-deep:#7A5A3E;
+
+    --bg:#F6F4F1;
+    --surface:#FFFFFF;
+    --surface-2:#EEEAE4;
+    --text:#1A1A1A;
+    --text-muted:#5E5953;
+    --line:#DDD6CC;
+    --accent:var(--wood-deep);
+    --accent-soft:#EFE4D8;
+    --map-ground:#E7E2D9;
+    --map-road:#CFC7BB;
+    --plot-free:#FFFFFF;
+    --plot-sold:#C9C2B8;
+    --plot-reserved:#E6D3BF;
+
+    --font-heading:"Montserrat","Helvetica Neue",Arial,sans-serif;
+    --font-body:"Inter","Helvetica Neue",Arial,sans-serif;
+    --ease-standard:cubic-bezier(.2,.7,.3,1);
+    --ease-out:cubic-bezier(.16,1,.3,1);
+    --dur-fast:140ms;
+    --dur-base:220ms;
+    --press-scale:.985;
+    --radius:20px;
+    --scrim-left:linear-gradient(to right,rgba(26,26,26,.78) 0%,rgba(26,26,26,.3) 60%,rgba(26,26,26,.05) 100%);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#141413;
+      --surface:#1E1D1B;
+      --surface-2:#262421;
+      --text:#F2EFEA;
+      --text-muted:#ABA49B;
+      --line:#35322E;
+      --accent:var(--wood-light);
+      --accent-soft:#2E271F;
+      --map-ground:#23211E;
+      --map-road:#3A3732;
+      --plot-free:#2C2A26;
+      --plot-sold:#45413B;
+      --plot-reserved:#4A3C2E;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#141413;
+    --surface:#1E1D1B;
+    --surface-2:#262421;
+    --text:#F2EFEA;
+    --text-muted:#ABA49B;
+    --line:#35322E;
+    --accent:var(--wood-light);
+    --accent-soft:#2E271F;
+    --map-ground:#23211E;
+    --map-road:#3A3732;
+    --plot-free:#2C2A26;
+    --plot-sold:#45413B;
+    --plot-reserved:#4A3C2E;
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{font-family:var(--font-heading);text-wrap:balance;margin:0}
+  h2{font-size:clamp(26px,3.2vw,38px);line-height:1.12;letter-spacing:-.015em}
+  p{margin:0}
+  a{color:inherit}
+  button,input,select{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .wrap{max-width:1180px;margin:0 auto;padding-inline:32px}
+  .section{padding-block:clamp(56px,8vw,96px)}
+  .eyebrow{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  .section__head{display:grid;gap:12px;margin-bottom:36px;max-width:640px}
+  .section__lead{color:var(--text-muted);font-size:17px}
+
+  .test-badge{position:fixed;z-index:30;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;background:var(--wood-light);color:var(--graphite-900);font-size:12px;font-weight:600;padding:6px 12px;border-radius:999px;letter-spacing:.02em}
+
+  /* ---------- Кнопки ---------- */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;padding:17px 30px;border-radius:999px;cursor:pointer;font-weight:600;font-size:15px;line-height:1;letter-spacing:.01em;text-decoration:none;border:1px solid transparent;transition:filter var(--dur-base) var(--ease-standard),transform var(--dur-fast) var(--ease-standard),background var(--dur-base) var(--ease-standard)}
+  .btn:active{transform:scale(var(--press-scale))}
+  .btn svg{transition:transform var(--dur-base) var(--ease-out)}
+  .btn:hover svg{transform:translate(3px,-3px)}
+  .btn--light{background:var(--white);color:var(--graphite-900);border-color:var(--white)}
+  .btn--light:hover{filter:brightness(1.1)}
+  .btn--ghost-light{background:transparent;color:var(--white);border-color:rgba(255,255,255,.5)}
+  .btn--ghost-light:hover{background:rgba(255,255,255,.1)}
+  .btn--dark{background:var(--text);color:var(--bg)}
+  .btn--dark:hover{filter:brightness(1.15)}
+  .btn--outline{background:transparent;border-color:var(--line);color:var(--text)}
+  .btn--outline:hover{border-color:var(--text)}
+
+  /* ---------- Hero ---------- */
+  .hero{position:relative;isolation:isolate;overflow:hidden;background:var(--graphite-900);color:var(--white)}
+  .hero__media{position:absolute;inset:0;z-index:0}
+  .hero__media video,.hero__media img{width:100%;height:100%;object-fit:cover;filter:brightness(.9) saturate(.97)}
+  .hero__scrim{position:absolute;inset:0;z-index:1;background:var(--scrim-left)}
+  .hero__inner{position:relative;z-index:2;padding-block:clamp(72px,10vw,128px) clamp(40px,6vw,64px)}
+  .crumbs{display:flex;flex-wrap:wrap;gap:8px;font-size:13px;color:rgba(255,255,255,.72);margin-bottom:28px}
+  .crumbs span+span::before{content:"/";margin-right:8px;opacity:.5}
+  .hero__title{font-weight:700;font-size:clamp(34px,5.6vw,72px);line-height:1.02;letter-spacing:-.025em;max-width:13ch}
+  .hero__sub{margin-top:20px;max-width:40ch;font-size:clamp(16px,1.5vw,19px);font-weight:500;color:rgba(255,255,255,.86)}
+  .hero__price{margin-top:32px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 20px}
+  .hero__price strong{font-family:var(--font-heading);font-size:clamp(28px,3.4vw,42px);font-weight:700;letter-spacing:-.02em}
+  .hero__price span{color:rgba(255,255,255,.72);font-size:15px}
+  .hero__price b{color:var(--wood-light);font-weight:600}
+  .hero__cta{margin-top:32px;display:flex;flex-wrap:wrap;gap:12px}
+  .facts{position:relative;z-index:2;margin-top:clamp(48px,7vw,80px);display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid rgba(255,255,255,.2)}
+  .fact{padding:20px 20px 0 0}
+  .fact dt{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+  .fact dd{margin:6px 0 0;font-family:var(--font-heading);font-size:clamp(20px,2vw,26px);font-weight:700;font-variant-numeric:tabular-nums}
+  .status-pill{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.14);color:var(--white)}
+  .status-pill::before{content:"";width:8px;height:8px;border-radius:50%;background:#7FD18B}
+
+  /* ---------- Описание ---------- */
+  .about{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(32px,6vw,80px);align-items:start}
+  .about__text{display:grid;gap:18px;font-size:18px;max-width:60ch}
+  .about__text p:first-child{font-family:var(--font-heading);font-size:clamp(22px,2.4vw,28px);font-weight:600;line-height:1.3;letter-spacing:-.01em}
+  .specs{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 28px}
+  .specs div{display:flex;justify-content:space-between;gap:16px;padding:16px 0;border-bottom:1px solid var(--line);font-size:15px}
+  .specs div:last-child{border-bottom:0}
+  .specs dt{color:var(--text-muted)}
+  .specs dd{margin:0;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+
+  /* ---------- Фото и видео ---------- */
+  .gallery{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:repeat(2,minmax(0,1fr));gap:12px;aspect-ratio:16/8;max-width:100%}
+  .gallery__item{position:relative;overflow:hidden;border-radius:16px;background:var(--surface-2);border:0;padding:0;cursor:pointer}
+  .gallery__item:first-child{grid-row:span 2}
+  .gallery__item img{width:100%;height:100%;object-fit:cover;transition:transform 600ms var(--ease-out)}
+  .gallery__item:hover img{transform:scale(1.03)}
+  .gallery__tag{position:absolute;left:14px;bottom:14px;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:rgba(26,26,26,.72);color:var(--white);font-size:13px;font-weight:600}
+  .viewer{position:fixed;inset:0;z-index:50;background:rgba(10,10,10,.92);display:grid;place-items:center;padding:24px}
+  .viewer video,.viewer img{max-width:min(1100px,100%);max-height:84vh;border-radius:12px}
+  .viewer__close{position:absolute;top:calc(env(safe-area-inset-top,0px) + 16px);right:16px}
+
+  /* ---------- Карта ---------- */
+  .map-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .map-card__svg{display:block;width:100%;height:auto;background:var(--map-ground)}
+  .map-card__bar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px;padding:18px 24px;border-top:1px solid var(--line)}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:14px;color:var(--text-muted)}
+  .legend span{display:inline-flex;align-items:center;gap:8px}
+  .legend i{width:14px;height:14px;border-radius:4px;border:1px solid var(--line)}
+  .plot{stroke:var(--line);stroke-width:1.5}
+  .plot--free{fill:var(--plot-free)}
+  .plot--reserved{fill:var(--plot-reserved)}
+  .plot--sold{fill:var(--plot-sold)}
+  .plot--this{fill:var(--wood);stroke:var(--wood-deep);stroke-width:3}
+  .plot-num{font:600 12px var(--font-body);fill:var(--text-muted);text-anchor:middle}
+  .plot-num--this{fill:var(--white);font-size:14px}
+  .road{fill:var(--map-road)}
+  .road-label{font:600 11px var(--font-body);fill:var(--text-muted);letter-spacing:.12em}
+  .pin-pulse{fill:var(--wood);opacity:.35;transform-origin:center;transform-box:fill-box;animation:pulse 2.4s var(--ease-out) infinite}
+  @keyframes pulse{0%{transform:scale(.6);opacity:.5}100%{transform:scale(1.8);opacity:0}}
+
+  /* ---------- Ипотека ---------- */
+  .calc{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .calc__form,.calc__result{border-radius:var(--radius);padding:clamp(24px,3vw,36px)}
+  .calc__form{background:var(--surface);border:1px solid var(--line);display:grid;gap:22px}
+  .field{display:grid;gap:8px}
+  .field label{font-size:14px;color:var(--text-muted);display:flex;justify-content:space-between;gap:12px}
+  .field label output{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+  .field input[type=number],.field input[type=text],.field input[type=tel],.field select{width:100%;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);font-size:16px;font-variant-numeric:tabular-nums}
+  .field input[type=range]{width:100%;accent-color:var(--wood-deep)}
+  .check{display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer}
+  .check input{margin-top:4px;accent-color:var(--wood-deep);width:18px;height:18px}
+  .calc__result{background:var(--graphite-900);color:var(--white);display:flex;flex-direction:column;gap:24px}
+  .calc__monthly span{display:block;font-size:14px;color:rgba(255,255,255,.66)}
+  .calc__monthly strong{display:block;margin-top:6px;font-family:var(--font-heading);font-size:clamp(40px,5vw,60px);line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .calc__rows{display:grid;gap:0;border-top:1px solid rgba(255,255,255,.16)}
+  .calc__rows div{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.16);font-size:15px}
+  .calc__rows dt{color:rgba(255,255,255,.66)}
+  .calc__rows dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+  .calc__note{margin-top:auto;font-size:13px;color:rgba(255,255,255,.55)}
+
+  /* ---------- Запись на просмотр ---------- */
+  .visit{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(32px,6vw,80px);align-items:start}
+  .visit__points{display:grid;gap:14px;margin-top:28px;padding:0;list-style:none}
+  .visit__points li{display:flex;gap:14px;font-size:16px}
+  .visit__points li::before{content:"";flex:none;width:8px;height:8px;margin-top:9px;border-radius:50%;background:var(--wood)}
+  .visit__form{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:clamp(24px,3vw,36px);display:grid;gap:20px}
+  .slots{display:flex;flex-wrap:wrap;gap:8px}
+  .slot{position:relative}
+  .slot input{position:absolute;opacity:0;inset:0}
+  .slot span{display:inline-block;padding:11px 16px;border-radius:999px;border:1px solid var(--line);font-size:14px;cursor:pointer;transition:background var(--dur-base),border-color var(--dur-base)}
+  .slot input:checked+span{background:var(--text);color:var(--bg);border-color:var(--text)}
+  .slot input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .form-done{padding:18px 20px;border-radius:14px;background:var(--accent-soft);font-size:15px}
+  .form-error{color:#B3261E;font-size:14px}
+
+  /* ---------- Поделиться ---------- */
+  .share{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:24px;padding:clamp(28px,4vw,40px);border-radius:var(--radius);background:var(--accent-soft)}
+  .share__title{font-family:var(--font-heading);font-size:clamp(20px,2.2vw,26px);font-weight:700}
+  .share__text{margin-top:6px;color:var(--text-muted)}
+  .share__links{display:flex;flex-wrap:wrap;gap:8px}
+  .share__links .btn{padding:14px 20px;font-size:14px}
+
+  .footer{padding-block:40px 120px;color:var(--text-muted);font-size:13px}
+  .footer p+p{margin-top:6px}
+
+  /* ---------- Липкая панель на телефоне ---------- */
+  .sticky{display:none}
+
+  @media (max-width:900px){
+    .wrap{padding-inline:16px}
+    .facts{grid-template-columns:repeat(2,1fr)}
+    .fact:last-child{grid-column:span 2}
+    .about,.calc,.visit{grid-template-columns:1fr}
+    .gallery{grid-template-columns:1fr 1fr;grid-template-rows:auto;aspect-ratio:auto}
+    .gallery__item{aspect-ratio:4/3}
+    .gallery__item:first-child{grid-row:auto;grid-column:span 2}
+    .hero__scrim{background:linear-gradient(to top,rgba(26,26,26,.88) 0%,rgba(26,26,26,.55) 60%,rgba(26,26,26,.35) 100%)}
+    .hero__cta .btn{flex:1 1 100%}
+    .form-row{grid-template-columns:1fr}
+    .sticky{display:flex;gap:8px;position:fixed;z-index:20;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}
+    .sticky .btn{flex:1;padding:15px 12px;font-size:14px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+
+<div class="test-badge">Тестовые данные</div>
+
+<!-- ========== HERO ========== -->
+<header class="hero">
+  <div class="hero__media">
+    <video id="heroVideo" muted playsinline autoplay loop preload="metadata"></video>
+  </div>
+  <span class="hero__scrim"></span>
+  <div class="wrap hero__inner">
+    <div class="crumbs" id="crumbs"></div>
+    <span class="status-pill" id="statusPill"></span>
+    <h1 class="hero__title" id="title" style="margin-top:18px"></h1>
+    <p class="hero__sub" id="subtitle"></p>
+    <div class="hero__price">
+      <strong id="price"></strong>
+      <span>или от <b id="heroMonthly"></b> в месяц в ипотеку*</span>
+    </div>
+    <div class="hero__cta">
+      <a class="btn btn--light" href="#visit">
+        <span>Выбрать время просмотра</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+      </a>
+      <a class="btn btn--ghost-light" href="#mortgage">Посчитать платёж</a>
+    </div>
+    <dl class="facts" id="facts"></dl>
+  </div>
+</header>
+
+<main>
+  <!-- ========== ОПИСАНИЕ ========== -->
+  <section class="section">
+    <div class="wrap about">
+      <div>
+        <div class="section__head">
+          <span class="eyebrow">О доме</span>
+        </div>
+        <div class="about__text" id="description"></div>
+      </div>
+      <dl class="specs" id="specs"></dl>
+    </div>
+  </section>
+
+  <!-- ========== ФОТО И ВИДЕО ========== -->
+  <section class="section" style="padding-top:0">
+    <div class="wrap">
+      <div class="section__head">
+        <span class="eyebrow">Фото и видео</span>
+        <h2>Как дом выглядит вживую</h2>
+      </div>
+      <div class="gallery" id="gallery"></div>
+    </div>
+  </section>
+
+  <!-- ========== КАРТА ========== -->
+  <section class="section" id="map" style="padding-top:0">
+    <div class="wrap">
+      <div class="section__head">
+        <span class="eyebrow">Дом на карте</span>
+        <h2 id="mapTitle"></h2>
+        <p class="section__lead" id="mapLead"></p>
+      </div>
+      <div class="map-card">
+        <svg class="map-card__svg" id="mapSvg" viewBox="0 0 760 380" role="img" aria-label="Схема посёлка с отмеченным участком"></svg>
+        <div class="map-card__bar">
+          <div class="legend">
+            <span><i style="background:var(--wood)"></i>Этот дом</span>
+            <span><i style="background:var(--plot-free)"></i>Свободно</span>
+            <span><i style="background:var(--plot-reserved)"></i>Бронь</span>
+            <span><i style="background:var(--plot-sold)"></i>Продано</span>
+          </div>
+          <a class="btn btn--outline" id="mapLink" target="_blank" rel="noopener">Открыть карту посёлка</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ИПОТЕКА ========== -->
+  <section class="section" id="mortgage" style="padding-top:0">
+    <div class="wrap">
+      <div class="section__head">
+        <span class="eyebrow">Ипотека</span>
+        <h2>Сколько выйдет в месяц</h2>
+        <p class="section__lead">Семейная ипотека и материнский капитал принимаются. Двигайте ползунки, платёж пересчитается сразу.</p>
+      </div>
+      <div class="calc">
+        <form class="calc__form" id="calcForm" onsubmit="return false">
+          <div class="field">
+            <label for="cPrice">Стоимость дома <output id="oPrice"></output></label>
+            <input type="range" id="cPrice" step="50000">
+          </div>
+          <div class="field">
+            <label for="cDown">Первый взнос <output id="oDown"></output></label>
+            <input type="range" id="cDown" min="0" step="10000">
+          </div>
+          <label class="check" for="cMatcap">
+            <input type="checkbox" id="cMatcap">
+            <span>Добавить материнский капитал к взносу</span>
+          </label>
+          <div class="field" id="matcapField" hidden>
+            <label for="cMatcapSum">Сумма маткапитала, ₽</label>
+            <input type="number" id="cMatcapSum" inputmode="numeric" min="0" step="1000">
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="cTerm">Срок <output id="oTerm"></output></label>
+              <input type="range" id="cTerm" min="5" max="30" step="1">
+            </div>
+            <div class="field">
+              <label for="cRate">Ставка, % годовых</label>
+              <input type="number" id="cRate" inputmode="decimal" min="0.1" max="40" step="0.1">
+            </div>
+          </div>
+        </form>
+        <div class="calc__result">
+          <div class="calc__monthly">
+            <span>Ежемесячный платёж</span>
+            <strong id="rMonthly"></strong>
+          </div>
+          <dl class="calc__rows">
+            <div><dt>Сумма кредита</dt><dd id="rLoan"></dd></div>
+            <div><dt>Первый взнос всего</dt><dd id="rDown"></dd></div>
+            <div><dt>Переплата за весь срок</dt><dd id="rOver"></dd></div>
+          </dl>
+          <a class="btn btn--light" href="#visit">Обсудить расчёт на просмотре</a>
+          <p class="calc__note">*Расчёт предварительный. Итоговую ставку и платёж подтверждает банк после одобрения заявки.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ЗАПИСЬ НА ПРОСМОТР ========== -->
+  <section class="section" id="visit" style="padding-top:0">
+    <div class="wrap visit">
+      <div>
+        <div class="section__head" style="margin-bottom:0">
+          <span class="eyebrow">Просмотр</span>
+          <h2>Приезжайте посмотреть дом</h2>
+          <p class="section__lead">Покажем дом изнутри, участок и дорогу до него. Можно взять детей — пусть сами выберут себе комнату.</p>
+        </div>
+        <ul class="visit__points" id="visitPoints"></ul>
+      </div>
+      <form class="visit__form" id="visitForm" novalidate>
+        <div class="field">
+          <label>Удобный день</label>
+          <div class="slots" id="daySlots"></div>
+        </div>
+        <div class="field">
+          <label>Время</label>
+          <div class="slots" id="timeSlots"></div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="vName">Имя</label>
+            <input type="text" id="vName" autocomplete="given-name" placeholder="Анна">
+          </div>
+          <div class="field">
+            <label for="vPhone">Телефон</label>
+            <input type="tel" id="vPhone" autocomplete="tel" placeholder="+7 900 000-00-00">
+          </div>
+        </div>
+        <p class="form-error" id="vError" hidden></p>
+        <button class="btn btn--dark" type="submit">Отправить заявку</button>
+        <div class="form-done" id="vDone" hidden></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ========== ПОДЕЛИТЬСЯ ========== -->
+  <section class="section" style="padding-top:0">
+    <div class="wrap">
+      <div class="share">
+        <div>
+          <div class="share__title">Отправьте дом тому, с кем выбираете</div>
+          <p class="share__text">Ссылка откроет эту страницу с фото, картой и расчётом.</p>
+        </div>
+        <div class="share__links">
+          <a class="btn btn--outline" id="shareTg" target="_blank" rel="noopener">Telegram</a>
+          <a class="btn btn--outline" id="shareVk" target="_blank" rel="noopener">ВКонтакте</a>
+          <a class="btn btn--outline" id="shareWa" target="_blank" rel="noopener">WhatsApp</a>
+          <button class="btn btn--dark" type="button" id="shareCopy">Скопировать ссылку</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap footer">
+  <p id="footerCode"></p>
+  <p>Данные о статусе и цене обновляются из 1С. Информация на странице не является публичной офертой.</p>
+</footer>
+
+<div class="sticky">
+  <a class="btn btn--outline" href="#mortgage">Платёж</a>
+  <a class="btn btn--dark" href="#visit">Выбрать время просмотра</a>
+</div>
+
+<div class="viewer" id="viewer" hidden>
+  <button class="btn btn--light viewer__close" type="button" id="viewerClose">Закрыть</button>
+  <div id="viewerBody"></div>
+</div>
+
+<script>
+/* =====================================================================
+   ДАННЫЕ ДОМА.
+   В боевом варианте этот объект приходит с сервера карты:
+   GET https://dmitpon.website/api/houses/{externalCode}
+   Ключ — «Внешний код товара» из Тильды, он же код объекта в 1С.
+   Ниже — тестовая запись, все цифры условные.
+   ===================================================================== */
+var HOUSES = {
+  "jX2OkV9tzErRmKFLN0S0": {
+    externalCode: "jX2OkV9tzErRmKFLN0S0",
+    url: "https://dmitpon.website/house/jX2OkV9tzErRmKFLN0S0",
+    mapUrl: "https://dmitpon.website/map/akvareli?plot=47",
+    village: "Акварели",
+    title: "Дом 100 м² с террасой",
+    subtitle: "Три спальни, кухня-гостиная 28 м² и своя терраса. Дом построен, можно заезжать.",
+    status: "free",
+    price: 6950000,
+    plot: 47,
+    facts: [
+      ["Площадь дома", "100 м²"],
+      ["Участок", "8 соток"],
+      ["Спальни", "3"],
+      ["Терраса", "13 м²"],
+      ["Срок сдачи", "Готов"]
+    ],
+    description: [
+      "Три спальни — у каждого ребёнка своя дверь, которую можно закрыть.",
+      "Кухня-гостиная 28 м² с выходом на террасу. Летом ужинаете на улице, зимой смотрите на снег через панорамное окно.",
+      "Тёплые полы во всём доме и своя котельная. Коммуникации подключены и уже в цене. Земля ИЖС в границах населённого пункта: муниципальные дороги, скорая и школьный автобус."
+    ],
+    specs: [
+      ["Посёлок", "Акварели"],
+      ["Участок на плане", "№ 47"],
+      ["Категория земли", "ИЖС"],
+      ["Отделка", "Чистовая"],
+      ["Отопление", "Газовый котёл, тёплые полы"],
+      ["Коммуникации", "Свет, газ, вода, септик"],
+      ["Способы оплаты", "Ипотека, маткапитал, trade-in, рассрочка"]
+    ],
+    media: {
+      hero: { video: "house-orbit-a.mp4", poster: "house-orbit-a-poster.jpg" },
+      gallery: [
+        { type: "photo", src: "house-orbit-a-poster.jpg", alt: "Дом с террасой, вид сбоку" },
+        { type: "video", src: "house-orbit-b.mp4", poster: "house-orbit-b-poster.jpg", alt: "Облёт дома" },
+        { type: "photo", src: "house-orbit-b-poster.jpg", alt: "Дом, вид с участка" }
+      ]
+    },
+    mortgage: { rate: 6, termYears: 30, downPercent: 20 },
+    visit: {
+      days: ["Сб, 3 октября", "Вс, 4 октября", "Сб, 10 октября", "Вс, 11 октября"],
+      times: ["11:00", "13:00", "15:00"],
+      points: [
+        "Экскурсии по посёлку проходят по выходным",
+        "Показ занимает около часа",
+        "Менеджер пришлёт точку на карте и маршрут"
+      ]
+    },
+    /* Соседние участки для схемы. В боевом варианте — из того же API карты. */
+    neighbors: {
+      41:"sold",42:"sold",43:"reserved",44:"free",45:"sold",46:"free",48:"reserved",49:"free",50:"free",
+      51:"sold",52:"free",53:"free",54:"sold",55:"reserved",56:"free",57:"free",58:"sold",59:"free",60:"free"
+    }
+  }
+};
+
+(function(){
+  var STATUS_LABEL = { free: "В продаже", reserved: "Забронирован", sold: "Продан" };
+  var rub = function(n){ return Math.round(n).toLocaleString("ru-RU") + " ₽"; };
+  var $ = function(id){ return document.getElementById(id); };
+  var esc = function(s){ var d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+
+  /* Какой дом показывать: ?code=… на своём сервере, #код в артефакте, иначе первый */
+  var params = new URLSearchParams(location.search);
+  var code = params.get("code") || location.hash.replace("#","");
+  var H = HOUSES[code] || HOUSES[Object.keys(HOUSES)[0]];
+
+  document.title = H.title + " — " + H.village;
+
+  /* ---- Hero ---- */
+  var v = $("heroVideo");
+  v.poster = H.media.hero.poster;
+  v.src = H.media.hero.video;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { v.removeAttribute("autoplay"); v.pause(); }
+  $("crumbs").innerHTML = "<span>Новая Земля</span><span>" + esc(H.village) + "</span><span>Участок № " + H.plot + "</span>";
+  $("statusPill").textContent = STATUS_LABEL[H.status];
+  $("title").textContent = H.title;
+  $("subtitle").textContent = H.subtitle;
+  $("price").textContent = rub(H.price);
+  $("facts").innerHTML = H.facts.map(function(f){
+    return '<div class="fact"><dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd></div>';
+  }).join("");
+
+  /* ---- Описание ---- */
+  $("description").innerHTML = H.description.map(function(p){ return "<p>" + esc(p) + "</p>"; }).join("");
+  $("specs").innerHTML = H.specs.map(function(s){
+    return "<div><dt>" + esc(s[0]) + "</dt><dd>" + esc(s[1]) + "</dd></div>";
+  }).join("");
+
+  /* ---- Галерея ---- */
+  var gallery = $("gallery");
+  H.media.gallery.forEach(function(m){
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "gallery__item";
+    b.setAttribute("aria-label", m.alt);
+    b.innerHTML = '<img loading="lazy" alt="' + esc(m.alt) + '" src="' + esc(m.type === "video" ? m.poster : m.src) + '">' +
+      (m.type === "video" ? '<span class="gallery__tag"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>Видео</span>' : "");
+    b.addEventListener("click", function(){ openViewer(m); });
+    gallery.appendChild(b);
+  });
+  function openViewer(m){
+    var body = $("viewerBody");
+    body.innerHTML = m.type === "video"
+      ? '<video controls autoplay playsinline poster="' + esc(m.poster) + '" src="' + esc(m.src) + '"></video>'
+      : '<img alt="' + esc(m.alt) + '" src="' + esc(m.src) + '">';
+    $("viewer").hidden = false;
+    $("viewerClose").focus();
+  }
+  function closeViewer(){ $("viewer").hidden = true; $("viewerBody").innerHTML = ""; }
+  $("viewerClose").addEventListener("click", closeViewer);
+  $("viewer").addEventListener("click", function(e){ if (e.target.id === "viewer") closeViewer(); });
+  document.addEventListener("keydown", function(e){ if (e.key === "Escape") closeViewer(); });
+
+  /* ---- Схема посёлка ---- */
+  $("mapTitle").textContent = "Участок № " + H.plot + " в посёлке «" + H.village + "»";
+  $("mapLead").textContent = "Схема показывает соседние участки и их статус. Полная интерактивная карта открывается по кнопке.";
+  $("mapLink").href = H.mapUrl;
+  var svg = $("mapSvg"), NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, text){
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    svg.appendChild(n); return n;
+  }
+  var cols = 10, w = 64, h = 104, gap = 6, x0 = 32, yTop = 40, roadY = yTop + h + 22, roadH = 44, yBot = roadY + roadH + 22;
+  el("rect", { x: 0, y: roadY, width: 760, height: roadH, class: "road" });
+  el("text", { x: 380, y: roadY + roadH / 2 + 4, class: "road-label", "text-anchor": "middle" }, "УЛИЦА ЛЕСНАЯ");
+  var first = Math.min.apply(null, Object.keys(H.neighbors).map(Number).concat(H.plot));
+  for (var i = 0; i < cols * 2; i++){
+    var num = first + i;
+    var row = i < cols ? 0 : 1, col = i % cols;
+    var x = x0 + col * (w + gap), y = row === 0 ? yTop : yBot;
+    var isThis = num === H.plot;
+    var st = isThis ? "this" : (H.neighbors[num] || "free");
+    el("rect", { x: x, y: y, width: w, height: h, rx: 6, class: "plot plot--" + st });
+    el("text", { x: x + w / 2, y: y + h / 2 + 4, class: "plot-num" + (isThis ? " plot-num--this" : "") }, num);
+    if (isThis){
+      el("circle", { cx: x + w / 2, cy: y + h / 2, r: 30, class: "pin-pulse" });
+    }
+  }
+
+  /* ---- Ипотечный калькулятор ---- */
+  var cPrice = $("cPrice"), cDown = $("cDown"), cTerm = $("cTerm"), cRate = $("cRate"), cMat = $("cMatcap"), cMatSum = $("cMatcapSum");
+  cPrice.min = Math.round(H.price * 0.5 / 50000) * 50000;
+  cPrice.max = Math.round(H.price * 1.5 / 50000) * 50000;
+  cPrice.value = H.price;
+  cDown.value = Math.round(H.price * H.mortgage.downPercent / 100 / 10000) * 10000;
+  cTerm.value = H.mortgage.termYears;
+  cRate.value = H.mortgage.rate;
+
+  function annuity(loan, ratePct, years){
+    var n = years * 12, r = ratePct / 100 / 12;
+    if (loan <= 0) return 0;
+    if (r <= 0) return loan / n;
+    return loan * r / (1 - Math.pow(1 + r, -n));
+  }
+  function years(n){ var m10 = n % 10, m100 = n % 100; return n + " " + (m10 === 1 && m100 !== 11 ? "год" : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? "года" : "лет"); }
+
+  function recalc(){
+    var price = +cPrice.value;
+    cDown.max = price;
+    var down = Math.min(+cDown.value, price);
+    var mat = cMat.checked ? Math.max(0, +cMatSum.value || 0) : 0;
+    var totalDown = Math.min(price, down + mat);
+    var loan = price - totalDown;
+    var rate = Math.max(0, +cRate.value || 0);
+    var term = +cTerm.value;
+    var m = annuity(loan, rate, term);
+    $("oPrice").textContent = rub(price);
+    $("oDown").textContent = rub(down);
+    $("oTerm").textContent = years(term);
+    $("rMonthly").textContent = rub(m);
+    $("rLoan").textContent = rub(loan);
+    $("rDown").textContent = rub(totalDown);
+    $("rOver").textContent = rub(Math.max(0, m * term * 12 - loan));
+  }
+  [cPrice, cDown, cTerm, cRate, cMatSum].forEach(function(i){ i.addEventListener("input", recalc); });
+  cMat.addEventListener("change", function(){ $("matcapField").hidden = !cMat.checked; recalc(); });
+  recalc();
+  $("heroMonthly").textContent = rub(annuity(H.price * (1 - H.mortgage.downPercent / 100), H.mortgage.rate, H.mortgage.termYears));
+
+  /* ---- Запись на просмотр ---- */
+  function slots(container, name, list){
+    container.innerHTML = list.map(function(t, i){
+      return '<label class="slot"><input type="radio" name="' + name + '" value="' + esc(t) + '"' + (i === 0 ? " checked" : "") + '><span>' + esc(t) + "</span></label>";
+    }).join("");
+  }
+  slots($("daySlots"), "day", H.visit.days);
+  slots($("timeSlots"), "time", H.visit.times);
+  $("visitPoints").innerHTML = H.visit.points.map(function(p){ return "<li>" + esc(p) + "</li>"; }).join("");
+
+  $("visitForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    var name = $("vName").value.trim(), phone = $("vPhone").value.replace(/\D/g, "");
+    var err = $("vError");
+    if (!name){ err.textContent = "Укажите имя, чтобы менеджер знал, как к вам обращаться."; err.hidden = false; $("vName").focus(); return; }
+    if (phone.length < 10){ err.textContent = "Проверьте телефон: нужно 10–11 цифр."; err.hidden = false; $("vPhone").focus(); return; }
+    err.hidden = true;
+    var fd = new FormData(e.target);
+    /* В боевом варианте здесь отправка: форма Тильды → webhook → бронь просмотра в 1С/CRM.
+       В заявку уходят externalCode и номер участка, чтобы менеджер сразу видел дом. */
+    var lead = { externalCode: H.externalCode, plot: H.plot, village: H.village, day: fd.get("day"), time: fd.get("time"), name: name, phone: phone };
+    $("vDone").textContent = "Тестовый режим: заявка собрана, но никуда не отправлена. " + lead.day + ", " + lead.time + ", участок № " + lead.plot + ".";
+    $("vDone").hidden = false;
+  });
+
+  /* ---- Поделиться ---- */
+  var shareText = H.title + " в посёлке «" + H.village + "»";
+  var u = encodeURIComponent(H.url), t = encodeURIComponent(shareText);
+  $("shareTg").href = "https://t.me/share/url?url=" + u + "&text=" + t;
+  $("shareVk").href = "https://vk.com/share.php?url=" + u + "&title=" + t;
+  $("shareWa").href = "https://wa.me/?text=" + encodeURIComponent(shareText + " " + H.url);
+  $("shareCopy").addEventListener("click", function(){
+    var btn = this;
+    var done = function(){ btn.textContent = "Ссылка скопирована"; setTimeout(function(){ btn.textContent = "Скопировать ссылку"; }, 2200); };
+    try {
+      navigator.clipboard.writeText(H.url).then(done, function(){ btn.textContent = H.url; });
+    } catch(_) { btn.textContent = H.url; }
+  });
+
+  $("footerCode").textContent = "Внешний код объекта: " + H.externalCode + " · Участок № " + H.plot + " · " + H.village;
+})();
+</script>
