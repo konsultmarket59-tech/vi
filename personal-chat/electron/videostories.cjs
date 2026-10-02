@@ -1392,10 +1392,13 @@ async function listFonts(platform = process.platform, extraDirs = []) {
 }
 
 /** Шрифт для сцены — строкой data:, потому что скрытое окно читает не с диска. */
+/** Тип шрифта по расширению: из Фигмы чаще всего выгружается woff2. */
+const FONT_MIME = { ".otf": "font/otf", ".ttf": "font/ttf", ".ttc": "font/collection", ".woff": "font/woff", ".woff2": "font/woff2" };
+
 async function fontDataUri(file) {
   const buf = await fs.readFile(file);
-  const kind = /\.otf$/i.test(file) ? "font/otf" : "font/ttf";
-  return `data:${kind};base64,${buf.toString("base64")}`;
+  const ext = path.extname(String(file)).toLowerCase();
+  return `data:${FONT_MIME[ext] || "font/ttf"};base64,${buf.toString("base64")}`;
 }
 
 // --- иконки и сток --------------------------------------------------------

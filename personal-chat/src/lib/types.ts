@@ -1630,6 +1630,13 @@ export interface StoriesDesign {
   /** Словесное описание для задания агенту. */
   description: string;
   problem: string;
+  /**
+   * Файлы шрифтов из дизайн-системы. Шрифт — это файл, а не название: без него
+   * сцена молча возьмёт запасной, и ролик выйдет не тем шрифтом.
+   */
+  fontFiles: { family: string; path: string; rel: string }[];
+  /** Варианты логотипа, найденные в дизайн-системе. */
+  logoFiles: { name: string; path: string; rel: string }[];
 }
 
 export interface StoryProbe {

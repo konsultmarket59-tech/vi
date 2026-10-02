@@ -1257,27 +1257,7 @@ const MAX_DESIGN_SYSTEM_CHARS = 40000;
 
 /** Expands attached paths (files or folders) into a flat list of readable files. */
 async function collectDesignSystemFiles(paths) {
-  const files = [];
-  for (const p of paths || []) {
-    let stat;
-    try {
-      stat = await fs.stat(p);
-    } catch {
-      files.push({ path: p, name: path.basename(p), missing: true });
-      continue;
-    }
-    if (stat.isDirectory()) {
-      const entries = await fs.readdir(p, { withFileTypes: true }).catch(() => []);
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
-        files.push({ path: path.join(p, entry.name), name: entry.name, from: p });
-      }
-    } else {
-      files.push({ path: p, name: path.basename(p) });
-    }
-    if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
-  }
+  const { files } = await designsystem.collectFiles(paths, { limit: MAX_DESIGN_SYSTEM_FILES });
   return files;
 }
 
@@ -1288,30 +1268,45 @@ async function collectDesignSystemFiles(paths) {
  * a text prompt, but knowing a "logo-primary.svg" exists is still useful context.
  */
 async function readDesignSystem(paths) {
-  const files = await collectDesignSystemFiles(paths);
+  const { files, truncated } = await designsystem.collectFiles(paths, { limit: MAX_DESIGN_SYSTEM_FILES });
   if (files.length === 0) return "";
   const parts = [];
   const listed = [];
   for (const file of files) {
     if (file.missing) {
-      listed.push(`${file.name} — файл не найден (перемещён или удалён)`);
+      listed.push(`${file.rel} — файл не найден (перемещён или удалён)`);
       continue;
     }
     const ext = path.extname(file.name).toLowerCase();
     if (SUPPORTED_DOC_EXTENSIONS.includes(ext) || ext === ".svg") {
       try {
         const text = ext === ".svg" ? await fs.readFile(file.path, "utf-8") : await extractDocText(file.path);
-        parts.push(`\n--- ${file.name} ---\n${truncate(text, MAX_DOC_CHARS)}`);
+        // Путь с папкой, а не одно имя: по «logos/logo-primary.svg» видно, что
+        // это логотип, а по «logo-primary.svg» — надо догадываться.
+        parts.push(`\n--- ${file.rel} ---\n${truncate(text, MAX_DOC_CHARS)}`);
       } catch (e) {
-        listed.push(`${file.name} — не удалось прочитать (${e.message})`);
+        listed.push(`${file.rel} — не удалось прочитать (${e.message})`);
       }
     } else {
-      listed.push(file.name);
+      listed.push(file.rel);
     }
   }
+  const итог = designsystem.summary(files);
   let out = "";
+  if (итог.fonts || итог.logos) {
+    out +=
+      `\nВ дизайн-системе: файлов ${итог.total}` +
+      (итог.fonts ? `, шрифтов ${итог.fonts}` : "") +
+      (итог.logos ? `, вариантов логотипа ${итог.logos}` : "") +
+      ".";
+  }
   if (listed.length > 0) out += `\nФайлы дизайн-системы (без текстового содержимого): ${listed.join(", ")}`;
   out += parts.join("\n");
+  // Молча обрезанная дизайн-система и выглядит как «приложение её не слушает».
+  if (truncated) {
+    out += `\n\nВНИМАНИЕ: дизайн-система больше ${MAX_DESIGN_SYSTEM_FILES} файлов, прочитана не целиком. ` +
+      "Если чего-то не хватает — подключите нужную подпапку отдельно.";
+  }
   return truncate(out, MAX_DESIGN_SYSTEM_CHARS);
 }
 
@@ -3795,6 +3790,7 @@ const library = require("./library.cjs");
 const speech = require("./speech.cjs");
 const catalog = require("./catalog.cjs");
 const catalogpage = require("./catalogpage.cjs");
+const designsystem = require("./designsystem.cjs");
 const sites = require("./sites.cjs");
 
 /**
@@ -4225,7 +4221,17 @@ ipcMain.handle("stories:prepareMotion", async (_e, request) => {
  * рано или поздно разойдутся, и разойдутся молча.
  */
 async function readDesignFolder(dir) {
-  const empty = { dir: dir || "", files: [], colours: [], fonts: [], vars: [], description: "", problem: "" };
+  const empty = {
+    dir: dir || "",
+    files: [],
+    colours: [],
+    fonts: [],
+    vars: [],
+    description: "",
+    problem: "",
+    fontFiles: [],
+    logoFiles: [],
+  };
   if (!dir) return empty;
   let stat;
   try {
@@ -4257,6 +4263,18 @@ async function readDesignFolder(dir) {
     body += "\n" + text.slice(0, 200000);
   }
   const tokens = sites.extractTokens(body);
+  // Шрифты и логотипы — это ФАЙЛЫ, а не названия. Задание «шрифт Dinamika»
+  // ничего не даёт, если самого файла в сцене нет: браузер молча подставит
+  // запасной, и ролик выйдет не тем шрифтом. Поэтому файлы собираются отдельно.
+  const { files: все } = stat.isDirectory()
+    ? await designsystem.collectFiles([dir], { limit: 200 })
+    : { files: [] };
+  const fontFiles = все
+    .filter((f) => f.kind === "шрифт")
+    .map((f) => ({ family: path.basename(f.name, path.extname(f.name)), path: f.path, rel: f.rel }));
+  const logoFiles = все
+    .filter((f) => f.kind === "картинка" && designsystem.looksLikeLogo(f.rel))
+    .map((f) => ({ name: f.name, path: f.path, rel: f.rel }));
   return {
     dir,
     files: files.map((f) => path.basename(f)).slice(0, 40),
@@ -4265,6 +4283,8 @@ async function readDesignFolder(dir) {
     vars: tokens.vars,
     description: sites.describeTokens(tokens),
     problem: files.length ? "" : "В папке не нашлось файлов дизайн-системы (css, json, svg, md).",
+    fontFiles,
+    logoFiles,
   };
 }
 
