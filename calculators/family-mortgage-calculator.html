@@ -645,6 +645,130 @@
       opacity: 0.45;
     }
 
+    /* Сравнение сроков и стратегий досрочки */
+    .hp-card__compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .hp-card__compare-col,
+    .hp-card__strategy {
+      border: 1.5px solid var(--mc-border, #e2dff0);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+
+    .hp-card__compare-col--best,
+    .hp-card__strategy--best {
+      border-color: var(--uc-primary, #301b92);
+      background: var(--mc-primary-bg, #f6f4fe);
+    }
+
+    .hp-card__compare-head,
+    .hp-card__strategy-head {
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--uc-primary, #301b92);
+      margin: 0 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .hp-card__compare-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 13px;
+      color: var(--mc-text-secondary, #6b6b8d);
+      padding: 5px 0;
+      border-bottom: 1px dashed var(--mc-border, #e2dff0);
+    }
+
+    .hp-card__compare-row:last-of-type {
+      border-bottom: none;
+    }
+
+    .hp-card__compare-row b {
+      font-family: 'Inter', sans-serif;
+      font-weight: 700;
+      color: var(--uc-text, #1a1a2e);
+      white-space: nowrap;
+    }
+
+    .hp-card__tag {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 30px;
+      background: var(--uc-primary, #301b92);
+      color: var(--mc-white, #ffffff);
+    }
+
+    .hp-card__pros,
+    .hp-card__tips {
+      margin: 0;
+      padding-left: 20px;
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--uc-text, #1a1a2e);
+    }
+
+    .hp-card__pros li,
+    .hp-card__tips li {
+      margin-bottom: 8px;
+    }
+
+    .hp-card__pros li::marker,
+    .hp-card__tips li::marker {
+      color: var(--uc-primary, #301b92);
+      font-weight: 700;
+    }
+
+    .hp-card__pros li.hp-card__con::marker {
+      color: #d97706;
+    }
+
+    .hp-card__early {
+      margin-top: 32px;
+    }
+
+    .hp-card__early-grid {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .hp-card__strategies {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .hp-card__strategy-save {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: #15803d;
+      margin: 8px 0 0;
+    }
+
+    .hp-card__seg-mini {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
     .hp-card__cta {
       margin-top: 32px;
       padding: 32px;
@@ -740,6 +864,7 @@
       .hp-card { padding: 40px 16px 60px; }
       .hp-card__grid { grid-template-columns: 1fr; gap: 24px; }
       .hp-card__results { grid-template-columns: repeat(2, 1fr); }
+      .hp-card__early-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 640px) {
@@ -749,6 +874,11 @@
       .hp-card__cta { flex-direction: column; text-align: center; padding: 24px 20px; }
       .hp-card__btn { width: 100%; justify-content: center; }
       .hp-card__2col { grid-template-columns: 1fr; }
+      .hp-card__strategies { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 400px) {
+      .hp-card__compare { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 480px) {
@@ -768,10 +898,10 @@
 
     <h1 class="hp-card__title"> КАЛЬКУЛЯТОР <span class="hp-card__title-accent">СЕМЕЙНОЙ ИПОТЕКИ</span></h1>
     <p class="hp-card__subtitle">
-      Новые условия с&nbsp;1&nbsp;октября 2026&nbsp;года. Строительство дома по&nbsp;эскроу&nbsp;— 6%
-      при любом числе детей, покупка готового дома&nbsp;— ставка от&nbsp;2% до&nbsp;12% в&nbsp;зависимости
-      от&nbsp;количества детей и&nbsp;региона. Рассчитайте платёж, первый взнос с&nbsp;учётом
-      материнского капитала и&nbsp;вероятность одобрения.
+      Новые условия с&nbsp;1&nbsp;октября 2026&nbsp;года для Пермского края. Строительство дома
+      по&nbsp;эскроу&nbsp;— 6% при любом числе детей, покупка готового дома&nbsp;— ставка от&nbsp;2%
+      до&nbsp;10% в&nbsp;зависимости от&nbsp;количества детей. Рассчитайте платёж, переплату,
+      первый взнос с&nbsp;учётом материнского капитала и&nbsp;выгоду от&nbsp;досрочного погашения.
     </p>
 
     <div class="hp-card__grid">
@@ -794,7 +924,7 @@
               <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-purpose="build">Строительство по&nbsp;эскроу</button>
               <button type="button" class="hp-card__seg-btn" data-purpose="buy">Покупка готового дома</button>
             </div>
-            <p class="hp-card__hint" id="calcPurposeHint">Ставка 6% сохраняется независимо от числа детей и региона</p>
+            <p class="hp-card__hint" id="calcPurposeHint">Ставка 6% сохраняется при любом количестве детей</p>
           </div>
 
           <div class="hp-card__field">
@@ -808,17 +938,7 @@
               <button type="button" class="hp-card__seg-btn" data-kids="4">4</button>
               <button type="button" class="hp-card__seg-btn" data-kids="5">5+</button>
             </div>
-            <p class="hp-card__hint">Обязательно: хотя бы один ребёнок младше 7 лет на дату договора (или ребёнок с инвалидностью)</p>
-          </div>
-
-          <div class="hp-card__field">
-            <div class="hp-card__label-row">
-              <span class="hp-card__label">Регион</span>
-            </div>
-            <div class="hp-card__seg" role="group" aria-label="Регион">
-              <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-region="reg">Другие регионы</button>
-              <button type="button" class="hp-card__seg-btn" data-region="cap">Москва, СПб и&nbsp;области</button>
-            </div>
+            <p class="hp-card__hint">Обязательно: хотя бы один ребёнок младше 7 лет на дату договора (или ребёнок с инвалидностью). Условия — для Пермского края</p>
           </div>
         </div>
 
@@ -962,18 +1082,42 @@
 
         <div class="hp-card__panel hp-card__panel--flat" style="margin-bottom: 20px;">
           <h2 class="hp-card__section-title">
+            <svg class="hp-card__icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span id="calcCmpTitle">Срок 15 лет: платёж выше, переплата меньше</span>
+          </h2>
+          <div class="hp-card__compare">
+            <div class="hp-card__compare-col" id="calcCmpColA">
+              <p class="hp-card__compare-head" id="calcCmpHeadA">30 лет</p>
+              <div class="hp-card__compare-row"><span>Платёж</span><b id="calcCmpPayA">0 ₽</b></div>
+              <div class="hp-card__compare-row"><span>Переплата</span><b id="calcCmpOverA">0 ₽</b></div>
+              <div class="hp-card__compare-row"><span>Всего выплатить</span><b id="calcCmpTotalA">0 ₽</b></div>
+              <div class="hp-card__compare-row"><span>Нагрузка (ПДН)</span><b id="calcCmpPdnA">0%</b></div>
+            </div>
+            <div class="hp-card__compare-col hp-card__compare-col--best" id="calcCmpColB">
+              <p class="hp-card__compare-head" id="calcCmpHeadB">15 лет</p>
+              <div class="hp-card__compare-row"><span>Платёж</span><b id="calcCmpPayB">0 ₽</b></div>
+              <div class="hp-card__compare-row"><span>Переплата</span><b id="calcCmpOverB">0 ₽</b></div>
+              <div class="hp-card__compare-row"><span>Всего выплатить</span><b id="calcCmpTotalB">0 ₽</b></div>
+              <div class="hp-card__compare-row"><span>Нагрузка (ПДН)</span><b id="calcCmpPdnB">0%</b></div>
+            </div>
+          </div>
+          <ul class="hp-card__pros" id="calcCmpPros"></ul>
+        </div>
+
+        <div class="hp-card__panel hp-card__panel--flat" style="margin-bottom: 20px;">
+          <h2 class="hp-card__section-title">
             <svg class="hp-card__icon" viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19"></line><circle cx="6.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="17.5" r="2.5"></circle></svg>
             Ставки и лимиты с 1 октября 2026
           </h2>
-          <p style="font-family:'Raleway',sans-serif;font-size:14px;color:var(--mc-text-secondary,#6b6b8d);margin:0 0 20px;" id="calcRatesCaption">Покупка готового дома. Строительство по эскроу — 6% для всех.</p>
+          <p style="font-family:'Raleway',sans-serif;font-size:14px;color:var(--mc-text-secondary,#6b6b8d);margin:0 0 20px;" id="calcRatesCaption">Пермский край. Лимит кредита зависит от количества детей.</p>
 
           <div class="hp-card__table-wrap">
             <table class="hp-card__table hp-card__rates" id="calcRatesTable">
               <thead>
                 <tr>
                   <th>Детей</th>
-                  <th>Другие регионы</th>
-                  <th>Москва, СПб и обл.</th>
+                  <th>Покупка готового дома</th>
+                  <th>Стройка по эскроу</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -1039,6 +1183,67 @@
       </div>
     </div>
 
+    <!-- Как снизить нагрузку: досрочное погашение и рекомендации -->
+    <div class="hp-card__panel hp-card__panel--flat hp-card__early">
+      <h2 class="hp-card__section-title">
+        <svg class="hp-card__icon" viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline><polyline points="17 18 23 18 23 12"></polyline></svg>
+        Как снизить нагрузку: досрочное погашение
+      </h2>
+
+      <div class="hp-card__early-grid">
+        <div>
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <label for="calcEX" class="hp-card__label">Досрочно каждый месяц</label>
+            </div>
+            <input type="number" id="calcEX" class="hp-card__input" value="5000" step="1000" placeholder="₽/мес">
+            <p class="hp-card__hint">Сверх обязательного платежа</p>
+          </div>
+          <div class="hp-card__field hp-card__field--relative">
+            <div class="hp-card__label-row">
+              <label for="calcLS" class="hp-card__label">Разовый взнос примерно через год</label>
+            </div>
+            <input type="number" id="calcLS" class="hp-card__input" value="0" step="10000" placeholder="₽">
+            <div class="hp-card__seg-mini">
+              <button type="button" class="hp-card__inline-btn" data-ls="0">0</button>
+              <button type="button" class="hp-card__inline-btn" data-ls="450000">450 000 ₽ многодетным</button>
+              <button type="button" class="hp-card__inline-btn" data-ls="deduction" id="calcLSDed">Налоговый вычет</button>
+            </div>
+            <p class="hp-card__hint">Выплата государства за 3-го ребёнка, возврат НДФЛ, премия, продажа старого жилья</p>
+          </div>
+        </div>
+
+        <div class="hp-card__strategies">
+          <div class="hp-card__strategy">
+            <p class="hp-card__strategy-head">Без досрочки</p>
+            <div class="hp-card__compare-row"><span>Срок</span><b id="calcE0T">—</b></div>
+            <div class="hp-card__compare-row"><span>Платёж</span><b id="calcE0P">—</b></div>
+            <div class="hp-card__compare-row"><span>Переплата</span><b id="calcE0O">—</b></div>
+          </div>
+          <div class="hp-card__strategy hp-card__strategy--best">
+            <p class="hp-card__strategy-head">Сокращаем срок <span class="hp-card__tag">выгоднее</span></p>
+            <div class="hp-card__compare-row"><span>Срок</span><b id="calcE1T">—</b></div>
+            <div class="hp-card__compare-row"><span>Платёж</span><b id="calcE1P">—</b></div>
+            <div class="hp-card__compare-row"><span>Переплата</span><b id="calcE1O">—</b></div>
+            <p class="hp-card__strategy-save" id="calcE1S"></p>
+          </div>
+          <div class="hp-card__strategy">
+            <p class="hp-card__strategy-head">Уменьшаем платёж</p>
+            <div class="hp-card__compare-row"><span>Срок</span><b id="calcE2T">—</b></div>
+            <div class="hp-card__compare-row"><span>Платёж через год</span><b id="calcE2P">—</b></div>
+            <div class="hp-card__compare-row"><span>Переплата</span><b id="calcE2O">—</b></div>
+            <p class="hp-card__strategy-save" id="calcE2S"></p>
+          </div>
+        </div>
+      </div>
+
+      <hr class="hp-card__divider">
+
+      <h3 class="hp-card__group-title">Рекомендации для вашей семьи</h3>
+      <ol class="hp-card__tips" id="calcTips"></ol>
+      <p class="hp-card__hint">Расчёт досрочного погашения — по льготной ставке на весь срок. После окончания субсидирования (15 лет) банк может изменить ставку, поэтому досрочка в первые годы даёт наибольший эффект.</p>
+    </div>
+
     <!-- CTA — popup:manager -->
     <div class="hp-card__cta">
       <div class="hp-card__cta-text">
@@ -1068,6 +1273,8 @@
   var dpInp    = el('calcDP');
   var mcInp    = el('calcMC');
   var termInp  = el('calcTY');
+  var exInp    = el('calcEX');
+  var lsInp    = el('calcLS');
 
   var mpOut    = el('calcMP');
   var laOut    = el('calcLA');
@@ -1093,20 +1300,29 @@
   var subsHint = el('calcSubsHint');
   var cmpText  = el('calcCmpText');
   var ratesTbl = el('calcRatesTable');
-  var ratesCap = el('calcRatesCaption');
+  var lsDedBtn = el('calcLSDed');
+  var tipsOut  = el('calcTips');
+  var prosOut  = el('calcCmpPros');
 
-  // Условия «Семейной ипотеки» для договоров с 01.10.2026 (Минфин России, ДОМ.РФ).
-  // Покупка жилья: ставка и лимит зависят от числа детей и региона.
-  // Строительство ИЖС по эскроу / покупка участка под ИЖС: ставка 6% при любом числе детей и в любом регионе.
+  // Условия «Семейной ипотеки» для договоров с 01.10.2026 (Минфин России, ДОМ.РФ), Пермский край.
+  // Покупка жилья: ставка и лимит зависят от числа детей.
+  // Строительство ИЖС по эскроу / покупка участка под ИЖС: ставка 6% при любом числе детей.
   var TERMS = {
-    reg: { 1:{rate:0.10, limit:6000000},  2:{rate:0.08, limit:8000000},  3:{rate:0.06, limit:10000000}, 4:{rate:0.04, limit:10000000}, 5:{rate:0.02, limit:10000000} },
-    cap: { 1:{rate:0.12, limit:12000000}, 2:{rate:0.10, limit:15000000}, 3:{rate:0.08, limit:18000000}, 4:{rate:0.06, limit:18000000}, 5:{rate:0.04, limit:18000000} }
+    1:{rate:0.10, limit:6000000},
+    2:{rate:0.08, limit:8000000},
+    3:{rate:0.06, limit:10000000},
+    4:{rate:0.04, limit:10000000},
+    5:{rate:0.02, limit:10000000}
   };
   var BUILD_RATE = 0.06;
   var SUBSIDY_YEARS = 15;
   var MIN_DP = 0.201;
+  var LUMP_MONTH = 12;           // разовый взнос — примерно через год после выдачи
+  var NDFL = 0.13;
+  var DED_BASE = 2000000;        // имущественный вычет: база 2 млн ₽ на каждого
+  var LARGE_FAMILY_PAY = 450000; // выплата многодетным на погашение ипотеки
 
-  var state = { purpose:'build', kids:2, region:'reg' };
+  var state = { purpose:'build', kids:2 };
 
   function fmt(n){
     return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(n);
@@ -1120,20 +1336,67 @@
 
   function kidsLabel(k){ return k>=5 ? '5+ детей' : k===1 ? '1 ребёнок' : k + ' ребёнка'; }
 
-  function annuity(sum, rate, months){
-    if(sum<=0 || months<=0) return 0;
+  function years(n){
+    var a=n%10, b=n%100;
+    return n + ((a===1&&b!==11)?' год':(a>=2&&a<=4&&(b<12||b>14))?' года':' лет');
+  }
+
+  function months(m){
+    var y = Math.floor(m/12), r = m%12;
+    if(!y) return r + ' мес.';
+    return years(y) + (r ? ' ' + r + ' мес.' : '');
+  }
+
+  function annuity(sum, rate, n){
+    if(sum<=0 || n<=0) return 0;
     var mr = rate/12;
-    if(mr<=0) return sum/months;
-    return sum*(mr*Math.pow(1+mr,months))/(Math.pow(1+mr,months)-1);
+    if(mr<=0) return sum/n;
+    return sum*(mr*Math.pow(1+mr,n))/(Math.pow(1+mr,n)-1);
+  }
+
+  // Остаток долга после k платежей по аннуитету
+  function balanceAfter(sum, rate, n, k){
+    var mr = rate/12, p = annuity(sum, rate, n);
+    if(k>=n) return 0;
+    if(mr<=0) return sum - p*k;
+    var g = Math.pow(1+mr,k);
+    return Math.max(0, sum*g - p*(g-1)/mr);
+  }
+
+  // Помесячная модель с досрочкой.
+  // mode 'term' — платёж прежний, сокращается срок; 'payment' — срок прежний, платёж пересчитывается.
+  function simulate(sum, rate, n, extra, lump, mode){
+    var mr = rate/12, bal = sum, pay = annuity(sum, rate, n);
+    var interest = 0, m = 0, payAtLump = pay;
+    while(bal>0.5 && m<n){
+      m++;
+      var it = bal*mr;
+      interest += it;
+      bal -= Math.min(bal, pay - it);
+      var e = Math.min(bal, extra + (m===Math.min(LUMP_MONTH,n) ? lump : 0));
+      bal -= e;
+      if(mode==='payment' && e>0 && bal>0.5) pay = annuity(bal, rate, n-m);
+      if(m===Math.min(LUMP_MONTH,n)) payAtLump = pay;
+    }
+    return { months:m, interest:interest, payAtLump:payAtLump };
   }
 
   function terms(){
-    var t = TERMS[state.region][state.kids];
-    return {
-      rate:  state.purpose==='build' ? BUILD_RATE : t.rate,
-      limit: t.limit,
-      buyRate: t.rate
-    };
+    var t = TERMS[state.kids];
+    return { rate: state.purpose==='build' ? BUILD_RATE : t.rate, limit: t.limit, buyRate: t.rate };
+  }
+
+  // Возврат НДФЛ за первый год: по 13% с 2 млн ₽ на каждого работающего супруга,
+  // но не больше налога, уплаченного за год (доход в калькуляторе — «на руки»).
+  function firstYearDeduction(pr, iH, iW){
+    var perPerson = NDFL*DED_BASE;
+    var buyers = (iH>0?1:0) + (iW>0?1:0) || 1;
+    var cap = Math.min(perPerson, NDFL*pr/buyers);
+    var tax = function(inc){ return inc*12*NDFL/(1-NDFL); };
+    var sum = 0;
+    if(iH>0) sum += Math.min(cap, tax(iH));
+    if(iW>0) sum += Math.min(cap, tax(iW));
+    return Math.round(sum/1000)*1000;
   }
 
   var iconCheck = '<svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
@@ -1143,19 +1406,126 @@
   function renderRates(){
     var rows = '';
     for(var k=1;k<=5;k++){
-      rows += '<tr><td>' + (k===5?'5+':k) + '</td>';
-      ['reg','cap'].forEach(function(r){
-        var t = TERMS[r][k];
-        var active = (k===state.kids && r===state.region) ? ' class="hp-card__rates-cell--active"' : '';
-        var shown = state.purpose==='build' ? BUILD_RATE : t.rate;
-        rows += '<td' + active + '>' + pct(shown) + '<small>до ' + mln(t.limit) + '</small></td>';
-      });
-      rows += '</tr>';
+      var t = TERMS[k], mine = k===state.kids;
+      var buyCls   = (mine && state.purpose==='buy')   ? ' class="hp-card__rates-cell--active"' : '';
+      var buildCls = (mine && state.purpose==='build') ? ' class="hp-card__rates-cell--active"' : '';
+      rows += '<tr><td>' + (k===5?'5+':k) + '</td>'
+        + '<td' + buyCls + '>' + pct(t.rate) + '<small>до ' + mln(t.limit) + '</small></td>'
+        + '<td' + buildCls + '>' + pct(BUILD_RATE) + '<small>до ' + mln(t.limit) + '</small></td></tr>';
     }
     ratesTbl.tBodies[0].innerHTML = rows;
-    ratesCap.textContent = state.purpose==='build'
-      ? 'Строительство дома по эскроу: ставка 6% при любом количестве детей и в любом регионе.'
-      : 'Покупка готового дома: чем больше детей, тем ниже ставка и выше лимит.';
+  }
+
+  // Сравнение срока: выбранный срок и 15 лет (или 30, если выбрано 15)
+  function renderTermCompare(la, rate, ty, ti, od){
+    var longY, shortY;
+    if(ty>SUBSIDY_YEARS){ longY = ty; shortY = SUBSIDY_YEARS; }
+    else if(ty===SUBSIDY_YEARS){ longY = 30; shortY = SUBSIDY_YEARS; }
+    else { longY = SUBSIDY_YEARS; shortY = ty; }
+
+    var pL = annuity(la, rate, longY*12),  oL = pL*longY*12 - la;
+    var pS = annuity(la, rate, shortY*12), oS = pS*shortY*12 - la;
+    var pdn = function(p){ return ti>0 ? ((p+od)/ti)*100 : 0; };
+
+    el('calcCmpTitle').textContent = 'Срок ' + years(shortY) + ' или ' + years(longY) + ': что выгоднее';
+    el('calcCmpHeadA').textContent = years(longY);
+    el('calcCmpHeadB').innerHTML = years(shortY) + ' <span class="hp-card__tag">меньше переплата</span>';
+    el('calcCmpPayA').textContent = fmt(pL);
+    el('calcCmpPayB').textContent = fmt(pS);
+    el('calcCmpOverA').textContent = fmt(oL);
+    el('calcCmpOverB').textContent = fmt(oS);
+    el('calcCmpTotalA').textContent = fmt(pL*longY*12);
+    el('calcCmpTotalB').textContent = fmt(pS*shortY*12);
+    el('calcCmpPdnA').textContent = pdn(pL).toFixed(1) + '%';
+    el('calcCmpPdnB').textContent = pdn(pS).toFixed(1) + '%';
+
+    if(la<=0){ prosOut.innerHTML = ''; return; }
+
+    var k = Math.min(60, shortY*12);
+    var balL = balanceAfter(la, rate, longY*12, k), balS = balanceAfter(la, rate, shortY*12, k);
+    var extra = pS - pL;
+    var sim = simulate(la, rate, longY*12, extra, 0, 'term');
+    var pros = [];
+
+    pros.push('<li><b>Переплата меньше на ' + fmt(oL - oS) + '</b> — банку уйдёт на ' + Math.round((1 - oS/oL)*100) + '% меньше процентов.</li>');
+    if(shortY<=SUBSIDY_YEARS){
+      pros.push('<li><b>Весь кредит — в льготном периоде.</b> Государство субсидирует ставку ' + SUBSIDY_YEARS + ' лет: при сроке ' + years(shortY) + ' ставка ' + pct(rate) + ' не изменится до последнего платежа.'
+        + (longY>SUBSIDY_YEARS ? ' При ' + years(longY) + ' последние ' + years(longY-SUBSIDY_YEARS) + ' банк может пересмотреть ставку.' : '') + '</li>');
+    }
+    pros.push('<li><b>Долг тает быстрее:</b> через ' + months(k) + ' останется ' + fmt(balS) + ' вместо ' + fmt(balL) + '. Проще продать дом или перекредитоваться.</li>');
+    pros.push('<li class="hp-card__con"><b>Минус:</b> платёж выше на ' + fmt(extra) + ' в месяц, нагрузка ' + pdn(pS).toFixed(1) + '%'
+      + (pdn(pS)>=50 ? ' — банк может не одобрить.' : '.') + '</li>');
+    if(shortY<longY && extra>0){
+      pros.push('<li><b>Компромисс:</b> оформите ' + years(longY) + ' (ниже платёж и ПДН, проще одобрение) и вносите сверху ' + fmt(extra)
+        + ' в месяц с сокращением срока — кредит закроется за ' + months(sim.months) + ', переплата ' + fmt(sim.interest)
+        + '. Если доход просядет, можно временно платить только обязательный платёж.</li>');
+    }
+    prosOut.innerHTML = pros.join('');
+  }
+
+  // Досрочное погашение: две стратегии
+  function renderEarly(la, rate, ty, ti, od, iH, iW, pr, mc){
+    var n = ty*12, extra = Math.max(0, val(exInp)), lump = Math.max(0, val(lsInp));
+    var base = simulate(la, rate, n, 0, 0, 'term');
+    var s1 = simulate(la, rate, n, extra, lump, 'term');
+    var s2 = simulate(la, rate, n, extra, lump, 'payment');
+    var p0 = annuity(la, rate, n);
+
+    el('calcE0T').textContent = months(n);
+    el('calcE0P').textContent = fmt(p0);
+    el('calcE0O').textContent = fmt(base.interest);
+    el('calcE1T').textContent = months(s1.months);
+    el('calcE1P').textContent = fmt(p0);
+    el('calcE1O').textContent = fmt(s1.interest);
+    el('calcE2T').textContent = months(s2.months);
+    el('calcE2P').textContent = fmt(s2.payAtLump);
+    el('calcE2O').textContent = fmt(s2.interest);
+    el('calcE1S').textContent = base.interest - s1.interest > 1 ? 'Экономия ' + fmt(base.interest - s1.interest) + ', срок короче на ' + months(n - s1.months) : 'Укажите сумму досрочки';
+    el('calcE2S').textContent = base.interest - s2.interest > 1 ? 'Экономия ' + fmt(base.interest - s2.interest) + ', платёж ниже на ' + fmt(p0 - s2.payAtLump) : '';
+
+    var ded = firstYearDeduction(pr, iH, iW);
+    lsDedBtn.setAttribute('data-value', ded);
+    lsDedBtn.textContent = 'Вычет ~' + fmt(ded);
+
+    // Рекомендации
+    var tips = [];
+    var ex = extra>0 ? extra : 5000;
+    var sEx = simulate(la, rate, n, ex, 0, 'term');
+    var pdnNow = ti>0 ? ((p0+od)/ti)*100 : 0;
+
+    if(state.purpose==='buy' && TERMS[state.kids].rate > BUILD_RATE){
+      var pB = annuity(la, BUILD_RATE, n);
+      tips.push('<li><b>Постройте дом по эскроу вместо покупки готового.</b> Для семьи, где ' + kidsLabel(state.kids) + ', ставка 6% вместо ' + pct(TERMS[state.kids].rate)
+        + ': платёж ниже на ' + fmt(p0 - pB) + ' в месяц.</li>');
+    }
+    if(la>0){
+      tips.push('<li><b>Гасите досрочно с сокращением срока.</b> Даже ' + fmt(ex) + ' сверх платежа каждый месяц закроют кредит на ' + months(n - sEx.months)
+        + ' раньше и сэкономят ' + fmt(base.interest - sEx.interest) + ' процентов. Чем раньше внесена сумма, тем больше экономия.</li>');
+      tips.push('<li><b>Если бюджет напряжён — уменьшайте платёж.</b> Экономия меньше, зато сразу падает нагрузка на бюджет'
+        + (lump>0 ? ': после разового взноса платёж станет ' + fmt(s2.payAtLump) + ' (ПДН ' + (ti>0?((s2.payAtLump+od)/ti*100).toFixed(1):'0') + '% вместо ' + pdnNow.toFixed(1) + '%)' : '') + '.</li>');
+    }
+    if(state.kids>=3){
+      var sL = simulate(la, rate, n, 0, LARGE_FAMILY_PAY, 'term');
+      tips.push('<li><b>450 000 ₽ от государства многодетным</b> — если третий или последующий ребёнок родился с 2019 по 2030 год. Направьте их в сокращение срока: экономия около '
+        + fmt(Math.max(0, base.interest - sL.interest)) + ' процентов. Заявление подаётся через банк или Госуслуги.</li>');
+    } else {
+      tips.push('<li><b>При рождении третьего ребёнка до конца 2030 года</b> государство погасит 450 000 ₽ ипотеки. Выплата идёт в погашение основного долга.</li>');
+    }
+    tips.push('<li><b>Оформите налоговые вычеты на обоих супругов.</b> До 260 000 ₽ каждому за дом с участком и до 390 000 ₽ каждому с уплаченных процентов. '
+      + 'По вашим доходам за первый год вернётся около ' + fmt(ded) + ' — внесите их досрочно (кнопка «Вычет» выше).</li>');
+    if(od>0){
+      var pdnNoDebts = ti>0 ? (p0/ti)*100 : 0;
+      tips.push('<li><b>Закройте кредитные карты и потребкредиты до подачи заявки.</b> Нагрузка снизится с ' + pdnNow.toFixed(1) + '% до ' + pdnNoDebts.toFixed(1) + '% — выше шанс одобрения.</li>');
+    } else {
+      tips.push('<li><b>Не открывайте новые кредиты и карты до сделки.</b> Банк учитывает в нагрузке даже лимит неиспользуемой кредитной карты.</li>');
+    }
+    if(mc<=0){
+      tips.push('<li><b>Используйте материнский капитал</b> — в первый взнос или в досрочное погашение сразу после выдачи кредита.</li>');
+    }
+    if(ty>SUBSIDY_YEARS){
+      tips.push('<li><b>Закройте кредит за 15 лет льготного периода.</b> После окончания субсидирования банк может повысить ставку — досрочка до этого момента защищает от роста платежа.</li>');
+    }
+    tipsOut.innerHTML = tips.join('');
   }
 
   function calc(){
@@ -1168,8 +1538,7 @@
     var dp  = val(dpInp);
     var t   = terms();
 
-    var y10 = ty%10, y100 = ty%100;
-    tvOut.textContent = ty + ((y10===1&&y100!==11)?' год':(y10>=2&&y10<=4&&(y100<12||y100>14))?' года':' лет');
+    tvOut.textContent = years(ty);
 
     var minDP = Math.ceil(pr*MIN_DP);
     mpvOut.textContent = 'Минимум 20.1%: ' + fmt(minDP);
@@ -1204,7 +1573,7 @@
       labOut.classList.remove('hp-card__hidden');
       laOut.style.color='#dc2626';
       labText.innerHTML = '<strong>Превышен лимит по Семейной ипотеке (' + mln(t.limit) + ')</strong>'
-        + 'Для семьи, где ' + kidsLabel(state.kids) + ', в выбранном регионе лимит ' + fmt(t.limit)
+        + 'Для семьи, где ' + kidsLabel(state.kids) + ', лимит ' + fmt(t.limit)
         + '. Увеличьте первоначальный взнос минимум до ' + fmt(Math.max(0, pr - t.limit))
         + ', иначе сделка не пройдёт по льготной ставке ' + pct(t.rate) + '.';
     } else {
@@ -1227,13 +1596,13 @@
         + 'При покупке — ' + pct(t.buyRate) + ', при строительстве по эскроу — 6%.';
     } else {
       cmpText.innerHTML = '<strong>Ставка одинаковая — 6%.</strong>'
-        + 'Для семьи, где ' + kidsLabel(state.kids) + ', в этом регионе ставка на покупку и на стройку по эскроу совпадает.';
+        + 'Для семьи, где ' + kidsLabel(state.kids) + ', ставка на покупку и на стройку по эскроу совпадает.';
     }
 
     subsHint.style.color = ty>SUBSIDY_YEARS ? '#d97706' : '';
     subsHint.textContent = ty>SUBSIDY_YEARS
       ? 'Льготная ставка субсидируется первые ' + SUBSIDY_YEARS + ' лет. Расчёт платежа — по льготной ставке; после ' + SUBSIDY_YEARS + ' лет банк может её пересмотреть'
-      : 'Льготная ставка действует весь срок кредита (субсидирование — до ' + SUBSIDY_YEARS + ' лет)';
+      : 'Весь срок кредита укладывается в льготный период (субсидирование — до ' + SUBSIDY_YEARS + ' лет)';
 
     mciOut.style.display = mc<=0 ? 'none' : 'flex';
 
@@ -1264,6 +1633,8 @@
     }
 
     renderRates();
+    renderTermCompare(la, t.rate, ty, ti, od);
+    renderEarly(la, t.rate, ty, ti, od, iH, iW, pr, mc);
   }
 
   function setMC(v){
@@ -1288,13 +1659,12 @@
   bindSeg('data-purpose', function(v){
     state.purpose = v;
     purpHint.textContent = v==='build'
-      ? 'Ставка 6% сохраняется независимо от числа детей и региона'
-      : 'Ставка от 2% до 12% — зависит от количества детей и региона';
+      ? 'Ставка 6% сохраняется при любом количестве детей'
+      : 'Ставка от 2% до 10% — зависит от количества детей';
   });
-  bindSeg('data-kids',   function(v){ state.kids = parseInt(v,10); });
-  bindSeg('data-region', function(v){ state.region = v; });
+  bindSeg('data-kids', function(v){ state.kids = parseInt(v,10); });
 
-  [incH,incW,debts,price,dpInp,mcInp,termInp].forEach(function(e){
+  [incH,incW,debts,price,dpInp,mcInp,termInp,exInp,lsInp].forEach(function(e){
     e.addEventListener('input',calc);
     e.addEventListener('change',calc);
   });
@@ -1309,6 +1679,15 @@
   root.querySelectorAll('.hp-card__inline-btn[data-mc]').forEach(function(b){
     b.addEventListener('click',function(){
       setMC(parseFloat(this.getAttribute('data-mc')));
+    });
+  });
+
+  root.querySelectorAll('.hp-card__inline-btn[data-ls]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var v = this.getAttribute('data-ls');
+      lsInp.value = v==='deduction' ? (this.getAttribute('data-value')||0) : v;
+      root.querySelectorAll('.hp-card__inline-btn[data-ls]').forEach(function(x){ x.classList.toggle('hp-card__inline-btn--active', x===b); });
+      calc();
     });
   });
 
