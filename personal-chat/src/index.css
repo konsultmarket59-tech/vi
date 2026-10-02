@@ -2713,3 +2713,35 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Кадр с предпросмотром знака: знак позиционируется долей ширины — тем же
+   расчётом, что уйдёт в готовый файл, иначе ползунок обманывает. */
+.media-shot {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.media-shot img {
+  display: block;
+  max-width: 100%;
+}
+
+.media-shot-logo {
+  position: absolute;
+  height: auto;
+  pointer-events: none;
+}
+
+.media-shot-logo.справа-сверху { top: 4%; right: 5%; }
+.media-shot-logo.слева-сверху { top: 4%; left: 5%; }
+.media-shot-logo.справа-снизу { bottom: 4%; right: 5%; }
+.media-shot-logo.слева-снизу { bottom: 4%; left: 5%; }
+
+.media-cover-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  flex: 1 1 220px;
+}

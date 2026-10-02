@@ -3517,6 +3517,7 @@ ipcMain.handle("media:cover", async (_e, request) => {
     scrim = true,
     fontPath = "",
     logoPath = "",
+    logoScale,
   } = request || {};
   if (!source) throw new Error("Не выбран кадр, который нужно оформить.");
 
@@ -3541,6 +3542,7 @@ ipcMain.handle("media:cover", async (_e, request) => {
     accentColor,
     uppercase,
     scrim,
+    logoScale,
   });
 
   const { win, file } = await loadScene(html, size.width, size.height);
@@ -3566,6 +3568,7 @@ ipcMain.handle("media:cover", async (_e, request) => {
 ipcMain.handle("media:coverLayouts", () => ({
   layouts: mediacover.LAYOUTS,
   corners: mediacover.CORNERS,
+  logoScale: mediacover.LOGO_SCALE,
 }));
 
 ipcMain.handle("media:list", async (_e, projectId) => {

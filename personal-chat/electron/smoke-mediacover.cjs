@@ -130,6 +130,43 @@ app.whenReady().then(async () => {
     check("без файла шрифта @font-face не появляется",
       !/@font-face/.test(cover.buildHtml({ width: 10, height: 10, photo: "data:,", title: "Проба", fontFamily: "Dinamika" })));
 
+    console.log("\nлоготип ставится по выбору, а не всегда");
+    // Иногда нужна только цветокоррекция в цветах системы, и знак в углу лишний.
+    const безЗнака = cover.buildHtml({ width: 100, height: 100, photo: "data:,", title: "Проба" });
+    check("без файла знака его в кадре нет", !/<img class="logo"/.test(безЗнака));
+    const соЗнаком = cover.buildHtml({ width: 100, height: 100, photo: "data:,", logo: "data:," });
+    check("со знаком он появляется", /<img class="logo"/.test(соЗнаком));
+
+    console.log("\nразмер знака — долей кадра, с границами");
+    check("двадцать процентов от тысячи — двести точек",
+      /\.logo\{[^}]*width:200px/.test(cover.buildHtml({ width: 1000, height: 1000, photo: "data:,", logo: "data:,", logoScale: 0.2 })));
+    // Тот же знак на 1080 и на 4K должен занимать одну и ту же долю кадра: в
+    // точках он на большом кадре превращается в точку в углу.
+    check("на вчетверо большем кадре доля та же",
+      /\.logo\{[^}]*width:800px/.test(cover.buildHtml({ width: 4000, height: 4000, photo: "data:,", logo: "data:,", logoScale: 0.2 })));
+    check("слишком большое значение прижимается к границе", cover.логоДоля(5) === cover.LOGO_SCALE.max);
+    check("слишком малое — тоже", cover.логоДоля(0) === cover.LOGO_SCALE.min);
+    check("мусор вместо числа даёт значение по умолчанию", cover.логоДоля("ой") === cover.LOGO_SCALE.default);
+
+    console.log("\nползунок показывает правду");
+    // Предпросмотр знака рисуется в окне обычным CSS, а готовый файл — этим
+    // модулем. Отступы у них записаны в двух местах, и если они разойдутся,
+    // ползунок будет обманывать: на экране знак в одном месте, в файле в другом.
+    const css = fs.readFileSync(path.join(__dirname, "..", "src", "index.css"), "utf-8");
+    const углы = { "справа-сверху": "top:4%;right:5%;", "слева-сверху": "top:4%;left:5%;",
+      "справа-снизу": "bottom:4%;right:5%;", "слева-снизу": "bottom:4%;left:5%;" };
+    let совпали = 0;
+    for (const [угол, правило] of Object.entries(углы)) {
+      const вФайле = cover.buildHtml({ width: 100, height: 100, photo: "data:,", logo: "data:,", corner: угол });
+      const вОкне = new RegExp(`\\.media-shot-logo\\.${угол}\\s*\\{([^}]*)\\}`).exec(css);
+      const пары = правило.split(";").filter(Boolean);
+      const сходится =
+        вФайле.includes(правило) && вОкне && пары.every((пара) => вОкне[1].replace(/\s/g, "").includes(пара));
+      if (сходится) совпали += 1;
+      else console.log(`    расхождение в углу «${угол}»: окно ${вОкне ? вОкне[1].trim() : "нет правила"}`);
+    }
+    check("отступы знака в предпросмотре и в готовом файле совпадают", совпали === 4, `${совпали} из 4`);
+
     console.log("\nимя файла говорит, что это оформленная версия");
     check("имя понятное", cover.coverName("/x/кадр.png") === "кадр-оформлено.png", cover.coverName("/x/кадр.png"));
     check("расширение всегда png", cover.coverName("/x/кадр.jpg") === "кадр-оформлено.png");

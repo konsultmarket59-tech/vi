@@ -56,12 +56,30 @@ const LAYOUTS = [
   { id: "только-знак", name: "Только логотип", hint: "Без текста: один фирменный знак в углу." },
 ];
 
+/**
+ * Размер логотипа — долей ширины кадра, а не точками.
+ *
+ * В точках один и тот же знак на 1080 и на 4K выходит разным: на большом кадре
+ * он превращается в точку в углу. Доля держит его одинаковым на любом размере.
+ *
+ * Границы нужны ползунку: ниже четырёх процентов знак нечитаем, выше тридцати
+ * он перестаёт быть подписью и становится содержанием кадра.
+ */
+const LOGO_SCALE = { min: 0.04, max: 0.3, step: 0.005, default: 0.11 };
+
 const CORNERS = [
   { id: "справа-сверху", name: "Справа сверху" },
   { id: "слева-сверху", name: "Слева сверху" },
   { id: "справа-снизу", name: "Справа снизу" },
   { id: "слева-снизу", name: "Слева снизу" },
 ];
+
+/** Доля в границах: ползунок у человека, а испорченный кадр — у приложения. */
+function доляЗнака(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return LOGO_SCALE.default;
+  return Math.min(LOGO_SCALE.max, Math.max(LOGO_SCALE.min, n));
+}
 
 function esc(s) {
   return String(s ?? "")
@@ -93,6 +111,7 @@ function buildHtml({
   accentColor = "",
   uppercase = false,
   scrim = true,
+  logoScale = LOGO_SCALE.default,
 }) {
   const face = fontUri && fontFamily
     ? `@font-face{font-family:"${esc(fontFamily)}";src:url("${fontUri}");font-weight:100 900;font-display:block;}`
@@ -140,7 +159,7 @@ html,body{width:${width}px;height:${height}px;overflow:hidden;background:#000}
 .t span:nth-child(odd){color:${esc(accentColor || textColor)}}
 .s{font-family:${stack};font-weight:500;color:${esc(textColor)};opacity:.86;
   font-size:${Math.round(width * 0.032)}px;line-height:1.25;max-width:80%}
-.logo{position:absolute;${уголСтили}width:${Math.round(width * 0.11)}px;height:auto;display:${logo ? "block" : "none"}}
+.logo{position:absolute;${уголСтили}width:${Math.round(width * доляЗнака(logoScale))}px;height:auto;display:${logo ? "block" : "none"}}
 </style></head><body>
 <div class="stage">
   <img class="photo" src="${photo}">
@@ -187,4 +206,4 @@ function coverName(source) {
   return `${path.basename(source, ext)}-оформлено.png`;
 }
 
-module.exports = { LAYOUTS, CORNERS, FONT_MIME, IMAGE_MIME, dataUri, imageSize, buildHtml, coverName };
+module.exports = { LAYOUTS, CORNERS, LOGO_SCALE, логоДоля: доляЗнака, FONT_MIME, IMAGE_MIME, dataUri, imageSize, buildHtml, coverName };

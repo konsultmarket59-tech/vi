@@ -1640,7 +1640,10 @@ export interface MediaCoverRequest {
   scrim?: boolean;
   /** Файл шрифта из дизайн-системы. Без него кадр оформится системным. */
   fontPath?: string;
+  /** Пусто — логотип не ставится вовсе: иногда нужна только цветокоррекция. */
   logoPath?: string;
+  /** Размер знака долей ширины кадра: в точках он разный на 1080 и на 4K. */
+  logoScale?: number;
 }
 
 export interface MediaCoverResult {
@@ -2076,6 +2079,7 @@ export interface ElectronAPI {
   mediaCoverLayouts(): Promise<{
     layouts: { id: string; name: string; hint: string }[];
     corners: { id: string; name: string }[];
+    logoScale: { min: number; max: number; step: number; default: number };
   }>;
   mediaKit(): Promise<MediaKit>;
   mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
