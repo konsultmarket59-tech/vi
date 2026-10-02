@@ -2494,6 +2494,10 @@ ipcMain.handle("direct:overview", async (_e, range) => {
     } catch (e) {
       строка.error = e instanceof Error ? e.message : String(e);
       строка.howToFix = (e && e.howToFix) || "";
+      // Статистика не пришла. Ноль в таблице в этом случае — не число, а
+      // враньё: «потрачено 0 ₽» и «сколько потрачено, неизвестно» — разные
+      // вещи, и решения по ним принимают разные.
+      строка.statsFailed = true;
     }
     try {
       строка.balance = await direct.getBalance(account.token, account.directClientLogin || account.login);
@@ -2720,7 +2724,7 @@ ipcMain.handle("direct:getStats", async (_e, range) => {
  * человеку нечего показать поддержке, а мне — нечего чинить. Токен из запроса
  * вырезан: он не должен попадать ни в экран, ни в письмо.
  */
-ipcMain.handle("direct:lastReportAnswer", async () => direct.lastReportAnswer());
+ipcMain.handle("direct:lastReportAnswer", async (_e, reportType) => direct.lastReportAnswer(reportType));
 
 // Mutations, run only after the user confirmed the agent's proposal in the UI.
 ipcMain.handle("direct:setCampaignState", async (_e, campaignId, resume) => {

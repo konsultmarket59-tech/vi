@@ -831,6 +831,8 @@ export interface DirectAccountRow {
   error: string;
   howToFix: string;
   balanceError: string;
+  /** Статистика по аккаунту не пришла — в таблице у него нет чисел. */
+  statsFailed?: boolean;
   /** Отчёт пришёл без части столбцов — и почему именно. */
   statsLimited?: boolean;
   statsWhy?: string;
@@ -871,11 +873,15 @@ export interface DirectTableRow {
   roi: number | null;
   bounceRate: number | null;
   pageviews: number | null;
-  [goal: string]: string | number | null;
+  /** Статистика по аккаунту не пришла: числа не нули, а неизвестны. */
+  statsFailed?: boolean;
+  [goal: string]: string | number | null | boolean | undefined;
 }
 
 export interface DirectTableTotals {
   campaigns: number;
+  /** Сколько строк не вошло в итоги — у них не пришла статистика. */
+  withoutStats: number;
   cost: number;
   impressions: number;
   clicks: number;
@@ -2148,7 +2154,7 @@ export interface ElectronAPI {
   directOverview(range?: { dateFrom?: string; dateTo?: string }): Promise<DirectOverview>;
   directAudit(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectAudit>;
   /** Точный запрос и ответ Директа по последнему отчёту — без токена. */
-  lastDirectReportAnswer(): Promise<unknown>;
+  lastDirectReportAnswer(reportType?: string): Promise<unknown>;
   directWords(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectWordsReport>;
   directWordstat(opts: { accountId?: string; phrases: string[]; geoIds?: number[] }): Promise<DirectWordstatItem[]>;
   explainDirectCell(payload: {
