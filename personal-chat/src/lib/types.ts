@@ -351,6 +351,22 @@ export interface CatalogPagesPreview {
   sample: { address: string; file: string; html: string } | null;
 }
 
+/** Линейки домов: в выгрузке 1С их нет, серия проставляется в приложении. */
+export type CatalogSeries = "классик" | "смарт" | "";
+
+export interface CatalogHouseRow {
+  cadastral: string;
+  title: string;
+  area: number;
+  cladding: string;
+  claddingLabel: string;
+  /** Ключ вариации «метраж|облицовка» — он же ключ, по которому хранится серия. */
+  variant: string;
+  series: CatalogSeries;
+  /** Серия, проставленная именно этому дому, а не унаследованная от вариации. */
+  ownSeries: CatalogSeries;
+}
+
 export interface CatalogConfig {
   exportPath: string;
   previousPath: string;
@@ -381,6 +397,10 @@ export interface CatalogConfig {
    * указывали бы на удалённые товары.
    */
   carryIds: boolean;
+  /** Серия по вариации: ключ «85|кирпич» → «классик». */
+  series: Record<string, CatalogSeries>;
+  /** Серия, проставленная отдельному дому по кадастровому номеру. */
+  houseSeries: Record<string, CatalogSeries>;
   /** Настройки страниц домов: всё, что нужно разметке и формам Тильды. */
   pages: CatalogPageConfig;
 }
@@ -414,6 +434,8 @@ export interface CatalogTable {
   library: { id: string; label: string; text: string; fits: number; error: string }[];
   /** Вариации домов в выгрузке: подо что нужны заготовки. */
   variants: { area: number; cladding: string; claddingLabel: string; count: number }[];
+  /** Дома с вариацией и проставленной серией — чтобы видеть, у кого её ещё нет. */
+  houses: CatalogHouseRow[];
 }
 
 export interface CatalogPreview {

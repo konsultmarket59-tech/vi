@@ -44,6 +44,51 @@ const TILDA_COLUMNS = [
 const READINESS_ORDER = ["готов", "стройка", "план"];
 
 /**
+ * Линейки домов.
+ *
+ * В выгрузке 1С серии нет и не будет: там учёт объектов, а серия — это то, как
+ * дома названы на витрине. Поэтому серия проставляется в приложении и хранится
+ * рядом с остальными настройками каталога.
+ *
+ * Ключ — вариация (метраж + облицовка), а не отдельный дом: в настоящей
+ * выгрузке домов шестьдесят шесть, а вариаций тринадцать. Проставить тринадцать
+ * раз человек может, шестьдесят шесть — нет. Отдельный дом при этом можно
+ * отметить лично: исключения бывают, и загонять их в общее правило нельзя.
+ */
+const SERIES = [
+  { id: "классик", label: "Классик" },
+  { id: "смарт", label: "Смарт" },
+];
+
+const SERIES_LABEL = Object.fromEntries(SERIES.map((s) => [s.id, s.label]));
+
+/** Ключ вариации — он же ключ, по которому хранится её серия. */
+function variantKey(area, cladding) {
+  return `${Math.round(num(area)) || 0}|${str(cladding)}`;
+}
+
+/**
+ * Серия дома.
+ *
+ * Лесенкой от частного к общему: отметка на самом доме → вариация → весь
+ * метраж целиком. Ничего не подошло — серии нет, и название остаётся прежним:
+ * выдумать за человека, что дом «Смарт», значит переименовать товар на витрине
+ * и потерять его в поиске.
+ */
+function seriesOf(item, cladding, { series = {}, houseSeries = {} } = {}) {
+  const own = str(houseSeries[str(item.cadastral)]);
+  if (own) return own;
+  const area = Math.round(num(item.houseArea));
+  return str(series[variantKey(area, cladding)]) || str(series[variantKey(area, "")]) || "";
+}
+
+/** Как называется позиция этого метража на витрине: «Классик 85» или «дом 85 м2». */
+function sizeLabel(area, seriesId) {
+  const label = SERIES_LABEL[str(seriesId)];
+  return label ? `${label} ${area}` : `дом ${area} м2`;
+}
+
+/**
  * Облицовки. Ключ — то, по чему ищется описание в библиотеке.
  *
  * Порядок значим: сначала составные варианты, потом одиночные. Иначе «сайдинг
@@ -302,7 +347,7 @@ function money(value) {
  * Именно этого поля в ручной работе не хватает чаще всего: заголовок и описание
  * пишут, а SEO оставляют пустым, и позиция не находится поиском вовсе.
  */
-function buildSeo(item, villageName, cladding) {
+function buildSeo(item, villageName, cladding, seriesId = "") {
   if (item.kind === "plot") {
     const area = decimal(item.plotArea);
     return {
@@ -325,12 +370,17 @@ function buildSeo(item, villageName, cladding) {
   const withCladding = cladding ? ` (${cladding})` : "";
   const readyWord =
     item.readiness === "готов" ? "готов к заселению" : item.readiness === "стройка" ? "строится" : "в проекте";
+  // Серия — это имя линейки, под которым дом ищут. Если она задана, она стоит в
+  // заголовке первой; если нет, заголовок остаётся прежним.
+  const seriesLabel = SERIES_LABEL[str(seriesId)] || "";
+  const name = seriesLabel ? `${seriesLabel} ${area}` : `Дом ${area} м²`;
   return {
-    title: `Дом ${area} м²${withCladding} — ${villageName}, Пермь | ${money(item.price)}`,
+    title: `${name}${withCladding} — ${villageName}, Пермь | ${money(item.price)}`,
     descr:
-      `Купить дом ${area} м² в посёлке ${villageName} под Пермью: ${readyWord}` +
+      `Купить ${seriesLabel ? `дом ${seriesLabel} ${area} м²` : `дом ${area} м²`} в посёлке ${villageName} под Пермью: ${readyWord}` +
       `${cladding ? ", отделка " + cladding : ""}, ипотека и эскроу. Цена ${money(item.price)}.`,
     keywords: [
+      ...(seriesLabel ? [`дом ${seriesLabel.toLowerCase()} ${area}`, `серия ${seriesLabel.toLowerCase()} пермь`] : []),
       `купить дом ${area} м2 пермь`,
       "дом в перми с участком",
       `коттеджный посёлок ${villageName.toLowerCase()}`,
@@ -427,6 +477,10 @@ function buildCatalog({
   photoSource = "tilda",
   carryIds = false,
   septics = {},
+  /** Серия по вариации: «85|кирпич» → «классик». */
+  series = {},
+  /** Серия, проставленная конкретному дому по кадастровому номеру. */
+  houseSeries = {},
 }) {
   const problems = [];
   const rows = [];
@@ -560,14 +614,24 @@ function buildCatalog({
         if (!problems.includes(note)) problems.push(note);
       }
     }
-    const seo = buildSeo(item, village, parsed.claddingLabel);
+    const серия = seriesOf(item, parsed.cladding, { series, houseSeries });
+    if (!серия) {
+      // Одна строка на вариацию, а не на каждый дом: иначе девятнадцать
+      // одинаковых замечаний вытеснят всё остальное.
+      const note = `Не выбрана серия: дом ${area} м², облицовка ${parsed.claddingLabel || "не определена"}. На витрине он останется в категории «дом ${area} м2».`;
+      if (!problems.includes(note)) problems.push(note);
+    }
+    const seo = buildSeo(item, village, parsed.claddingLabel, серия);
 
     rows.push({
       "Tilda UID": prev?.uid || "",
       Brand: "",
       SKU: item.cadastral,
       Mark: item.readiness,
-      Category: `Метраж дома>>>дом ${area} м2;Поселки>>>${village}`,
+      // Категория серии идёт первой: по ней на витрине и отбирают линейку.
+      Category:
+        (серия ? `Серия>>>${SERIES_LABEL[серия]};` : "") +
+        `Метраж дома>>>${sizeLabel(area, серия)};Поселки>>>${village}`,
       Title: titleOf(item, village),
       Description: shortDescription(parsed),
       Text: описание,
@@ -959,6 +1023,22 @@ async function loadLibraryTexts(items, extractText) {
   return loaded;
 }
 
+/**
+ * Единственный вход для описания товара.
+ *
+ * Описание попадает в каталог двумя путями — из файла библиотеки и руками из
+ * таблицы, — и формат у них должен быть один. Поэтому путь к витрине один и
+ * тот же, где бы текст ни был набран.
+ *
+ * Повторное применение ничего не портит: уже приведённый текст состоит из тех
+ * же тегов, которые разрешены магазину, и проходит насквозь.
+ */
+function toTildaText(value) {
+  const text = String(value ?? "");
+  if (!text.trim()) return "";
+  return looksLikeHtml(text) ? htmlToTilda(text) : textToTilda(text);
+}
+
 // ---------- ручные правки ----------
 //
 // Собранная таблица — заготовка, а не приговор. Любую ячейку человек правит
@@ -994,7 +1074,11 @@ function applyEdits(rows, edits = {}) {
     const next = { ...row };
     for (const [column, value] of Object.entries(patch)) {
       if (!TILDA_COLUMNS.includes(column)) continue;
-      next[column] = value;
+      // Описание, вписанное руками, проходит то же форматирование, что и
+      // собранное из библиотеки. Без этого в каталоге оказывались описания
+      // двух видов: у одних подзаголовки и списки, у других сплошной текст, —
+      // и разницу было видно прямо на витрине.
+      next[column] = column === "Text" ? toTildaText(value) : value;
       touched.push({ sku: row.SKU, column });
     }
     return next;
@@ -1072,6 +1156,31 @@ function countMatches(houses = [], library = []) {
 }
 
 /** Вариации домов в выгрузке: подо что вообще нужны заготовки. */
+/**
+ * Дома списком — с вариацией и проставленной серией.
+ *
+ * Нужно окну, чтобы показать, у каких домов серия уже есть, а у каких нет:
+ * «не выбрана серия» в замечаниях говорит, что проблема есть, но не говорит,
+ * у кого именно.
+ */
+function listHouses(houses = [], config = {}) {
+  return (houses || []).map((house) => {
+    const parsed = parseDescription(house.description);
+    const area = Math.round(num(house.houseArea));
+    return {
+      cadastral: str(house.cadastral),
+      title: [str(house.village), str(house.street), str(house.house)].filter(Boolean).join(", "),
+      area,
+      cladding: parsed.cladding,
+      claddingLabel: parsed.claddingLabel,
+      variant: variantKey(area, parsed.cladding),
+      series: seriesOf(house, parsed.cladding, config),
+      /** Серия именно у этого дома, а не унаследованная от вариации. */
+      ownSeries: str((config.houseSeries || {})[str(house.cadastral)]),
+    };
+  });
+}
+
 function listVariants(houses = []) {
   const map = new Map();
   for (const house of houses) {
@@ -1094,6 +1203,11 @@ function listVariants(houses = []) {
 module.exports = {
   TILDA_COLUMNS,
   READINESS_ORDER,
+  SERIES,
+  SERIES_LABEL,
+  variantKey,
+  seriesOf,
+  sizeLabel,
   CLADDINGS,
   parseDescription,
   shortDescription,
@@ -1111,6 +1225,7 @@ module.exports = {
   readLibrary,
   writeLibrary,
   loadLibraryTexts,
+  toTildaText,
   htmlToTilda,
   textToTilda,
   looksLikeHtml,
@@ -1123,4 +1238,5 @@ module.exports = {
   describeLibraryItem,
   countMatches,
   listVariants,
+  listHouses,
 };

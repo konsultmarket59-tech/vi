@@ -867,6 +867,71 @@ app.whenReady().then(async () => {
         (await call(`!!document.querySelector(".cat-editor-pick")`)) === true, String(вDescription));
       await call(`[...document.querySelectorAll(".cat-editor-actions button")].find(b => /Отмена/.test(b.textContent)).click()`);
 
+      console.log("\nописание руками проходит то же форматирование");
+      // Описание попадает в каталог двумя путями — из файла библиотеки и руками
+      // из таблицы. Если второй путь форматирование минует, в каталоге окажутся
+      // описания двух видов, и разницу видно прямо на витрине.
+      const вручную = catalog.applyEdits(
+        [{ SKU: "00:00:0000001:1001", Text: "старое" }],
+        { "00:00:0000001:1001": { Text: "Дом под ключ.\n- кирпич\n- отделка" } }
+      ).rows[0].Text;
+      check("список из блокнота стал списком магазина",
+        /<ul><li data-list="bullet">кирпич<\/li>/.test(вручную), вручную);
+      check("абзац стал переносом, а не остался строкой", /Дом под ключ\.<br \/>/.test(вручную), вручную);
+      check("повторное сохранение ничего не портит",
+        catalog.toTildaText(вручную) === вручную, catalog.toTildaText(вручную));
+      // Правка других колонок — это просто значение, трогать его нельзя.
+      const ценаВручную = catalog.applyEdits(
+        [{ SKU: "s", Price: "1" }], { s: { Price: "1234.00" } }
+      ).rows[0].Price;
+      check("правка цены остаётся ровно той, что вписали", ценаВручную === "1234.00", ценаВручную);
+
+      console.log("\nсерии: Классик и Смарт");
+      // Серии в выгрузке 1С нет и не будет: это название линейки на витрине, а
+      // не учётное поле. Она проставляется в приложении — по вариации оптом и
+      // по отдельному дому для исключений.
+      const безСерий = catalog.buildCatalog({
+        ...source, library: библиотека, villages, streetNames, previous, photoMode: "all", carryIds: true,
+      });
+      const какБыло = безСерий.rows.find((r) => r.Mark);
+      check("без отметки категория остаётся прежней",
+        /Метраж дома>>>дом \d+ м2/.test(какБыло.Category), какБыло.Category);
+      check("и про это сказано в замечаниях",
+        безСерий.problems.some((p) => /Не выбрана серия/.test(p)),
+        безСерий.problems.slice(0, 2).join(" | "));
+
+      const сСериями = catalog.buildCatalog({
+        ...source, library: библиотека, villages, streetNames, previous, photoMode: "all", carryIds: true,
+        series: { "100|кирпич": "классик", "85|сайдинг": "смарт" },
+      });
+      const классик = сСериями.rows.find((r) => /Классик/.test(r.Category || ""));
+      const смарт = сСериями.rows.find((r) => /Смарт/.test(r.Category || ""));
+      check("метраж назван по серии: «Классик 100» вместо «дом 100 м2»",
+        /Метраж дома>>>Классик 100/.test(классик.Category) && !/дом 100 м2/.test(классик.Category),
+        классик.Category);
+      check("рядом встаёт отдельная категория серии",
+        /Серия>>>Классик/.test(классик.Category), классик.Category);
+      check("вторая линейка не путается с первой",
+        /Серия>>>Смарт/.test(смарт.Category) && /Метраж дома>>>Смарт 85/.test(смарт.Category),
+        смарт.Category);
+      check("серия входит в SEO-заголовок", /^Классик 100/.test(классик["SEO title"]), классик["SEO title"]);
+      check("и в ключевые слова", /классик/.test(классик["SEO keywords"]), классик["SEO keywords"]);
+      check("посёлок из категорий никуда не делся",
+        /Поселки>>>/.test(классик.Category), классик.Category);
+
+      // Исключения бывают: один дом того же метража может быть другой линейки.
+      const сИсключением = catalog.buildCatalog({
+        ...source, library: библиотека, villages, streetNames, previous, photoMode: "all", carryIds: true,
+        series: { "100|кирпич": "классик" },
+        houseSeries: { [классик.SKU]: "смарт" },
+      });
+      const переотмеченный = сИсключением.rows.find((r) => r.SKU === классик.SKU);
+      check("отметка на доме перекрывает серию вариации",
+        /Серия>>>Смарт/.test(переотмеченный.Category), переотмеченный.Category);
+      check("а соседние дома той же вариации не трогает",
+        сИсключением.rows.filter((r) => /Серия>>>Классик/.test(r.Category || "")).length ===
+          сСериями.rows.filter((r) => /Серия>>>Классик/.test(r.Category || "")).length - 1);
+
       console.log("\nвариации из выгрузки видно в настройке");
       await call(`[...document.querySelectorAll(".cat-tabs .vs-tab")].find(b => /Настройка/.test(b.textContent)).click()`);
       await new Promise((r) => setTimeout(r, 300));

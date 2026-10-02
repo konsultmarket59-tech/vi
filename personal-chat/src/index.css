@@ -2658,3 +2658,41 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
   border-radius: 10px;
   background: #fff;
 }
+
+/* ---------- Каталог: серии домов ---------- */
+
+/* Свой класс, а не общий с «вариациями»: это разные блоки, и общий класс уже
+   один раз увёл проверку не туда. */
+.cat-series { margin-top: 10px; }
+
+.cat-series-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-2, #eef0f6);
+}
+
+.cat-series-name {
+  flex: 1 1 260px;
+  font-size: 13px;
+}
+
+/* Выбор серии держится правого края: глаз идёт по одному столбцу, а не ищет
+   кнопки на разной высоте у каждой строки. */
+.cat-series-pick {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.cat-series-houses {
+  margin-top: 10px;
+}
+
+.cat-series-houses summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}

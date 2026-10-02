@@ -2027,9 +2027,12 @@ ipcMain.handle("excel:save", async (_e, saveAs) => {
   if (target) {
     // After "save as" — or the first save of a new workbook — that file is the one
     // we're editing from now on.
-    // After "save as" the new file becomes the one we're editing.
+    const прежнийКлюч = documentChatKey(openWorkbook);
     openWorkbook.filePath = dest;
     openWorkbook.name = path.basename(dest);
+    // Переписка переезжает вместе с файлом: документ тот же самый, и терять
+    // разговор о нём только потому, что у него появился путь, незачем.
+    await moveDocumentChat("excel", прежнийКлюч, documentChatKey(openWorkbook));
   }
   return dest;
 });
@@ -2039,30 +2042,93 @@ ipcMain.handle("excel:buildAgentPrompt", async () => {
   return excel.buildAgentPrompt(openWorkbook);
 });
 
+const { documentChatKey } = require("./docchat.cjs");
+
 /**
- * Разговор с агентом привязан к открытому документу.
+ * Где лежит переписка по документу.
  *
- * Иначе получается то, на что и наткнулись: открываешь другую таблицу, а агент
- * продолжает обсуждать предыдущую — он видит новые данные, но помнит старый разговор
- * и уверенно ссылается на файл, которого уже нет на экране. Ключ — путь к файлу (для
- * несохранённого документа его имя); при несовпадении переписка начинается с чистого
- * листа. Прошлые разговоры не копятся: файл всегда один и перезаписывается.
+ * У каждого документа свой файл, а не один общий на раздел. С общим файлом
+ * получалось так: поработали с одной таблицей, перешли ко второй — разговор о
+ * первой затирался, и вернуться к нему было уже нельзя. Имя файла — отпечаток
+ * ключа: в ключе лежит полный путь к документу, а он в имя файла не годится.
  */
-function documentChatKey(model) {
-  return model ? model.filePath || `__new__:${model.name}` : "";
+const DOCUMENT_CHAT_LIMIT = 30;
+
+function documentChatFile(root, folder, key) {
+  const отпечаток = crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 16);
+  return path.join(root, folder, "chats", `${отпечаток}.json`);
 }
 
 async function readDocumentChat(folder, key) {
+  if (!key) return null;
   const root = await getRootPath();
-  const stored = await readJson(path.join(root, folder, "_agent_chat.json"), null);
-  if (!stored || stored.key !== key) return null;
-  return stored.conversation || null;
+  const stored = await readJson(documentChatFile(root, folder, key), null);
+  // Ключ проверяется и здесь: отпечаток короткий, и совпадение у двух разных
+  // документов хоть и маловероятно, но показать чужой разговор нельзя.
+  if (stored && stored.key === key) return stored.conversation || null;
+  // Переписка из прежней версии приложения лежала в одном файле на раздел.
+  // Забираем её, если она про этот же документ, — терять начатый разговор при
+  // обновлении незачем.
+  const прежний = await readJson(path.join(root, folder, "_agent_chat.json"), null);
+  if (прежний && прежний.key === key) return прежний.conversation || null;
+  return null;
+}
+
+/**
+ * Убирает самые старые переписки.
+ *
+ * Иначе файлы копятся по одному на каждый когда-либо открытый документ. Тридцать
+ * последних — это заведомо больше, чем держат в работе одновременно, и при этом
+ * папка не растёт бесконечно.
+ */
+async function pruneDocumentChats(dir) {
+  let files = [];
+  try {
+    files = (await fs.readdir(dir)).filter((f) => f.endsWith(".json"));
+  } catch {
+    return;
+  }
+  if (files.length <= DOCUMENT_CHAT_LIMIT) return;
+  const withTime = await Promise.all(
+    files.map(async (f) => {
+      try {
+        const st = await fs.stat(path.join(dir, f));
+        return { f, time: st.mtimeMs };
+      } catch {
+        return { f, time: 0 };
+      }
+    })
+  );
+  withTime.sort((a, b) => b.time - a.time);
+  for (const { f } of withTime.slice(DOCUMENT_CHAT_LIMIT)) {
+    await fs.rm(path.join(dir, f), { force: true });
+  }
+}
+
+/**
+ * Переносит переписку на новый ключ документа.
+ *
+ * Нужно ровно в одном случае: несохранённый документ сохранили, и его ключ из
+ * временного номера стал путём к файлу. Документ при этом тот же самый.
+ */
+async function moveDocumentChat(folder, fromKey, toKey) {
+  if (!fromKey || !toKey || fromKey === toKey) return;
+  const conversation = await readDocumentChat(folder, fromKey);
+  if (!conversation) return;
+  await writeDocumentChat(folder, toKey, conversation);
+  // Прежняя запись больше ни к чему не относится: документ теперь живёт под
+  // своим путём, а временный номер исчез вместе с «несохранённым».
+  const root = await getRootPath();
+  await fs.rm(documentChatFile(root, folder, fromKey), { force: true });
 }
 
 async function writeDocumentChat(folder, key, conversation) {
+  if (!key) return conversation;
   const root = await getRootPath();
-  await ensureDir(path.join(root, folder));
-  await writeJson(path.join(root, folder, "_agent_chat.json"), { key, conversation });
+  const dir = path.join(root, folder, "chats");
+  await ensureDir(dir);
+  await writeJson(documentChatFile(root, folder, key), { key, conversation, updatedAt: Date.now() });
+  await pruneDocumentChats(dir);
   return conversation;
 }
 
@@ -2138,8 +2204,11 @@ ipcMain.handle("word:save", async (_e, saveAs) => {
   }
   const dest = await word.saveDocument(openDocument, target);
   if (target) {
+    const прежнийКлюч = documentChatKey(openDocument);
     openDocument.filePath = dest;
     openDocument.name = path.basename(dest);
+    // См. «excel:save»: переписка следует за документом, а не за его ключом.
+    await moveDocumentChat("word", прежнийКлюч, documentChatKey(openDocument));
   }
   return dest;
 });
@@ -4354,6 +4423,10 @@ const PAGE_DEFAULTS = {
 
 const CATALOG_DEFAULTS = {
   exportPath: "",
+  /** Серия по вариации: «85|кирпич» → «классик». */
+  series: {},
+  /** Серия, проставленная конкретному дому по кадастровому номеру. */
+  houseSeries: {},
   previousPath: "",
   outputDir: "",
   villages: {},
@@ -4394,6 +4467,9 @@ async function loadCatalogConfig() {
       // Каталог на сайте заливается заново: старые номера позиций указывали бы
       // на удалённые товары, поэтому по умолчанию они не переносятся.
       carryIds: false,
+      // Серии в выгрузке 1С нет — она проставляется в приложении.
+      series: {},
+      houseSeries: {},
     };
   }
 }
@@ -4466,6 +4542,8 @@ async function assembleCatalog() {
     photoSource: config.photoSource || "tilda",
     septics: config.septics || {},
     carryIds: !!config.carryIds,
+    series: config.series || {},
+    houseSeries: config.houseSeries || {},
   });
   for (const item of library) if (item.error) result.problems.unshift(item.error);
   return { ...result, villages, config, source };
@@ -4537,6 +4615,9 @@ ipcMain.handle("catalog:table", async () => {
     // Какие вариации есть в выгрузке — чтобы было видно, подо что заводить
     // заготовку, и не подбирать метраж наугад.
     variants: catalog.listVariants(result.source.houses),
+    // Дома с их вариацией и серией: по вариации серия ставится оптом, а
+    // отдельный дом иногда нужно отметить лично — исключения бывают.
+    houses: catalog.listHouses(result.source.houses, result.config || {}),
   };
 });
 

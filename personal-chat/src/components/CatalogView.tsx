@@ -5,6 +5,7 @@ import type {
   CatalogEdits,
   CatalogPageConfig,
   CatalogPagesPreview,
+  CatalogSeries,
   CatalogTable as CatalogTableData,
 } from "../lib/types";
 import CatalogTable from "./CatalogTable";
@@ -125,6 +126,32 @@ export default function CatalogView() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Серия вариации: один клик — и серию получают все дома этого метража с этой
+   * облицовкой. В настоящей выгрузке домов шестьдесят шесть, а вариаций
+   * тринадцать; проставить тринадцать раз человек может, шестьдесят шесть — нет.
+   */
+  async function setVariantSeries(variant: string, series: CatalogSeries) {
+    if (!config) return;
+    const next = { ...config.series };
+    if (series) next[variant] = series;
+    else delete next[variant];
+    setConfig({ ...config, series: next });
+    await window.api.catalogSaveConfig({ series: next });
+    setStale(true);
+  }
+
+  /** Серия отдельному дому — поверх вариации. Исключения бывают. */
+  async function setHouseSeries(cadastral: string, series: CatalogSeries) {
+    if (!config) return;
+    const next = { ...config.houseSeries };
+    if (series) next[cadastral] = series;
+    else delete next[cadastral];
+    setConfig({ ...config, houseSeries: next });
+    await window.api.catalogSaveConfig({ houseSeries: next });
+    setStale(true);
   }
 
   /** Настройки страниц правятся по одному полю и сразу сохраняются. */
@@ -829,6 +856,83 @@ export default function CatalogView() {
                   </label>
                 </div>
               ))}
+              {preview && !!preview.variants.length && (
+                <div className="cat-series">
+                  <strong>Серии домов</strong>
+                  <p className="vs-hint">
+                    В выгрузке из 1С серии нет — это название линейки на витрине, а не учётное поле.
+                    Отметьте серию у вариации, и её получат все дома этого метража с этой облицовкой.
+                    Тогда в категории товара вместо «дом 85 м2» встанет «Классик 85», рядом появится
+                    отдельная категория «Серия», и серия войдёт в SEO-заголовок. Без отметки всё
+                    остаётся как было.
+                  </p>
+                  {preview.variants.map((v) => {
+                    const ключ = `${v.area}|${v.cladding}`;
+                    const текущая = config?.series[ключ] ?? "";
+                    return (
+                      <div key={ключ} className="cat-series-row">
+                        <span className="cat-series-name">
+                          <b>{v.count}</b> {v.area ? `${v.area} м²` : "метраж не указан"} ·{" "}
+                          {v.claddingLabel || "облицовка не указана"}
+                        </span>
+                        <span className="cat-series-pick">
+                          {[
+                            { id: "", name: "не задана" },
+                            { id: "классик", name: "Классик" },
+                            { id: "смарт", name: "Смарт" },
+                          ].map((вариант) => (
+                            <button
+                              key={вариант.id || "нет"}
+                              className={текущая === вариант.id ? "chip active" : "chip"}
+                              onClick={() => setVariantSeries(ключ, вариант.id as CatalogSeries)}
+                            >
+                              {вариант.name}
+                            </button>
+                          ))}
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  {!!preview.houses.length && (
+                    <details className="cat-series-houses">
+                      <summary>Отдельные дома ({preview.houses.filter((h) => !h.series).length} без серии)</summary>
+                      <p className="vs-hint">
+                        Здесь серия ставится конкретному дому и перекрывает серию вариации. Нужно
+                        только для исключений: если весь метраж одной серии, проще отметить вариацию выше.
+                      </p>
+                      {preview.houses.map((h) => (
+                        <div key={h.cadastral} className="cat-series-row">
+                          <span className="cat-series-name">
+                            {h.title || h.cadastral}
+                            <span className="vs-hint">
+                              {" "}
+                              {h.area ? `${h.area} м²` : "метраж не указан"}
+                              {h.ownSeries ? " · отмечен лично" : h.series ? " · по вариации" : " · серии нет"}
+                            </span>
+                          </span>
+                          <span className="cat-series-pick">
+                            {[
+                              { id: "", name: "по вариации" },
+                              { id: "классик", name: "Классик" },
+                              { id: "смарт", name: "Смарт" },
+                            ].map((вариант) => (
+                              <button
+                                key={вариант.id || "нет"}
+                                className={h.ownSeries === вариант.id ? "chip active" : "chip"}
+                                onClick={() => setHouseSeries(h.cadastral, вариант.id as CatalogSeries)}
+                              >
+                                {вариант.name}
+                              </button>
+                            ))}
+                          </span>
+                        </div>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              )}
+
               {preview && !!preview.variants.length && (
                 <div className="cat-variants">
                   <strong>Что есть в выгрузке</strong>
