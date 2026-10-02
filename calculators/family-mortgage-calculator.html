@@ -1,0 +1,1332 @@
+<div class="hp-card">
+  <style>
+    .hp-card,
+    .hp-card * { box-sizing: border-box; }
+    .hp-card input,
+    .hp-card textarea,
+    .hp-card select { font: inherit; }
+
+    .hp-card {
+      font-family: 'Raleway', var(--t-text-font, sans-serif);
+      color: var(--uc-text, #1a1a2e);
+      background: var(--mc-primary-bg, #f6f4fe);
+      padding: 60px 20px 80px;
+    }
+
+    .hp-card__container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@400;600;700;800&display=swap');
+
+    .hp-card__icon {
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .hp-card__title {
+      font-family: 'Raleway', var(--t-headline-font);
+      font-size: clamp(28px, 3.5vw, 44px);
+      font-weight: 800;
+      line-height: 1.15;
+      color: var(--uc-text, #1a1a2e);
+      margin: 0 0 12px;
+    }
+
+    .hp-card__title-accent {
+      color: var(--uc-primary, #301b92);
+    }
+
+    .hp-card__subtitle {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 16px;
+      font-weight: 400;
+      line-height: 1.6;
+      color: var(--mc-text-secondary, #6b6b8d);
+      max-width: 640px;
+      margin: 0 0 40px;
+    }
+
+    .hp-card__section-title {
+      font-family: 'Raleway', var(--t-headline-font);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--uc-text, #1a1a2e);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 20px;
+    }
+
+    .hp-card__section-title .hp-card__icon {
+      width: 22px;
+      height: 22px;
+      opacity: 0.65;
+      color: var(--uc-text, #1a1a2e);
+    }
+
+    .hp-card__group-title {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--mc-text-secondary, #6b6b8d);
+      margin: 0 0 16px;
+    }
+
+    .hp-card__hint {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--mc-text-secondary, #6b6b8d);
+      margin-top: 6px;
+    }
+
+    .hp-card__grid {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 40px;
+      align-items: start;
+    }
+
+    .hp-card__panel {
+      background: var(--mc-white, #ffffff);
+      border-radius: 20px;
+      padding: 32px 28px;
+      box-shadow: 0 4px 20px rgba(48, 27, 146, 0.08);
+      border: 1px solid var(--mc-border, #e2dff0);
+      transition: box-shadow 0.35s ease, transform 0.35s ease;
+    }
+
+    .hp-card__panel:hover {
+      box-shadow: 0 12px 36px rgba(48, 27, 146, 0.18);
+      transform: translateY(-2px);
+    }
+
+    .hp-card__panel--flat:hover {
+      box-shadow: 0 4px 20px rgba(48, 27, 146, 0.08);
+      transform: none;
+    }
+
+    .hp-card__divider {
+      border: none;
+      border-top: 1px solid var(--mc-border, #e2dff0);
+      margin: 24px 0;
+    }
+
+    .hp-card__field {
+      margin-bottom: 20px;
+    }
+
+    .hp-card__field:last-child {
+      margin-bottom: 0;
+    }
+
+    .hp-card__label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .hp-card__label {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--uc-text, #1a1a2e);
+    }
+
+    .hp-card__label-right {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--uc-primary, #301b92);
+    }
+
+    .hp-card__input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1.5px solid var(--mc-border, #e2dff0);
+      border-radius: 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--uc-text, #1a1a2e);
+      background: var(--mc-white, #ffffff);
+      outline: none;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .hp-card__input:focus {
+      border-color: var(--uc-primary, #301b92);
+      box-shadow: 0 0 0 3px rgba(48, 27, 146, 0.12);
+    }
+
+    .hp-card__input::placeholder {
+      color: #b5b0cc;
+      font-weight: 400;
+    }
+
+    .hp-card__input[type="number"]::-webkit-inner-spin-button,
+    .hp-card__input[type="number"]::-webkit-outer-spin-button {
+      opacity: 0.4;
+    }
+
+    .hp-card__field--relative {
+      position: relative;
+    }
+
+    .hp-card__inline-btns {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      gap: 4px;
+    }
+
+    .hp-card__inline-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 8px;
+      border: none;
+      background: var(--mc-primary-bg, #f6f4fe);
+      color: var(--uc-primary, #301b92);
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      white-space: nowrap;
+    }
+
+    .hp-card__inline-btn:hover {
+      background: var(--uc-primary, #301b92);
+      color: var(--mc-white, #ffffff);
+    }
+
+    .hp-card__inline-btn--active {
+      background: var(--uc-primary, #301b92);
+      color: var(--mc-white, #ffffff);
+    }
+
+    /* Сегментированные переключатели: цель кредита, дети, регион */
+    .hp-card__seg {
+      display: flex;
+      gap: 6px;
+      padding: 4px;
+      border-radius: 14px;
+      background: var(--mc-primary-bg, #f6f4fe);
+      border: 1.5px solid var(--mc-border, #e2dff0);
+    }
+
+    .hp-card__seg-btn {
+      flex: 1 1 0;
+      min-width: 0;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.25;
+      padding: 9px 8px;
+      border-radius: 10px;
+      border: none;
+      background: transparent;
+      color: var(--uc-primary, #301b92);
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+    }
+
+    .hp-card__seg-btn:hover {
+      background: rgba(48, 27, 146, 0.08);
+    }
+
+    .hp-card__seg-btn--active,
+    .hp-card__seg-btn--active:hover {
+      background: var(--uc-primary, #301b92);
+      color: var(--mc-white, #ffffff);
+      box-shadow: 0 2px 8px rgba(48, 27, 146, 0.25);
+    }
+
+    .hp-card__range {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--mc-border, #e2dff0);
+      outline: none;
+      cursor: pointer;
+    }
+
+    .hp-card__range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--uc-primary, #301b92);
+      cursor: pointer;
+      border: 3px solid var(--mc-white, #ffffff);
+      box-shadow: 0 2px 8px rgba(48, 27, 146, 0.3);
+      transition: transform 0.2s;
+    }
+
+    .hp-card__range::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+
+    .hp-card__range::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--uc-primary, #301b92);
+      cursor: pointer;
+      border: 3px solid var(--mc-white, #ffffff);
+      box-shadow: 0 2px 8px rgba(48, 27, 146, 0.3);
+    }
+
+    .hp-card__range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--mc-text-secondary, #6b6b8d);
+      margin-top: 6px;
+      padding: 0 2px;
+    }
+
+    .hp-card__results {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .hp-card__result {
+      background: var(--mc-white, #ffffff);
+      border-radius: 20px;
+      padding: 24px 20px;
+      box-shadow: 0 4px 20px rgba(48, 27, 146, 0.08);
+      border: 1px solid var(--mc-border, #e2dff0);
+      transition: box-shadow 0.35s ease, transform 0.35s ease;
+      position: relative;
+    }
+
+    .hp-card__result:hover {
+      box-shadow: 0 12px 36px rgba(48, 27, 146, 0.18);
+      transform: translateY(-3px);
+    }
+
+    .hp-card__result--primary {
+      background: var(--uc-primary, #301b92);
+      border-color: var(--uc-primary, #301b92);
+    }
+
+    .hp-card__result--primary:hover {
+      box-shadow: 0 12px 36px rgba(48, 27, 146, 0.35);
+    }
+
+    .hp-card__result-label {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--mc-text-secondary, #6b6b8d);
+      margin: 0 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hp-card__result-label .hp-card__icon {
+      width: 14px;
+      height: 14px;
+      opacity: 0.6;
+    }
+
+    .hp-card__result--primary .hp-card__result-label {
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .hp-card__result--primary .hp-card__result-label .hp-card__icon {
+      opacity: 0.8;
+    }
+
+    .hp-card__result-value {
+      font-family: 'Inter', sans-serif;
+      font-size: clamp(20px, 2vw, 26px);
+      font-weight: 800;
+      color: var(--uc-text, #1a1a2e);
+      margin: 0 0 4px;
+    }
+
+    .hp-card__result--primary .hp-card__result-value {
+      color: var(--mc-white, #ffffff);
+    }
+
+    .hp-card__result-note {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--mc-text-secondary, #6b6b8d);
+      margin: 0;
+    }
+
+    .hp-card__result--primary .hp-card__result-note {
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    .hp-card__limit-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-family: 'Inter', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 4px 10px;
+      border-radius: 30px;
+      background: #fee2e2;
+      color: #dc2626;
+      border: 1px solid #fca5a5;
+    }
+
+    .hp-card__forecast-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--uc-primary, #301b92);
+      margin-top: 8px;
+    }
+
+    .hp-card__forecast-note .hp-card__icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    .hp-card__pdn-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .hp-card__pdn-label {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--mc-text-secondary, #6b6b8d);
+    }
+
+    .hp-card__pdn-percent {
+      font-family: 'Inter', sans-serif;
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--uc-primary, #301b92);
+    }
+
+    .hp-card__pdn-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      background: #e8e4f0;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .hp-card__pdn-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: var(--uc-primary, #301b92);
+      transition: width 0.6s ease, background 0.3s;
+    }
+
+    .hp-card__pdn-verdict {
+      padding: 16px 20px;
+      border-radius: 14px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .hp-card__pdn-verdict .hp-card__icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .hp-card__pdn-verdict strong {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .hp-card__pdn-verdict--success {
+      background: var(--mc-primary-bg, #f6f4fe);
+      border: 1px solid var(--mc-border, #e2dff0);
+      color: var(--uc-primary, #301b92);
+    }
+
+    .hp-card__pdn-verdict--warning {
+      background: #fef9e7;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+
+    .hp-card__pdn-verdict--danger {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+
+    .hp-card__alert {
+      padding: 16px 20px;
+      border-radius: 14px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      line-height: 1.5;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      margin-bottom: 20px;
+    }
+
+    .hp-card__alert .hp-card__icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .hp-card__alert strong {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .hp-card__alert--info {
+      background: var(--mc-white, #ffffff);
+      border: 1px solid var(--mc-border, #e2dff0);
+      color: var(--uc-text, #1a1a2e);
+    }
+
+    .hp-card__alert--info .hp-card__icon {
+      color: var(--uc-primary, #301b92);
+    }
+
+    .hp-card__table-wrap {
+      overflow-x: auto;
+    }
+
+    .hp-card__table {
+      width: 100%;
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      border-collapse: collapse;
+    }
+
+    .hp-card__table thead th {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--mc-text-secondary, #6b6b8d);
+      background: var(--mc-primary-bg, #f6f4fe);
+      padding: 12px 16px;
+      text-align: left;
+    }
+
+    .hp-card__table thead th:last-child {
+      text-align: right;
+    }
+
+    .hp-card__table tbody td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--mc-border, #e2dff0);
+      color: var(--uc-text, #1a1a2e);
+      font-weight: 400;
+    }
+
+    .hp-card__table tbody td:last-child {
+      text-align: right;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+    }
+
+    .hp-card__table tbody td:first-child {
+      font-weight: 500;
+    }
+
+    .hp-card__table tbody tr:hover {
+      background: #faf9fe;
+    }
+
+    .hp-card__table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .hp-card__table-note {
+      font-size: 11px;
+      color: var(--mc-text-secondary, #6b6b8d);
+      font-weight: 400 !important;
+    }
+
+    .hp-card__table-total td {
+      font-weight: 700 !important;
+      border-top: 2px solid var(--uc-primary, #301b92) !important;
+      border-bottom: none !important;
+      padding-top: 16px !important;
+    }
+
+    .hp-card__table-total td:first-child {
+      font-family: 'Raleway', var(--t-headline-font);
+      font-weight: 800;
+    }
+
+    .hp-card__table-total td:last-child {
+      color: var(--uc-primary, #301b92);
+      font-family: 'Inter', sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    /* Таблица ставок по новым условиям */
+    .hp-card__rates td,
+    .hp-card__rates th {
+      text-align: center !important;
+    }
+
+    .hp-card__rates td:first-child,
+    .hp-card__rates th:first-child {
+      text-align: left !important;
+    }
+
+    .hp-card__rates td {
+      font-family: 'Inter', sans-serif;
+      font-weight: 500 !important;
+    }
+
+    .hp-card__rates td small {
+      display: block;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--mc-text-secondary, #6b6b8d);
+    }
+
+    .hp-card__rates td.hp-card__rates-cell--active {
+      background: var(--uc-primary, #301b92);
+      color: var(--mc-white, #ffffff);
+      font-weight: 700 !important;
+    }
+
+    .hp-card__rates td.hp-card__rates-cell--active small {
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .hp-card__rates--muted td:not(:first-child) {
+      opacity: 0.45;
+    }
+
+    .hp-card__cta {
+      margin-top: 32px;
+      padding: 32px;
+      background: var(--mc-white, #ffffff);
+      border-radius: 20px;
+      box-shadow: 0 4px 20px rgba(48, 27, 146, 0.08);
+      border: 1px solid var(--mc-border, #e2dff0);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+      transition: box-shadow 0.35s ease;
+    }
+
+    .hp-card__cta:hover {
+      box-shadow: 0 12px 36px rgba(48, 27, 146, 0.18);
+    }
+
+    .hp-card__cta-text {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .hp-card__cta-title {
+      font-family: 'Raleway', var(--t-headline-font);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--uc-text, #1a1a2e);
+      margin: 0 0 4px;
+    }
+
+    .hp-card__cta-desc {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--mc-text-secondary, #6b6b8d);
+      margin: 0;
+    }
+
+    .hp-card__btn {
+      font-family: 'Raleway', var(--t-text-font);
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #301b92 !important;
+      background-color: #ffffff !important;
+      border-radius: 30px !important;
+      border: 2px solid #301b92 !important;
+      padding: 14px 36px !important;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      transition: all 0.3s ease !important;
+      white-space: nowrap;
+    }
+
+    .hp-card__btn:hover {
+      color: #ffffff !important;
+      background-color: #301b92 !important;
+      border: 2px solid #ffffff !important;
+      box-shadow: 0px 10px 20px rgba(0,11,48,0.25) !important;
+    }
+
+    .hp-card__btn .hp-card__icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    .hp-card__hidden {
+      display: none !important;
+    }
+
+    .hp-card__fade-in {
+      animation: hpFadeIn 0.35s ease forwards;
+    }
+
+    @keyframes hpFadeIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hp-card__2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 960px) {
+      .hp-card { padding: 40px 16px 60px; }
+      .hp-card__grid { grid-template-columns: 1fr; gap: 24px; }
+      .hp-card__results { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .hp-card { padding: 32px 16px 48px; }
+      .hp-card__panel { padding: 24px 16px; }
+      .hp-card__results { grid-template-columns: 1fr; gap: 12px; }
+      .hp-card__cta { flex-direction: column; text-align: center; padding: 24px 20px; }
+      .hp-card__btn { width: 100%; justify-content: center; }
+      .hp-card__2col { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 480px) {
+      .hp-card { padding: 24px 12px 40px; }
+      .hp-card__title { font-size: 22px; }
+      .hp-card__subtitle { font-size: 18px; }
+      .hp-card__result-value { font-size: 18px; }
+      .hp-card__table { font-size: 12px; }
+      .hp-card__table thead th, .hp-card__table tbody td { padding: 8px 10px; }
+      .hp-card__cta-title { font-size: 17px; }
+      .hp-card__inline-btns { position: static; transform: none; margin-top: 8px; flex-wrap: wrap; }
+      .hp-card__seg-btn { font-size: 12px; padding: 8px 4px; }
+    }
+  </style>
+
+  <div class="hp-card__container">
+
+    <h1 class="hp-card__title"> КАЛЬКУЛЯТОР <span class="hp-card__title-accent">СЕМЕЙНОЙ ИПОТЕКИ</span></h1>
+    <p class="hp-card__subtitle">
+      Новые условия с&nbsp;1&nbsp;октября 2026&nbsp;года. Строительство дома по&nbsp;эскроу&nbsp;— 6%
+      при любом числе детей, покупка готового дома&nbsp;— ставка от&nbsp;2% до&nbsp;12% в&nbsp;зависимости
+      от&nbsp;количества детей и&nbsp;региона. Рассчитайте платёж, первый взнос с&nbsp;учётом
+      материнского капитала и&nbsp;вероятность одобрения.
+    </p>
+
+    <div class="hp-card__grid">
+
+      <!-- LEFT: Inputs -->
+      <div class="hp-card__panel">
+        <h2 class="hp-card__section-title">
+          <svg class="hp-card__icon" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="12" cy="15" r="1.5"></circle></svg>
+          Параметры сделки
+        </h2>
+
+        <div>
+          <h3 class="hp-card__group-title">Программа</h3>
+
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <span class="hp-card__label">Цель кредита</span>
+            </div>
+            <div class="hp-card__seg" role="group" aria-label="Цель кредита">
+              <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-purpose="build">Строительство по&nbsp;эскроу</button>
+              <button type="button" class="hp-card__seg-btn" data-purpose="buy">Покупка готового дома</button>
+            </div>
+            <p class="hp-card__hint" id="calcPurposeHint">Ставка 6% сохраняется независимо от числа детей и региона</p>
+          </div>
+
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <span class="hp-card__label">Количество детей до 18 лет</span>
+            </div>
+            <div class="hp-card__seg" role="group" aria-label="Количество детей">
+              <button type="button" class="hp-card__seg-btn" data-kids="1">1</button>
+              <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-kids="2">2</button>
+              <button type="button" class="hp-card__seg-btn" data-kids="3">3</button>
+              <button type="button" class="hp-card__seg-btn" data-kids="4">4</button>
+              <button type="button" class="hp-card__seg-btn" data-kids="5">5+</button>
+            </div>
+            <p class="hp-card__hint">Обязательно: хотя бы один ребёнок младше 7 лет на дату договора (или ребёнок с инвалидностью)</p>
+          </div>
+
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <span class="hp-card__label">Регион</span>
+            </div>
+            <div class="hp-card__seg" role="group" aria-label="Регион">
+              <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-region="reg">Другие регионы</button>
+              <button type="button" class="hp-card__seg-btn" data-region="cap">Москва, СПб и&nbsp;области</button>
+            </div>
+          </div>
+        </div>
+
+        <hr class="hp-card__divider">
+
+        <div>
+          <h3 class="hp-card__group-title">Доходы и долги</h3>
+          <div class="hp-card__2col">
+            <div class="hp-card__field">
+              <div class="hp-card__label-row">
+                <label for="calcIH" class="hp-card__label">Доход супруга</label>
+              </div>
+              <input type="number" id="calcIH" class="hp-card__input" value="100000" placeholder="₽/мес">
+            </div>
+            <div class="hp-card__field">
+              <div class="hp-card__label-row">
+                <label for="calcIW" class="hp-card__label">Доход супруги</label>
+              </div>
+              <input type="number" id="calcIW" class="hp-card__input" value="70000" placeholder="₽/мес">
+            </div>
+          </div>
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <label for="calcOD" class="hp-card__label">Платежи по другим кредитам</label>
+            </div>
+            <input type="number" id="calcOD" class="hp-card__input" value="0" placeholder="₽/мес">
+            <p class="hp-card__hint">Кредитные карты, автокредиты, потребкредиты</p>
+          </div>
+        </div>
+
+        <hr class="hp-card__divider">
+
+        <div>
+          <h3 class="hp-card__group-title">Объект и капитал</h3>
+
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <label for="calcPP" class="hp-card__label">Стоимость дома с участком</label>
+            </div>
+            <input type="number" id="calcPP" class="hp-card__input" value="6765000" step="5000">
+          </div>
+
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <label for="calcDP" class="hp-card__label">Первоначальный взнос</label>
+              <span class="hp-card__label-right" id="calcPV%">20.1%</span>
+            </div>
+            <input type="number" id="calcDP" class="hp-card__input" value="1359765" step="1000">
+            <p class="hp-card__hint" id="calcMinPV">Минимум 20.1%: 1 359 765 ₽</p>
+          </div>
+
+          <div class="hp-card__field hp-card__field--relative">
+            <div class="hp-card__label-row">
+              <label for="calcMC" class="hp-card__label">Материнский капитал</label>
+            </div>
+            <input type="number" id="calcMC" class="hp-card__input" value="963243">
+            <div class="hp-card__inline-btns">
+              <button type="button" class="hp-card__inline-btn" data-mc="0">0</button>
+              <button type="button" class="hp-card__inline-btn" data-mc="728921">1 реб.</button>
+              <button type="button" class="hp-card__inline-btn hp-card__inline-btn--active" data-mc="963243">2 реб.</button>
+            </div>
+            <p class="hp-card__hint">На 2026: 1 реб. = 728 т.р., 2 реб. = 963 т.р.</p>
+          </div>
+
+          <div class="hp-card__field">
+            <div class="hp-card__label-row">
+              <label for="calcTY" class="hp-card__label">Срок кредита</label>
+              <span class="hp-card__label-right" id="calcTV">30 лет</span>
+            </div>
+            <input type="range" id="calcTY" min="1" max="30" value="30" class="hp-card__range">
+            <div class="hp-card__range-labels">
+              <span>1 год</span>
+              <span>30 лет</span>
+            </div>
+            <p class="hp-card__hint" id="calcSubsHint">Льготная ставка субсидируется первые 15 лет, дальше банк может её пересмотреть</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Results -->
+      <div>
+
+        <div class="hp-card__results">
+          <div class="hp-card__result hp-card__result--primary">
+            <p class="hp-card__result-label">
+              <svg class="hp-card__icon" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><circle cx="12" cy="15" r="1.5"></circle></svg>
+              Ежемесячный платёж
+            </p>
+            <p class="hp-card__result-value" id="calcMP">0 ₽</p>
+            <p class="hp-card__result-note" id="calcRateNote">Ставка 6%</p>
+          </div>
+          <div class="hp-card__result">
+            <p class="hp-card__result-label">Сумма кредита</p>
+            <p class="hp-card__result-value" id="calcLA">0 ₽</p>
+            <p class="hp-card__result-note" id="calcLimitNote">Лимит 8 000 000 ₽</p>
+            <div class="hp-card__limit-badge hp-card__hidden" id="calcLW">Превышение</div>
+          </div>
+          <div class="hp-card__result">
+            <p class="hp-card__result-label">Наличные на ПВ</p>
+            <p class="hp-card__result-value" id="calcCDP">0 ₽</p>
+            <p class="hp-card__forecast-note" id="calcMCI">
+              <svg class="hp-card__icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"></circle><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"></path><circle cx="19" cy="7" r="3"></circle><path d="M22 21v-1.5a3 3 0 00-3-3"></path></svg>
+              + Мат. капитал
+            </p>
+          </div>
+        </div>
+
+        <div class="hp-card__alert hp-card__hidden hp-card__fade-in" id="calcLAB">
+          <svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          <div id="calcLABText">
+            <strong>Превышен лимит по Семейной ипотеке</strong>
+            Увеличьте первоначальный взнос, иначе сделка не пройдёт по льготной ставке.
+          </div>
+        </div>
+
+        <div class="hp-card__alert hp-card__alert--info" id="calcCmp">
+          <svg class="hp-card__icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <div id="calcCmpText"></div>
+        </div>
+
+        <div class="hp-card__panel hp-card__panel--flat" style="margin-bottom: 20px;">
+          <h2 class="hp-card__section-title">
+            <svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M3 12l9-8 9 8"></path><path d="M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"></path></svg>
+            Оценка платёжеспособности (ПДН)
+          </h2>
+          <div class="hp-card__pdn-header">
+            <span class="hp-card__pdn-label">Нагрузка на бюджет</span>
+            <span class="hp-card__pdn-percent" id="calcPPDN">0%</span>
+          </div>
+          <div class="hp-card__pdn-track">
+            <div class="hp-card__pdn-fill" id="calcPB" style="width:0%;"></div>
+          </div>
+          <div class="hp-card__pdn-verdict hp-card__pdn-verdict--success" id="calcPVt">
+            <svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            <div>
+              <strong>Высокая вероятность одобрения.</strong>
+              Ваших доходов достаточно для обслуживания кредита. Банки одобряют нагрузку до 50–60%.
+            </div>
+          </div>
+        </div>
+
+        <div class="hp-card__panel hp-card__panel--flat" style="margin-bottom: 20px;">
+          <h2 class="hp-card__section-title">
+            <svg class="hp-card__icon" viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19"></line><circle cx="6.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="17.5" r="2.5"></circle></svg>
+            Ставки и лимиты с 1 октября 2026
+          </h2>
+          <p style="font-family:'Raleway',sans-serif;font-size:14px;color:var(--mc-text-secondary,#6b6b8d);margin:0 0 20px;" id="calcRatesCaption">Покупка готового дома. Строительство по эскроу — 6% для всех.</p>
+
+          <div class="hp-card__table-wrap">
+            <table class="hp-card__table hp-card__rates" id="calcRatesTable">
+              <thead>
+                <tr>
+                  <th>Детей</th>
+                  <th>Другие регионы</th>
+                  <th>Москва, СПб и обл.</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="hp-card__panel hp-card__panel--flat">
+          <h2 class="hp-card__section-title">
+            <svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
+            Итоговая смета
+          </h2>
+          <p style="font-family:'Raleway',sans-serif;font-size:14px;color:var(--mc-text-secondary,#6b6b8d);margin:0 0 20px;">Сколько денег нужно иметь на руках сейчас</p>
+
+          <div class="hp-card__table-wrap">
+            <table class="hp-card__table">
+              <thead>
+                <tr>
+                  <th>Статья расходов</th>
+                  <th>Сумма</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Первый взнос (наличные)</td>
+                  <td id="calcTCash">0 ₽</td>
+                </tr>
+                <tr>
+                  <td>
+                    Оценка недвижимости
+                    <span class="hp-card__table-note"> · Средняя 10.5–15 т.р.</span>
+                  </td>
+                  <td id="calcTE">12 750 ₽</td>
+                </tr>
+                <tr>
+                  <td>Страхование жизни
+<span class="hp-card__table-note"> · Финальная сумма зависит от условий банка</span></td>
+                  <td id="calcTI">0 ₽</td>
+                </tr>
+                <tr>
+                  <td>
+                    Страхование дома
+                    <span class="hp-card__table-note"> · Обязательно (конструктив)</span>
+                  </td>
+                  <td id="calcTH">15 000 ₽</td>
+                </tr>
+                <tr>
+                  <td>
+                    Эл. регистрация / расходы банка
+                    <span class="hp-card__table-note"> · СБР + госпошлина</span>
+                  </td>
+                  <td>11 000 ₽</td>
+                </tr>
+                <tr class="hp-card__table-total">
+                  <td>ИТОГО НА РУКАХ</td>
+                  <td id="calcTT">0 ₽</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- CTA — popup:manager -->
+    <div class="hp-card__cta">
+      <div class="hp-card__cta-text">
+        <h3 class="hp-card__cta-title">Нужна помощь с расчётами?</h3>
+        <p class="hp-card__cta-desc">Получите консультацию эксперта по ипотеке на ИЖС с учётом всех льгот и субсидий.</p>
+      </div>
+      <a href="#popup:manager" class="hp-card__btn">
+        <svg class="hp-card__icon" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"></circle><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"></path><circle cx="19" cy="7" r="3"></circle><path d="M22 21v-1.5a3 3 0 00-3-3"></path></svg>
+        Получить консультацию
+      </a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var el = function(id){ return document.getElementById(id); };
+  var root = document.querySelector('.hp-card');
+
+  var incH     = el('calcIH');
+  var incW     = el('calcIW');
+  var debts    = el('calcOD');
+  var price    = el('calcPP');
+  var dpInp    = el('calcDP');
+  var mcInp    = el('calcMC');
+  var termInp  = el('calcTY');
+
+  var mpOut    = el('calcMP');
+  var laOut    = el('calcLA');
+  var cdpOut   = el('calcCDP');
+  var pvOut    = el('calcPV%');
+  var mpvOut   = el('calcMinPV');
+  var tvOut    = el('calcTV');
+  var lwOut    = el('calcLW');
+  var labOut   = el('calcLAB');
+  var labText  = el('calcLABText');
+  var mciOut   = el('calcMCI');
+  var ppdnOut  = el('calcPPDN');
+  var pbOut    = el('calcPB');
+  var pvtOut   = el('calcPVt');
+  var tcOut    = el('calcTCash');
+  var teOut    = el('calcTE');
+  var tiOut    = el('calcTI');
+  var thOut    = el('calcTH');
+  var ttOut    = el('calcTT');
+  var rateNote = el('calcRateNote');
+  var limNote  = el('calcLimitNote');
+  var purpHint = el('calcPurposeHint');
+  var subsHint = el('calcSubsHint');
+  var cmpText  = el('calcCmpText');
+  var ratesTbl = el('calcRatesTable');
+  var ratesCap = el('calcRatesCaption');
+
+  // Условия «Семейной ипотеки» для договоров с 01.10.2026 (Минфин России, ДОМ.РФ).
+  // Покупка жилья: ставка и лимит зависят от числа детей и региона.
+  // Строительство ИЖС по эскроу / покупка участка под ИЖС: ставка 6% при любом числе детей и в любом регионе.
+  var TERMS = {
+    reg: { 1:{rate:0.10, limit:6000000},  2:{rate:0.08, limit:8000000},  3:{rate:0.06, limit:10000000}, 4:{rate:0.04, limit:10000000}, 5:{rate:0.02, limit:10000000} },
+    cap: { 1:{rate:0.12, limit:12000000}, 2:{rate:0.10, limit:15000000}, 3:{rate:0.08, limit:18000000}, 4:{rate:0.06, limit:18000000}, 5:{rate:0.04, limit:18000000} }
+  };
+  var BUILD_RATE = 0.06;
+  var SUBSIDY_YEARS = 15;
+  var MIN_DP = 0.201;
+
+  var state = { purpose:'build', kids:2, region:'reg' };
+
+  function fmt(n){
+    return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(n);
+  }
+
+  function pct(r){ return (Math.round(r*1000)/10).toString().replace('.',',') + '%'; }
+
+  function mln(n){ return (n/1000000).toString().replace('.',',') + ' млн ₽'; }
+
+  function val(e){ return parseFloat(e.value)||0; }
+
+  function kidsLabel(k){ return k>=5 ? '5+ детей' : k===1 ? '1 ребёнок' : k + ' ребёнка'; }
+
+  function annuity(sum, rate, months){
+    if(sum<=0 || months<=0) return 0;
+    var mr = rate/12;
+    if(mr<=0) return sum/months;
+    return sum*(mr*Math.pow(1+mr,months))/(Math.pow(1+mr,months)-1);
+  }
+
+  function terms(){
+    var t = TERMS[state.region][state.kids];
+    return {
+      rate:  state.purpose==='build' ? BUILD_RATE : t.rate,
+      limit: t.limit,
+      buyRate: t.rate
+    };
+  }
+
+  var iconCheck = '<svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+  var iconWarn  = '<svg class="hp-card__icon" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  var iconX     = '<svg class="hp-card__icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+
+  function renderRates(){
+    var rows = '';
+    for(var k=1;k<=5;k++){
+      rows += '<tr><td>' + (k===5?'5+':k) + '</td>';
+      ['reg','cap'].forEach(function(r){
+        var t = TERMS[r][k];
+        var active = (k===state.kids && r===state.region) ? ' class="hp-card__rates-cell--active"' : '';
+        var shown = state.purpose==='build' ? BUILD_RATE : t.rate;
+        rows += '<td' + active + '>' + pct(shown) + '<small>до ' + mln(t.limit) + '</small></td>';
+      });
+      rows += '</tr>';
+    }
+    ratesTbl.tBodies[0].innerHTML = rows;
+    ratesCap.textContent = state.purpose==='build'
+      ? 'Строительство дома по эскроу: ставка 6% при любом количестве детей и в любом регионе.'
+      : 'Покупка готового дома: чем больше детей, тем ниже ставка и выше лимит.';
+  }
+
+  function calc(){
+    var iH  = val(incH);
+    var iW  = val(incW);
+    var od  = val(debts);
+    var pr  = val(price);
+    var mc  = val(mcInp);
+    var ty  = parseInt(termInp.value,10)||30;
+    var dp  = val(dpInp);
+    var t   = terms();
+
+    var y10 = ty%10, y100 = ty%100;
+    tvOut.textContent = ty + ((y10===1&&y100!==11)?' год':(y10>=2&&y10<=4&&(y100<12||y100>14))?' года':' лет');
+
+    var minDP = Math.ceil(pr*MIN_DP);
+    mpvOut.textContent = 'Минимум 20.1%: ' + fmt(minDP);
+
+    var dpPct = pr>0?(dp/pr)*100:0;
+    pvOut.textContent = dpPct.toFixed(1)+'%';
+    pvOut.style.color = dp<minDP ? '#dc2626' : 'var(--uc-primary,#301b92)';
+
+    var la = Math.max(0, pr - dp);
+    var cdp = Math.max(0, dp - mc);
+    var mp = annuity(la, t.rate, ty*12);
+
+    var ev = 12750;
+    var il = 15000;
+    var ih = 15000;
+    var rc = 11000;
+    var tc = cdp+ev+il+ih+rc;
+
+    var ti = iH+iW;
+    var tl = mp+od;
+    var pdn = ti>0?(tl/ti)*100:0;
+
+    mpOut.textContent  = fmt(mp);
+    laOut.textContent  = fmt(la);
+    cdpOut.textContent = fmt(cdp);
+
+    rateNote.textContent = 'Ставка ' + pct(t.rate) + (state.purpose==='build' ? ' · стройка по эскроу' : ' · ' + kidsLabel(state.kids));
+    limNote.textContent  = 'Лимит ' + fmt(t.limit);
+
+    if(la>t.limit){
+      lwOut.classList.remove('hp-card__hidden');
+      labOut.classList.remove('hp-card__hidden');
+      laOut.style.color='#dc2626';
+      labText.innerHTML = '<strong>Превышен лимит по Семейной ипотеке (' + mln(t.limit) + ')</strong>'
+        + 'Для семьи, где ' + kidsLabel(state.kids) + ', в выбранном регионе лимит ' + fmt(t.limit)
+        + '. Увеличьте первоначальный взнос минимум до ' + fmt(Math.max(0, pr - t.limit))
+        + ', иначе сделка не пройдёт по льготной ставке ' + pct(t.rate) + '.';
+    } else {
+      lwOut.classList.add('hp-card__hidden');
+      labOut.classList.add('hp-card__hidden');
+      laOut.style.color='';
+    }
+
+    // Сравнение стройки по эскроу и покупки готового дома
+    if(t.buyRate > BUILD_RATE){
+      var mpBuild = annuity(la, BUILD_RATE, ty*12);
+      var mpBuy   = annuity(la, t.buyRate, ty*12);
+      cmpText.innerHTML = state.purpose==='build'
+        ? '<strong>Стройка по эскроу выгоднее покупки на ' + fmt(mpBuy - mpBuild) + ' в месяц.</strong>'
+          + 'Готовый дом для семьи, где ' + kidsLabel(state.kids) + ', — под ' + pct(t.buyRate) + ', платёж был бы ' + fmt(mpBuy) + '.'
+        : '<strong>Строительство по эскроу сэкономит ' + fmt(mpBuy - mpBuild) + ' в месяц.</strong>'
+          + 'По эскроу ставка 6% при любом числе детей: платёж ' + fmt(mpBuild) + ' вместо ' + fmt(mpBuy) + '.';
+    } else if(t.buyRate < BUILD_RATE){
+      cmpText.innerHTML = '<strong>Для вашей семьи покупка готового дома дешевле по ставке.</strong>'
+        + 'При покупке — ' + pct(t.buyRate) + ', при строительстве по эскроу — 6%.';
+    } else {
+      cmpText.innerHTML = '<strong>Ставка одинаковая — 6%.</strong>'
+        + 'Для семьи, где ' + kidsLabel(state.kids) + ', в этом регионе ставка на покупку и на стройку по эскроу совпадает.';
+    }
+
+    subsHint.style.color = ty>SUBSIDY_YEARS ? '#d97706' : '';
+    subsHint.textContent = ty>SUBSIDY_YEARS
+      ? 'Льготная ставка субсидируется первые ' + SUBSIDY_YEARS + ' лет. Расчёт платежа — по льготной ставке; после ' + SUBSIDY_YEARS + ' лет банк может её пересмотреть'
+      : 'Льготная ставка действует весь срок кредита (субсидирование — до ' + SUBSIDY_YEARS + ' лет)';
+
+    mciOut.style.display = mc<=0 ? 'none' : 'flex';
+
+    tcOut.textContent = fmt(cdp);
+    teOut.textContent = fmt(ev);
+    tiOut.textContent = fmt(il);
+    thOut.textContent = fmt(ih);
+    ttOut.textContent = fmt(tc);
+
+    ppdnOut.textContent = pdn.toFixed(1)+'%';
+    pbOut.style.width = Math.min(pdn,100)+'%';
+
+    if(pdn<50){
+      ppdnOut.style.color='var(--uc-primary,#301b92)';
+      pbOut.style.background='var(--uc-primary,#301b92)';
+      pvtOut.className='hp-card__pdn-verdict hp-card__pdn-verdict--success';
+      pvtOut.innerHTML=iconCheck+'<div><strong>Высокая вероятность одобрения.</strong> Нагрузка на бюджет комфортная (менее 50%).</div>';
+    } else if(pdn<60){
+      ppdnOut.style.color='#d97706';
+      pbOut.style.background='#d97706';
+      pvtOut.className='hp-card__pdn-verdict hp-card__pdn-verdict--warning';
+      pvtOut.innerHTML=iconWarn+'<div><strong>Средняя вероятность.</strong> Нагрузка пограничная (50–60%). Рекомендуется закрыть кредитные карты.</div>';
+    } else {
+      ppdnOut.style.color='#dc2626';
+      pbOut.style.background='#dc2626';
+      pvtOut.className='hp-card__pdn-verdict hp-card__pdn-verdict--danger';
+      pvtOut.innerHTML=iconX+'<div><strong>Риск отказа.</strong> Нагрузка слишком велика (>60%). Увеличьте срок или уменьшите сумму кредита.</div>';
+    }
+
+    renderRates();
+  }
+
+  function setMC(v){
+    mcInp.value = v;
+    root.querySelectorAll('.hp-card__inline-btn[data-mc]').forEach(function(b){
+      b.classList.toggle('hp-card__inline-btn--active', parseFloat(b.getAttribute('data-mc'))===v);
+    });
+    calc();
+  }
+
+  function bindSeg(attr, apply){
+    var btns = root.querySelectorAll('.hp-card__seg-btn[' + attr + ']');
+    btns.forEach(function(b){
+      b.addEventListener('click',function(){
+        btns.forEach(function(x){ x.classList.toggle('hp-card__seg-btn--active', x===b); });
+        apply(b.getAttribute(attr));
+        calc();
+      });
+    });
+  }
+
+  bindSeg('data-purpose', function(v){
+    state.purpose = v;
+    purpHint.textContent = v==='build'
+      ? 'Ставка 6% сохраняется независимо от числа детей и региона'
+      : 'Ставка от 2% до 12% — зависит от количества детей и региона';
+  });
+  bindSeg('data-kids',   function(v){ state.kids = parseInt(v,10); });
+  bindSeg('data-region', function(v){ state.region = v; });
+
+  [incH,incW,debts,price,dpInp,mcInp,termInp].forEach(function(e){
+    e.addEventListener('input',calc);
+    e.addEventListener('change',calc);
+  });
+
+  price.addEventListener('change',function(){
+    var p = val(price);
+    var m = Math.ceil(p*MIN_DP);
+    if(val(dpInp)<m) dpInp.value = m;
+    calc();
+  });
+
+  root.querySelectorAll('.hp-card__inline-btn[data-mc]').forEach(function(b){
+    b.addEventListener('click',function(){
+      setMC(parseFloat(this.getAttribute('data-mc')));
+    });
+  });
+
+  calc();
+})();
+</script><style data-vb-overrides="true">
+.hp-card__title {
+    font-family: 'Alumni Sans', var(--t-headline-font);
+    font-size: 62px;
+}
+
+@media (max-width: 480px) {
+    .hp-card__title {
+        font-size: 35px;
+    }
+
+    .hp-card__subtitle {
+        font-size: 18px;
+    }
+}
+</style>
