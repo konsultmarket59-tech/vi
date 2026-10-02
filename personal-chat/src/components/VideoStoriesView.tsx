@@ -81,6 +81,32 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
 
   const [conv, setConv] = useState<Conversation | null>(null);
   const [design, setDesign] = useState<StoriesDesign | null>(null);
+
+  /**
+   * Подключили дизайн-систему — её шрифт встаёт сразу.
+   *
+   * Иначе получается то, ради чего систему и подключали: шрифт в ней есть, но
+   * выбран он не был, и ролик вышел системным шрифтом. Уже выбранный вручную
+   * шрифт не трогаем: это выбор человека, а не пустое место.
+   */
+  useEffect(() => {
+    const свой = design?.fontFiles?.[0];
+    if (свой && !fontFamily) setFontFamily(свой.family);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design]);
+
+  /**
+   * Шрифты дизайн-системы идут первыми и наравне с системными.
+   *
+   * Фирменный шрифт в системе не установлен — он лежит файлом в выгрузке из
+   * Фигмы. Пока он не попадал в список, выбрать его было нечем, и сцена молча
+   * брала запасной: ровно то, что выглядит как «не применяет шрифты».
+   */
+  const всеШрифты = useMemo(() => {
+    const свои = (design?.fontFiles || []).map((f) => ({ family: f.family, path: f.path }));
+    const имена = new Set(свои.map((f) => f.family));
+    return [...свои, ...fonts.filter((f) => !имена.has(f.family))];
+  }, [design, fonts]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [applied, setApplied] = useState("");
   const [scriptText, setScriptText] = useState("");
@@ -122,12 +148,12 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       accent2Color,
       musicPath,
       musicVolume: 0.25,
-      fonts: fontFamily ? fonts.filter((f) => f.family === fontFamily) : [],
+      fonts: fontFamily ? всеШрифты.filter((f) => f.family === fontFamily) : [],
       references,
       scenes,
       layers,
     }),
-    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, accentColor, accent2Color, musicPath, fontFamily, fonts, references, scenes, layers]
+    [title, presetId, fps, duration, sourceKind, sourcePath, stockQuery, bgColor, accentColor, accent2Color, musicPath, fontFamily, всеШрифты, references, scenes, layers]
   );
 
   // Сцена и замечания пересобираются на каждую правку: композицию видно сразу,
@@ -598,9 +624,10 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                   "Шрифт текста",
                   <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
                     <option value="">по умолчанию</option>
-                    {fonts.map((f) => (
+                    {всеШрифты.map((f) => (
                       <option key={f.path} value={f.family}>
                         {f.family}
+                        {(design?.fontFiles || []).some((d) => d.path === f.path) ? " — из дизайн-системы" : ""}
                       </option>
                     ))}
                   </select>
@@ -721,6 +748,27 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
                     <p className="vs-hint">
                       Файлов прочитано: {design.files.length}. Цветов: {design.colours.length}, шрифтов:{" "}
                       {design.fonts.length}, переменных: {design.vars.length}.
+                    </p>
+                  )}
+                  {/*
+                    Названия шрифтов и сами файлы — разные вещи. Пока файла нет,
+                    сцена берёт запасной шрифт молча, и со стороны это выглядит
+                    как «дизайн-система не применилась». Поэтому сказано прямо,
+                    нашлись файлы или нет.
+                  */}
+                  <p className={design.fontFiles.length ? "vs-hint" : "vs-warn"}>
+                    {design.fontFiles.length
+                      ? `Файлы шрифтов найдены (${design.fontFiles.length}) — они вшиваются в ролик: ${design.fontFiles
+                          .map((f) => f.family)
+                          .slice(0, 4)
+                          .join(", ")}.`
+                      : "Файлов шрифтов в папке нет — ролик соберётся системным шрифтом, даже если в системе шрифт назван. Положите .ttf/.otf/.woff2 в папку дизайн-системы."}
+                  </p>
+                  {!!design.logoFiles.length && (
+                    <p className="vs-hint">
+                      Логотипы в системе: {design.logoFiles.map((l) => l.name).slice(0, 4).join(", ")}
+                      {design.logoFiles.length > 4 ? ` и ещё ${design.logoFiles.length - 4}` : ""}. Добавьте
+                      нужный слоем «картинка» — файл уже найден, искать его на диске не нужно.
                     </p>
                   )}
                   {!!design.colours.length && (

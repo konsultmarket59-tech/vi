@@ -14,6 +14,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const FormulaParser = require("fast-formula-parser");
 const { toFileFormula, fromFileFormula } = require("./excelFunctions.cjs");
+const docchat = require("./docchat.cjs");
 const { DepParser, FormulaError } = FormulaParser;
 const { EXTRA_FUNCTIONS } = require("./excelFunctions.cjs");
 
@@ -725,6 +726,9 @@ function createWorkbook(name) {
   return {
     filePath: null,
     name: clean.toLowerCase().endsWith(".xlsx") ? clean : `${clean}.xlsx`,
+    // Свой номер у каждой созданной книги: имя у них у всех одинаковое, и по
+    // имени вторая книга открывала переписку агента от первой.
+    sessionId: docchat.newSessionId(),
     // "placeholder" marks the starter sheet: if the agent builds its own named
     // sheets instead of filling this one, an empty "Лист1" shouldn't be left behind.
     sheets: [{ name: "Лист1", cells: {}, maxRow: 0, maxCol: 0, merges: [], placeholder: true }],

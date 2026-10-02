@@ -11,6 +11,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const JSZip = require("jszip");
+const docchat = require("./docchat.cjs");
 
 const DOC_PART = "word/document.xml";
 
@@ -268,6 +269,8 @@ async function createDocument(name) {
   const model = {
     filePath: null,
     name: clean.toLowerCase().endsWith(".docx") ? clean : `${clean}.docx`,
+    // Свой номер у каждого созданного документа — см. docchat.cjs.
+    sessionId: docchat.newSessionId(),
     xml,
     blocks: [],
     zip,

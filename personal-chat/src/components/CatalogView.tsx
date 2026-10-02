@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CatalogConfig, CatalogDescription, CatalogEdits, CatalogTable as CatalogTableData } from "../lib/types";
+import type {
+  CatalogConfig,
+  CatalogDescription,
+  CatalogEdits,
+  CatalogPageConfig,
+  CatalogPagesPreview,
+  CatalogSeries,
+  CatalogTable as CatalogTableData,
+} from "../lib/types";
 import CatalogTable from "./CatalogTable";
 import Splitter from "./Splitter";
 
@@ -32,7 +40,11 @@ export default function CatalogView() {
   const [library, setLibrary] = useState<CatalogDescription[]>([]);
   const [preview, setPreview] = useState<CatalogTableData | null>(null);
   const [edits, setEdits] = useState<CatalogEdits>({});
-  const [tab, setTab] = useState<"table" | "setup">("setup");
+  const [tab, setTab] = useState<"table" | "pages" | "setup">("setup");
+  // Страницы домов собираются отдельной кнопкой: это сорок файлов по тридцать
+  // килобайт, и делать это при каждой пересборке каталога незачем.
+  const [pages, setPages] = useState<CatalogPagesPreview | null>(null);
+  const [pagesSaved, setPagesSaved] = useState("");
   // Настройки поменялись, а таблица собрана по прежним: об этом надо сказать,
   // иначе человек выгрузит вчерашний каталог, будучи уверенным в обратном.
   const [stale, setStale] = useState(false);
@@ -116,6 +128,75 @@ export default function CatalogView() {
     }
   }
 
+  /**
+   * Серия вариации: один клик — и серию получают все дома этого метража с этой
+   * облицовкой. В настоящей выгрузке домов шестьдесят шесть, а вариаций
+   * тринадцать; проставить тринадцать раз человек может, шестьдесят шесть — нет.
+   */
+  async function setVariantSeries(variant: string, series: CatalogSeries) {
+    if (!config) return;
+    const next = { ...config.series };
+    if (series) next[variant] = series;
+    else delete next[variant];
+    setConfig({ ...config, series: next });
+    await window.api.catalogSaveConfig({ series: next });
+    setStale(true);
+  }
+
+  /** Серия отдельному дому — поверх вариации. Исключения бывают. */
+  async function setHouseSeries(cadastral: string, series: CatalogSeries) {
+    if (!config) return;
+    const next = { ...config.houseSeries };
+    if (series) next[cadastral] = series;
+    else delete next[cadastral];
+    setConfig({ ...config, houseSeries: next });
+    await window.api.catalogSaveConfig({ houseSeries: next });
+    setStale(true);
+  }
+
+  /** Настройки страниц правятся по одному полю и сразу сохраняются. */
+  async function setPage(patch: Partial<CatalogPageConfig>) {
+    if (!config) return;
+    const next = { ...config, pages: { ...config.pages, ...patch } };
+    setConfig(next);
+    await window.api.catalogSaveConfig({ pages: next.pages });
+    // Собранные страницы собраны по прежним настройкам — показывать их дальше
+    // значило бы показывать не то, что выгрузится.
+    setPages(null);
+  }
+
+  async function previewPages() {
+    setError("");
+    setPagesSaved("");
+    setBusy(true);
+    try {
+      setPages(await window.api.catalogPagesPreview({}));
+      setTab("pages");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function buildPages() {
+    setError("");
+    setPagesSaved("");
+    setBusy(true);
+    try {
+      const r = await window.api.catalogBuildPages();
+      setPagesSaved(
+        `${r.pages} страниц · ${r.dir}` +
+          (r.tooLong ? ` · ${r.tooLong} не поместились в ячейку и лежат только файлами` : "") +
+          (r.stylesFile ? " · общий стиль отдельным файлом" : "")
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const short = (p: string) => (p ? p.split(/[\\/]/).pop() : "не выбран");
   const fitsOf = (id: string) => preview?.library.find((l) => l.id === id)?.fits ?? 0;
   const errorOf = (id: string) => preview?.library.find((l) => l.id === id)?.error || "";
@@ -180,6 +261,13 @@ export default function CatalogView() {
           >
             Таблица {preview ? `(${preview.rows.length})` : ""}
           </button>
+          <button
+            className={tab === "pages" ? "vs-tab on" : "vs-tab"}
+            onClick={() => setTab("pages")}
+            disabled={!preview}
+          >
+            Страницы домов {pages ? `(${pages.total})` : ""}
+          </button>
           <div className="cat-tabs-actions">
             <button
               className={stale ? "btn btn-primary btn-small" : "btn btn-secondary btn-small"}
@@ -222,6 +310,221 @@ export default function CatalogView() {
             onReset={resetCell}
             onFillEmpty={fillEmptyDescriptions}
           />
+        )}
+
+        {tab === "pages" && config && (
+          <div className="vs-body">
+            <div className="vs-form">
+              <p className="vs-lead">
+                По каждому дому из каталога собирается готовая страница: тот же адрес, та же цена и те
+                же фото, что на витрине, — расходиться им неоткуда. В код страницы вписана
+                микроразметка: поисковик читает из неё дом, площадь, цену и наличие. Код вставляется в
+                Тильду блоком «HTML-код» (T123).
+              </p>
+
+              <div className="vs-field">
+                <label>Адрес сайта</label>
+                <input
+                  className="input"
+                  placeholder="https://example.ru"
+                  value={config.pages.site}
+                  onChange={(e) => setPage({ site: e.target.value })}
+                />
+                <p className="hint">
+                  Нужен для ссылок и хлебных крошек в разметке. Пустой — разметка соберётся без них;
+                  выдумывать адрес приложение не станет.
+                </p>
+              </div>
+
+              <div className="vs-field">
+                <label>Правило адреса страницы дома</label>
+                <input
+                  className="input"
+                  placeholder="https://example.ru/house/{id}"
+                  value={config.pages.pageUrl}
+                  onChange={(e) => setPage({ pageUrl: e.target.value })}
+                />
+                <p className="hint">
+                  {"{id}"} — External ID позиции, {"{sku}"} — кадастровый номер. По этому правилу в
+                  разметке появится ссылка на саму страницу.
+                </p>
+              </div>
+
+              <div className="vs-field">
+                <label>Название компании</label>
+                <input
+                  className="input"
+                  value={config.pages.organization}
+                  onChange={(e) => setPage({ organization: e.target.value })}
+                />
+              </div>
+
+              <div className="vs-row">
+                <div className="vs-field">
+                  <label>Телефон</label>
+                  <input
+                    className="input"
+                    value={config.pages.phone}
+                    onChange={(e) => setPage({ phone: e.target.value })}
+                  />
+                </div>
+                <div className="vs-field">
+                  <label>Регион</label>
+                  <input
+                    className="input"
+                    placeholder="Пермский край"
+                    value={config.pages.region}
+                    onChange={(e) => setPage({ region: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="vs-row">
+                <div className="vs-field">
+                  <label>Попап записи в Тильде</label>
+                  <input
+                    className="input"
+                    value={config.pages.bookingPopup}
+                    onChange={(e) => setPage({ bookingPopup: e.target.value })}
+                  />
+                  <p className="hint">
+                    Кнопки «Записаться на просмотр» открывают этот попап. Заведите в его форме скрытое
+                    поле <b>house</b> — туда подставится адрес дома, и будет видно, по какому дому заявка.
+                  </p>
+                </div>
+                <div className="vs-field">
+                  <label>Карта посёлка</label>
+                  <input
+                    className="input"
+                    placeholder="https://…"
+                    value={config.pages.mapSrc}
+                    onChange={(e) => setPage({ mapSrc: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="vs-row">
+                <div className="vs-field">
+                  <label>Ставка ипотеки, %</label>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.1"
+                    value={config.pages.mortgage.rate}
+                    onChange={(e) => setPage({ mortgage: { ...config.pages.mortgage, rate: Number(e.target.value) } })}
+                  />
+                </div>
+                <div className="vs-field">
+                  <label>Срок, лет</label>
+                  <input
+                    className="input"
+                    type="number"
+                    value={config.pages.mortgage.termYears}
+                    onChange={(e) =>
+                      setPage({ mortgage: { ...config.pages.mortgage, termYears: Number(e.target.value) } })
+                    }
+                  />
+                </div>
+                <div className="vs-field">
+                  <label>Первый взнос, %</label>
+                  <input
+                    className="input"
+                    type="number"
+                    value={config.pages.mortgage.downPercent}
+                    onChange={(e) =>
+                      setPage({ mortgage: { ...config.pages.mortgage, downPercent: Number(e.target.value) } })
+                    }
+                  />
+                </div>
+              </div>
+
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={config.pages.sharedStyles}
+                  onChange={(e) => setPage({ sharedStyles: e.target.checked })}
+                />
+                Общий стиль отдельным файлом
+              </label>
+              <p className="hint">
+                Восемнадцать килобайт стиля одинаковы у всех домов. Отдельным файлом их вставляют в
+                Тильде один раз — «Настройки сайта → Ещё → HTML-код внутрь HEAD», — и тогда код дома
+                помещается в ячейку таблицы. Без галочки каждая страница самостоятельна, но длиннее
+                ячейки Excel.
+              </p>
+
+              <div className="folder-row">
+                <button className="btn btn-secondary" disabled={busy || !preview} onClick={previewPages}>
+                  {busy ? "Собираю…" : "Собрать и посмотреть"}
+                </button>
+                <button className="btn btn-primary" disabled={busy || !pages} onClick={buildPages}>
+                  Выгрузить страницы и таблицу
+                </button>
+              </div>
+
+              {pagesSaved && <div className="vs-saved">Сохранено: {pagesSaved}</div>}
+
+              {pages && (
+                <>
+                  {!!pages.problems.length && (
+                    <div className="cat-uniq">
+                      {pages.problems.map((p, i) => (
+                        <p key={i}>{p}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="direct-table-wrap">
+                    <table className="direct-table">
+                      <thead>
+                        <tr>
+                          <th>Адрес</th>
+                          <th>Кадастровый</th>
+                          <th>Файл</th>
+                          <th>Размер кода</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pages.list.map((p) => (
+                          <tr key={p.cadastral || p.file}>
+                            <td>{p.address}</td>
+                            <td>{p.cadastral}</td>
+                            <td>{p.file}</td>
+                            <td className="num" title={p.fits ? "" : "Длиннее ячейки Excel — только файлом"}>
+                              {(p.bytes / 1024).toFixed(1)} КБ{p.fits ? "" : " ⚠"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {pages.sample && (
+                    <div className="vs-field">
+                      <label>Как выглядит страница: {pages.sample.address}</label>
+                      <iframe
+                        className="cat-page-preview"
+                        title={`Страница дома: ${pages.sample.address}`}
+                        sandbox=""
+                        srcDoc={pages.sample.html}
+                      />
+                      <div className="folder-row">
+                        <button
+                          className="btn btn-secondary btn-small"
+                          onClick={() => {
+                            navigator.clipboard.writeText(pages.sample?.html || "");
+                            setPagesSaved("Код страницы скопирован — вставьте его в блок «HTML-код» Тильды.");
+                          }}
+                        >
+                          Скопировать код этой страницы
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         )}
 
         <div className="vs-body" hidden={tab !== "setup"}>
@@ -553,6 +856,83 @@ export default function CatalogView() {
                   </label>
                 </div>
               ))}
+              {preview && !!preview.variants.length && (
+                <div className="cat-series">
+                  <strong>Серии домов</strong>
+                  <p className="vs-hint">
+                    В выгрузке из 1С серии нет — это название линейки на витрине, а не учётное поле.
+                    Отметьте серию у вариации, и её получат все дома этого метража с этой облицовкой.
+                    Тогда в категории товара вместо «дом 85 м2» встанет «Классик 85», рядом появится
+                    отдельная категория «Серия», и серия войдёт в SEO-заголовок. Без отметки всё
+                    остаётся как было.
+                  </p>
+                  {preview.variants.map((v) => {
+                    const ключ = `${v.area}|${v.cladding}`;
+                    const текущая = config?.series[ключ] ?? "";
+                    return (
+                      <div key={ключ} className="cat-series-row">
+                        <span className="cat-series-name">
+                          <b>{v.count}</b> {v.area ? `${v.area} м²` : "метраж не указан"} ·{" "}
+                          {v.claddingLabel || "облицовка не указана"}
+                        </span>
+                        <span className="cat-series-pick">
+                          {[
+                            { id: "", name: "не задана" },
+                            { id: "классик", name: "Классик" },
+                            { id: "смарт", name: "Смарт" },
+                          ].map((вариант) => (
+                            <button
+                              key={вариант.id || "нет"}
+                              className={текущая === вариант.id ? "chip active" : "chip"}
+                              onClick={() => setVariantSeries(ключ, вариант.id as CatalogSeries)}
+                            >
+                              {вариант.name}
+                            </button>
+                          ))}
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  {!!preview.houses.length && (
+                    <details className="cat-series-houses">
+                      <summary>Отдельные дома ({preview.houses.filter((h) => !h.series).length} без серии)</summary>
+                      <p className="vs-hint">
+                        Здесь серия ставится конкретному дому и перекрывает серию вариации. Нужно
+                        только для исключений: если весь метраж одной серии, проще отметить вариацию выше.
+                      </p>
+                      {preview.houses.map((h) => (
+                        <div key={h.cadastral} className="cat-series-row">
+                          <span className="cat-series-name">
+                            {h.title || h.cadastral}
+                            <span className="vs-hint">
+                              {" "}
+                              {h.area ? `${h.area} м²` : "метраж не указан"}
+                              {h.ownSeries ? " · отмечен лично" : h.series ? " · по вариации" : " · серии нет"}
+                            </span>
+                          </span>
+                          <span className="cat-series-pick">
+                            {[
+                              { id: "", name: "по вариации" },
+                              { id: "классик", name: "Классик" },
+                              { id: "смарт", name: "Смарт" },
+                            ].map((вариант) => (
+                              <button
+                                key={вариант.id || "нет"}
+                                className={h.ownSeries === вариант.id ? "chip active" : "chip"}
+                                onClick={() => setHouseSeries(h.cadastral, вариант.id as CatalogSeries)}
+                              >
+                                {вариант.name}
+                              </button>
+                            ))}
+                          </span>
+                        </div>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              )}
+
               {preview && !!preview.variants.length && (
                 <div className="cat-variants">
                   <strong>Что есть в выгрузке</strong>

@@ -313,6 +313,60 @@ export interface SiteSummary {
   updated: string;
 }
 
+export interface CatalogPageConfig {
+  /** Адрес сайта. Без него в разметке не будет ни ссылок, ни хлебных крошек. */
+  site: string;
+  catalogUrl: string;
+  /** Правило адреса страницы: `https://сайт/house/{id}`; {id} — External ID, {sku} — кадастровый. */
+  pageUrl: string;
+  organization: string;
+  phone: string;
+  region: string;
+  /** Попап записи на просмотр в Тильде, например `#popup:zapis`. */
+  bookingPopup: string;
+  mapSrc: string;
+  mortgage: { rate: number; termYears: number; downPercent: number };
+  /** Общий стиль отдельным файлом — иначе код не помещается в ячейку таблицы. */
+  sharedStyles: boolean;
+}
+
+/** Одна собранная страница дома в списке. */
+export interface CatalogPageRow {
+  address: string;
+  cadastral: string;
+  externalId: string;
+  title: string;
+  file: string;
+  bytes: number;
+  /** Помещается ли код в ячейку Excel. */
+  fits: boolean;
+}
+
+export interface CatalogPagesPreview {
+  total: number;
+  problems: string[];
+  sharedStyles: boolean;
+  stylesBytes: number;
+  list: CatalogPageRow[];
+  sample: { address: string; file: string; html: string } | null;
+}
+
+/** Линейки домов: в выгрузке 1С их нет, серия проставляется в приложении. */
+export type CatalogSeries = "классик" | "смарт" | "";
+
+export interface CatalogHouseRow {
+  cadastral: string;
+  title: string;
+  area: number;
+  cladding: string;
+  claddingLabel: string;
+  /** Ключ вариации «метраж|облицовка» — он же ключ, по которому хранится серия. */
+  variant: string;
+  series: CatalogSeries;
+  /** Серия, проставленная именно этому дому, а не унаследованная от вариации. */
+  ownSeries: CatalogSeries;
+}
+
 export interface CatalogConfig {
   exportPath: string;
   previousPath: string;
@@ -343,6 +397,12 @@ export interface CatalogConfig {
    * указывали бы на удалённые товары.
    */
   carryIds: boolean;
+  /** Серия по вариации: ключ «85|кирпич» → «классик». */
+  series: Record<string, CatalogSeries>;
+  /** Серия, проставленная отдельному дому по кадастровому номеру. */
+  houseSeries: Record<string, CatalogSeries>;
+  /** Настройки страниц домов: всё, что нужно разметке и формам Тильды. */
+  pages: CatalogPageConfig;
 }
 
 /** Заготовка описания: одна на вариацию «площадь + облицовка». */
@@ -374,6 +434,8 @@ export interface CatalogTable {
   library: { id: string; label: string; text: string; fits: number; error: string }[];
   /** Вариации домов в выгрузке: подо что нужны заготовки. */
   variants: { area: number; cladding: string; claddingLabel: string; count: number }[];
+  /** Дома с вариацией и проставленной серией — чтобы видеть, у кого её ещё нет. */
+  houses: CatalogHouseRow[];
 }
 
 export interface CatalogPreview {
@@ -1568,6 +1630,13 @@ export interface StoriesDesign {
   /** Словесное описание для задания агенту. */
   description: string;
   problem: string;
+  /**
+   * Файлы шрифтов из дизайн-системы. Шрифт — это файл, а не название: без него
+   * сцена молча возьмёт запасной, и ролик выйдет не тем шрифтом.
+   */
+  fontFiles: { family: string; path: string; rel: string }[];
+  /** Варианты логотипа, найденные в дизайн-системе. */
+  logoFiles: { name: string; path: string; rel: string }[];
 }
 
 export interface StoryProbe {
@@ -1873,6 +1942,17 @@ export interface ElectronAPI {
     problems: string[];
     /** Пустые колонки-ключи, которые не попали в файл. */
     dropped: string[];
+  }>;
+  catalogPagesPreview(opts?: { only?: string }): Promise<CatalogPagesPreview>;
+  catalogBuildPages(): Promise<{
+    dir: string;
+    csvFile: string;
+    xlsxFile: string;
+    pages: number;
+    /** Сколько страниц не поместилось в ячейку таблицы и лежат только файлами. */
+    tooLong: number;
+    stylesFile: string;
+    problems: string[];
   }>;
 
   // видеотека

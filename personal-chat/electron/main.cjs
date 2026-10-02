@@ -1257,27 +1257,7 @@ const MAX_DESIGN_SYSTEM_CHARS = 40000;
 
 /** Expands attached paths (files or folders) into a flat list of readable files. */
 async function collectDesignSystemFiles(paths) {
-  const files = [];
-  for (const p of paths || []) {
-    let stat;
-    try {
-      stat = await fs.stat(p);
-    } catch {
-      files.push({ path: p, name: path.basename(p), missing: true });
-      continue;
-    }
-    if (stat.isDirectory()) {
-      const entries = await fs.readdir(p, { withFileTypes: true }).catch(() => []);
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
-        files.push({ path: path.join(p, entry.name), name: entry.name, from: p });
-      }
-    } else {
-      files.push({ path: p, name: path.basename(p) });
-    }
-    if (files.length >= MAX_DESIGN_SYSTEM_FILES) break;
-  }
+  const { files } = await designsystem.collectFiles(paths, { limit: MAX_DESIGN_SYSTEM_FILES });
   return files;
 }
 
@@ -1288,30 +1268,45 @@ async function collectDesignSystemFiles(paths) {
  * a text prompt, but knowing a "logo-primary.svg" exists is still useful context.
  */
 async function readDesignSystem(paths) {
-  const files = await collectDesignSystemFiles(paths);
+  const { files, truncated } = await designsystem.collectFiles(paths, { limit: MAX_DESIGN_SYSTEM_FILES });
   if (files.length === 0) return "";
   const parts = [];
   const listed = [];
   for (const file of files) {
     if (file.missing) {
-      listed.push(`${file.name} — файл не найден (перемещён или удалён)`);
+      listed.push(`${file.rel} — файл не найден (перемещён или удалён)`);
       continue;
     }
     const ext = path.extname(file.name).toLowerCase();
     if (SUPPORTED_DOC_EXTENSIONS.includes(ext) || ext === ".svg") {
       try {
         const text = ext === ".svg" ? await fs.readFile(file.path, "utf-8") : await extractDocText(file.path);
-        parts.push(`\n--- ${file.name} ---\n${truncate(text, MAX_DOC_CHARS)}`);
+        // Путь с папкой, а не одно имя: по «logos/logo-primary.svg» видно, что
+        // это логотип, а по «logo-primary.svg» — надо догадываться.
+        parts.push(`\n--- ${file.rel} ---\n${truncate(text, MAX_DOC_CHARS)}`);
       } catch (e) {
-        listed.push(`${file.name} — не удалось прочитать (${e.message})`);
+        listed.push(`${file.rel} — не удалось прочитать (${e.message})`);
       }
     } else {
-      listed.push(file.name);
+      listed.push(file.rel);
     }
   }
+  const итог = designsystem.summary(files);
   let out = "";
+  if (итог.fonts || итог.logos) {
+    out +=
+      `\nВ дизайн-системе: файлов ${итог.total}` +
+      (итог.fonts ? `, шрифтов ${итог.fonts}` : "") +
+      (итог.logos ? `, вариантов логотипа ${итог.logos}` : "") +
+      ".";
+  }
   if (listed.length > 0) out += `\nФайлы дизайн-системы (без текстового содержимого): ${listed.join(", ")}`;
   out += parts.join("\n");
+  // Молча обрезанная дизайн-система и выглядит как «приложение её не слушает».
+  if (truncated) {
+    out += `\n\nВНИМАНИЕ: дизайн-система больше ${MAX_DESIGN_SYSTEM_FILES} файлов, прочитана не целиком. ` +
+      "Если чего-то не хватает — подключите нужную подпапку отдельно.";
+  }
   return truncate(out, MAX_DESIGN_SYSTEM_CHARS);
 }
 
@@ -2027,9 +2022,12 @@ ipcMain.handle("excel:save", async (_e, saveAs) => {
   if (target) {
     // After "save as" — or the first save of a new workbook — that file is the one
     // we're editing from now on.
-    // After "save as" the new file becomes the one we're editing.
+    const прежнийКлюч = documentChatKey(openWorkbook);
     openWorkbook.filePath = dest;
     openWorkbook.name = path.basename(dest);
+    // Переписка переезжает вместе с файлом: документ тот же самый, и терять
+    // разговор о нём только потому, что у него появился путь, незачем.
+    await moveDocumentChat("excel", прежнийКлюч, documentChatKey(openWorkbook));
   }
   return dest;
 });
@@ -2039,30 +2037,93 @@ ipcMain.handle("excel:buildAgentPrompt", async () => {
   return excel.buildAgentPrompt(openWorkbook);
 });
 
+const { documentChatKey } = require("./docchat.cjs");
+
 /**
- * Разговор с агентом привязан к открытому документу.
+ * Где лежит переписка по документу.
  *
- * Иначе получается то, на что и наткнулись: открываешь другую таблицу, а агент
- * продолжает обсуждать предыдущую — он видит новые данные, но помнит старый разговор
- * и уверенно ссылается на файл, которого уже нет на экране. Ключ — путь к файлу (для
- * несохранённого документа его имя); при несовпадении переписка начинается с чистого
- * листа. Прошлые разговоры не копятся: файл всегда один и перезаписывается.
+ * У каждого документа свой файл, а не один общий на раздел. С общим файлом
+ * получалось так: поработали с одной таблицей, перешли ко второй — разговор о
+ * первой затирался, и вернуться к нему было уже нельзя. Имя файла — отпечаток
+ * ключа: в ключе лежит полный путь к документу, а он в имя файла не годится.
  */
-function documentChatKey(model) {
-  return model ? model.filePath || `__new__:${model.name}` : "";
+const DOCUMENT_CHAT_LIMIT = 30;
+
+function documentChatFile(root, folder, key) {
+  const отпечаток = crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 16);
+  return path.join(root, folder, "chats", `${отпечаток}.json`);
 }
 
 async function readDocumentChat(folder, key) {
+  if (!key) return null;
   const root = await getRootPath();
-  const stored = await readJson(path.join(root, folder, "_agent_chat.json"), null);
-  if (!stored || stored.key !== key) return null;
-  return stored.conversation || null;
+  const stored = await readJson(documentChatFile(root, folder, key), null);
+  // Ключ проверяется и здесь: отпечаток короткий, и совпадение у двух разных
+  // документов хоть и маловероятно, но показать чужой разговор нельзя.
+  if (stored && stored.key === key) return stored.conversation || null;
+  // Переписка из прежней версии приложения лежала в одном файле на раздел.
+  // Забираем её, если она про этот же документ, — терять начатый разговор при
+  // обновлении незачем.
+  const прежний = await readJson(path.join(root, folder, "_agent_chat.json"), null);
+  if (прежний && прежний.key === key) return прежний.conversation || null;
+  return null;
+}
+
+/**
+ * Убирает самые старые переписки.
+ *
+ * Иначе файлы копятся по одному на каждый когда-либо открытый документ. Тридцать
+ * последних — это заведомо больше, чем держат в работе одновременно, и при этом
+ * папка не растёт бесконечно.
+ */
+async function pruneDocumentChats(dir) {
+  let files = [];
+  try {
+    files = (await fs.readdir(dir)).filter((f) => f.endsWith(".json"));
+  } catch {
+    return;
+  }
+  if (files.length <= DOCUMENT_CHAT_LIMIT) return;
+  const withTime = await Promise.all(
+    files.map(async (f) => {
+      try {
+        const st = await fs.stat(path.join(dir, f));
+        return { f, time: st.mtimeMs };
+      } catch {
+        return { f, time: 0 };
+      }
+    })
+  );
+  withTime.sort((a, b) => b.time - a.time);
+  for (const { f } of withTime.slice(DOCUMENT_CHAT_LIMIT)) {
+    await fs.rm(path.join(dir, f), { force: true });
+  }
+}
+
+/**
+ * Переносит переписку на новый ключ документа.
+ *
+ * Нужно ровно в одном случае: несохранённый документ сохранили, и его ключ из
+ * временного номера стал путём к файлу. Документ при этом тот же самый.
+ */
+async function moveDocumentChat(folder, fromKey, toKey) {
+  if (!fromKey || !toKey || fromKey === toKey) return;
+  const conversation = await readDocumentChat(folder, fromKey);
+  if (!conversation) return;
+  await writeDocumentChat(folder, toKey, conversation);
+  // Прежняя запись больше ни к чему не относится: документ теперь живёт под
+  // своим путём, а временный номер исчез вместе с «несохранённым».
+  const root = await getRootPath();
+  await fs.rm(documentChatFile(root, folder, fromKey), { force: true });
 }
 
 async function writeDocumentChat(folder, key, conversation) {
+  if (!key) return conversation;
   const root = await getRootPath();
-  await ensureDir(path.join(root, folder));
-  await writeJson(path.join(root, folder, "_agent_chat.json"), { key, conversation });
+  const dir = path.join(root, folder, "chats");
+  await ensureDir(dir);
+  await writeJson(documentChatFile(root, folder, key), { key, conversation, updatedAt: Date.now() });
+  await pruneDocumentChats(dir);
   return conversation;
 }
 
@@ -2138,8 +2199,11 @@ ipcMain.handle("word:save", async (_e, saveAs) => {
   }
   const dest = await word.saveDocument(openDocument, target);
   if (target) {
+    const прежнийКлюч = documentChatKey(openDocument);
     openDocument.filePath = dest;
     openDocument.name = path.basename(dest);
+    // См. «excel:save»: переписка следует за документом, а не за его ключом.
+    await moveDocumentChat("word", прежнийКлюч, documentChatKey(openDocument));
   }
   return dest;
 });
@@ -3725,6 +3789,8 @@ const videostories = require("./videostories.cjs");
 const library = require("./library.cjs");
 const speech = require("./speech.cjs");
 const catalog = require("./catalog.cjs");
+const catalogpage = require("./catalogpage.cjs");
+const designsystem = require("./designsystem.cjs");
 const sites = require("./sites.cjs");
 
 /**
@@ -4155,7 +4221,17 @@ ipcMain.handle("stories:prepareMotion", async (_e, request) => {
  * рано или поздно разойдутся, и разойдутся молча.
  */
 async function readDesignFolder(dir) {
-  const empty = { dir: dir || "", files: [], colours: [], fonts: [], vars: [], description: "", problem: "" };
+  const empty = {
+    dir: dir || "",
+    files: [],
+    colours: [],
+    fonts: [],
+    vars: [],
+    description: "",
+    problem: "",
+    fontFiles: [],
+    logoFiles: [],
+  };
   if (!dir) return empty;
   let stat;
   try {
@@ -4187,6 +4263,18 @@ async function readDesignFolder(dir) {
     body += "\n" + text.slice(0, 200000);
   }
   const tokens = sites.extractTokens(body);
+  // Шрифты и логотипы — это ФАЙЛЫ, а не названия. Задание «шрифт Dinamika»
+  // ничего не даёт, если самого файла в сцене нет: браузер молча подставит
+  // запасной, и ролик выйдет не тем шрифтом. Поэтому файлы собираются отдельно.
+  const { files: все } = stat.isDirectory()
+    ? await designsystem.collectFiles([dir], { limit: 200 })
+    : { files: [] };
+  const fontFiles = все
+    .filter((f) => f.kind === "шрифт")
+    .map((f) => ({ family: path.basename(f.name, path.extname(f.name)), path: f.path, rel: f.rel }));
+  const logoFiles = все
+    .filter((f) => f.kind === "картинка" && designsystem.looksLikeLogo(f.rel))
+    .map((f) => ({ name: f.name, path: f.path, rel: f.rel }));
   return {
     dir,
     files: files.map((f) => path.basename(f)).slice(0, 40),
@@ -4195,6 +4283,8 @@ async function readDesignFolder(dir) {
     vars: tokens.vars,
     description: sites.describeTokens(tokens),
     problem: files.length ? "" : "В папке не нашлось файлов дизайн-системы (css, json, svg, md).",
+    fontFiles,
+    logoFiles,
   };
 }
 
@@ -4327,10 +4417,54 @@ function catalogConfigFile(root) {
   return path.join(root, "catalog", "config.json");
 }
 
+/**
+ * Настройки страниц домов.
+ *
+ * Отдельно от настроек каталога, потому что это про сайт, а не про выгрузку:
+ * адрес сайта, название компании, телефон. Пустые поля — не беда: разметка
+ * соберётся без них, но приложение об этом скажет. Придумывать за человека
+ * адрес его сайта нельзя — неверная ссылка в разметке хуже, чем её отсутствие.
+ */
+const PAGE_DEFAULTS = {
+  site: "",
+  catalogUrl: "",
+  /** Правило адреса страницы: `https://сайт/house/{id}`; {id} — External ID, {sku} — кадастровый. */
+  pageUrl: "",
+  organization: "",
+  phone: "",
+  region: "",
+  /** Попап записи на просмотр в Тильде. */
+  bookingPopup: "#popup:zapis",
+  mapSrc: "",
+  mortgage: { rate: 6, termYears: 30, downPercent: 20 },
+  /** Общий стиль отдельным файлом: иначе код не помещается в ячейку таблицы. */
+  sharedStyles: true,
+};
+
+const CATALOG_DEFAULTS = {
+  exportPath: "",
+  /** Серия по вариации: «85|кирпич» → «классик». */
+  series: {},
+  /** Серия, проставленная конкретному дому по кадастровому номеру. */
+  houseSeries: {},
+  previousPath: "",
+  outputDir: "",
+  villages: {},
+  septics: {},
+  streetNames: [],
+  photoMode: "all",
+  photoSource: "tilda",
+  carryIds: false,
+  pages: PAGE_DEFAULTS,
+};
+
 async function loadCatalogConfig() {
   const root = await getRootPath();
   try {
-    return JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+    const stored = JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
+    // Слитие с умолчаниями, а не голое чтение: иначе настройки, добавленные
+    // позже, не появятся у того, кто уже пользовался разделом.
+    return { ...CATALOG_DEFAULTS, ...stored, pages: { ...PAGE_DEFAULTS, ...(stored.pages || {}) } };
   } catch {
     return {
       exportPath: "",
@@ -4353,6 +4487,9 @@ async function loadCatalogConfig() {
       // Каталог на сайте заливается заново: старые номера позиций указывали бы
       // на удалённые товары, поэтому по умолчанию они не переносятся.
       carryIds: false,
+      // Серии в выгрузке 1С нет — она проставляется в приложении.
+      series: {},
+      houseSeries: {},
     };
   }
 }
@@ -4425,6 +4562,8 @@ async function assembleCatalog() {
     photoSource: config.photoSource || "tilda",
     septics: config.septics || {},
     carryIds: !!config.carryIds,
+    series: config.series || {},
+    houseSeries: config.houseSeries || {},
   });
   for (const item of library) if (item.error) result.problems.unshift(item.error);
   return { ...result, villages, config, source };
@@ -4496,6 +4635,9 @@ ipcMain.handle("catalog:table", async () => {
     // Какие вариации есть в выгрузке — чтобы было видно, подо что заводить
     // заготовку, и не подбирать метраж наугад.
     variants: catalog.listVariants(result.source.houses),
+    // Дома с их вариацией и серией: по вариации серия ставится оптом, а
+    // отдельный дом иногда нужно отметить лично — исключения бывают.
+    houses: catalog.listHouses(result.source.houses, result.config || {}),
   };
 });
 
@@ -4523,6 +4665,78 @@ ipcMain.handle("catalog:build", async () => {
   await catalog.toXlsx(rows, xlsxFile, columns);
   const dropped = catalog.ID_COLUMNS.filter((c) => !columns.includes(c));
   return { csvFile, xlsxFile, rows: rows.length, problems: result.problems, dropped };
+});
+
+/**
+ * Страницы домов: показать, что получится, не записывая ничего на диск.
+ *
+ * Отдаётся одна страница целиком — её видно в окне и можно открыть глазами, —
+ * и размеры остальных. Пересылать в окно сорок страниц по тридцать килобайт
+ * незачем: смотреть их всё равно по одной.
+ */
+ipcMain.handle("catalog:pagesPreview", async (_e, { only } = {}) => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
+  const template = await catalogpage.readTemplate();
+  const config = (result.config || {}).pages || {};
+  const { pages, problems } = catalogpage.buildPages(rows, config, template);
+  const chosen = pages.find((p) => p.cadastral === only || p.externalId === only) || pages[0] || null;
+  return {
+    total: pages.length,
+    problems,
+    sharedStyles: Boolean(config.sharedStyles),
+    stylesBytes: config.sharedStyles ? catalogpage.sharedStyles(template).length : 0,
+    list: pages.map((p) => ({
+      address: p.address,
+      cadastral: p.cadastral,
+      externalId: p.externalId,
+      title: p.title,
+      file: p.file,
+      bytes: p.bytes,
+      fits: p.fits,
+    })),
+    sample: chosen ? { address: chosen.address, file: chosen.file, html: chosen.html } : null,
+  };
+});
+
+/**
+ * Страницы домов на диск: файлами и одной таблицей «адрес — код».
+ *
+ * Таблица нужна затем, что вставлять код в Тильду человек будет по одному дому:
+ * открыл строку, скопировал соседнюю ячейку, вставил в блок «HTML-код».
+ */
+ipcMain.handle("catalog:buildPages", async () => {
+  const root = await getRootPath();
+  const result = await assembleCatalog();
+  const dir = result.config.outputDir;
+  if (!dir) throw new Error("Не выбрана папка, куда сохранить страницы.");
+  const { rows } = catalog.applyEdits(result.rows, await catalog.readEdits(root));
+  const template = await catalogpage.readTemplate();
+  const config = (result.config || {}).pages || {};
+  const { pages, problems } = catalogpage.buildPages(rows, config, template);
+  if (!pages.length) throw new Error("В каталоге нет ни одного дома — страницы собирать не из чего.");
+
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  const pagesDir = path.join(dir, `страницы-домов-${stamp}`);
+  const styles = config.sharedStyles ? catalogpage.sharedStyles(template) : "";
+  await catalogpage.writePages(pagesDir, pages, styles);
+
+  const table = catalogpage.pagesTable(pages);
+  const csvFile = path.join(pagesDir, "адреса-и-код.csv");
+  const xlsxFile = path.join(pagesDir, "адреса-и-код.xlsx");
+  await fs.writeFile(csvFile, catalog.toCsv(table, catalogpage.PAGE_COLUMNS), "utf-8");
+  await catalog.toXlsx(table, xlsxFile, catalogpage.PAGE_COLUMNS);
+
+  return {
+    dir: pagesDir,
+    csvFile,
+    xlsxFile,
+    pages: pages.length,
+    tooLong: pages.filter((p) => !p.fits).length,
+    stylesFile: styles ? path.join(pagesDir, "общий-стиль.html") : "",
+    problems,
+  };
 });
 
 // ---------- сайты ----------
