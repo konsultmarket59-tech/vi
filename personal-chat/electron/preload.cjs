@@ -344,6 +344,8 @@ listGitHubWorkflows: (owner, repo) => ipcRenderer.invoke("github:listWorkflows",
   // media generation
   generateMedia: (payload) => ipcRenderer.invoke("media:generate", payload),
   mediaKit: () => ipcRenderer.invoke("media:kit"),
+  mediaCover: (request) => ipcRenderer.invoke("media:cover", request),
+  mediaCoverLayouts: () => ipcRenderer.invoke("media:coverLayouts"),
   mediaMoveToFolder: (projectId) => ipcRenderer.invoke("media:moveToFolder", projectId),
   mediaSweepPending: () => ipcRenderer.invoke("media:sweepPending"),
   mediaRefinePrompt: (payload) => ipcRenderer.invoke("media:refinePrompt", payload),

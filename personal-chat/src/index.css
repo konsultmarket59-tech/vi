@@ -2696,3 +2696,20 @@ body:has(.splitter.dragging) { user-select: none; cursor: col-resize; }
   font-weight: 600;
   font-size: 13px;
 }
+
+/* Оформление кадра по дизайн-системе: панель под результатом. */
+.media-cover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft, #f6f7f9);
+}
+
+.media-cover .folder-row {
+  flex-wrap: wrap;
+  gap: 8px;
+}

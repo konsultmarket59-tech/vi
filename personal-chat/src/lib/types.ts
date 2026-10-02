@@ -1627,6 +1627,30 @@ export interface MediaScriptProgress {
   error?: string;
 }
 
+/** Оформление готового кадра по дизайн-системе: шрифт и логотип файлами. */
+export interface MediaCoverRequest {
+  source: string;
+  title?: string;
+  subtitle?: string;
+  layout?: string;
+  corner?: string;
+  textColor?: string;
+  accentColor?: string;
+  uppercase?: boolean;
+  scrim?: boolean;
+  /** Файл шрифта из дизайн-системы. Без него кадр оформится системным. */
+  fontPath?: string;
+  logoPath?: string;
+}
+
+export interface MediaCoverResult {
+  file: string;
+  width: number;
+  height: number;
+  fontUsed: boolean;
+  logoUsed: boolean;
+}
+
 export interface StoriesDesign {
   dir: string;
   files: string[];
@@ -2048,6 +2072,11 @@ export interface ElectronAPI {
 
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
+  mediaCover(request: MediaCoverRequest): Promise<MediaCoverResult>;
+  mediaCoverLayouts(): Promise<{
+    layouts: { id: string; name: string; hint: string }[];
+    corners: { id: string; name: string }[];
+  }>;
   mediaKit(): Promise<MediaKit>;
   mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
   mediaSweepPending(): Promise<{ collected: number; waiting: number }>;
