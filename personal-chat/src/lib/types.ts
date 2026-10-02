@@ -831,6 +831,8 @@ export interface DirectAccountRow {
   error: string;
   howToFix: string;
   balanceError: string;
+  /** Статистика по аккаунту не пришла — в таблице у него нет чисел. */
+  statsFailed?: boolean;
   /** Отчёт пришёл без части столбцов — и почему именно. */
   statsLimited?: boolean;
   statsWhy?: string;
@@ -871,11 +873,15 @@ export interface DirectTableRow {
   roi: number | null;
   bounceRate: number | null;
   pageviews: number | null;
-  [goal: string]: string | number | null;
+  /** Статистика по аккаунту не пришла: числа не нули, а неизвестны. */
+  statsFailed?: boolean;
+  [goal: string]: string | number | null | boolean | undefined;
 }
 
 export interface DirectTableTotals {
   campaigns: number;
+  /** Сколько строк не вошло в итоги — у них не пришла статистика. */
+  withoutStats: number;
   cost: number;
   impressions: number;
   clicks: number;
@@ -1621,6 +1627,33 @@ export interface MediaScriptProgress {
   error?: string;
 }
 
+/** Оформление готового кадра по дизайн-системе: шрифт и логотип файлами. */
+export interface MediaCoverRequest {
+  source: string;
+  title?: string;
+  subtitle?: string;
+  layout?: string;
+  corner?: string;
+  textColor?: string;
+  accentColor?: string;
+  uppercase?: boolean;
+  scrim?: boolean;
+  /** Файл шрифта из дизайн-системы. Без него кадр оформится системным. */
+  fontPath?: string;
+  /** Пусто — логотип не ставится вовсе: иногда нужна только цветокоррекция. */
+  logoPath?: string;
+  /** Размер знака долей ширины кадра: в точках он разный на 1080 и на 4K. */
+  logoScale?: number;
+}
+
+export interface MediaCoverResult {
+  file: string;
+  width: number;
+  height: number;
+  fontUsed: boolean;
+  logoUsed: boolean;
+}
+
 export interface StoriesDesign {
   dir: string;
   files: string[];
@@ -2042,6 +2075,12 @@ export interface ElectronAPI {
 
   // media generation
   generateMedia(payload: MediaGenerationRequest): Promise<MediaGenerationResult>;
+  mediaCover(request: MediaCoverRequest): Promise<MediaCoverResult>;
+  mediaCoverLayouts(): Promise<{
+    layouts: { id: string; name: string; hint: string }[];
+    corners: { id: string; name: string }[];
+    logoScale: { min: number; max: number; step: number; default: number };
+  }>;
   mediaKit(): Promise<MediaKit>;
   mediaMoveToFolder(projectId?: string): Promise<{ moved: number; kept: number }>;
   mediaSweepPending(): Promise<{ collected: number; waiting: number }>;
@@ -2148,7 +2187,7 @@ export interface ElectronAPI {
   directOverview(range?: { dateFrom?: string; dateTo?: string }): Promise<DirectOverview>;
   directAudit(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectAudit>;
   /** Точный запрос и ответ Директа по последнему отчёту — без токена. */
-  lastDirectReportAnswer(): Promise<unknown>;
+  lastDirectReportAnswer(reportType?: string): Promise<unknown>;
   directWords(opts: { accountId?: string; dateFrom?: string; dateTo?: string }): Promise<DirectWordsReport>;
   directWordstat(opts: { accountId?: string; phrases: string[]; geoIds?: number[] }): Promise<DirectWordstatItem[]>;
   explainDirectCell(payload: {

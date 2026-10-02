@@ -2494,6 +2494,10 @@ ipcMain.handle("direct:overview", async (_e, range) => {
     } catch (e) {
       строка.error = e instanceof Error ? e.message : String(e);
       строка.howToFix = (e && e.howToFix) || "";
+      // Статистика не пришла. Ноль в таблице в этом случае — не число, а
+      // враньё: «потрачено 0 ₽» и «сколько потрачено, неизвестно» — разные
+      // вещи, и решения по ним принимают разные.
+      строка.statsFailed = true;
     }
     try {
       строка.balance = await direct.getBalance(account.token, account.directClientLogin || account.login);
@@ -2720,7 +2724,7 @@ ipcMain.handle("direct:getStats", async (_e, range) => {
  * человеку нечего показать поддержке, а мне — нечего чинить. Токен из запроса
  * вырезан: он не должен попадать ни в экран, ни в письмо.
  */
-ipcMain.handle("direct:lastReportAnswer", async () => direct.lastReportAnswer());
+ipcMain.handle("direct:lastReportAnswer", async (_e, reportType) => direct.lastReportAnswer(reportType));
 
 // Mutations, run only after the user confirmed the agent's proposal in the UI.
 ipcMain.handle("direct:setCampaignState", async (_e, campaignId, resume) => {
@@ -3492,6 +3496,81 @@ ipcMain.handle("media:buildPodcast", async (event, request) => {
   }
 });
 
+/**
+ * Оформление готового кадра по дизайн-системе.
+ *
+ * Модель не умеет рисовать чужим шрифтом и чужим логотипом: буквы она рисует
+ * пикселями — похожие, но не ваши, — а фирменный знак выходит приблизительным.
+ * Поэтому настоящий шрифт и настоящий логотип кладутся ПОВЕРХ готового кадра,
+ * из тех самых файлов, что лежат в дизайн-системе.
+ */
+ipcMain.handle("media:cover", async (_e, request) => {
+  const {
+    source,
+    title = "",
+    subtitle = "",
+    layout = "сверху",
+    corner = "справа-сверху",
+    textColor = "#ffffff",
+    accentColor = "",
+    uppercase = false,
+    scrim = true,
+    fontPath = "",
+    logoPath = "",
+    logoScale,
+  } = request || {};
+  if (!source) throw new Error("Не выбран кадр, который нужно оформить.");
+
+  const photo = await mediacover.dataUri(source, mediacover.IMAGE_MIME, "image/png");
+  const size = await mediacover.imageSize(source);
+  const fontUri = fontPath ? await mediacover.dataUri(fontPath, mediacover.FONT_MIME, "font/ttf").catch(() => "") : "";
+  const logo = logoPath ? await mediacover.dataUri(logoPath, mediacover.IMAGE_MIME, "image/png").catch(() => "") : "";
+  const fontFamily = fontPath ? path.basename(fontPath, path.extname(fontPath)) : "";
+
+  const html = mediacover.buildHtml({
+    width: size.width,
+    height: size.height,
+    photo,
+    title,
+    subtitle,
+    logo,
+    fontFamily,
+    fontUri,
+    layout,
+    corner,
+    textColor,
+    accentColor,
+    uppercase,
+    scrim,
+    logoScale,
+  });
+
+  const { win, file } = await loadScene(html, size.width, size.height);
+  try {
+    const grab = makeGrabber(win);
+    const image = await grab("String(document.title) + Date.now()");
+    const dest = path.join(path.dirname(source), mediacover.coverName(source));
+    await fs.writeFile(dest, image.toPNG());
+    return {
+      file: dest,
+      width: size.width,
+      height: size.height,
+      // Промах виден сразу, а не после разглядывания: без файла шрифта кадр
+      // оформлен системным, и это надо сказать, а не показать молча.
+      fontUsed: Boolean(fontUri),
+      logoUsed: Boolean(logo),
+    };
+  } finally {
+    await fs.rm(file, { force: true }).catch(() => {});
+  }
+});
+
+ipcMain.handle("media:coverLayouts", () => ({
+  layouts: mediacover.LAYOUTS,
+  corners: mediacover.CORNERS,
+  logoScale: mediacover.LOGO_SCALE,
+}));
+
 ipcMain.handle("media:list", async (_e, projectId) => {
   const { outDir, projectName } = await mediaTarget(projectId);
   return media.list(await getRootPath(), projectId, outDir, projectName);
@@ -3791,6 +3870,7 @@ const speech = require("./speech.cjs");
 const catalog = require("./catalog.cjs");
 const catalogpage = require("./catalogpage.cjs");
 const designsystem = require("./designsystem.cjs");
+const mediacover = require("./mediacover.cjs");
 const sites = require("./sites.cjs");
 
 /**

@@ -332,11 +332,25 @@ const REPORT_VARIANTS = [
 /** Какой вариант сработал у аккаунта в прошлый раз — чтобы не перебирать заново. */
 const рабочийВариант = new Map();
 
-/** Последний отказ Директа целиком — для кнопки «показать ответ Яндекса». */
-let последнийОтвет = null;
+/**
+ * Ответы Директа по каждому отчёту — для кнопки «показать ответ Яндекса».
+ *
+ * По одному на тип отчёта, а не один на всё: за одно нажатие «разобрать»
+ * приложение просит и запросы, и площадки, и единственная запись оставляла
+ * видимым только последний из них — а разбираться надо с обоими.
+ */
+const ответыДиректа = new Map();
 
-function lastReportAnswer() {
-  return последнийОтвет;
+function rememberAnswer(reportType, answer) {
+  ответыДиректа.set(String(reportType || "отчёт"), answer);
+  // Больше восьми записей держать незачем: смотрят последние.
+  if (ответыДиректа.size > 8) ответыДиректа.delete(ответыДиректа.keys().next().value);
+}
+
+function lastReportAnswer(reportType) {
+  if (reportType) return ответыДиректа.get(String(reportType)) || null;
+  const все = [...ответыДиректа.entries()].map(([type, answer]) => ({ type, ...answer }));
+  return все.length === 1 ? все[0] : { reports: все };
 }
 
 /**
@@ -402,6 +416,20 @@ function parseReportTsv(text, fields) {
  * именно пришлось пожертвовать и почему; главный процесс переносит это в
  * отдельные поля, потому что через IPC у массива доезжают только элементы.
  */
+/**
+ * Все ли отказы оказались слово в слово одинаковыми.
+ *
+ * Разные варианты — это разные догадки о причине. Когда на все шесть приходит
+ * один и тот же ответ, догадки проверять больше нечем: дело не в форме
+ * запроса, и это стоит сказать прямо, а не оставлять человеку шесть
+ * одинаковых строк без вывода.
+ */
+function одинаковые(попытки) {
+  if (попытки.length < 2) return false;
+  const первый = попытки[0];
+  return попытки.every((p) => p.code === первый.code && p.reason === первый.reason);
+}
+
 async function getStats(token, options = {}) {
   const {
     dateFrom,
@@ -476,14 +504,14 @@ async function getStats(token, options = {}) {
 
     if (ответ.ok) {
       рабочийВариант.set(ключ, вариант.id);
-      последнийОтвет = {
+      rememberAnswer(reportType, {
         variant: вариант.id,
         ok: true,
         request: { ...params, FieldNames: набор },
         headers: { ...заголовки, Authorization: "Bearer …" },
         answer: String(ответ.text || "").slice(0, 4000),
         tried: попытки,
-      };
+      });
       const rows = parseReportTsv(ответ.text, набор);
       if (вариант.id !== "полный") {
         rows.limited = true;
@@ -501,7 +529,7 @@ async function getStats(token, options = {}) {
       code: ответ.error?.code || 0,
       reason: ответ.error?.detail || ответ.error?.message || `HTTP ${ответ.status}`,
       requestId: ответ.error?.requestId || "",
-      answer: String(ответ.text || "").slice(0, 2000),
+      answer: String(ответ.text || "").slice(0, 8000),
       request: params,
     });
 
@@ -509,10 +537,17 @@ async function getStats(token, options = {}) {
     // следующие варианты получат ровно тот же ответ.
     const код = ответ.error?.code || 0;
     if ([53, 54, 58, 152, 513, 514, 9000].includes(код)) break;
+
   }
 
   рабочийВариант.delete(ключ);
-  последнийОтвет = { ok: false, tried: попытки, headers: { ...базовыеЗаголовки, Authorization: "Bearer …" } };
+  rememberAnswer(reportType, {
+    ok: false,
+    reportType,
+    tried: попытки,
+    // Заголовки — без токена: он не должен попадать ни на экран, ни в письмо.
+    headers: { ...базовыеЗаголовки, Authorization: "Bearer …" },
+  });
 
   const первый = попытки[0] || {};
   const problem = new Error(
@@ -524,7 +559,10 @@ async function getStats(token, options = {}) {
       попытки.length +
       " вариант(ов) запроса, и Директ отклонил каждый:\n" +
       попытки.map((p) => `  • ${p.variant} — ${p.reason}`).join("\n") +
-      "\n\nЭто значит, что дело не в наборе показателей и не в периоде. " +
+      (одинаковые(попытки)
+        ? "\n\nВсе варианты отклонены ОДИНАКОВО — значит дело не в наборе показателей и не в периоде, " +
+          "а в чём-то общем для всех запросов отчётов. "
+        : "\n\nЭто значит, что дело не в наборе показателей и не в периоде. ") +
       "Нажмите «Показать ответ Яндекса» — там точный запрос и точный ответ, " +
       "их можно приложить к обращению в поддержку Директа."
   );

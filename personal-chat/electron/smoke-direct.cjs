@@ -333,6 +333,71 @@ app.whenReady().then(async () => {
     check("и сравнение с остальными кампаниями", /Для сравнения/.test(вопрос));
     check("и запрет выдумывать при малых числах", /не выдумывай/.test(вопрос));
 
+    console.log("\nнепришедшая статистика не выдаётся за нули");
+    // «Потрачено 0 ₽» и «сколько потрачено, неизвестно» — разные вещи, и
+    // решения по ним принимают разные. По нулю кампанию выключают.
+    const сОшибкой = table.buildRows([
+      {
+        id: "a1",
+        label: "Новая Земля",
+        statsFailed: true,
+        campaigns: [{ id: 1, name: "Поиск", state: "ON", status: "ACCEPTED", statusPayment: "ALLOWED" }],
+        stats: [],
+      },
+      {
+        id: "a2",
+        label: "Болдино",
+        campaigns: [{ id: 2, name: "Сети", state: "ON", status: "ACCEPTED", statusPayment: "ALLOWED" }],
+        stats: [{ CampaignId: 2, Cost: 5000, Impressions: 1000, Clicks: 50, Conversions: 2 }],
+      },
+    ]);
+    const безДанных = сОшибкой.find((r) => r.accountId === "a1");
+    const сДанными = сОшибкой.find((r) => r.accountId === "a2");
+    check("кампания видна даже без статистики", !!безДанных && безДанных.name === "Поиск");
+    check("но расход у неё не ноль, а «неизвестно»", безДанных.cost === null, безДанных.cost);
+    check("и помечено, что статистика не пришла", безДанных.statsFailed === true);
+    check("у рабочего аккаунта числа на месте", сДанными.cost === 5000, сДанными.cost);
+
+    const итогиСмешанные = table.totalsOf(сОшибкой);
+    check("в итоги непришедшее не складывается", итогиСмешанные.cost === 5000, итогиСмешанные.cost);
+    check("и сказано, сколько строк не вошло", итогиСмешанные.withoutStats === 1, итогиСмешанные.withoutStats);
+
+    console.log("\nодинаковые отказы названы одинаковыми");
+    const настоящийFetch2 = global.fetch;
+    let сколько = 0;
+    global.fetch = async () => {
+      сколько += 1;
+      return {
+        ok: false,
+        status: 400,
+        headers: new Map(),
+        text: async () =>
+          `<?xml version="1.0"?><reports:reportDownloadError xmlns:reports="http://api.direct.yandex.com/v5/reports">` +
+          `<reports:ApiError><reports:requestId>1</reports:requestId><reports:errorCode>8000</reports:errorCode>` +
+          `<reports:errorMessage>Некорректный запрос</reports:errorMessage><reports:errorDetail></reports:errorDetail>` +
+          `</reports:ApiError></reports:reportDownloadError>`,
+      };
+    };
+    let отказ2 = null;
+    await direct
+      .getStats("токен", { dateFrom: "2026-09-02", dateTo: "2026-10-02", accountKey: "стоп" })
+      .catch((e) => {
+        отказ2 = e;
+      });
+    global.fetch = настоящийFetch2;
+    // Перебор не обрывается на похожих ответах: одинаковый текст отказа ещё не
+    // значит, что следующий вариант не пройдёт, — в соседней проверке выше
+    // как раз такой случай, там срабатывает пятый вариант.
+    check("перебираются все варианты", сколько === 6, сколько);
+    // Но когда одинаковы ВСЕ шесть — это вывод, и человеку он сказан прямо.
+    check("и сказано, что дело не в форме запроса",
+      /Все варианты отклонены ОДИНАКОВО/.test(String(отказ2 && отказ2.message)), отказ2 && отказ2.message);
+
+    console.log("\nответ Яндекса хранится по каждому отчёту отдельно");
+    const ответы = direct.lastReportAnswer();
+    check("ответ по отчёту кампаний доступен",
+      !!direct.lastReportAnswer("CAMPAIGN_PERFORMANCE_REPORT"), JSON.stringify(Object.keys(ответы || {})));
+
     console.log("\nминус-слова считаются по слову, а не по одному запросу");
     const поисковые = [
       { Query: "дом из бруса цена", Cost: 5000, Clicks: 25, Conversions: 4 },

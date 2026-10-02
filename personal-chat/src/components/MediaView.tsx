@@ -63,6 +63,24 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
   const [subject, setSubject] = useState("");
   const [params, setParams] = useState<Record<string, string>>({});
   const [design, setDesign] = useState<StoriesDesign | null>(null);
+  // Оформление готового кадра: заголовок настоящим шрифтом и логотип настоящим
+  // файлом. Модель ни того, ни другого сделать не может — она рисует буквы
+  // пикселями, и фирменный знак у неё выходит приблизительным.
+  const [coverOpen, setCoverOpen] = useState(false);
+  const [coverTitle, setCoverTitle] = useState("");
+  const [coverSubtitle, setCoverSubtitle] = useState("");
+  const [coverLayout, setCoverLayout] = useState("сверху");
+  const [coverCorner, setCoverCorner] = useState("справа-сверху");
+  const [coverUpper, setCoverUpper] = useState(false);
+  // Логотип ставится по галочке: иногда нужна только цветокоррекция в цветах
+  // системы, и знак в углу в этом случае лишний.
+  const [coverLogoOn, setCoverLogoOn] = useState(false);
+  const [coverLogoScale, setCoverLogoScale] = useState(0.11);
+  const [coverLogoUrl, setCoverLogoUrl] = useState("");
+  const [coverLogo, setCoverLogo] = useState("");
+  const [coverFont, setCoverFont] = useState("");
+  const [coverNote, setCoverNote] = useState("");
+  const [coverBusy, setCoverBusy] = useState(false);
   const [openGroup, setOpenGroup] = useState<string>("");
   // Своя папка для готовых файлов. Хранится в настройках, но выбирается здесь:
   // думают о ней ровно в тот момент, когда смотрят на растущую историю.
@@ -377,6 +395,70 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
       // Приватный режим — раскладка просто не запомнится.
     }
   }, [historyOpen]);
+
+  /**
+   * Логотип для предпросмотра.
+   *
+   * Ползунок размера без картинки бессмысленен: подобрать долю кадра на глаз
+   * нельзя, её надо видеть. Поэтому знак читается с диска и показывается прямо
+   * поверх результата — тем же расчётом, что уйдёт в готовый файл.
+   */
+  useEffect(() => {
+    const файл = coverLogoOn ? coverLogo || design?.logoFiles?.[0]?.path || "" : "";
+    if (!файл) {
+      setCoverLogoUrl("");
+      return;
+    }
+    let жив = true;
+    window.api
+      .readFileAsDataUrl(файл)
+      .then((url) => {
+        if (жив) setCoverLogoUrl(url);
+      })
+      .catch(() => {
+        if (жив) setCoverLogoUrl("");
+      });
+    return () => {
+      жив = false;
+    };
+  }, [coverLogoOn, coverLogo, design]);
+
+  /**
+   * Оформить кадр по дизайн-системе.
+   *
+   * Шрифт и логотип берутся файлами из подключённой папки: это единственный
+   * способ получить ИМЕННО ваш шрифт и ИМЕННО ваш знак, а не похожие.
+   */
+  async function makeCover() {
+    if (!shown || shown.item.type !== "image") return;
+    setCoverBusy(true);
+    setCoverNote("");
+    try {
+      const r = await window.api.mediaCover({
+        source: shown.item.filePath,
+        title: coverTitle,
+        subtitle: coverSubtitle,
+        layout: coverLayout,
+        corner: coverCorner,
+        uppercase: coverUpper,
+        accentColor: design?.colours?.[0] || "",
+        fontPath: coverFont || design?.fontFiles?.[0]?.path || "",
+        // Пусто — знак не ставится вовсе. Решает галочка, а не наличие файла.
+        logoPath: coverLogoOn ? coverLogo || design?.logoFiles?.[0]?.path || "" : "",
+        logoScale: coverLogoScale,
+      });
+      setCoverNote(
+        `Готово: ${r.file}` +
+          (r.fontUsed ? "" : " · шрифт системный — файла шрифта в дизайн-системе нет") +
+          (coverLogoOn && !r.logoUsed ? " · логотип не наложен — файла знака в дизайн-системе нет" : "")
+      );
+      await refreshHistory();
+    } catch (e) {
+      setCoverNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCoverBusy(false);
+    }
+  }
 
   // Что показывать на сцене: только что сделанное или открытое из истории.
   const shown = historyPreview
@@ -1571,17 +1653,151 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
             </div>
           ) : shown ? (
             <div className="media-result-card media-stage-card">
-              {shown.item.type === "image" && <img src={shown.url} alt={shown.item.prompt} />}
+              {shown.item.type === "image" && (
+                <div className="media-shot">
+                  <img src={shown.url} alt={shown.item.prompt} />
+                  {/*
+                    Знак показывается прямо поверх кадра тем же расчётом, что
+                    уйдёт в файл: долей ширины кадра. Ползунок без картинки
+                    бессмысленен — долю на глаз не подобрать.
+                  */}
+                  {coverOpen && coverLogoUrl && (
+                    <img
+                      className={`media-shot-logo ${coverCorner}`}
+                      src={coverLogoUrl}
+                      alt=""
+                      style={{ width: `${coverLogoScale * 100}%` }}
+                    />
+                  )}
+                </div>
+              )}
               {shown.item.type === "video" && <video src={shown.url} controls />}
               {shown.item.type === "audio" && <audio src={shown.url} controls />}
               <div className="media-result-actions">
                 <span className="hint">{shown.item.fileName || shown.item.model}</span>
+                {shown.item.type === "image" && (
+                  <button className="link-btn" onClick={() => setCoverOpen(!coverOpen)}>
+                    {coverOpen ? "скрыть оформление" : "Оформить по дизайн-системе"}
+                  </button>
+                )}
                 {historyPreview && (
                   <button className="link-btn" onClick={() => setHistoryPreview(null)}>
                     Закрыть
                   </button>
                 )}
               </div>
+
+              {coverOpen && shown.item.type === "image" && (
+                <div className="media-cover">
+                  <p className="hint">
+                    Заголовок и логотип кладутся <b>поверх</b> готового кадра — из файлов дизайн-системы.
+                    Иначе никак: модель рисует буквы пикселями, своим шрифтом она набрать не умеет, а
+                    фирменный знак у неё выходит приблизительным. Цвет она выдержать может, буквы и знак — нет.
+                  </p>
+                  {!design && (
+                    <p className="vs-warn">
+                      Дизайн-система не подключена — оформление ляжет системным шрифтом и без знака.
+                      Подключите папку выше.
+                    </p>
+                  )}
+                  {design && !design.fontFiles.length && (
+                    <p className="vs-warn">
+                      В дизайн-системе нет файлов шрифта (.ttf, .otf, .woff2) — заголовок будет системным.
+                      Установленный в Windows шрифт сюда не подходит: нужен сам файл в папке системы.
+                    </p>
+                  )}
+                  <textarea
+                    className="input"
+                    rows={2}
+                    placeholder={"Заголовок. Перенос строки — новая строка заголовка."}
+                    value={coverTitle}
+                    onChange={(e) => setCoverTitle(e.target.value)}
+                  />
+                  <input
+                    className="input"
+                    placeholder="Подпись под заголовком (необязательно)"
+                    value={coverSubtitle}
+                    onChange={(e) => setCoverSubtitle(e.target.value)}
+                  />
+                  <div className="folder-row">
+                    <select className="input" value={coverLayout} onChange={(e) => setCoverLayout(e.target.value)}>
+                      <option value="сверху">Заголовок сверху</option>
+                      <option value="снизу">Заголовок снизу</option>
+                      <option value="центр">Заголовок по центру</option>
+                      <option value="только-знак">Только логотип</option>
+                    </select>
+                    <label className="checkbox-row">
+                      <input type="checkbox" checked={coverUpper} onChange={(e) => setCoverUpper(e.target.checked)} />
+                      ЗАГЛАВНЫМИ
+                    </label>
+                  </div>
+
+                  {/*
+                    Логотип — по галочке. Иногда нужна только цветокоррекция в
+                    цветах системы, и знак в углу в этом случае лишний.
+                  */}
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={coverLogoOn}
+                      onChange={(e) => setCoverLogoOn(e.target.checked)}
+                      disabled={!design?.logoFiles?.length}
+                    />
+                    Поставить логотип
+                    {!design?.logoFiles?.length && (
+                      <span className="hint"> — в дизайн-системе знака не нашлось</span>
+                    )}
+                  </label>
+
+                  {coverLogoOn && (
+                    <div className="folder-row">
+                      <select className="input" value={coverCorner} onChange={(e) => setCoverCorner(e.target.value)}>
+                        <option value="справа-сверху">Знак справа сверху</option>
+                        <option value="слева-сверху">Знак слева сверху</option>
+                        <option value="справа-снизу">Знак справа снизу</option>
+                        <option value="слева-снизу">Знак слева снизу</option>
+                      </select>
+                      <label className="media-cover-slider">
+                        Размер знака: {Math.round(coverLogoScale * 100)}% ширины кадра
+                        <input
+                          type="range"
+                          min={0.04}
+                          max={0.3}
+                          step={0.005}
+                          value={coverLogoScale}
+                          onChange={(e) => setCoverLogoScale(Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
+                  )}
+                  {design && design.fontFiles.length > 1 && (
+                    <select className="input" value={coverFont} onChange={(e) => setCoverFont(e.target.value)}>
+                      <option value="">Шрифт: {design.fontFiles[0].family} (первый из системы)</option>
+                      {design.fontFiles.map((f) => (
+                        <option key={f.path} value={f.path}>
+                          {f.family}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {coverLogoOn && design && design.logoFiles.length > 1 && (
+                    <select className="input" value={coverLogo} onChange={(e) => setCoverLogo(e.target.value)}>
+                      <option value="">Логотип: {design.logoFiles[0].name} (первый из системы)</option>
+                      {design.logoFiles.map((l) => (
+                        <option key={l.path} value={l.path}>
+                          {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="folder-row">
+                    <button className="btn btn-primary" onClick={makeCover} disabled={coverBusy}>
+                      {coverBusy ? "Оформляю…" : "Оформить"}
+                    </button>
+                  </div>
+                  {coverNote && <p className="hint pre-wrap">{coverNote}</p>}
+                </div>
+              )}
             </div>
           ) : (
             <p className="hint media-stage-empty">

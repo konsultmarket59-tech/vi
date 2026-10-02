@@ -262,6 +262,10 @@ function buildRows(accounts, { goals = [] } = {}) {
 }
 
 function makeRow(account, campaign, stat, goals) {
+  // Статистика по аккаунту не пришла — значит чисел нет. Показать вместо них
+  // нули значит сказать, что расхода не было: по такому «нулю» кампанию
+  // выключают, хотя на самом деле про неё просто ничего не известно.
+  if (account.statsFailed) return emptyRow(account, campaign, goals);
   const cost = num(stat.Cost);
   const impressions = num(stat.Impressions);
   const clicks = num(stat.Clicks);
@@ -303,6 +307,30 @@ function makeRow(account, campaign, stat, goals) {
   return строка;
 }
 
+/** Строка без чисел: кампания видна, а показатели честно пустые. */
+function emptyRow(account, campaign, goals) {
+  const строка = {
+    accountId: account.id,
+    account: account.label || account.login || account.id,
+    campaignId: campaign.id,
+    name: campaign.name || "",
+    state: stateOf(campaign),
+    stateNote: whyNotRunning(campaign),
+    strategy: [campaign.type || "", campaign.dailyBudget ? `бюджет ${campaign.dailyBudget} ₽/день` : ""]
+      .filter(Boolean)
+      .join(", "),
+    placement: placementOf(campaign),
+    startDate: campaign.startDate || "",
+    /** Статистика по этому аккаунту не пришла — причина в карточке аккаунта. */
+    statsFailed: true,
+  };
+  for (const поле of ["cost", "impressions", "clicks", "ctr", "cpc", "cpm", "conversions", "conversionRate", "cpa", "revenue", "drr", "roi", "bounceRate", "pageviews"]) {
+    строка[поле] = null;
+  }
+  for (const goal of goals) строка[`goal_${goal.id ?? goal}`] = null;
+  return строка;
+}
+
 function placementOf(campaign) {
   const type = String(campaign.type || "").toUpperCase();
   if (type.includes("DYNAMIC") || type.includes("SMART") || type.includes("MOBILE_APP")) return "Поиск и сети";
@@ -336,7 +364,10 @@ function filterRows(rows, { state = "все", accountIds = [], search = "" } = {
 
 /** Итоги по отобранным строкам: суммы складываются, доли пересчитываются. */
 function totalsOf(rows) {
-  const сумма = (поле) => (rows || []).reduce((acc, row) => acc + num(row[поле]), 0);
+  // Строки без статистики в итоги не идут: иначе «итого расход» окажется
+  // меньше настоящего, и это будет незаметно.
+  const считаемые = (rows || []).filter((r) => !r.statsFailed);
+  const сумма = (поле) => считаемые.reduce((acc, row) => acc + num(row[поле]), 0);
   const cost = сумма("cost");
   const clicks = сумма("clicks");
   const impressions = сумма("impressions");
@@ -344,6 +375,8 @@ function totalsOf(rows) {
   const revenue = сумма("revenue");
   return {
     campaigns: (rows || []).length,
+    /** Сколько строк в итоги не вошло — у них не пришла статистика. */
+    withoutStats: (rows || []).length - считаемые.length,
     cost,
     impressions,
     clicks,

@@ -273,6 +273,10 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     }
   }
 
+  // Аккаунты, по которым статистика не пришла. Берём из обзора, а не из строк:
+  // причина лежит у аккаунта, и показать надо именно её.
+  const провалились = (overview?.accounts || []).filter((a) => a.statsFailed);
+
   const отобранные = useMemo(
     visibleRows,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -892,10 +896,50 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             {words && (
               <>
                 {(words.queriesError || words.placementsError) && (
-                  <p className="direct-howto">
-                    {words.queriesError && `Отчёт по запросам не пришёл: ${words.queriesError}\n`}
-                    {words.placementsError && `Отчёт по площадкам не пришёл: ${words.placementsError}`}
-                  </p>
+                  <>
+                    <p className="direct-howto">
+                      {words.queriesError && `Отчёт по запросам не пришёл: ${words.queriesError}\n`}
+                      {words.placementsError && `Отчёт по площадкам не пришёл: ${words.placementsError}`}
+                    </p>
+                    {/*
+                      Кнопка нужна именно здесь, а не только на «Кампаниях»:
+                      разбираться с отказом человек будет там, где его увидел.
+                    */}
+                    <div className="folder-row">
+                      <button
+                        className="link-btn"
+                        onClick={async () => {
+                          const ответ = await window.api.lastDirectReportAnswer();
+                          setRawAnswer(ответ ? JSON.stringify(ответ, null, 2) : "Запросов отчёта пока не было.");
+                        }}
+                      >
+                        Показать ответ Яндекса
+                      </button>
+                      {rawAnswer && (
+                        <button
+                          className="link-btn"
+                          onClick={() => {
+                            navigator.clipboard.writeText(rawAnswer);
+                            setNote("Ответ скопирован — его можно приложить к обращению в поддержку Директа.");
+                          }}
+                        >
+                          скопировать
+                        </button>
+                      )}
+                    </div>
+                    {rawAnswer && (
+                      <div className="direct-cell-answer">
+                        <div className="direct-account-head">
+                          <h3>Точный запрос и ответ Директа</h3>
+                          <button className="link-btn" onClick={() => setRawAnswer("")}>
+                            закрыть
+                          </button>
+                        </div>
+                        <p className="hint">Токен из запроса вырезан — его нельзя показывать никому.</p>
+                        <pre className="pre-wrap direct-raw">{rawAnswer}</pre>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div className="direct-account">
@@ -1118,7 +1162,20 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
             {error && <div className="chat-error">{error}</div>}
             {note && <p className="hint pre-wrap">{note}</p>}
 
-            {(error || note) && (
+            {/*
+              Нули вместо непришедшей статистики — это не «нет расхода», а «не
+              знаем». Молчать об этом нельзя: по такому нулю выключают кампанию.
+            */}
+            {!!провалились.length && (
+              <div className="warning-banner">
+                <b>Статистика не пришла:</b> {провалились.map((a) => a.label || a.login).join(", ")}. В
+                строках этих аккаунтов стоят прочерки, а не нули, и в итоги они не входят. Кампании
+                видны — не пришли только числа.
+                {провалились[0].error && <pre className="direct-howto">{провалились[0].error}</pre>}
+              </div>
+            )}
+
+            {(error || note || провалились.length > 0) && (
               <div className="folder-row">
                 <button
                   className="link-btn"
