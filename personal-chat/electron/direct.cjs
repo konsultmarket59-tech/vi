@@ -11,7 +11,28 @@
 const directknow = require("./directknow.cjs");
 
 const DIRECT_API = "https://api.direct.yandex.com/json/v5";
-const DIRECT_REPORTS = "https://api.direct.yandex.com/v5/reports";
+/**
+ * Адреса сервиса отчётов.
+ *
+ * У API Директа два интерфейса: JSON — по пути /json/v5, и старый XML — по
+ * пути /v5. Кампании приложение берёт по /json/v5 и получает их без вопросов,
+ * а отчёты просило по /v5 — и Директ отвечал «Некорректный запрос» (код 8000)
+ * с ПУСТОЙ причиной на любой запрос, включая самый простой. Так отвечает
+ * сервис, которому прислали не тот формат: разбирать JSON он не начинал и
+ * сказать, что в нём не так, не мог.
+ *
+ * Проверить это со стороны разработчика нечем — до api.direct.yandex.com
+ * отсюда нет доступа. Поэтому приложение пробует оба адреса само и запоминает
+ * тот, который ответил: догадка проверяется на той машине, где есть доступ, а
+ * не остаётся догадкой.
+ */
+const DIRECT_REPORT_ENDPOINTS = [
+  "https://api.direct.yandex.com/json/v5/reports",
+  "https://api.direct.yandex.com/v5/reports",
+];
+
+/** Какой адрес отчётов ответил у этого аккаунта. */
+const рабочийАдрес = new Map();
 
 /**
  * One API call. `clientLogin` is required when the token belongs to an agency
@@ -361,8 +382,8 @@ function lastReportAnswer(reportType) {
  * попытками: у отложенного отчёта имя — это его адрес в очереди, и новое имя
  * на каждой попытке заказывало бы новый отчёт вместо получения готового.
  */
-async function requestReport({ headers, params, attempt = 0 }) {
-  const res = await fetch(DIRECT_REPORTS, {
+async function requestReport({ url, headers, params, attempt = 0 }) {
+  const res = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ params }),
@@ -374,7 +395,7 @@ async function requestReport({ headers, params, attempt = 0 }) {
     }
     const wait = Number(res.headers.get("retryIn") || 5) * 1000;
     await new Promise((r) => setTimeout(r, Math.min(wait, 15000)));
-    return requestReport({ headers, params, attempt: attempt + 1 });
+    return requestReport({ url, headers, params, attempt: attempt + 1 });
   }
 
   const text = await res.text();
@@ -467,6 +488,54 @@ async function getStats(token, options = {}) {
     : REPORT_VARIANTS;
 
   const попытки = [];
+
+  /**
+   * Какой адрес отчётов разговаривает с нами на JSON.
+   *
+   * Сначала запомненный, потом остальные. Проверка короткая: один простой
+   * запрос на адрес. Адрес, который отвечает «Некорректный запрос» с пустой
+   * причиной на такой запрос, JSON не разбирает вовсе — на нём и подробный
+   * не пройдёт.
+   */
+  const адреса = (() => {
+    const помним = рабочийАдрес.get(accountKey || "общий");
+    if (!помним) return DIRECT_REPORT_ENDPOINTS;
+    return [помним, ...DIRECT_REPORT_ENDPOINTS.filter((u) => u !== помним)];
+  })();
+
+  let адрес = адреса[0];
+  if (адреса.length > 1 && !рабочийАдрес.get(accountKey || "общий")) {
+    for (const кандидат of адреса) {
+      const пробный = {
+        SelectionCriteria: {},
+        FieldNames: [...BASE_REPORT_FIELDS],
+        ReportName: `probe-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        ReportType: reportType,
+        DateRangeType: "LAST_30_DAYS",
+        Format: "TSV",
+        IncludeVAT: "YES",
+      };
+      const ответ = await requestReport({ url: кандидат, headers: базовыеЗаголовки, params: пробный });
+      const отказ = ответ.ok ? null : ответ.error;
+      попытки.push({
+        variant: `адрес ${кандидат}`,
+        code: отказ ? отказ.code : 0,
+        reason: ответ.ok ? "принят" : отказ.detail || отказ.message || `HTTP ${ответ.status}`,
+        requestId: отказ ? отказ.requestId : "",
+        answer: String(ответ.text || "").slice(0, 2000),
+        request: пробный,
+      });
+      // Пустая причина при коде 8000 — признак того, что адрес не разбирает
+      // JSON вовсе. Любой другой ответ значит, что запрос дошёл до разбора.
+      const немойАдрес = !ответ.ok && отказ.code === 8000 && !String(отказ.detail || "").trim();
+      if (!немойАдрес) {
+        адрес = кандидат;
+        рабочийАдрес.set(accountKey || "общий", кандидат);
+        break;
+      }
+    }
+  }
+
   for (const вариант of варианты) {
     const набор = Array.isArray(вариант.fields)
       ? вариант.fields
@@ -500,12 +569,13 @@ async function getStats(token, options = {}) {
     if (вариант.tweak) params = вариант.tweak(params);
 
     const заголовки = { ...базовыеЗаголовки, ...(вариант.headers || {}) };
-    const ответ = await requestReport({ headers: заголовки, params });
+    const ответ = await requestReport({ url: адрес, headers: заголовки, params });
 
     if (ответ.ok) {
       рабочийВариант.set(ключ, вариант.id);
       rememberAnswer(reportType, {
         variant: вариант.id,
+        endpoint: адрес,
         ok: true,
         request: { ...params, FieldNames: набор },
         headers: { ...заголовки, Authorization: "Bearer …" },
@@ -541,9 +611,11 @@ async function getStats(token, options = {}) {
   }
 
   рабочийВариант.delete(ключ);
+  рабочийАдрес.delete(accountKey || "общий");
   rememberAnswer(reportType, {
     ok: false,
     reportType,
+    endpoint: адрес,
     tried: попытки,
     // Заголовки — без токена: он не должен попадать ни на экран, ни в письмо.
     headers: { ...базовыеЗаголовки, Authorization: "Bearer …" },
@@ -849,6 +921,7 @@ module.exports = {
   howToFix,
   looksLikeLogin,
   REPORT_VARIANTS,
+  DIRECT_REPORT_ENDPOINTS,
   lastReportAnswer,
   parseReportTsv,
   parseReportError,

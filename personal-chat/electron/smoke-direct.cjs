@@ -177,9 +177,13 @@ app.whenReady().then(async () => {
         accountKey: "a1",
       });
       check("отчёт всё-таки получен", Array.isArray(отчёт) && отчёт.length === 1, отчёт && отчёт.length);
+      // Первые запросы — короткая проба адреса отчётов, а не варианты
+      // лестницы: у API Директа два интерфейса, и сначала выбирается тот, что
+      // разбирает JSON. Считаем только саму лестницу.
+      const лестница = попыток.filter((p) => !/^probe-/.test(String(p.ReportName || "")));
       check("варианты пробовались по очереди, от подробного к простому",
-        попыток.length >= 5 && попыток[0].FieldNames.length > попыток[1].FieldNames.length,
-        попыток.length);
+        лестница.length >= 5 && лестница[0].FieldNames.length > лестница[1].FieldNames.length,
+        лестница.length);
       check("человеку сказано, чем пришлось пожертвовать и почему",
         отчёт.limited === true && /перебрало варианты/.test(отчёт.why || ""), отчёт.why);
       check("имя отчёта латиницей — кириллица ломает заголовки",
@@ -209,7 +213,9 @@ app.whenReady().then(async () => {
           отказ = e;
         }
       );
-      check("на «заявка не одобрена» перебор прекращается сразу", попыток.length === 1, попыток.length);
+      // Одна проба адреса плюс один вариант — и стоп: отказ «нет доступа»
+      // перебором не лечится, и остальные варианты получат тот же ответ.
+      check("на «заявка не одобрена» перебор прекращается сразу", попыток.length === 2, попыток.length);
       check("и человеку сказано, что с этим делать",
         отказ && String(отказ.howToFix || "").length > 50, отказ && отказ.howToFix);
     } finally {
@@ -333,6 +339,62 @@ app.whenReady().then(async () => {
     check("и сравнение с остальными кампаниями", /Для сравнения/.test(вопрос));
     check("и запрет выдумывать при малых числах", /не выдумывай/.test(вопрос));
 
+    console.log("\nадрес отчётов выбирается тот, что разбирает JSON");
+    // У API Директа два интерфейса: JSON по пути /json/v5 и старый XML по /v5.
+    // Кампании приложение берёт по /json/v5, а отчёты просило по /v5 — и Директ
+    // отвечал «Некорректный запрос» с ПУСТОЙ причиной на любой запрос. Так
+    // отвечает сервис, которому прислали не тот формат: разбирать JSON он не
+    // начинал и сказать, что в нём не так, не мог.
+    const настоящийFetch3 = global.fetch;
+    const адреса = [];
+    const пустойОтказ =
+      `<?xml version="1.0"?><reports:reportDownloadError xmlns:reports="http://api.direct.yandex.com/v5/reports">` +
+      `<reports:ApiError><reports:requestId>1</reports:requestId><reports:errorCode>8000</reports:errorCode>` +
+      `<reports:errorMessage>Некорректный запрос</reports:errorMessage><reports:errorDetail></reports:errorDetail>` +
+      `</reports:ApiError></reports:reportDownloadError>`;
+
+    // Старый адрес не понимает JSON, новый — понимает.
+    global.fetch = async (url, opts) => {
+      адреса.push(String(url));
+      if (String(url).includes("/json/v5/reports")) {
+        const тело = JSON.parse(opts.body);
+        const поля = тело.params.FieldNames.join("\t");
+        const строка = тело.params.FieldNames.map((f) => (f === "CampaignName" ? "Тест" : "7")).join("\t");
+        return { ok: true, status: 200, headers: new Map(), text: async () => `${поля}\n${строка}` };
+      }
+      return { ok: false, status: 400, headers: new Map(), text: async () => пустойОтказ };
+    };
+    try {
+      const отчёт = await direct.getStats("токен", { dateFrom: "2026-08-01", dateTo: "2026-10-02", accountKey: "адрес1" });
+      check("отчёт получен", Array.isArray(отчёт) && отчёт.length === 1, отчёт && отчёт.length);
+      check("сначала пробуется адрес с /json/", адреса[0].includes("/json/v5/reports"), адреса[0]);
+      check("на старый адрес приложение не ушло", !адреса.some((u) => /\/v5\/reports$/.test(u) && !u.includes("/json/")), адреса.join(" "));
+    } finally {
+      global.fetch = настоящийFetch3;
+    }
+
+    // Обратный случай: если JSON не понимает как раз новый адрес, приложение
+    // уходит на старый, а не сдаётся. Догадка не должна становиться правилом.
+    const настоящийFetch4 = global.fetch;
+    const адреса2 = [];
+    global.fetch = async (url, opts) => {
+      адреса2.push(String(url));
+      if (String(url).includes("/json/v5/reports")) {
+        return { ok: false, status: 400, headers: new Map(), text: async () => пустойОтказ };
+      }
+      const тело = JSON.parse(opts.body);
+      const поля = тело.params.FieldNames.join("\t");
+      return { ok: true, status: 200, headers: new Map(), text: async () => `${поля}\n${тело.params.FieldNames.map(() => "1").join("\t")}` };
+    };
+    try {
+      const отчёт2 = await direct.getStats("токен", { dateFrom: "2026-08-01", dateTo: "2026-10-02", accountKey: "адрес2" });
+      check("при отказе нового адреса берётся старый", Array.isArray(отчёт2) && отчёт2.length === 1);
+      check("старый адрес действительно пробовался",
+        адреса2.some((u) => /\/v5\/reports$/.test(u) && !u.includes("/json/")), адреса2.join(" "));
+    } finally {
+      global.fetch = настоящийFetch4;
+    }
+
     console.log("\nнепришедшая статистика не выдаётся за нули");
     // «Потрачено 0 ₽» и «сколько потрачено, неизвестно» — разные вещи, и
     // решения по ним принимают разные. По нулю кампанию выключают.
@@ -388,7 +450,9 @@ app.whenReady().then(async () => {
     // Перебор не обрывается на похожих ответах: одинаковый текст отказа ещё не
     // значит, что следующий вариант не пройдёт, — в соседней проверке выше
     // как раз такой случай, там срабатывает пятый вариант.
-    check("перебираются все варианты", сколько === 6, сколько);
+    // Шесть вариантов плюс две пробы адреса: оба адреса отвечают одинаково,
+    // поэтому проба не помогла и лестница прошла целиком.
+    check("перебираются все варианты", сколько === 8, сколько);
     // Но когда одинаковы ВСЕ шесть — это вывод, и человеку он сказан прямо.
     check("и сказано, что дело не в форме запроса",
       /Все варианты отклонены ОДИНАКОВО/.test(String(отказ2 && отказ2.message)), отказ2 && отказ2.message);
