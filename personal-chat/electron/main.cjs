@@ -4533,7 +4533,9 @@ const CATALOG_DEFAULTS = {
   septics: {},
   streetNames: [],
   photoMode: "all",
-  photoSource: "tilda",
+  photoSource: "both",
+  /** Источник фото выбран руками — умолчание его больше не меняет. */
+  photoSourceChosen: false,
   carryIds: false,
   pages: PAGE_DEFAULTS,
 };
@@ -4544,7 +4546,15 @@ async function loadCatalogConfig() {
     const stored = JSON.parse(await fs.readFile(catalogConfigFile(root), "utf-8"));
     // Слитие с умолчаниями, а не голое чтение: иначе настройки, добавленные
     // позже, не появятся у того, кто уже пользовался разделом.
-    return { ...CATALOG_DEFAULTS, ...stored, pages: { ...PAGE_DEFAULTS, ...(stored.pages || {}) } };
+    const merged = { ...CATALOG_DEFAULTS, ...stored, pages: { ...PAGE_DEFAULTS, ...(stored.pages || {}) } };
+    // Раньше источник фото был выбором «или Тильда, или 1С», и один источник
+    // отбрасывался целиком: снимки, добавленные в Тильде руками, пропадали,
+    // как только в 1С появлялось хоть одно фото, — и наоборот. Теперь есть
+    // объединение. Сохранённое «tilda» — это прежнее умолчание, а не решение,
+    // поэтому оно переводится в объединение; «export» оставляем как есть: его
+    // выбирают осознанно.
+    if (merged.photoSource === "tilda" && stored.photoSourceChosen !== true) merged.photoSource = "both";
+    return merged;
   } catch {
     return {
       exportPath: "",
@@ -4560,10 +4570,11 @@ async function loadCatalogConfig() {
       // Все фото из выгрузки. У домов их до семи, и терять шесть из них,
       // отдавая витрине одно, незачем.
       photoMode: "all",
-      // При совпадении по кадастровому номеру фото берутся из прошлого каталога
-      // магазина: они там уже загружены и заведомо открываются на витрине, чего
-      // про ссылки на сторонний сайт из 1С сказать нельзя.
-      photoSource: "tilda",
+      // Фото из обоих источников вместе: из прошлого каталога магазина (они
+      // там уже загружены и заведомо открываются на витрине) и из выгрузки 1С.
+      // Снимки, добавленные в Тильде руками, в 1С не попадают никогда, а новые
+      // ракурсы приходят только из 1С — терять нельзя ни те, ни другие.
+      photoSource: "both",
       // Каталог на сайте заливается заново: старые номера позиций указывали бы
       // на удалённые товары, поэтому по умолчанию они не переносятся.
       carryIds: false,
@@ -4639,7 +4650,7 @@ async function assembleCatalog() {
     streetNames: config.streetNames || [],
     previous,
     photoMode: config.photoMode,
-    photoSource: config.photoSource || "tilda",
+    photoSource: config.photoSource || "both",
     septics: config.septics || {},
     carryIds: !!config.carryIds,
     series: config.series || {},

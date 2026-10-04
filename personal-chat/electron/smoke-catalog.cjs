@@ -43,17 +43,26 @@ async function makeExport(dest) {
   houses.addRow(["статус", "готовность", "кадастровый номер", "поселок", "улица", "номер",
     "площадь участка, сот", "площадь дома", "цена дома с участком", "описание", "ссылка"]);
   const rows = [
-    ["в продаже", "план", "00:00:0000001:1001", "Ромашкино", "Луговая", "3", 6.5, 100,
-     7100000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка кирпиич."],
-    ["в продаже", "готов", "00:00:0000001:1002", "Ромашкино", "Луговая", "5", 8.0, 85,
+    // Площадь и цена здесь — ТЕКСТОМ, с единицей и знаком рубля: именно так их
+    // и пишут в выгрузке («100 м2», «7 100 000 ₽»). Пока число читалось только
+    // из чисел, обе ячейки давали ноль, и дом уходил на витрину без метража и
+    // без цены — при том, что в ячейке всё написано.
+    ["в продаже", "План", "00:00:0000001:1001", "Ромашкино", "Луговая", "3", "6,5 сот", "100 м2",
+     "7 100 000 ₽", "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка кирпиич."],
+    // Стадия словами, а не одним словом из трёх: «Готов к заселению» — это
+    // «готов», и дом обязан встать первым.
+    ["в продаже", "Готов к заселению", "00:00:0000001:1002", "Ромашкино", "Луговая", "5", 8.0, 85,
      9100000, "Дом 85 м2 из газоблока с предчистовой отделкой. Внешняя облицовка сайдинг. Цвет белый."],
-    ["в продаже", "стройка", "00:00:0000002:2001", "Сосновка", "Боровая", "7", 7.25, 100,
+    ["в продаже", "Строится", "00:00:0000002:2001", "Сосновка", "Боровая", "7", 7.25, 100,
      8200000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка сайдинг \"под кирпич\"."],
     ["в продаже", "готов", "00:00:0000002:2002", "Сосновка", "Боровая", "9", 9.0, 120,
      10500000, "Дом с предчистовой отделкой из газоблока 120 м2. Внешняя облицовка кирпич. Внешняя облицовка кирпич."],
     // Неровность из жизни: площадь не заполнена, а в тексте метраж есть.
     ["в продаже", "план", "00:00:0000002:2003", "Сосновка", "Боровая", "11", 0, 0,
      8300000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка сайдинг."],
+    // А здесь метража нет нигде — и об этом обязано быть сказано.
+    ["в продаже", "Проект", "00:00:0000002:2004", "Сосновка", "Боровая", "13", 7.0, 0,
+     8400000, "Дом из газоблока с предчистовой отделкой. Внешняя облицовка сайдинг."],
     // Два квартала в одном посёлке 1С: на витрине у них разные имена.
     ["в продаже", "план", "00:00:0000004:4001", "ПКР", "Нефритовая", "2", 6.0, 100,
      7700000, "Дом 100 м2 из газоблока с предчистовой отделкой. Внешняя облицовка кирпич."],
@@ -158,7 +167,7 @@ app.whenReady().then(async () => {
     console.log("\nчтение выгрузки");
     const exportPath = await makeExport(path.join(workDir, "выгрузка.xlsx"));
     const source = await catalog.readExport(exportPath);
-    check("дома и участки прочитаны", source.houses.length === 7 && source.plots.length === 3,
+    check("дома и участки прочитаны", source.houses.length === 8 && source.plots.length === 3,
       `${source.houses.length}/${source.plots.length}`);
     const first = source.houses[0];
     check("кадастровый номер — строка, а не объект", first.cadastral === "00:00:0000001:1001", first.cadastral);
@@ -168,6 +177,37 @@ app.whenReady().then(async () => {
       !source.houses.some((h) => h.photos.some((u) => /rosreestr/.test(u))),
       JSON.stringify(first.photos));
     check("фото собраны", first.photos.length === 2, JSON.stringify(first.photos));
+
+    console.log("\nячейки, в которых написано не только число");
+    // Это и есть жалоба: «явно написано 100 м2, а таблица не подтягивает».
+    check("площадь прочитана из «100 м2»", first.houseArea === 100, String(first.houseArea));
+    check("цена прочитана из «7 100 000 ₽»", first.price === 7100000, String(first.price));
+    check("сотки прочитаны из «6,5 сот»", first.plotArea === 6.5, String(first.plotArea));
+    check("число внутри текста — не догадка о единице",
+      catalog.num("100 м2") === 100 && catalog.num("м2 100") === 100 && catalog.num("") === 0);
+    check("разряды через пробел читаются одним числом",
+      catalog.num("от 8 300 000 руб.") === 8300000, String(catalog.num("от 8 300 000 руб.")));
+
+    console.log("\nстадия готовности, написанная словами");
+    const стадии = new Map(source.houses.map((h) => [h.cadastral, h.readiness]));
+    check("«Готов к заселению» — это готов", стадии.get("00:00:0000001:1002") === "готов",
+      стадии.get("00:00:0000001:1002"));
+    check("«Строится» — это стройка", стадии.get("00:00:0000002:2001") === "стройка",
+      стадии.get("00:00:0000002:2001"));
+    check("«Проект» — это план", стадии.get("00:00:0000002:2004") === "план",
+      стадии.get("00:00:0000002:2004"));
+    check("стадии приведены к трём известным",
+      source.houses.every((h) => catalog.READINESS_ORDER.includes(h.readiness)),
+      JSON.stringify([...стадии.values()]));
+
+    console.log("\nметраж из описания, когда колонка пуста");
+    const безПлощади = source.houses.find((h) => h.cadastral === "00:00:0000002:2003");
+    check("метраж взят из текста описания", безПлощади.houseArea === 100, String(безПлощади.houseArea));
+    check("и помечено, откуда он взялся", безПлощади.areaFromText === true, String(безПлощади.areaFromText));
+    const совсемБез = source.houses.find((h) => h.cadastral === "00:00:0000002:2004");
+    check("а когда метража нет нигде — ноль, а не выдумка",
+      совсемБез.houseArea === 0 && совсемБез.areaFromText === false, String(совсемБез.houseArea));
+    check("сотки участка за метраж дома не принимаются", catalog.areaInText("участок 6,5 сот") === 0);
 
     console.log("\nсборка каталога");
     const previousPath = makePrevious(path.join(workDir, "прошлый.csv"));
@@ -189,7 +229,7 @@ app.whenReady().then(async () => {
     const built = catalog.buildCatalog({
       ...source, library: библиотека, villages, streetNames, previous, photoMode: "all", carryIds: true,
     });
-    check("собраны все позиции", built.rows.length === 10, String(built.rows.length));
+    check("собраны все позиции", built.rows.length === 11, String(built.rows.length));
 
     // Готовые дома первыми — это и есть смысл сортировки.
     const marks = built.rows.map((r) => r.Mark);
@@ -218,13 +258,19 @@ app.whenReady().then(async () => {
       безПрошлого.Photo.split(" ").length === 2, безПрошлого.Photo);
 
     console.log("\nфото из прошлого каталога по кадастровому номеру");
-    // Снимки в прошлом каталоге уже загружены в магазин: их адреса заведомо
-    // открываются на витрине. Ссылки из 1С ведут на сторонний сайт — они могут
-    // работать, а могут и нет, и проверить это отсюда нечем.
-    check("у совпавшего дома фото взяты из каталога, а не из 1С",
-      дом.Photo.split(" ").every((u) => u.includes("tildacdn")), дом.Photo);
-    check("перенеслись все снимки позиции, а не первый",
-      дом.Photo.split(" ").length === 2, дом.Photo);
+    // Два источника, и ни один не лишний. В прошлом каталоге лежат снимки,
+    // УЖЕ ЗАГРУЖЕННЫЕ В МАГАЗИН, — в том числе добавленные в Тильде руками:
+    // в выгрузке 1С их нет и не будет. А новые ракурсы приходят только из 1С.
+    // Поэтому по умолчанию списки объединяются, а не выбирается один из них:
+    // если в новой выгрузке поменялась только цена или готовность, набор фото
+    // остаётся прежним и прирастает тем, что добавилось.
+    const снимки = дом.Photo.split(" ");
+    check("снимки из Тильды на месте", снимки.filter((u) => u.includes("tildacdn")).length === 2, дом.Photo);
+    check("и фото из 1С тоже", снимки.some((u) => u.includes("example.test")), дом.Photo);
+    check("сначала Тильда — её адреса заведомо открываются на витрине",
+      снимки[0].includes("tildacdn"), дом.Photo);
+    check("один и тот же снимок не удвоился",
+      new Set(снимки).size === снимки.length, дом.Photo);
     const участокСФото = built.rows.find((r) => r.SKU === "00:00:0000003:3001");
     check("перенос работает и для участков",
       участокСФото.Photo.includes("tildacdn"), участокСФото.Photo);
@@ -232,6 +278,31 @@ app.whenReady().then(async () => {
       built.counts.photosCarried === 2, String(built.counts.photosCarried));
     check("там, где совпадения нет, остаются фото из 1С",
       безПрошлого.Photo.includes("example.test"), безПрошлого.Photo);
+
+    // Один и тот же снимок под двумя адресами: в 1С он лежит на стороннем
+    // сайте, в магазине — уже загруженный. Имя файла при загрузке сохраняется,
+    // и по нему снимок опознаётся как тот же самый.
+    check("повтор узнаётся по имени файла",
+      catalog.mergePhotos(
+        ["https://static.tildacdn.com/stor1/дом-фасад.jpg"],
+        ["https://example.test/1001/дом-фасад.jpg", "https://example.test/1001/дом-кухня.jpg"]
+      ).length === 2);
+    // А имена из одних цифр («1.png») у разных домов совпадают, и считать их
+    // одним снимком нельзя — так потерялась бы половина фотографий.
+    check("числовые имена сравниваются целиком",
+      catalog.mergePhotos(["https://a.test/85/1.png"], ["https://b.test/100/1.png"]).length === 2);
+
+    // Прежнее поведение осталось выбором: только Тильда — когда ссылки из 1С
+    // на витрине не открываются.
+    const толькоТильда = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous,
+      photoMode: "all", photoSource: "tilda", carryIds: true,
+    });
+    const домТильда = толькоТильда.rows.find((r) => r.SKU === "00:00:0000001:1001");
+    check("«только из Тильды» не подмешивает 1С",
+      домТильда.Photo.split(" ").every((u) => u.includes("tildacdn")), домТильда.Photo);
+    check("и берёт все снимки позиции, а не первый",
+      домТильда.Photo.split(" ").length === 2, домТильда.Photo);
 
     // Перенос не должен зависеть от переноса номеров позиций: каталог можно
     // заливать заново (номера не нужны), но снимки при этом терять незачем.
@@ -249,10 +320,27 @@ app.whenReady().then(async () => {
       photoMode: "all", photoSource: "export", carryIds: true,
     });
     const дом1С = из1С.rows.find((r) => r.SKU === "00:00:0000001:1001");
-    check("переключатель возвращает первенство выгрузке 1С",
+    check("«только из 1С» не подмешивает Тильду",
       дом1С.Photo.includes("example.test") && !дом1С.Photo.includes("tildacdn"), дом1С.Photo);
     check("и тогда из каталога не переносится ничего лишнего",
       из1С.counts.photosCarried === 0, String(из1С.counts.photosCarried));
+
+    // Кадастровый номер в выгрузке магазина набран иначе: двоеточия заменены
+    // дефисами. Сравнение «как есть» не находило позицию, и фото, добавленные
+    // в Тильде руками, пропадали — молча, без единого замечания.
+    const инойНабор = {
+      bySku: new Map([
+        ["00-00-0000001-1001", { uid: "", externalId: "", category: "", title: "",
+          photo: "https://static.tildacdn.com/stor1/руками-добавленное.png" }],
+      ]),
+      villages: new Map(),
+    };
+    const поЦифрам = catalog.buildCatalog({
+      ...source, library: библиотека, villages, streetNames, previous: инойНабор, carryIds: false,
+    });
+    const домПоЦифрам = поЦифрам.rows.find((r) => r.SKU === "00:00:0000001:1001");
+    check("позиция находится, даже если номер набран иначе",
+      домПоЦифрам.Photo.includes("руками-добавленное"), домПоЦифрам.Photo);
 
     // Только первое фото — при переносе тоже.
     const одно = catalog.buildCatalog({
@@ -263,9 +351,9 @@ app.whenReady().then(async () => {
       домОдно.Photo.includes("tildacdn") && !домОдно.Photo.includes(" "), домОдно.Photo);
 
     console.log("\nописания подставляются по облицовке из выгрузки");
-    // Пять домов из семи: у дома 120 в кирпиче заготовки нет, у дома с
-    // незаполненной площадью подобрать не по чему.
-    check("подставлено ровно там, где заготовка есть", built.counts.described === 5,
+    // Шесть домов из восьми: у дома 120 в кирпиче заготовки нет, у дома без
+    // метража (его нет ни в колонке, ни в описании) подбирать не по чему.
+    check("подставлено ровно там, где заготовка есть", built.counts.described === 6,
       `${built.counts.described} из ${built.counts.houses}`);
     const кирпич100 = built.rows.find((r) => r.SKU === "00:00:0000001:1001");
     check("дом 100 в кирпиче получил своё описание",
@@ -347,6 +435,8 @@ app.whenReady().then(async () => {
     console.log("\nзамечания вместо тишины");
     const p = built.problems.join(" | ");
     check("нулевая площадь замечена", /не заполнена площадь дома/.test(p), p.slice(0, 200));
+    check("метраж, взятый из описания, отмечен",
+      /метраж 100 м² взят из описания/.test(p), p.slice(0, 400));
     check("нехватка заготовки замечена", /Нет заготовки описания/.test(p), p.slice(0, 200));
     check("позиция без фото замечена", /нет ни одного фото/.test(p), p.slice(0, 200));
     check("пропавшая из выгрузки позиция замечена", /вероятно, проданы/.test(p), p.slice(0, 200));
@@ -421,7 +511,7 @@ app.whenReady().then(async () => {
         вычитано.every((x) => Array.isArray(x.renderUrls) && Array.isArray(x.renderPaths)),
         JSON.stringify(вычитано.map((x) => Object.keys(x).length)));
       const preview = await call(`window.api.catalogPreview()`);
-      check("предпросмотр собрался через приложение", preview.total === 10, String(preview.total));
+      check("предпросмотр собрался через приложение", preview.total === 11, String(preview.total));
       check("замечания дошли до окна", preview.problems.length > 0, String(preview.problems.length));
       check("готовые первыми и в предпросмотре", preview.sample[0].Mark === "готов", preview.sample[0].Mark);
 
@@ -530,7 +620,21 @@ app.whenReady().then(async () => {
       const table = await call(`window.api.catalogTable()`);
       check("колонки те же, что у магазина",
         table.columns.join(";") === catalog.TILDA_COLUMNS.join(";"), table.columns.slice(0, 4).join(";"));
-      check("отдана вся таблица, а не образец", table.rows.length === 10, String(table.rows.length));
+      check("отдана вся таблица, а не образец", table.rows.length === 11, String(table.rows.length));
+      // Порядок в таблице — не украшение: по ней она работает глазами, и
+      // готовые дома обязаны стоять первыми, затем стройка, затем план. Этот
+      // порядок должен дожить до окна, а не остаться в сборке.
+      const порядок = table.rows.map((r) => r.Mark).filter(Boolean);
+      const ожидаемый = [...порядок].sort(
+        (a, b) => catalog.READINESS_ORDER.indexOf(a) - catalog.READINESS_ORDER.indexOf(b)
+      );
+      check("таблица в окне идёт по степени готовности",
+        порядок.join(",") === ожидаемый.join(","), порядок.join(","));
+      check("первым стоит готовый дом", порядок[0] === "готов", порядок[0]);
+      check("участки — после домов",
+        table.rows.findIndex((r) => r.Category.includes("Земельные участки")) >
+          table.rows.map((r) => !!r.Mark).lastIndexOf(true),
+        String(table.rows.findIndex((r) => r.Category.includes("Земельные участки"))));
       check("заготовки описаний пришли для выбора в ячейке",
         table.library.length === 4 && table.library.every((l) => l.label), JSON.stringify(table.library.map((l) => l.label)));
       check("у заготовки читаемое имя",
@@ -605,7 +709,7 @@ app.whenReady().then(async () => {
         fs.existsSync(result.csvFile) && fs.existsSync(result.xlsxFile), `${result.csvFile} | ${result.xlsxFile}`);
       const written = fs.readFileSync(result.csvFile, "utf-8");
       check("кириллица читается", written.includes("Ромашки"));
-      check("в файле все позиции", catalog.parseCsv(written).length === 11, String(catalog.parseCsv(written).length));
+      check("в файле все позиции", catalog.parseCsv(written).length === 12, String(catalog.parseCsv(written).length));
       check("правка попала в CSV", written.includes("Правленое название"));
 
       console.log("\nфайл ровно того вида, в каком его отдаёт сам магазин");
@@ -647,7 +751,7 @@ app.whenReady().then(async () => {
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.readFile(result.xlsxFile);
       const sheet = wb.worksheets[0];
-      check("книга Excel читается", !!sheet && sheet.rowCount === 11, sheet && String(sheet.rowCount));
+      check("книга Excel читается", !!sheet && sheet.rowCount === 12, sheet && String(sheet.rowCount));
       const header = [];
       sheet.getRow(1).eachCell({ includeEmpty: true }, (c2, i2) => (header[i2 - 1] = String(c2.value || "")));
       // Книга и CSV об одном каталоге не должны расходиться составом колонок:
