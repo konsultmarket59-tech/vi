@@ -27,6 +27,16 @@ interface Props {
 }
 
 /** Колонки, которые почти всегда пусты: прячем их, чтобы таблица читалась. */
+/** Порядок готовности — тот же, что при сборке каталога. */
+const READINESS_ORDER = ["готов", "стройка", "план"];
+
+/** Как стадия называется в подписи к порядку. */
+const READINESS_WORDS: Record<string, string> = {
+  готов: "готовые",
+  стройка: "стройка",
+  план: "план",
+};
+
 const QUIET_COLUMNS = ["Brand", "Quantity", "Price Old", "Editions", "Modifications", "Parent UID", "FB title", "FB descr"];
 
 /** Колонки, куда кладётся текст описания: в них выбор из библиотеки уместен. */
@@ -169,6 +179,16 @@ export default function CatalogTable({ columns, rows, edits, library, onEdit, on
   const emptyText = rows.filter((r) => !r.Text).length;
   const usable = library.filter((l) => l.text);
 
+  // Порядок таблицы — готовые дома первыми. Он задаётся при сборке, но увидеть
+  // его глазами в таблице на сотню строк нельзя, а положиться на него нужно.
+  // Поэтому он пересчитывается из того, что в таблице лежит сейчас, и пишется
+  // рядом с нею: если порядок когда-нибудь разъедется, это будет видно сразу.
+  const byReadiness = READINESS_ORDER.map((mark) => ({
+    mark,
+    count: rows.filter((r) => r.Mark === mark).length,
+  })).filter((g) => g.count > 0);
+  const plots = rows.filter((r) => !r.Mark).length;
+
   const shown = showAll ? columns : columns.filter((c) => !QUIET_COLUMNS.includes(c));
   const openRow = open ? rows.find((r) => r.SKU === open.sku) : null;
   const openValue = open && openRow ? openRow[open.column] || "" : "";
@@ -206,6 +226,13 @@ export default function CatalogTable({ columns, rows, edits, library, onEdit, on
           Показывать все колонки, включая всегда пустые
         </label>
         <span className="hint">Нажмите на ячейку, чтобы поправить. Правки помечены и переживают пересборку.</span>
+        {!!byReadiness.length && (
+          <span className="cat-order">
+            Порядок:{" "}
+            {byReadiness.map((g) => `${READINESS_WORDS[g.mark] || g.mark} (${g.count})`).join(" → ")}
+            {plots ? ` → участки (${plots})` : ""}
+          </span>
+        )}
       </div>
 
       {open && openRow && (

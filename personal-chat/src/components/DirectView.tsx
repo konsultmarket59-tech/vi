@@ -9,6 +9,7 @@ import type {
   DirectKeyword,
   DirectOverview,
   DirectStatRow,
+  DirectCellValue,
   DirectTableRow,
   DirectWordsReport,
   DirectWordstatItem,
@@ -239,9 +240,16 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
     };
   }
 
-  function cellText(value: string | number | null, kind: string): string {
+  /**
+   * Значение ячейки текстом.
+   *
+   * Тип значения шире, чем «строка или число»: у строки есть и служебные
+   * признаки вроде «статистика не пришла». Сужаем здесь, в одном месте, а не
+   * расширяем подписи всех, кто с ячейками работает.
+   */
+  function cellText(value: DirectCellValue, kind: string): string {
     if (value === null || value === undefined || value === "") return "—";
-    if (kind === "текст" || kind === "дата") return String(value);
+    if (kind === "текст" || kind === "дата" || typeof value === "boolean") return String(value);
     return Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
   }
 
@@ -252,12 +260,13 @@ export default function DirectView({ settings, skills, onOpenSettings }: Props) 
    * чтобы разобрать именно эту кампанию: те же 40 ₽ за клик в поиске и в сети
    * значат разное.
    */
-  async function explainCell(row: DirectTableRow, columnId: string, title: string, value: string | number | null) {
+  async function explainCell(row: DirectTableRow, columnId: string, title: string, value: DirectCellValue) {
     setCell({ title, value: cellText(value, "число"), text: "", loading: true });
     try {
       const ответ = await window.api.explainDirectCell({
         columnId,
-        value,
+        // Служебный признак строки числом не является — агенту он не нужен.
+        value: typeof value === "boolean" || value === undefined ? null : value,
         row,
         totals: overview?.totals || null,
         range: overview?.range || { dateFrom: "", dateTo: "" },

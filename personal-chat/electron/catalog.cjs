@@ -44,6 +44,29 @@ const TILDA_COLUMNS = [
 const READINESS_ORDER = ["готов", "стройка", "план"];
 
 /**
+ * Стадия готовности — к одному виду.
+ *
+ * В выгрузке она написана словами, и словами разными: «Готов», «готов к
+ * заселению», «Строится», «В строительстве», «Проект», «планируется». Раньше
+ * стадия сравнивалась ровно со словом «готов», и любая другая запись выпадала
+ * из порядка: READINESS_ORDER.indexOf давал −1, все дома получали одинаковый
+ * вес, и сортировка по готовности переставала работать совсем — таблица
+ * выглядела перемешанной. Поэтому стадия сначала опознаётся по корню.
+ */
+const READINESS_SIGNS = [
+  { key: "готов", match: /готов|сдан|сдач[аи]\s*заверш|заселени|введ[её]н/i },
+  { key: "стройка", match: /стро[ию]|стройк|возвед|в\s*работе/i },
+  { key: "план", match: /план|проект|старт|будущ|заложен/i },
+];
+
+function readinessOf(raw) {
+  const text = str(raw);
+  if (!text) return "";
+  const sign = READINESS_SIGNS.find((r) => r.match.test(text));
+  return sign ? sign.key : text.toLowerCase();
+}
+
+/**
  * Линейки домов.
  *
  * В выгрузке 1С серии нет и не будет: там учёт объектов, а серия — это то, как
@@ -116,10 +139,52 @@ const COLOURS = [
   { key: "серый", match: /цвет\s+сер/i },
 ];
 
+/**
+ * Число из ячейки, в которой человек писал не только число.
+ *
+ * В выгрузке 1С площадь и цена приходят не числами: «100 м2», «7 515 000 ₽»,
+ * «от 8 300 000». Первая версия просто звала Number() на строке без пробелов —
+ * и «100 м2» превращалось в NaN, то есть в ноль. Снаружи это выглядело так,
+ * будто каталог «не подтягивает данные»: в ячейке явно написано 100 м2, а в
+ * таблице площади нет, категория пустая, SEO без метража.
+ *
+ * Поэтому число ищется внутри текста. Группы разрядов («7 515 000») читаются
+ * как одно число, а не как три. И единица измерения не превращается в цифру:
+ * у «100 м2» найдётся и «2» из «м2», но число, перед которым стоит буква, —
+ * это хвост единицы, а не значение, и берётся оно только если другого нет.
+ */
+const SPACES = /[\s\u00a0\u202f]/g;
+const LETTER = /[A-Za-zА-Яа-яЁё]/;
+// Сначала разряды через пробел, иначе «7 515 000» прочитается как «7».
+const NUMBER_IN_TEXT = /\d{1,3}(?:[\s\u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?/g;
+
+function numberInText(text) {
+  NUMBER_IN_TEXT.lastIndex = 0;
+  let afterLetter = null;
+  let m;
+  while ((m = NUMBER_IN_TEXT.exec(text))) {
+    const value = Number(m[0].replace(SPACES, "").replace(",", "."));
+    if (!Number.isFinite(value)) continue;
+    const before = m.index > 0 ? text[m.index - 1] : "";
+    if (!LETTER.test(before)) return value;
+    if (afterLetter === null) afterLetter = value;
+    // Число приклеено к букве — это хвост единицы («м2»). Продолжаем поиск не
+    // после всего совпадения, а со следующего знака: иначе в «м2 100» разряды
+    // склеятся в «2 100», и настоящая сотня останется ненайденной.
+    NUMBER_IN_TEXT.lastIndex = m.index + 1;
+  }
+  return afterLetter;
+}
+
 function num(v, fallback = 0) {
   const raw = v && typeof v === "object" ? str(v) : v;
-  const n = typeof raw === "string" ? Number(raw.replace(/\s/g, "").replace(",", ".")) : Number(raw);
-  return Number.isFinite(n) ? n : fallback;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : fallback;
+  const text = String(raw == null ? "" : raw).trim();
+  if (!text) return fallback;
+  const plain = Number(text.replace(SPACES, "").replace(",", "."));
+  if (Number.isFinite(plain)) return plain;
+  const found = numberInText(text);
+  return found === null ? fallback : found;
 }
 
 /**
@@ -221,6 +286,57 @@ function columnIndex(header, ...names) {
   return -1;
 }
 
+/**
+ * Метраж из текста.
+ *
+ * Колонку с площадью в выгрузке иногда не заполняют, но в описании метраж
+ * стоит прямо: «Дом 100 м2 из газоблока…». Брать его оттуда — не догадка:
+ * иначе дом уходит на витрину без категории «Метраж дома», без метража в
+ * заголовке и в SEO, то есть не находится ни фильтром, ни поиском.
+ *
+ * Единица обязательна. Без неё в описании нашлись бы и цена, и номер дома.
+ * Границы — чтобы не принять за метраж сотки участка или год.
+ */
+const AREA_IN_TEXT = /(\d+(?:[.,]\d+)?)\s*(?:м\s*2\b|м²|кв\.?\s*м|м\.?\s*кв)/i;
+
+function areaInText(raw) {
+  const m = AREA_IN_TEXT.exec(str(raw));
+  if (!m) return 0;
+  const value = num(m[1]);
+  return value >= 20 && value <= 2000 ? value : 0;
+}
+
+/**
+ * Один и тот же снимок под двумя адресами.
+ *
+ * Фото из 1С и фото, загруженное в магазин, — разные ссылки на разных хостах,
+ * и по адресу их не сравнить. Зато имя файла при загрузке обычно сохраняется,
+ * поэтому совпадение по имени считается совпадением снимка. Имя из одних цифр
+ * («1.png», «2.jpg» — так 1С нумерует файлы в папке дома) для этого не годится:
+ * у разных домов такие имена совпадут, и половина снимков потеряется. Такие
+ * ссылки сравниваются целиком.
+ */
+function photoKey(url) {
+  const path = String(url || "").split(/[?#]/)[0];
+  const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+  return name.length >= 5 && /[a-zа-яё]/i.test(name) ? `имя:${name}` : `адрес:${String(url || "")}`;
+}
+
+/** Списки фото в один, без повторов и с сохранением порядка. */
+function mergePhotos(...lists) {
+  const seen = new Set();
+  const out = [];
+  for (const list of lists) {
+    for (const url of list || []) {
+      const key = photoKey(url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(url);
+    }
+  }
+  return out;
+}
+
 /** Расширения, по которым ссылка считается картинкой. */
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|avif|heic)(\?|$)/i;
 
@@ -263,18 +379,22 @@ async function parseExport(filePath) {
     if (!sheet) return [];
     const header = [];
     sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => (header[col - 1] = str(cell.value)));
+    // Синонимы — не «на всякий случай»: заголовки в выгрузке пишет человек, и
+    // «Метраж дома» вместо «Площадь дома» оставляет колонку ненайденной молча,
+    // без ошибки. Порядок имён важен: ищется сначала первое имя целиком.
     const col = {
       status: columnIndex(header, "статус"),
-      readiness: columnIndex(header, "готовность"),
+      readiness: columnIndex(header, "готовность", "стадия", "этап", "степень готовности"),
       cadastral: columnIndex(header, "кадастровый номер", "кадастр"),
       village: columnIndex(header, "поселок", "посёлок"),
       street: columnIndex(header, "улица"),
       // «номер» ищется точным совпадением: рядом стоит «кадастровый номер».
       house: columnIndex(header, "номер", "№", "дом"),
-      plotArea: columnIndex(header, "площадь участка"),
-      houseArea: columnIndex(header, "площадь дома"),
-      price: columnIndex(header, "цена"),
-      description: columnIndex(header, "описание"),
+      plotArea: columnIndex(header, "площадь участка", "площадь зу", "сотки", "соток"),
+      // «площадь» без уточнения не ищем: в том же листе стоит площадь участка.
+      houseArea: columnIndex(header, "площадь дома", "метраж дома", "метраж", "s дома", "площадь здания", "общая площадь"),
+      price: columnIndex(header, "цена", "стоимость", "прайс"),
+      description: columnIndex(header, "описание", "характеристики", "комментарий", "наименование"),
       link: columnIndex(header, "ссылка"),
     };
     const items = [];
@@ -297,18 +417,31 @@ async function parseExport(filePath) {
         if (/^фото/i.test(caption) || IMAGE_EXT.test(target)) photos.push(target);
       });
       const link = str(value(col.link));
+      const description = str(value(col.description));
+      let houseArea = kind === "house" ? num(value(col.houseArea)) : 0;
+      // Колонка пуста, а в описании метраж есть — берём оттуда и помечаем,
+      // откуда он взялся, чтобы в замечаниях это было видно.
+      let areaFromText = false;
+      if (kind === "house" && !houseArea) {
+        const guessed = areaInText(description);
+        if (guessed) {
+          houseArea = guessed;
+          areaFromText = true;
+        }
+      }
       items.push({
         kind,
         status: str(value(col.status)),
-        readiness: kind === "house" ? str(value(col.readiness)) : "",
+        readiness: kind === "house" ? readinessOf(value(col.readiness)) : "",
         cadastral,
         village: str(value(col.village)),
         street: str(value(col.street)),
         house: str(value(col.house)),
         plotArea: num(value(col.plotArea)),
-        houseArea: kind === "house" ? num(value(col.houseArea)) : 0,
+        houseArea,
+        areaFromText,
         price: num(value(col.price)),
-        description: str(value(col.description)),
+        description,
         link,
         // Ссылка на карточку тоже приходит гиперссылкой и попадает в фото —
         // убираем её оттуда, иначе страница уедет в каталог как картинка.
@@ -474,7 +607,7 @@ function buildCatalog({
   streetNames = [],
   previous = null,
   photoMode = "all",
-  photoSource = "tilda",
+  photoSource = "both",
   carryIds = false,
   septics = {},
   /** Серия по вариации: «85|кирпич» → «классик». */
@@ -494,6 +627,26 @@ function buildCatalog({
   const prevAny = previous ? previous.bySku : new Map();
   let photosFromPrevious = 0;
 
+  // Кадастровый номер в выгрузке магазина и в выгрузке 1С — одна и та же
+  // строка, но набранная по-разному: лишние пробелы, дефис вместо двоеточия.
+  // При сравнении «как есть» позиция не находится, и фото, добавленные в
+  // Тильде руками, пропадают — без всякого сообщения. Поэтому рядом с точным
+  // ключом держится ключ из одних цифр.
+  const prevByDigits = new Map();
+  for (const [sku, value] of prevAny) {
+    const digits = str(sku).replace(/\D+/g, "");
+    if (digits && !prevByDigits.has(digits)) prevByDigits.set(digits, value);
+  }
+
+  const previousPhotos = (cadastral) => {
+    const exact = prevAny.get(cadastral);
+    const digits = str(cadastral).replace(/\D+/g, "");
+    const found = exact || (digits ? prevByDigits.get(digits) : null);
+    return str((found || {}).photo)
+      .split(/\s+/)
+      .filter(Boolean);
+  };
+
   /**
    * Фото позиции.
    *
@@ -507,9 +660,17 @@ function buildCatalog({
    * переключается: `photoSource: "export"` ставит 1С первым.
    */
   const photosFor = (cadastral, own, fallback = []) => {
-    const carried = str((prevAny.get(cadastral) || {}).photo)
-      .split(/\s+/)
-      .filter(Boolean);
+    const carried = previousPhotos(cadastral);
+    if (photoSource === "both") {
+      // Объединение, а не выбор: в Тильде снимки добавлены руками и в 1С их
+      // нет, а в 1С появились новые — и терять ни те, ни другие нельзя. Если
+      // в новой выгрузке поменялась только цена или готовность, набор фото от
+      // этого остаётся прежним и прирастает тем, что добавилось.
+      const merged = mergePhotos(carried, own);
+      const chosen = merged.length ? merged : fallback;
+      if (carried.length) photosFromPrevious += 1;
+      return photoMode === "first" ? chosen.slice(0, 1) : chosen;
+    }
     const order = photoSource === "export" ? [own, carried, fallback] : [carried, own, fallback];
     const chosen = order.find((list) => list && list.length) || [];
     if (chosen === carried && carried.length) photosFromPrevious += 1;
@@ -587,6 +748,8 @@ function buildCatalog({
 
     if (!item.houseArea) {
       problems.push(`«${village}, ${item.street}, ${item.house}» — в выгрузке не заполнена площадь дома. Категория и SEO получатся неверными.`);
+    } else if (item.areaFromText) {
+      problems.push(`«${village}, ${item.street}, ${item.house}» — колонка с площадью пуста, метраж ${area} м² взят из описания. Проверьте.`);
     }
     if (!item.price) problems.push(`«${village}, ${item.street}, ${item.house}» — нет цены.`);
     if (!parsed.cladding) {
@@ -1203,6 +1366,11 @@ function listVariants(houses = []) {
 module.exports = {
   TILDA_COLUMNS,
   READINESS_ORDER,
+  readinessOf,
+  num,
+  areaInText,
+  mergePhotos,
+  columnIndex,
   SERIES,
   SERIES_LABEL,
   variantKey,

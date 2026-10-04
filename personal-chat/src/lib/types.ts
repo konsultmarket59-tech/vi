@@ -387,10 +387,13 @@ export interface CatalogConfig {
   /** «all» — все фото из выгрузки, «first» — только первое. */
   photoMode: "all" | "first";
   /**
-   * Откуда брать фото при совпадении по кадастровому номеру: «tilda» — из
-   * прошлого каталога магазина (они там уже загружены), «export» — из 1С.
+   * Откуда брать фото при совпадении по кадастровому номеру: «both» — из
+   * обоих источников вместе, без повторов; «tilda» — только из прошлого
+   * каталога магазина (они там уже загружены); «export» — только из 1С.
    */
-  photoSource: "tilda" | "export";
+  photoSource: "both" | "tilda" | "export";
+  /** Источник фото выбран руками — умолчание его больше не меняет. */
+  photoSourceChosen?: boolean;
   /**
    * Переносить ли номера позиций магазина из прошлого каталога. Нужно только
    * при обновлении существующего каталога; при заливке заново старые номера
@@ -847,6 +850,14 @@ export interface DirectColumn {
   explain: string;
 }
 
+/**
+ * Что может лежать в ячейке сводной таблицы.
+ *
+ * Шире, чем «строка или число»: у строки есть служебные признаки — например,
+ * «статистика по этому аккаунту не пришла».
+ */
+export type DirectCellValue = string | number | boolean | null | undefined;
+
 /** Одна кампания в сводной таблице: поля кампании плюс посчитанные показатели. */
 export interface DirectTableRow {
   accountId: string;
@@ -875,7 +886,7 @@ export interface DirectTableRow {
   pageviews: number | null;
   /** Статистика по аккаунту не пришла: числа не нули, а неизвестны. */
   statsFailed?: boolean;
-  [goal: string]: string | number | null | boolean | undefined;
+  [goal: string]: DirectCellValue;
 }
 
 export interface DirectTableTotals {

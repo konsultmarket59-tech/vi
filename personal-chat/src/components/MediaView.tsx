@@ -435,7 +435,7 @@ export default function MediaView({ projects, settings, skills, onOpenSettings }
     setCoverNote("");
     try {
       const r = await window.api.mediaCover({
-        source: shown.item.filePath,
+        source: shown.item.localPath,
         title: coverTitle,
         subtitle: coverSubtitle,
         layout: coverLayout,
