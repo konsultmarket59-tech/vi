@@ -1,3 +1,4 @@
+<section id="vb-hpc-mortgage" data-section-name="Калькулятор семейной ипотеки" aria-labelledby="hpc-title">
 <div class="hp-card">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -933,8 +934,9 @@
       margin: 0;
     }
 
-    .hp-card__btn {
-      font-family: 'Raleway', var(--t-text-font);
+    /* Кнопка CTA — двойной селектор + !important, чтобы глобальные стили платформы не перебивали hover */
+    .hp-card .hp-card__btn {
+      font-family: 'Raleway', var(--t-text-font, sans-serif);
       font-size: 14px;
       font-weight: 700;
       text-transform: uppercase;
@@ -952,14 +954,22 @@
       white-space: nowrap;
     }
 
-    .hp-card__btn:hover {
+    .hp-card .hp-card__btn:visited {
+      color: #301b92 !important;
+      background-color: #ffffff !important;
+      border: 2px solid #301b92 !important;
+    }
+
+    .hp-card .hp-card__btn:hover,
+    .hp-card .hp-card__btn:focus,
+    .hp-card .hp-card__btn:active {
       color: #ffffff !important;
       background-color: #301b92 !important;
       border: 2px solid #ffffff !important;
-      box-shadow: 0px 10px 20px rgba(0,11,48,0.25) !important;
+      box-shadow: 0px 10px 20px rgba(0, 11, 48, 0.25) !important;
     }
 
-    .hp-card__btn .hp-card__icon {
+    .hp-card .hp-card__btn .hp-card__icon {
       width: 18px;
       height: 18px;
     }
@@ -996,7 +1006,7 @@
       .hp-card__panel { padding: 24px 16px; }
       .hp-card__results { grid-template-columns: 1fr; gap: 12px; }
       .hp-card__cta { flex-direction: column; text-align: center; padding: 24px 20px; }
-      .hp-card__btn { width: 100%; justify-content: center; }
+      .hp-card .hp-card__btn { width: 100%; justify-content: center; }
       .hp-card__2col { grid-template-columns: 1fr; }
       .hp-card__strategies { grid-template-columns: 1fr; }
     }
@@ -1020,12 +1030,12 @@
 
   <div class="hp-card__container">
 
-    <h1 class="hp-card__title"> КАЛЬКУЛЯТОР <span class="hp-card__title-accent">СЕМЕЙНОЙ ИПОТЕКИ</span></h1>
+    <h1 class="hp-card__title" id="hpc-title"> КАЛЬКУЛЯТОР <span class="hp-card__title-accent">СЕМЕЙНОЙ ИПОТЕКИ</span></h1>
     <p class="hp-card__subtitle">
-      Новые условия с&nbsp;1&nbsp;октября 2026&nbsp;года для Пермского края. Строительство дома
-      по&nbsp;эскроу&nbsp;— 6% при любом числе детей, покупка готового дома&nbsp;— ставка от&nbsp;2%
-      до&nbsp;10% в&nbsp;зависимости от&nbsp;количества детей. Рассчитайте платёж, переплату,
-      первый взнос с&nbsp;учётом материнского капитала и&nbsp;выгоду от&nbsp;досрочного погашения.
+      Новые условия с&nbsp;1&nbsp;октября 2026&nbsp;года для Пермского края. На&nbsp;строительство дома
+      по&nbsp;эскроу и&nbsp;покупку готового дома с&nbsp;участком ставка&nbsp;— 6% при любом количестве
+      детей, а&nbsp;лимит кредита растёт с&nbsp;числом детей: 6, 8 или 10&nbsp;млн&nbsp;₽. Рассчитайте платёж,
+      переплату, первый взнос с&nbsp;учётом материнского капитала и&nbsp;выгоду от&nbsp;досрочного погашения.
     </p>
 
     <div class="hp-card__grid">
@@ -1048,21 +1058,19 @@
               <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-purpose="build">Строительство по&nbsp;эскроу</button>
               <button type="button" class="hp-card__seg-btn" data-purpose="buy">Покупка готового дома</button>
             </div>
-            <p class="hp-card__hint" id="calcPurposeHint">Ставка 6% сохраняется при любом количестве детей</p>
+            <p class="hp-card__hint" id="calcPurposeHint">Ставка 6% при любом количестве детей — договор подряда с эскроу-счётом</p>
           </div>
 
           <div class="hp-card__field">
             <div class="hp-card__label-row">
-              <span class="hp-card__label">Количество детей до 18 лет</span>
+              <span class="hp-card__label">Количество детей</span>
             </div>
             <div class="hp-card__seg" role="group" aria-label="Количество детей">
               <button type="button" class="hp-card__seg-btn" data-kids="1">1</button>
               <button type="button" class="hp-card__seg-btn hp-card__seg-btn--active" data-kids="2">2</button>
-              <button type="button" class="hp-card__seg-btn" data-kids="3">3</button>
-              <button type="button" class="hp-card__seg-btn" data-kids="4">4</button>
-              <button type="button" class="hp-card__seg-btn" data-kids="5">5+</button>
+              <button type="button" class="hp-card__seg-btn" data-kids="3">3 и более</button>
             </div>
-            <p class="hp-card__hint">Обязательно: хотя бы один ребёнок младше 7 лет на дату договора (или ребёнок с инвалидностью). Условия — для Пермского края</p>
+            <p class="hp-card__hint">С одним ребёнком — ему должно быть меньше 7 лет; с двумя и более — хотя бы одному ребёнку меньше 7 лет. Также семьи с ребёнком-инвалидом. Условия — для Пермского края</p>
           </div>
         </div>
 
@@ -1233,23 +1241,23 @@
             <svg class="hp-card__icon" viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19"></line><circle cx="6.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="17.5" r="2.5"></circle></svg>
             Ставки и лимиты с 1 октября 2026
           </h2>
-          <p style="font-family:'Raleway',sans-serif;font-size:14px;color:var(--mc-text-secondary,#6b6b8d);margin:0 0 20px;" id="calcRatesCaption">Пермский край. Лимит кредита зависит от количества детей.</p>
+          <p style="font-family:'Raleway',sans-serif;font-size:14px;color:var(--mc-text-secondary,#6b6b8d);margin:0 0 20px;" id="calcRatesCaption">Пермский край. На дом ставка 6% для всех семей, от количества детей зависит лимит кредита. Дифференцированные ставки действуют только для квартир. Ставки указаны с учётом страхового дисконта 1% годовых.</p>
 
           <div class="hp-card__table-wrap">
             <table class="hp-card__table hp-card__rates" id="calcRatesTable">
               <thead>
                 <tr>
                   <th>Детей</th>
-                  <th>Покупка готового дома</th>
-                  <th>Стройка по эскроу</th>
+                  <th>Дом: покупка или стройка</th>
+                  <th>Квартира (для сравнения)</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td>1</td><td>10%<small>до 6 млн ₽</small></td><td>6%<small>до 6 млн ₽</small></td></tr>
-                <tr><td>2</td><td>8%<small>до 8 млн ₽</small></td><td class="hp-card__rates-cell--active">6%<small>до 8 млн ₽</small></td></tr>
+                <tr><td>1</td><td>6%<small>до 6 млн ₽</small></td><td>10%<small>до 6 млн ₽</small></td></tr>
+                <tr><td>2</td><td class="hp-card__rates-cell--active">6%<small>до 8 млн ₽</small></td><td>8%<small>до 8 млн ₽</small></td></tr>
                 <tr><td>3</td><td>6%<small>до 10 млн ₽</small></td><td>6%<small>до 10 млн ₽</small></td></tr>
-                <tr><td>4</td><td>4%<small>до 10 млн ₽</small></td><td>6%<small>до 10 млн ₽</small></td></tr>
-                <tr><td>5+</td><td>2%<small>до 10 млн ₽</small></td><td>6%<small>до 10 млн ₽</small></td></tr>
+                <tr><td>4</td><td>6%<small>до 10 млн ₽</small></td><td>4%<small>до 10 млн ₽</small></td></tr>
+                <tr><td>5+</td><td>6%<small>до 10 млн ₽</small></td><td>2%<small>до 10 млн ₽</small></td></tr>
               </tbody>
             </table>
           </div>
@@ -1391,27 +1399,27 @@
 
       <details class="hp-card__faq-item" open>
         <summary>Какая ставка по семейной ипотеке с 1 октября 2026 года в Пермском крае?</summary>
-        <p>На покупку готового жилья ставка зависит от количества детей: 1 ребёнок — 10%, 2 детей — 8%, 3 детей — 6%, 4 детей — 4%, 5 и более детей — 2% годовых. На строительство частного дома по эскроу ставка осталась 6% при любом количестве детей.</p>
+        <p>На строительство дома по эскроу и покупку готового дома с участком у юрлица — первого собственника ставка 6% годовых при любом количестве детей. Дифференцированные ставки применяются только к квартирам: 1 ребёнок — 10%, 2 детей — 8%, 3 детей — 6%, 4 детей — 4%, 5 и более детей — 2% годовых. Ставки указаны с учётом страхового дисконта 1% годовых.</p>
       </details>
 
       <details class="hp-card__faq-item">
-        <summary>Сохранилась ли ставка 6% на строительство дома?</summary>
-        <p>Да. Для строительства индивидуального жилого дома по договору подряда с эскроу-счётом, завершения начатого строительства и покупки участка под строительство дома ставка семейной ипотеки — не выше 6% годовых. Она не зависит от количества детей.</p>
+        <summary>Сохранилась ли ставка 6% на строительство и покупку дома?</summary>
+        <p>Да. Ставка 6% годовых сохранилась для строительства индивидуального жилого дома по договору подряда с эскроу-счётом, строительства на своём или приобретаемом участке и для покупки готового дома с участком у юридического лица — первого собственника. От количества детей зависит только лимит кредита.</p>
       </details>
 
       <details class="hp-card__faq-item">
         <summary>Какую сумму можно взять по семейной ипотеке в Пермском крае?</summary>
-        <p>Лимит льготного кредита зависит от количества детей: 1 ребёнок — до 6 млн ₽, 2 детей — до 8 млн ₽, 3 и более детей — до 10 млн ₽. Первоначальный взнос — от 20,1%, его можно частично оплатить материнским капиталом.</p>
+        <p>Лимит льготного кредита на дом зависит от количества детей: 1 ребёнок — до 6 млн ₽, 2 детей — до 8 млн ₽, 3 и более детей — до 10 млн ₽. Первоначальный взнос — от 20,1%, его можно частично оплатить материнским капиталом.</p>
       </details>
 
       <details class="hp-card__faq-item">
         <summary>Кто может оформить семейную ипотеку с 1 октября 2026 года?</summary>
-        <p>Семьи, в которых на дату кредитного договора хотя бы одному ребёнку не исполнилось 7 лет, а также семьи, воспитывающие ребёнка с инвалидностью.</p>
+        <p>Семьи с одним ребёнком, которому на дату кредитного договора не исполнилось 7 лет, и семьи с двумя и более детьми, если хотя бы одному из них меньше 7 лет. Также программа доступна семьям, воспитывающим ребёнка с инвалидностью.</p>
       </details>
 
       <details class="hp-card__faq-item">
         <summary>Какая семья считается многодетной?</summary>
-        <p>Многодетной считается семья, в которой трое и более детей (Указ Президента РФ от 23.01.2024 № 63). Меры поддержки действуют, пока старшему ребёнку не исполнится 18 лет, а при очном обучении — 23 года. Для выплаты 450 000 ₽ на погашение ипотеки есть отдельное условие: третий или последующий ребёнок родился с 1 января 2019 года по 31 декабря 2030 года. Поэтому в калькуляторе выплата доступна, если указано 3 ребёнка и больше.</p>
+        <p>Многодетной считается семья, в которой трое и более детей (Указ Президента РФ от 23.01.2024 № 63). Меры поддержки действуют, пока старшему ребёнку не исполнится 18 лет, а при очном обучении — 23 года. Для выплаты 450 000 ₽ на погашение ипотеки есть отдельное условие: третий или последующий ребёнок родился с 1 января 2019 года по 31 декабря 2030 года. Поэтому в калькуляторе выплата доступна, если выбрано «3 и более» детей.</p>
       </details>
 
       <details class="hp-card__faq-item">
@@ -1500,9 +1508,11 @@
 <script>
 (function(){
   'use strict';
-
+  function init(){
   var el = function(id){ return document.getElementById(id); };
-  var root = document.querySelector('.hp-card');
+  var section = document.getElementById('vb-hpc-mortgage');
+  var root = section;
+  if(!section) return;
 
   var incH     = el('calcIH');
   var incW     = el('calcIW');
@@ -1543,16 +1553,18 @@
   var prosOut  = el('calcCmpPros');
 
   // Условия «Семейной ипотеки» для договоров с 01.10.2026 (Минфин России, ДОМ.РФ), Пермский край.
-  // Покупка жилья: ставка и лимит зависят от числа детей.
-  // Строительство ИЖС по эскроу / покупка участка под ИЖС: ставка 6% при любом числе детей.
-  var TERMS = {
-    1:{rate:0.10, limit:6000000},
-    2:{rate:0.08, limit:8000000},
-    3:{rate:0.06, limit:10000000},
-    4:{rate:0.04, limit:10000000},
-    5:{rate:0.02, limit:10000000}
-  };
-  var BUILD_RATE = 0.06;
+  // Дом (строительство по эскроу или покупка готового дома с участком у юрлица — первого собственника):
+  // ставка 6% для всех, лимит зависит от количества детей.
+  var HOUSE_RATE = 0.06;
+  var LIMITS = { 1:6000000, 2:8000000, 3:10000000 };
+  // Квартиры — дифференцированные ставки (для сравнения в таблице)
+  var FLAT = [
+    {kids:'1',  rate:0.10, limit:6000000},
+    {kids:'2',  rate:0.08, limit:8000000},
+    {kids:'3',  rate:0.06, limit:10000000},
+    {kids:'4',  rate:0.04, limit:10000000},
+    {kids:'5+', rate:0.02, limit:10000000}
+  ];
   var SUBSIDY_YEARS = 15;
   var MIN_DP = 0.201;
   var LUMP_MONTH = 12;           // разовый взнос — примерно через год после выдачи
@@ -1574,7 +1586,7 @@
 
   function val(e){ return parseFloat(e.value)||0; }
 
-  function kidsLabel(k){ return k>=5 ? '5+ детей' : k===1 ? '1 ребёнок' : k + ' ребёнка'; }
+  function kidsLabel(k){ return k>=3 ? '3 и более детей' : k===1 ? '1 ребёнок' : '2 ребёнка'; }
 
   function years(n){
     var a=n%10, b=n%100;
@@ -1622,8 +1634,7 @@
   }
 
   function terms(){
-    var t = TERMS[state.kids];
-    return { rate: state.purpose==='build' ? BUILD_RATE : t.rate, limit: t.limit, buyRate: t.rate };
+    return { rate: HOUSE_RATE, limit: LIMITS[state.kids] };
   }
 
   // Возврат НДФЛ за первый год: по 13% с 2 млн ₽ на каждого работающего супруга,
@@ -1645,14 +1656,13 @@
 
   function renderRates(){
     var rows = '';
-    for(var k=1;k<=5;k++){
-      var t = TERMS[k], mine = k===state.kids;
-      var buyCls   = (mine && state.purpose==='buy')   ? ' class="hp-card__rates-cell--active"' : '';
-      var buildCls = (mine && state.purpose==='build') ? ' class="hp-card__rates-cell--active"' : '';
-      rows += '<tr><td>' + (k===5?'5+':k) + '</td>'
-        + '<td' + buyCls + '>' + pct(t.rate) + '<small>до ' + mln(t.limit) + '</small></td>'
-        + '<td' + buildCls + '>' + pct(BUILD_RATE) + '<small>до ' + mln(t.limit) + '</small></td></tr>';
-    }
+    FLAT.forEach(function(f, idx){
+      var k = idx+1;
+      var mine = state.kids>=3 ? k>=3 : k===state.kids;
+      rows += '<tr><td>' + f.kids + '</td>'
+        + '<td' + (mine ? ' class="hp-card__rates-cell--active"' : '') + '>' + pct(HOUSE_RATE) + '<small>до ' + mln(LIMITS[Math.min(k,3)]) + '</small></td>'
+        + '<td>' + pct(f.rate) + '<small>до ' + mln(f.limit) + '</small></td></tr>';
+    });
     ratesTbl.tBodies[0].innerHTML = rows;
   }
 
@@ -1733,11 +1743,6 @@
     var sEx = simulate(la, rate, n, ex, 0, 'term');
     var pdnNow = ti>0 ? ((p0+od)/ti)*100 : 0;
 
-    if(state.purpose==='buy' && TERMS[state.kids].rate > BUILD_RATE){
-      var pB = annuity(la, BUILD_RATE, n);
-      tips.push('<li><b>Постройте дом по эскроу вместо покупки готового.</b> Для семьи, где ' + kidsLabel(state.kids) + ', ставка 6% вместо ' + pct(TERMS[state.kids].rate)
-        + ': платёж ниже на ' + fmt(p0 - pB) + ' в месяц.</li>');
-    }
     if(la>0){
       tips.push('<li><b>Гасите досрочно с сокращением срока.</b> Даже ' + fmt(ex) + ' сверх платежа каждый месяц закроют кредит на ' + months(n - sEx.months)
         + ' раньше и сэкономят ' + fmt(base.interest - sEx.interest) + ' процентов. Чем раньше внесена сумма, тем больше экономия.</li>');
@@ -1805,7 +1810,7 @@
     laOut.textContent  = fmt(la);
     cdpOut.textContent = fmt(cdp);
 
-    rateNote.textContent = 'Ставка ' + pct(t.rate) + (state.purpose==='build' ? ' · стройка по эскроу' : ' · ' + kidsLabel(state.kids));
+    rateNote.textContent = 'Ставка ' + pct(t.rate) + (state.purpose==='build' ? ' · стройка по эскроу' : ' · покупка готового дома');
     limNote.textContent  = 'Лимит ' + fmt(t.limit);
 
     if(la>t.limit){
@@ -1822,21 +1827,17 @@
       laOut.style.color='';
     }
 
-    // Сравнение стройки по эскроу и покупки готового дома
-    if(t.buyRate > BUILD_RATE){
-      var mpBuild = annuity(la, BUILD_RATE, ty*12);
-      var mpBuy   = annuity(la, t.buyRate, ty*12);
-      cmpText.innerHTML = state.purpose==='build'
-        ? '<strong>Стройка по эскроу выгоднее покупки на ' + fmt(mpBuy - mpBuild) + ' в месяц.</strong>'
-          + 'Готовый дом для семьи, где ' + kidsLabel(state.kids) + ', — под ' + pct(t.buyRate) + ', платёж был бы ' + fmt(mpBuy) + '.'
-        : '<strong>Строительство по эскроу сэкономит ' + fmt(mpBuy - mpBuild) + ' в месяц.</strong>'
-          + 'По эскроу ставка 6% при любом числе детей: платёж ' + fmt(mpBuild) + ' вместо ' + fmt(mpBuy) + '.';
-    } else if(t.buyRate < BUILD_RATE){
-      cmpText.innerHTML = '<strong>Для вашей семьи покупка готового дома дешевле по ставке.</strong>'
-        + 'При покупке — ' + pct(t.buyRate) + ', при строительстве по эскроу — 6%.';
+    // Дом против квартиры: на дом 6% для всех, на квартиру ставка зависит от количества детей
+    var flatRate = FLAT[state.kids-1].rate;
+    if(state.kids<=2){
+      var mpFlat = annuity(la, flatRate, ty*12);
+      cmpText.innerHTML = '<strong>Дом выгоднее квартиры на ' + fmt(mpFlat - mp) + ' в месяц.</strong>'
+        + 'Для семьи, где ' + kidsLabel(state.kids) + ', квартира — под ' + pct(flatRate) + ', платёж был бы ' + fmt(mpFlat) + '. На дом ставка 6% при любом количестве детей.';
     } else {
-      cmpText.innerHTML = '<strong>Ставка одинаковая — 6%.</strong>'
-        + 'Для семьи, где ' + kidsLabel(state.kids) + ', ставка на покупку и на стройку по эскроу совпадает.';
+      cmpText.innerHTML = '<strong>Ставка на дом — 6%, лимит — до 10 млн ₽.</strong>'
+        + 'Для семей с тремя и более детьми действует максимальный лимит кредита. ' + (state.purpose==='build'
+          ? 'Строительство — по договору подряда с эскроу-счётом.'
+          : 'Готовый дом с участком — у юрлица, первого собственника.');
     }
 
     subsHint.style.color = ty>SUBSIDY_YEARS ? '#d97706' : '';
@@ -1900,8 +1901,8 @@
     state.purpose = v;
     syncLargeFamily();
     purpHint.textContent = v==='build'
-      ? 'Ставка 6% сохраняется при любом количестве детей'
-      : 'Ставка от 2% до 10% — зависит от количества детей';
+      ? 'Ставка 6% при любом количестве детей — договор подряда с эскроу-счётом'
+      : 'Ставка 6% при любом количестве детей — дом с участком у юрлица, первого собственника';
   });
   bindSeg('data-kids', function(v){ state.kids = parseInt(v,10); syncLargeFamily(); });
 
@@ -1959,6 +1960,12 @@
 
   syncLargeFamily();
   calc();
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
 </script>
 <script type="application/ld+json">
@@ -1969,7 +1976,7 @@
       "@type": "WebApplication",
       "@id": "#calculator",
       "name": "Калькулятор семейной ипотеки в Пермском крае",
-      "description": "Расчёт ежемесячного платежа, переплаты и досрочного погашения по семейной ипотеке с 1 октября 2026 года: ставка 6% на строительство дома по эскроу и от 2% до 10% на покупку готового жилья в зависимости от количества детей.",
+      "description": "Расчёт ежемесячного платежа, переплаты и досрочного погашения по семейной ипотеке на дом с 1 октября 2026 года: ставка 6% на строительство дома по эскроу и покупку готового дома с участком при любом количестве детей, лимит кредита 6, 8 или 10 млн ₽ в зависимости от числа детей.",
       "applicationCategory": "FinanceApplication",
       "operatingSystem": "Any",
       "browserRequirements": "Requires JavaScript",
@@ -1984,10 +1991,10 @@
         "@type": "AdministrativeArea",
         "name": "Пермский край"
       },
-      "dateModified": "2026-10-02",
+      "dateModified": "2026-10-06",
       "featureList": [
-        "Ставка и лимит семейной ипотеки по количеству детей",
-        "Сравнение строительства по эскроу и покупки готового дома",
+        "Ставка 6% на строительство дома по эскроу и покупку готового дома",
+        "Лимит кредита по количеству детей и сравнение ставки на дом и на квартиру",
         "Учёт материнского капитала в первоначальном взносе",
         "Оценка показателя долговой нагрузки (ПДН)",
         "Сравнение срока 15 и 30 лет",
@@ -2018,15 +2025,15 @@
           "name": "Какая ставка по семейной ипотеке с 1 октября 2026 года в Пермском крае?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "На покупку готового жилья ставка зависит от количества детей: 1 ребёнок — 10%, 2 детей — 8%, 3 детей — 6%, 4 детей — 4%, 5 и более детей — 2% годовых. На строительство частного дома по эскроу ставка осталась 6% при любом количестве детей."
+            "text": "На строительство дома по эскроу и покупку готового дома с участком у юрлица — первого собственника ставка 6% годовых при любом количестве детей. Дифференцированные ставки применяются только к квартирам: 1 ребёнок — 10%, 2 детей — 8%, 3 детей — 6%, 4 детей — 4%, 5 и более детей — 2% годовых. Ставки указаны с учётом страхового дисконта 1% годовых."
           }
         },
         {
           "@type": "Question",
-          "name": "Сохранилась ли ставка 6% на строительство дома?",
+          "name": "Сохранилась ли ставка 6% на строительство и покупку дома?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Да. Для строительства индивидуального жилого дома по договору подряда с эскроу-счётом, завершения начатого строительства и покупки участка под строительство дома ставка семейной ипотеки — не выше 6% годовых. Она не зависит от количества детей."
+            "text": "Да. Ставка 6% годовых сохранилась для строительства индивидуального жилого дома по договору подряда с эскроу-счётом, строительства на своём или приобретаемом участке и для покупки готового дома с участком у юридического лица — первого собственника. От количества детей зависит только лимит кредита."
           }
         },
         {
@@ -2034,7 +2041,7 @@
           "name": "Какую сумму можно взять по семейной ипотеке в Пермском крае?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Лимит льготного кредита зависит от количества детей: 1 ребёнок — до 6 млн ₽, 2 детей — до 8 млн ₽, 3 и более детей — до 10 млн ₽. Первоначальный взнос — от 20,1%, его можно частично оплатить материнским капиталом."
+            "text": "Лимит льготного кредита на дом зависит от количества детей: 1 ребёнок — до 6 млн ₽, 2 детей — до 8 млн ₽, 3 и более детей — до 10 млн ₽. Первоначальный взнос — от 20,1%, его можно частично оплатить материнским капиталом."
           }
         },
         {
@@ -2042,7 +2049,7 @@
           "name": "Кто может оформить семейную ипотеку с 1 октября 2026 года?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Семьи, в которых на дату кредитного договора хотя бы одному ребёнку не исполнилось 7 лет, а также семьи, воспитывающие ребёнка с инвалидностью."
+            "text": "Семьи с одним ребёнком, которому на дату кредитного договора не исполнилось 7 лет, и семьи с двумя и более детьми, если хотя бы одному из них меньше 7 лет. Также программа доступна семьям, воспитывающим ребёнка с инвалидностью."
           }
         },
         {
@@ -2050,7 +2057,7 @@
           "name": "Какая семья считается многодетной?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Многодетной считается семья, в которой трое и более детей (Указ Президента РФ от 23.01.2024 № 63). Меры поддержки действуют, пока старшему ребёнку не исполнится 18 лет, а при очном обучении — 23 года. Для выплаты 450 000 ₽ на погашение ипотеки есть отдельное условие: третий или последующий ребёнок родился с 1 января 2019 года по 31 декабря 2030 года. Поэтому в калькуляторе выплата доступна, если указано 3 ребёнка и больше."
+            "text": "Многодетной считается семья, в которой трое и более детей (Указ Президента РФ от 23.01.2024 № 63). Меры поддержки действуют, пока старшему ребёнку не исполнится 18 лет, а при очном обучении — 23 года. Для выплаты 450 000 ₽ на погашение ипотеки есть отдельное условие: третий или последующий ребёнок родился с 1 января 2019 года по 31 декабря 2030 года. Поэтому в калькуляторе выплата доступна, если выбрано «3 и более» детей."
           }
         },
         {
@@ -2121,3 +2128,4 @@
     }
 }
 </style>
+</section>
