@@ -106,6 +106,10 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
   // Бизнес-план словами: из него агент берёт объёмы, сроки выхода продуктов и
   // уже сделанные допущения — и говорит, если план расходится с полями.
   const [planPaths, setPlanPaths] = useState<string[]>([]);
+  // Чего в бизнес-плане не нашлось. Это не предупреждение «на всякий случай»:
+  // пустое поле в модели выглядит как ноль, а ноль в расходах делает проект
+  // прибыльнее, чем он есть.
+  const [planMissing, setPlanMissing] = useState("");
   const [outputDir, setOutputDir] = useState("");
 
   const [mode, setMode] = useState<AgentMode | null>(null);
@@ -255,12 +259,100 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
       return;
     }
     const took: string[] = [];
+
+    // Модель целиком из бизнес-плана. Когда план приложен, вписывать данные
+    // руками незачем: они в плане уже написаны. Поэтому агент возвращает всю
+    // модель, а приложение заполняет форму ею. Чего в плане не было — не
+    // заполняется ничем: список пропущенного показывается отдельно.
+    const plan = parsed.plan;
+    if (plan) {
+      if (plan.projectName) {
+        setProjectName(plan.projectName);
+        took.push(`название «${plan.projectName}»`);
+      }
+      if (plan.startMonth && plan.startYear) {
+        setStartMonth(String(plan.startMonth));
+        setStartYear(String(plan.startYear));
+        took.push(`старт ${MONTHS_SHORT[plan.startMonth - 1]} ${plan.startYear}`);
+      }
+      if (plan.horizonYears) {
+        setHorizonYears(String(plan.horizonYears));
+        took.push(`горизонт ${plan.horizonYears}`);
+      }
+      if (plan.regime) {
+        setRegime(plan.regime);
+        took.push(`режим ${regimes.find((r) => r.id === plan.regime)?.name || plan.regime}`);
+      }
+      if (plan.products.length) {
+        setProducts(
+          plan.products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price ? String(p.price) : "",
+            unitCost: p.unitCost ? String(p.unitCost) : "",
+            baseVolume: p.baseVolume ? String(p.baseVolume) : "",
+            launchMonth: String(p.launchMonth + 1),
+            notes: p.notes,
+            market: p.market,
+            dataPaths: [],
+          }))
+        );
+        took.push(`продуктов ${plan.products.length}`);
+      }
+      if (plan.payroll.length) {
+        setPayroll(
+          plan.payroll.map((p) => ({
+            role: p.role,
+            count: p.count ? String(p.count) : "",
+            salary: p.salary ? String(p.salary) : "",
+            percentOfSales: p.percentOfSales ? String(p.percentOfSales) : "",
+          }))
+        );
+        took.push(`штат (${plan.payroll.length})`);
+      }
+      if (plan.fixedCosts.length) {
+        setFixedCosts(plan.fixedCosts.map((c) => ({ name: c.name, monthly: c.monthly ? String(c.monthly) : "" })));
+        took.push(`постоянные расходы (${plan.fixedCosts.length})`);
+      }
+      if (plan.variableCosts.length) {
+        setVariableCosts(
+          plan.variableCosts.map((c) => ({ name: c.name, kind: c.kind, value: c.value ? String(c.value) : "" }))
+        );
+        took.push(`переменные расходы (${plan.variableCosts.length})`);
+      }
+      if (plan.investments.length) {
+        setInvestments(plan.investments.map((c) => ({ name: c.name, amount: c.amount ? String(c.amount) : "" })));
+        took.push(`вложения (${plan.investments.length})`);
+      }
+      if (plan.loans.length) {
+        setLoans(
+          plan.loans.map((l) => ({
+            name: l.name,
+            amount: l.amount ? String(l.amount) : "",
+            // Ставка в ответе агента — в процентах, как её называет банк;
+            // форма тоже держит проценты и делит их уже перед расчётом.
+            rate: l.rate ? String(l.rate) : "",
+            termMonths: String(l.termMonths),
+            startMonth: String(l.startMonth),
+            graceMonths: String(l.graceMonths),
+            kind: l.kind,
+          }))
+        );
+        took.push(`заёмные деньги (${plan.loans.length})`);
+      }
+      setPlanMissing(plan.missing || "");
+    } else {
+      setPlanMissing("");
+    }
+
     // Объёмы по продуктам, если агент их дал по отдельности. Общий базовый
     // объём кладём единственному продукту: распределять его между несколькими
     // приложение не станет — это была бы выдумка за человека.
     const byProduct = parsed.productVolumes || {};
     const named = Object.keys(byProduct).filter((id) => products.some((p) => p.id === id));
-    if (named.length) {
+    if (plan && plan.products.length) {
+      // Объёмы уже пришли строками ПРОДУКТ — второй раз их подставлять нечего.
+    } else if (named.length) {
       setProducts((prev) =>
         prev.map((p) =>
           byProduct[p.id] ? { ...p, baseVolume: String(Math.round(byProduct[p.id])) } : p
@@ -297,7 +389,9 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
     setSources({ inflation: parsed.sources.inflation, minWage: parsed.sources.minWage });
     setApplied(
       took.length
-        ? `Подставлено в форму: ${took.join(", ")}. ${parsed.comment || ""}`.trim()
+        ? `${plan ? "Заполнено по бизнес-плану" : "Подставлено в форму"}: ${took.join(", ")}. ${
+            parsed.comment || ""
+          }`.trim()
         : "Агент прислал блок, но полезных чисел в нём не оказалось."
     );
   }
@@ -808,9 +902,20 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
               ))}
             </div>
             <p className="fin-hint">
-              Бизнес-план читается словами: агент берёт из него объёмы, цены, сроки выхода продуктов,
-              каналы продаж и уже сделанные допущения. Если план расходится с тем, что введено в поля,
-              он скажет об этом прямо, а не подменит ваши числа молча.
+              {planPaths.length ? (
+                <>
+                  <b>Данные вписывать не нужно.</b> Нажмите «Разобрать бизнес-план» — агент вынет из
+                  него всю модель: продукты с ценами и сроками выхода, сезонность, штат, расходы,
+                  вложения, заём, режим и горизонт, — и заполнит форму. Чего в плане не было, он
+                  перечислит отдельно, а не подставит похожее число. Всё заполненное остаётся
+                  обычными полями: можно поправить руками перед расчётом.
+                </>
+              ) : (
+                <>
+                  Если приложить бизнес-план, данные по продуктам, сезонности и расходам вписывать не
+                  придётся — агент возьмёт их из плана. Без плана заполняете поля сами.
+                </>
+              )}
             </p>
 
             <div className="fin-files">
@@ -838,13 +943,23 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
 
           <div className="fin-actions">
             <button className="btn btn-secondary" onClick={askParams} disabled={busy}>
-              Собрать допущения агентом
+              {planPaths.length ? "Разобрать бизнес-план" : "Собрать допущения агентом"}
             </button>
             <button className="btn" onClick={calculate} disabled={busy}>
               Рассчитать
             </button>
           </div>
           {applied && <div className="fin-applied">{applied}</div>}
+          {planMissing && (
+            <div className="fin-missing">
+              <b>В бизнес-плане не нашлось:</b> {planMissing}
+              <p className="fin-hint">
+                Эти поля остались незаполненными намеренно — ни агент, ни приложение не подставляют
+                правдоподобное число на место неизвестного. Впишите их сами: пустой расход модель
+                считает нулём, а нулевой расход делает проект прибыльнее, чем он есть.
+              </p>
+            </div>
+          )}
           {error && <div className="fin-error">{error}</div>}
         </div>
 

@@ -2486,17 +2486,46 @@ const money = (v) =>
 function buildParamsPrompt({ input, dataPaths = [], searchRates = true, planPaths = [] }) {
   const horizon = input.horizonYears * 12;
   const many = input.products.length > 1;
-  const lines = [
-    "Ты аналитик. Тебе нужно подготовить исходные допущения для финансовой модели.",
-    "",
-    `Проект: ${input.projectName}`,
-    `Горизонт: ${yearsWord(input.horizonYears)}, старт — ${MONTHS[input.startMonth - 1]} ${input.startYear}.`,
-    "",
-    many
-      ? `ПРОДУКТЫ (${input.products.length}). У каждого своя цена, свой объём и свой месяц запуска:`
-      : "ПРОДУКТ:",
-  ];
-  for (const product of input.products) {
+  // Бизнес-план меняет саму задачу. Без плана человек вписывает данные сам, а
+  // агент достаёт из статистики только кривую спроса. С планом вписывать нечего:
+  // всё это в плане уже написано, и работа агента — вынуть оттуда ВСЮ модель.
+  const fromPlan = planPaths.length > 0;
+  const filled = input.products.some((p2) => p2.price || p2.baseVolume);
+
+  const lines = fromPlan
+    ? [
+        "Ты аналитик. У тебя есть БИЗНЕС-ПЛАН проекта, и из него нужно вынуть все исходные",
+        "данные финансовой модели — так, чтобы человеку не приходилось вписывать их руками.",
+        "",
+        "Правила, от которых зависит годность модели:",
+        "- Бери числа ИЗ ПЛАНА. План — источник, а не повод для оценки по рынку.",
+        "- Чего в плане нет — НЕ ВЫДУМЫВАЙ и не ставь «по рынку». Пропусти поле и перечисли",
+        "  всё пропущенное в строке НЕ НАЙДЕНО. Приложение покажет этот список человеку, и он",
+        "  впишет сам. Правдоподобное число на месте неизвестного — худшее, что здесь можно",
+        "  сделать: модель станет негодной, а выглядеть будет посчитанной.",
+        "- Если в плане числа противоречат друг другу (выручка не бьётся с ценой на объём,",
+        "  итог не равен сумме статей) — назови расхождение прямо и скажи, какое число взял.",
+        "- Расходы разложи по статьям так, как они в плане названы, а не одной строкой.",
+      ]
+    : [
+        "Ты аналитик. Тебе нужно подготовить исходные допущения для финансовой модели.",
+      ];
+
+  if (!fromPlan || filled) {
+    lines.push(
+      "",
+      ...(fromPlan
+        ? ["Человек уже что-то ввёл в форму. Это ориентир, не истина: верь плану, а о расхождении скажи."]
+        : []),
+      `Проект: ${input.projectName}`,
+      `Горизонт: ${yearsWord(input.horizonYears)}, старт — ${MONTHS[input.startMonth - 1]} ${input.startYear}.`,
+      "",
+      many
+        ? `ПРОДУКТЫ (${input.products.length}). У каждого своя цена, свой объём и свой месяц запуска:`
+        : "ПРОДУКТ:"
+    );
+  }
+  if (!fromPlan || filled) for (const product of input.products) {
     const launch = product.launchMonth
       ? `запуск через ${product.launchMonth} мес. от старта (${monthLabelAt(input, product.launchMonth)})`
       : "запуск вместе с проектом";
@@ -2517,16 +2546,16 @@ function buildParamsPrompt({ input, dataPaths = [], searchRates = true, planPath
   }
   if (input.notes) lines.push("", "Особенности бизнес-модели, как их описал человек:", input.notes);
 
-  if (planPaths.length) {
+  if (fromPlan) {
     lines.push(
       "",
       "БИЗНЕС-ПЛАН. Прочитай эти файлы инструментом чтения файлов — это план проекта словами:",
       ...planPaths.map((p2) => `  ${p2}`),
       "",
-      "Из плана бери то, что в нём есть: объёмы, цены, сроки выхода продуктов, каналы продаж,",
-      "расходы, уже сделанные допущения и их обоснование. Если план расходится с тем, что",
-      "введено в поля, — скажи об этом прямо и назови, какое из двух чисел считаешь верным",
-      "и почему. Не подменяй введённое человеком молча."
+      "Вынь из него: название проекта, дату старта и горизонт, систему налогообложения,",
+      "продукты (у каждого — цена, себестоимость, объём в месяц, месяц выхода, описание, рынок),",
+      "сезонность, скорость выхода на мощность, штат с окладами, постоянные и переменные расходы,",
+      "вложения и заёмные деньги с условиями."
     );
   }
 
@@ -2542,11 +2571,19 @@ function buildParamsPrompt({ input, dataPaths = [], searchRates = true, planPath
       "продаж из Вордстата не берётся — его задаёт человек базовым объёмом, а ты можешь",
       "предложить свою оценку и объяснить, из чего она вышла."
     );
-  } else {
+  } else if (!fromPlan) {
     lines.push(
       "",
       "Файлов со статистикой нет. Опирайся на отраслевые ориентиры и прямо скажи,",
       "что это оценка, а не расчёт по данным."
+    );
+  } else {
+    // С планом «опирайся на отраслевые ориентиры» звучало бы прямо против
+    // главного правила: чего в плане нет — не выдумывать.
+    lines.push(
+      "",
+      "Отдельной статистики нет — и подменять ею план не нужно. Сезонность и скорость выхода",
+      "на мощность бери из плана; если их там нет, так и скажи в НЕ НАЙДЕНО."
     );
   }
 
@@ -2566,24 +2603,55 @@ function buildParamsPrompt({ input, dataPaths = [], searchRates = true, planPath
     "",
     "ОТВЕТ. Сначала коротко объясни, из чего вышли числа. Затем — блок ровно в таком виде:",
     "",
-    "===ФИНМОДЕЛЬ ДАННЫЕ===",
-    "БАЗОВЫЙ ОБЪЁМ: <число единиц в месяц при полной мощности в средний сезон — всего по проекту>",
-    ...(many
-      ? input.products.map(
-          (p2) => `ОБЪЁМ ${p2.name.toUpperCase()}: <единиц в месяц при полной мощности именно этого продукта>`
-        )
-      : []),
+    "===ФИНМОДЕЛЬ ДАННЫЕ==="
+  );
+
+  if (fromPlan) {
+    lines.push(
+      "ПРОЕКТ: <название из плана>",
+      "СТАРТ: <ММ.ГГГГ — месяц и год начала>",
+      "ГОРИЗОНТ: <на сколько лет считать>",
+      `РЕЖИМ: <один из: ${TAX_REGIMES.map((r) => r.id).join(", ")}>`,
+      "ПРОДУКТ: <название> | <цена за единицу> | <себестоимость единицы> | <единиц в месяц на мощности> | <месяц выхода, считая с 1> | <описание> | <что известно про рынок>",
+      "ПРОДУКТ: <…столько строк, сколько продуктов в плане>",
+      "ФОТ: <должность> | <сколько человек> | <оклад в месяц> | <процент от продаж>",
+      "ПОСТОЯННЫЕ: <статья расхода> | <сумма в месяц>",
+      `ПЕРЕМЕННЫЕ: <статья> | <${COST_KINDS.map((k) => k.id).join("|")}> | <значение: сумма, сумма на единицу или процент>`,
+      "ИНВЕСТИЦИИ: <статья вложений> | <сумма>",
+      "ЗАЁМ: <название> | <сумма> | <ставка в процентах> | <срок в месяцах> | <месяц получения, 0 — к старту> | <каникулы, мес> | <annuity или equal>"
+    );
+  } else {
+    lines.push(
+      "БАЗОВЫЙ ОБЪЁМ: <число единиц в месяц при полной мощности в средний сезон — всего по проекту>",
+      ...(many
+        ? input.products.map(
+            (p2) => `ОБЪЁМ ${p2.name.toUpperCase()}: <единиц в месяц при полной мощности именно этого продукта>`
+          )
+        : [])
+    );
+  }
+
+  lines.push(
     "СЕЗОННОСТЬ: <12 чисел через запятую, январь…декабрь, среднее около 1>",
-    `РАСКРУТКА: <${horizon} чисел через запятую — доля от базового объёма по месяцам проекта>`,
-    `ИНФЛЯЦИЯ: <${input.horizonYears} чисел через запятую в процентах, первый год базовый>`,
+    fromPlan
+      ? "РАСКРУТКА: <доля от базового объёма по месяцам проекта, через запятую: столько чисел, сколько месяцев раскрутка длится>"
+      : `РАСКРУТКА: <${horizon} чисел через запятую — доля от базового объёма по месяцам проекта>`,
+    fromPlan
+      ? "ИНФЛЯЦИЯ: <по одному числу в процентах на каждый год горизонта, первый год базовый>"
+      : `ИНФЛЯЦИЯ: <${input.horizonYears} чисел через запятую в процентах, первый год базовый>`,
     "МРОТ: <число или пусто>",
     "ИСТОЧНИК ИНФЛЯЦИИ: <откуда взято>",
     "ИСТОЧНИК МРОТ: <откуда взято>",
+    ...(fromPlan
+      ? ["НЕ НАЙДЕНО: <перечисли через запятую всё, чего в плане не было и что человек должен вписать сам; если всё нашлось — пусто>"]
+      : []),
     "КОММЕНТАРИЙ: <одной строкой: на чём основаны допущения>",
     "===КОНЕЦ===",
     "",
-    "Чисел в списках должно быть ровно столько, сколько запрошено. Разделитель — запятая,",
-    "дробная часть — через точку. Без markdown внутри блока."
+    "Разделитель колонок в строках — знак «|», разделитель чисел в списках — запятая,",
+    "дробная часть — через точку. Строк ПРОДУКТ, ФОТ, ПОСТОЯННЫЕ, ПЕРЕМЕННЫЕ, ИНВЕСТИЦИИ и",
+    "ЗАЁМ может быть сколько нужно, каждая с новой строки. Поле, которого в плане нет,",
+    "оставляй пустым, а не заполняй похожим числом. Без markdown внутри блока."
   );
   return lines.join("\n");
 }
@@ -2621,6 +2689,115 @@ function monthLabelAt(input, offset) {
   return `${MONTHS[total % 12]} ${input.startYear + Math.floor(total / 12)}`;
 }
 
+/**
+ * Полная модель, вынутая из бизнес-плана.
+ *
+ * Когда бизнес-план есть, вписывать данные руками незачем: они в плане уже
+ * написаны. Поэтому агент возвращает не только кривую спроса, а ВСЕ исходные
+ * модели — продукты, расходы, штат, вложения, режим, сроки, — и приложение
+ * заполняет форму ими.
+ *
+ * Возвращается null, если в ответе нет ни одной строки «из плана»: тогда это
+ * обычный ответ про допущения, и форму трогать не нужно.
+ *
+ * Чего в плане нет — не выдумывается ни агентом (ему это запрещено заданием),
+ * ни приложением: такие поля просто не заполняются, а их список приходит
+ * строкой «НЕ НАЙДЕНО» и показывается человеку.
+ */
+function parsePlan({ field, rows, number }) {
+  const productRows = rows("ПРОДУКТ");
+  const payrollRows = rows("ФОТ");
+  const fixedRows = rows("ПОСТОЯННЫЕ");
+  const variableRows = rows("ПЕРЕМЕННЫЕ");
+  const investRows = rows("ИНВЕСТИЦИИ");
+  const loanRows = rows("ЗАЁМ");
+  const projectName = field("ПРОЕКТ");
+  const start = field("СТАРТ");
+  const horizonYears = number(field("ГОРИЗОНТ"));
+  const regime = field("РЕЖИМ").toLowerCase();
+
+  const anything =
+    productRows.length ||
+    payrollRows.length ||
+    fixedRows.length ||
+    variableRows.length ||
+    investRows.length ||
+    loanRows.length ||
+    projectName ||
+    start ||
+    (Number.isFinite(horizonYears) && horizonYears > 0) ||
+    regime;
+  if (!anything) return null;
+
+  // «04.2026», «4.2026», «апрель 2026» — как напишет агент, читая план.
+  let startMonth = 0;
+  let startYear = 0;
+  const digits = /^(\d{1,2})[./-](\d{4})$/.exec(start);
+  if (digits) {
+    startMonth = Number(digits[1]);
+    startYear = Number(digits[2]);
+  } else {
+    const words = /^([А-Яа-яЁё]+)\s+(\d{4})$/.exec(start);
+    if (words) {
+      const idx = MONTHS.findIndex((m2) => m2.startsWith(words[1].toLowerCase().slice(0, 3)));
+      if (idx >= 0) {
+        startMonth = idx + 1;
+        startYear = Number(words[2]);
+      }
+    }
+  }
+
+  const positive = (value) => (Number.isFinite(value) && value > 0 ? value : 0);
+
+  return {
+    projectName,
+    startMonth: startMonth >= 1 && startMonth <= 12 ? startMonth : 0,
+    startYear: startYear >= 2000 && startYear <= 2100 ? startYear : 0,
+    horizonYears: Number.isFinite(horizonYears) && horizonYears >= 1 ? Math.round(horizonYears) : 0,
+    regime: TAX_REGIMES.some((r) => r.id === regime) ? regime : "",
+    // Продукт: имя | цена | себестоимость | объём | месяц запуска.
+    products: productRows.map((cells, i) => ({
+      id: `plan${i + 1}`,
+      name: cells[0] || `Продукт ${i + 1}`,
+      price: positive(number(cells[1])),
+      unitCost: positive(number(cells[2])),
+      baseVolume: positive(number(cells[3])),
+      // В ответе месяц считается с единицы, как его читает человек.
+      launchMonth: Math.max(0, (positive(number(cells[4])) || 1) - 1),
+      notes: cells[5] || "",
+      market: cells[6] || "",
+      dataPaths: [],
+    })),
+    // ФОТ: должность | человек | оклад | % от продаж.
+    payroll: payrollRows.map((cells) => ({
+      role: cells[0] || "",
+      count: positive(number(cells[1])),
+      salary: positive(number(cells[2])),
+      percentOfSales: positive(number(cells[3])),
+    })),
+    fixedCosts: fixedRows.map((cells) => ({ name: cells[0] || "", monthly: positive(number(cells[1])) })),
+    // Переменные: название | month|unit|revenue | значение.
+    variableCosts: variableRows.map((cells) => ({
+      name: cells[0] || "",
+      kind: COST_KINDS.some((k) => k.id === cells[1]) ? cells[1] : "month",
+      value: positive(number(cells[2])),
+    })),
+    investments: investRows.map((cells) => ({ name: cells[0] || "", amount: positive(number(cells[1])) })),
+    // Заём: название | сумма | ставка % | срок мес | месяц получения | каникулы | вид.
+    loans: loanRows.map((cells) => ({
+      name: cells[0] || "",
+      amount: positive(number(cells[1])),
+      rate: positive(number(cells[2])),
+      termMonths: Math.max(1, Math.round(positive(number(cells[3])) || 12)),
+      startMonth: Math.max(0, Math.round(positive(number(cells[4])))),
+      graceMonths: Math.max(0, Math.round(positive(number(cells[5])))),
+      kind: LOAN_KINDS.some((k) => k.id === cells[6]) ? cells[6] : "annuity",
+    })),
+    // Чего в плане не нашлось — словами, как написал агент.
+    missing: field("НЕ НАЙДЕНО"),
+  };
+}
+
 function parseParams(text, input) {
   const body = String(text || "");
   const m = /===ФИНМОДЕЛЬ ДАННЫЕ===([\s\S]*?)===КОНЕЦ===/i.exec(body);
@@ -2631,12 +2808,29 @@ function parseParams(text, input) {
     const found = re.exec(block);
     return found ? found[1].trim() : "";
   };
+  // Строки, которых в ответе может быть много: продукты, должности, статьи
+  // расходов. Одно поле здесь не годится — вторая строка потерялась бы молча.
+  const rows = (name) => {
+    const re = new RegExp(`^${name}:[^\\S\\r\\n]*(.*)$`, "gim");
+    const out = [];
+    let found;
+    while ((found = re.exec(block))) {
+      const cells = found[1].split("|").map((c) => c.trim());
+      if (cells.some(Boolean)) out.push(cells);
+    }
+    return out;
+  };
 
-  const horizon = input.horizonYears * 12;
+  const number = (text) => Number(String(text).replace(/[\s\u00a0]/g, "").replace(",", "."));
+  const plan = parsePlan({ field, rows, number });
+  // Длина списков считается по горизонту ИЗ ПЛАНА, если план его назвал: иначе
+  // сезонность и раскрутка подгонялись бы под горизонт, который человек не
+  // вводил и который сейчас заменится.
+  const horizonYears = plan && plan.horizonYears ? plan.horizonYears : input.horizonYears;
+  const horizon = horizonYears * 12;
   const seasonality = parseNumberList(field("СЕЗОННОСТЬ"), 12);
   const rampUp = parseNumberList(field("РАСКРУТКА"), horizon);
-  const inflationPct = parseNumberList(field("ИНФЛЯЦИЯ"), input.horizonYears);
-  const number = (text) => Number(String(text).replace(/[\s\u00a0]/g, "").replace(",", "."));
+  const inflationPct = parseNumberList(field("ИНФЛЯЦИЯ"), horizonYears);
   const baseVolume = number(field("БАЗОВЫЙ ОБЪЁМ"));
   const minWage = number(field("МРОТ"));
 
@@ -2652,6 +2846,7 @@ function parseParams(text, input) {
   return {
     baseVolume: Number.isFinite(baseVolume) && baseVolume > 0 ? baseVolume : null,
     productVolumes,
+    plan,
     seasonality,
     rampUp,
     // Проценты приходят как «4» или «4.5», а расчёту нужна доля.

@@ -650,6 +650,114 @@ function promptChecks() {
   check("источник сохранён", parsed.sources.inflation.includes("Банк России"), parsed.sources.inflation);
   check("мусор вместо блока не разбирается", fm.parseParams("просто текст", input) === null);
 
+  console.log("\nрасчёт по бизнес-плану");
+  // С бизнес-планом вписывать данные руками незачем: они в плане уже написаны.
+  // Поэтому задание меняется — агент вынимает из плана ВСЮ модель.
+  const planPrompt = fm.buildParamsPrompt({ input, planPaths: ["/дом/бизнес-план.docx"], searchRates: false });
+  check("задание по плану названо планом", planPrompt.includes("бизнес-план.docx"));
+  check("агента просят вынуть всю модель, а не только спрос",
+    planPrompt.includes("ПРОДУКТ:") && planPrompt.includes("ФОТ:") && planPrompt.includes("ИНВЕСТИЦИИ:") &&
+      planPrompt.includes("ЗАЁМ:"), "");
+  check("выдумывать пропущенное запрещено прямо",
+    /НЕ ВЫДУМЫВАЙ/.test(planPrompt) && planPrompt.includes("НЕ НАЙДЕНО"), "");
+  // Главная ловушка: с планом «опирайся на отраслевые ориентиры» звучало бы
+  // ровно против запрета выдумывать.
+  check("ориентиры по отрасли в режиме плана не предлагаются",
+    !/отраслевые ориентиры/.test(planPrompt), "");
+  check("без плана задание остаётся прежним",
+    /отраслевые ориентиры/.test(fm.buildParamsPrompt({ input, searchRates: false })), "");
+
+  const PLAN_REPLY = `Разобрал план, раздел 4.
+
+===ФИНМОДЕЛЬ ДАННЫЕ===
+ПРОЕКТ: Болдино LIFE
+СТАРТ: 04.2026
+ГОРИЗОНТ: 3
+РЕЖИМ: usn15
+ПРОДУКТ: Готовый дом | 7500000 | 5200000 | 2 | 1 | Дом под ключ с участком | Пермь, 300 сделок в год
+ПРОДУКТ: Участок | 350000 | 180000 | 4 | 1
+ПРОДУКТ: Подряд | 4200000 | 3300000 | 1 | 13 | Стройка на участке клиента
+СЕЗОННОСТЬ: 0.7, 0.8, 1.0, 1.2, 1.3, 1.2, 1.0, 0.9, 1.1, 1.1, 0.9, 0.8
+РАСКРУТКА: 0.4, 0.6, 0.8, 1
+ИНФЛЯЦИЯ: 0, 6.5, 5
+МРОТ: 27093
+ФОТ: Руководитель | 1 | 150000 | 0
+ФОТ: Менеджер по продажам | 2 | 60000 | 2
+ПОСТОЯННЫЕ: Офис | 80000
+ПОСТОЯННЫЕ: Реклама | 250000
+ПЕРЕМЕННЫЕ: Комиссия агенту | revenue | 3
+ИНВЕСТИЦИИ: Покупка земли | 12000000
+ЗАЁМ: Проектное финансирование | 30000000 | 18 | 24 | 0 | 6 | annuity
+ИСТОЧНИК ИНФЛЯЦИИ: Банк России
+НЕ НАЙДЕНО: себестоимость участка, расходы на подключение сетей
+КОММЕНТАРИЙ: числа из раздела 4 плана
+===КОНЕЦ===`;
+
+  const fromPlan = fm.parseParams(PLAN_REPLY, input);
+  const plan = fromPlan.plan;
+  check("модель из плана разобрана", !!plan);
+  check("название, старт и горизонт взяты",
+    plan.projectName === "Болдино LIFE" && plan.startMonth === 4 && plan.startYear === 2026 &&
+      plan.horizonYears === 3,
+    JSON.stringify([plan.projectName, plan.startMonth, plan.startYear, plan.horizonYears]));
+  check("режим налогообложения узнан", plan.regime === "usn15", plan.regime);
+  check("все три продукта разобраны", plan.products.length === 3, String(plan.products.length));
+  check("цена и себестоимость продукта на месте",
+    plan.products[0].price === 7500000 && plan.products[0].unitCost === 5200000,
+    JSON.stringify(plan.products[0]));
+  check("месяц выхода переведён в смещение от старта",
+    plan.products[0].launchMonth === 0 && plan.products[2].launchMonth === 12,
+    `${plan.products[0].launchMonth} / ${plan.products[2].launchMonth}`);
+  check("описание и рынок из плана сохранены",
+    /под ключ/.test(plan.products[0].notes) && /300 сделок/.test(plan.products[0].market), "");
+  check("штат разобран построчно",
+    plan.payroll.length === 2 && plan.payroll[1].count === 2 && plan.payroll[1].percentOfSales === 2,
+    JSON.stringify(plan.payroll));
+  check("постоянные расходы разобраны", plan.fixedCosts.length === 2 && plan.fixedCosts[0].monthly === 80000,
+    JSON.stringify(plan.fixedCosts));
+  check("переменный расход с видом «от выручки»",
+    plan.variableCosts[0].kind === "revenue" && plan.variableCosts[0].value === 3,
+    JSON.stringify(plan.variableCosts));
+  check("вложения разобраны", plan.investments[0].amount === 12000000, JSON.stringify(plan.investments));
+  check("заём разобран с условиями",
+    plan.loans[0].amount === 30000000 && plan.loans[0].rate === 18 && plan.loans[0].termMonths === 24 &&
+      plan.loans[0].graceMonths === 6,
+    JSON.stringify(plan.loans));
+  check("списки посчитаны по горизонту из плана, а не из формы",
+    fromPlan.rampUp.length === 36 && fromPlan.inflation.length === 3,
+    `${fromPlan.rampUp.length} / ${fromPlan.inflation.length}`);
+  check("чего в плане не нашлось — названо",
+    /себестоимость участка/.test(plan.missing), plan.missing);
+
+  // Модель должна считаться по этим данным без дополнительного ввода.
+  const поПлану = fm.compute({
+    projectName: plan.projectName,
+    startMonth: plan.startMonth,
+    startYear: plan.startYear,
+    horizonYears: plan.horizonYears,
+    products: plan.products,
+    payroll: plan.payroll,
+    fixedCosts: plan.fixedCosts,
+    variableCosts: plan.variableCosts,
+    investments: plan.investments,
+    loans: plan.loans.map((l) => ({ ...l, rate: l.rate / 100 })),
+    seasonality: fromPlan.seasonality,
+    rampUp: fromPlan.rampUp,
+    inflation: fromPlan.inflation,
+    tax: { regime: plan.regime },
+  });
+  check("по одному бизнес-плану модель считается целиком",
+    поПлану.base.totalRevenue > 0 && поПлану.base.investment === 12000000,
+    `${поПлану.base.totalRevenue} / ${поПлану.base.investment}`);
+  check("третий продукт в расчёте появляется только со второго года",
+    поПлану.base.months[0].products[2].revenue === 0 && поПлану.base.months[12].products[2].revenue > 0,
+    `${поПлану.base.months[0].products[2].revenue} / ${поПлану.base.months[12].products[2].revenue}`);
+  check("заём из плана дошёл до расчёта", поПлану.base.months[0].interest > 0,
+    String(поПлану.base.months[0].interest));
+
+  // Обычный ответ про допущения план не подменяет: форму трогать не нужно.
+  check("ответ без строк плана не выдаёт себя за план", fm.parseParams(PARAMS_REPLY, input).plan === null);
+
   // Заключение пишется по посчитанным числам — в задании должны быть итоги.
   const advice = fm.buildAdvicePrompt(fm.compute(SAMPLE));
   check("в задании на заключение есть окупаемость", advice.includes("окупаемость"));
@@ -808,6 +916,43 @@ server.listen(0, "127.0.0.1", () => {
         числа(сДвумя) > числа(baseRevenue), `${сДвумя} против ${baseRevenue}`);
       check("кнопка «+ бизнес-план» в форме есть",
         (await call(`[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "+ бизнес-план")`)) === true);
+      check("без плана написано, что приложить его можно вместо ввода данных",
+        /данные по продуктам, сезонности и расходам вписывать не/.test(
+          await call(`[...document.querySelectorAll(".fin-hint")].map(n => n.textContent).join(" ")`)
+        ), "");
+
+      console.log("\nбизнес-план через окно");
+      // Путь, которым идёт раздел: окно просит задание с приложенным планом и
+      // разбирает ответ тем же вызовом, что и обычные допущения.
+      const планЗадание = await call(
+        `window.api.prepareFinmodelParams({ input: { projectName: "П", horizonYears: 5 },
+           planPaths: [${JSON.stringify(path.join(outDir, "план.txt"))}], searchRates: false })`
+      );
+      check("задание по плану собирается через окно",
+        /ПРОДУКТ:/.test(планЗадание.prompt) && /НЕ НАЙДЕНО/.test(планЗадание.prompt), "");
+      check("нечитаемый план назван ошибкой, а не пропущен молча",
+        планЗадание.problems.length === 1 && /не найден/.test(планЗадание.problems[0]),
+        JSON.stringify(планЗадание.problems));
+
+      fs.writeFileSync(path.join(outDir, "план.txt"), "Проект: продаём дома. Старт апрель 2026.", "utf-8");
+      const сПланом = await call(
+        `window.api.prepareFinmodelParams({ input: { projectName: "П", horizonYears: 5 },
+           planPaths: [${JSON.stringify(path.join(outDir, "план.txt"))}], searchRates: false })`
+      );
+      check("читаемый план ошибок не даёт", сПланом.problems.length === 0, JSON.stringify(сПланом.problems));
+
+      const разобрано = await call(
+        `window.api.parseFinmodelParams(${JSON.stringify(
+          "===ФИНМОДЕЛЬ ДАННЫЕ===\nПРОЕКТ: Из плана\nСТАРТ: 04.2026\nГОРИЗОНТ: 2\nРЕЖИМ: usn6\n" +
+            "ПРОДУКТ: Дом | 7000000 | 5000000 | 2 | 1\nПОСТОЯННЫЕ: Офис | 90000\n" +
+            "НЕ НАЙДЕНО: расходы на сети\n===КОНЕЦ==="
+        )}, { horizonYears: 5 })`
+      );
+      check("окно получает модель из плана",
+        разобрано.plan && разобрано.plan.projectName === "Из плана" && разобрано.plan.products.length === 1,
+        JSON.stringify(разобрано.plan && разобрано.plan.projectName));
+      check("и список того, чего в плане не было",
+        /сети/.test(разобрано.plan.missing), разобрано.plan.missing);
 
       // Сохранение проверяем через тот же вызов, который делает кнопка: диалог
       // выбора папки в тесте не откроешь, а путь кнопка всё равно берёт снаружи.

@@ -1672,6 +1672,9 @@ button.fin-row-x:hover { color: var(--accent); }
 .fin-season em { font-size: 10px; color: var(--text-dim); font-style: normal; text-align: center; }
 .fin-season input { width: 100%; padding: 3px; text-align: center; font-size: 12px; }
 
+.fin-missing { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  border: 1px solid #c9a227; background: rgba(201, 162, 39, 0.1); }
+.fin-missing .fin-hint { margin: 6px 0 0; }
 .fin-product { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
 .fin-product-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .fin-product-head b { font-size: 13px; }

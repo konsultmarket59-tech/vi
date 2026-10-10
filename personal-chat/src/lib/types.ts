@@ -1423,10 +1423,46 @@ export interface FinComputed {
 }
 
 /** Допущения, которые агент достал из статистики и официальных источников. */
+/**
+ * Модель, вынутая агентом из бизнес-плана. Когда план приложен, вписывать
+ * данные руками незачем — они в плане уже написаны.
+ *
+ * Чего в плане нет, здесь нет тоже: ни агент, ни приложение не выдумывают
+ * пропущенное, а его список приходит в `missing` и показывается человеку.
+ */
+export interface FinPlanExtract {
+  projectName: string;
+  /** 1…12, или 0 — в плане не нашлось. */
+  startMonth: number;
+  startYear: number;
+  horizonYears: number;
+  /** Идентификатор режима из списка приложения, или пусто. */
+  regime: string;
+  products: FinProduct[];
+  payroll: { role: string; count: number; salary: number; percentOfSales: number }[];
+  fixedCosts: { name: string; monthly: number }[];
+  variableCosts: { name: string; kind: string; value: number }[];
+  investments: { name: string; amount: number }[];
+  /** Ставка — в процентах, как её называет банк. */
+  loans: {
+    name: string;
+    amount: number;
+    rate: number;
+    termMonths: number;
+    startMonth: number;
+    graceMonths: number;
+    kind: string;
+  }[];
+  /** Чего в плане не нашлось — словами. */
+  missing: string;
+}
+
 export interface FinParams {
   baseVolume: number | null;
   /** Объёмы по продуктам: идентификатор продукта → единиц в месяц. */
   productVolumes?: Record<string, number>;
+  /** Заполнено, только если агент разбирал бизнес-план. */
+  plan?: FinPlanExtract | null;
   seasonality: number[] | null;
   rampUp: number[] | null;
   inflation: number[] | null;
