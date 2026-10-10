@@ -5823,17 +5823,21 @@ ipcMain.handle("finmodel:options", () => ({
 // Первый проход: агент читает статистику и ищет официальные ставки. Расчёта
 // здесь ещё нет — есть только просьба достать допущения из данных.
 ipcMain.handle("finmodel:prepareParams", async (_e, request) => {
-  const { input, dataPaths, searchRates } = request || {};
+  const { input, dataPaths, planPaths, searchRates } = request || {};
   const normalized = finmodel.normalizeInput(input);
   const references = [];
-  for (const filePath of dataPaths || []) {
-    references.push(await docflow.readReference(filePath, extractDocText));
+  // Файлы по продуктам читаются наравне с общими: скриншоты и выгрузки,
+  // приложенные к конкретному продукту, — это данные по нему, а не украшение.
+  const productPaths = normalized.products.flatMap((p) => p.dataPaths);
+  for (const filePath of [...(dataPaths || []), ...(planPaths || []), ...productPaths]) {
+    if (filePath) references.push(await docflow.readReference(filePath, extractDocText));
   }
   return {
     prompt:
       finmodel.buildParamsPrompt({
         input: normalized,
         dataPaths: (dataPaths || []).filter(Boolean),
+        planPaths: (planPaths || []).filter(Boolean),
         searchRates: searchRates !== false,
       }) + (await userContextDigest()),
     problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),

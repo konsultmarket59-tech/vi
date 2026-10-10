@@ -24,6 +24,24 @@ interface Props {
  *  достаёт допущения из данных, во втором — читает уже посчитанную модель. */
 type AgentMode = "params" | "advice";
 
+/**
+ * Продукт в форме. Числа здесь строки: поле ввода отдаёт строку, и держать её
+ * строкой до самого расчёта — единственный способ не превращать пустое поле в
+ * ноль, а «0,5» в ноль целых.
+ */
+interface ProductRow {
+  id: string;
+  name: string;
+  price: string;
+  unitCost: string;
+  baseVolume: string;
+  /** Месяц проекта, в котором продукт выходит; 1 — вместе с проектом. */
+  launchMonth: string;
+  notes: string;
+  market: string;
+  dataPaths: string[];
+}
+
 const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
 const money = (v: number | null | undefined) =>
@@ -57,10 +75,12 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
   const [defaultRates, setDefaultRates] = useState<FinRates | null>(null);
 
   const [projectName, setProjectName] = useState("");
-  const [productName, setProductName] = useState("");
-  const [price, setPrice] = useState("");
-  const [unitCost, setUnitCost] = useState("");
-  const [baseVolume, setBaseVolume] = useState("");
+  // Продуктов может быть несколько: у каждого своя цена, свой объём и свой
+  // месяц запуска. Раньше поле было одно, и в подсказке было написано «если
+  // продуктов несколько — опишите усреднённый».
+  const [products, setProducts] = useState<ProductRow[]>([
+    { id: "p1", name: "", price: "", unitCost: "", baseVolume: "", launchMonth: "1", notes: "", market: "", dataPaths: [] },
+  ]);
   const [startYear, setStartYear] = useState(String(new Date().getFullYear()));
   const [startMonth, setStartMonth] = useState("1");
   const [horizonYears, setHorizonYears] = useState("5");
@@ -83,6 +103,9 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
   ]);
 
   const [dataPaths, setDataPaths] = useState<string[]>([]);
+  // Бизнес-план словами: из него агент берёт объёмы, сроки выхода продуктов и
+  // уже сделанные допущения — и говорит, если план расходится с полями.
+  const [planPaths, setPlanPaths] = useState<string[]>([]);
   const [outputDir, setOutputDir] = useState("");
 
   const [mode, setMode] = useState<AgentMode | null>(null);
@@ -110,15 +133,40 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
   const horizon = Math.max(1, Number(horizonYears) || 5);
   const activeRegime = regimes.find((r) => r.id === regime);
 
+  function patchProduct(id: string, changes: Partial<ProductRow>) {
+    setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...changes } : p)));
+  }
+
+  /** «выходит в марте 2027» — чтобы номер месяца проекта не приходилось считать в голове. */
+  function launchLabel(launchMonth: string) {
+    const offset = Math.max(0, (Number(launchMonth) || 1) - 1);
+    const total = (Number(startMonth) || 1) - 1 + offset;
+    const year = (Number(startYear) || new Date().getFullYear()) + Math.floor(total / 12);
+    return offset === 0
+      ? "выходит вместе с проектом"
+      : `выходит в ${MONTHS_SHORT[total % 12]} ${year}`;
+  }
+
   /** Форма в том виде, в каком её ждёт расчёт. */
   function buildInput(): Partial<FinModelInput> {
     const inflList = textToList(inflationText).map((v) => (Math.abs(v) > 1 ? v / 100 : v));
     return {
       projectName,
-      productName,
-      price: Number(price) || 0,
-      unitCost: Number(unitCost) || 0,
-      baseVolume: Number(baseVolume) || 0,
+      products: products
+        .filter((p) => p.name || p.price || p.unitCost || p.baseVolume)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          price: Number(p.price) || 0,
+          unitCost: Number(p.unitCost) || 0,
+          baseVolume: Number(p.baseVolume) || 0,
+          // В форме месяцы считаются с единицы — так их читает человек;
+          // расчёту нужно смещение от старта.
+          launchMonth: Math.max(0, (Number(p.launchMonth) || 1) - 1),
+          notes: p.notes,
+          market: p.market,
+          dataPaths: p.dataPaths,
+        })),
       startYear: Number(startYear) || new Date().getFullYear(),
       startMonth: Number(startMonth) || 1,
       horizonYears: horizon,
@@ -176,6 +224,7 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
       const prepared = await window.api.prepareFinmodelParams({
         input: buildInput(),
         dataPaths,
+        planPaths,
         searchRates: true,
       });
       setSystemPrompt(prepared.prompt);
@@ -206,9 +255,28 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
       return;
     }
     const took: string[] = [];
-    if (parsed.baseVolume) {
-      setBaseVolume(String(Math.round(parsed.baseVolume)));
-      took.push(`базовый объём ${Math.round(parsed.baseVolume)} ед./мес`);
+    // Объёмы по продуктам, если агент их дал по отдельности. Общий базовый
+    // объём кладём единственному продукту: распределять его между несколькими
+    // приложение не станет — это была бы выдумка за человека.
+    const byProduct = parsed.productVolumes || {};
+    const named = Object.keys(byProduct).filter((id) => products.some((p) => p.id === id));
+    if (named.length) {
+      setProducts((prev) =>
+        prev.map((p) =>
+          byProduct[p.id] ? { ...p, baseVolume: String(Math.round(byProduct[p.id])) } : p
+        )
+      );
+      took.push(`объёмы по продуктам (${named.length})`);
+    } else if (parsed.baseVolume && products.length === 1) {
+      const value = Math.round(parsed.baseVolume);
+      setProducts((prev) => prev.map((p, i) => (i === 0 ? { ...p, baseVolume: String(value) } : p)));
+      took.push(`базовый объём ${value} ед./мес`);
+    } else if (parsed.baseVolume) {
+      setApplied(
+        `Агент дал общий объём ${Math.round(parsed.baseVolume)} ед./мес, но не разложил его по ` +
+          "продуктам. Распределять его между продуктами приложение не станет — впишите объёмы сами " +
+          "или попросите агента дать их по каждому продукту отдельно."
+      );
     }
     if (parsed.seasonality) {
       setSeasonality(parsed.seasonality);
@@ -397,37 +465,19 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
               спроса из вашей статистики и написать заключение по уже посчитанным числам.
             </p>
           <section className="fin-block">
-            <h3>Проект и продукт</h3>
+            <h3>Проект</h3>
             <label>
               Название проекта
               <input value={projectName} onChange={(e) => setProjectName(e.target.value)} />
             </label>
-            <label>
-              Продукт
-              <input
-                value={productName}
-                onChange={(e) => setProductName(e.target.value)}
-                placeholder="Если продуктов несколько — опишите усреднённый"
-              />
-            </label>
             <div className="fin-pair">
-              <label>
-                Цена за единицу, ₽
-                <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" />
-              </label>
-              <label>
-                Себестоимость единицы, ₽
-                <input value={unitCost} onChange={(e) => setUnitCost(e.target.value)} inputMode="decimal" />
-              </label>
-            </div>
-            <div className="fin-pair">
-              <label>
-                Базовый объём, ед./мес
-                <input value={baseVolume} onChange={(e) => setBaseVolume(e.target.value)} inputMode="decimal" />
-              </label>
               <label>
                 Горизонт, лет
                 <input value={horizonYears} onChange={(e) => setHorizonYears(e.target.value)} inputMode="numeric" />
+              </label>
+              <label>
+                Продуктов в модели
+                <input value={String(products.length)} readOnly />
               </label>
             </div>
             <div className="fin-pair">
@@ -446,6 +496,148 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
                 <input value={startYear} onChange={(e) => setStartYear(e.target.value)} inputMode="numeric" />
               </label>
             </div>
+          </section>
+
+          <section className="fin-block">
+            <h3>Продукты</h3>
+            <p className="fin-hint">
+              Если бизнес зарабатывает на нескольких разных вещах — добавьте каждую отдельно. Модель
+              считает их по отдельности и складывает: у каждого продукта своя цена, свой объём и свой
+              месяц выхода, и в книге видно, когда какое направление начинает давать деньги.
+            </p>
+            {products.map((product, i) => (
+              <div className="fin-product" key={product.id}>
+                <div className="fin-product-head">
+                  <b>{product.name || `Продукт ${i + 1}`}</b>
+                  <span className="fin-hint">{launchLabel(product.launchMonth)}</span>
+                  {products.length > 1 && (
+                    <button
+                      className="btn btn-secondary btn-small"
+                      onClick={() => setProducts(products.filter((p) => p.id !== product.id))}
+                    >
+                      Убрать
+                    </button>
+                  )}
+                </div>
+                <label>
+                  Название
+                  <input
+                    value={product.name}
+                    onChange={(e) => patchProduct(product.id, { name: e.target.value })}
+                    placeholder="Как вы его называете клиентам"
+                  />
+                </label>
+                <div className="fin-pair">
+                  <label>
+                    Цена за единицу, ₽
+                    <input
+                      value={product.price}
+                      onChange={(e) => patchProduct(product.id, { price: e.target.value })}
+                      inputMode="decimal"
+                    />
+                  </label>
+                  <label>
+                    Себестоимость единицы, ₽
+                    <input
+                      value={product.unitCost}
+                      onChange={(e) => patchProduct(product.id, { unitCost: e.target.value })}
+                      inputMode="decimal"
+                    />
+                  </label>
+                </div>
+                <div className="fin-pair">
+                  <label>
+                    Базовый объём, ед./мес
+                    <input
+                      value={product.baseVolume}
+                      onChange={(e) => patchProduct(product.id, { baseVolume: e.target.value })}
+                      inputMode="decimal"
+                    />
+                  </label>
+                  <label>
+                    Выходит в месяц проекта
+                    <input
+                      value={product.launchMonth}
+                      onChange={(e) => patchProduct(product.id, { launchMonth: e.target.value })}
+                      inputMode="numeric"
+                    />
+                  </label>
+                </div>
+                <label>
+                  Описание продукта
+                  <textarea
+                    rows={2}
+                    value={product.notes}
+                    onChange={(e) => patchProduct(product.id, { notes: e.target.value })}
+                    placeholder="Что это, кому продаётся, из чего складывается цена"
+                  />
+                </label>
+                <label>
+                  Рынок по этому продукту
+                  <textarea
+                    rows={2}
+                    value={product.market}
+                    onChange={(e) => patchProduct(product.id, { market: e.target.value })}
+                    placeholder="Ёмкость, конкуренты, спрос — то, что вы знаете или нашли"
+                  />
+                </label>
+                <div className="fin-files">
+                  <button
+                    className="btn btn-secondary btn-small"
+                    onClick={async () => {
+                      const files = await window.api.pickFiles();
+                      if (files?.length) {
+                        patchProduct(product.id, { dataPaths: [...product.dataPaths, ...files] });
+                      }
+                    }}
+                  >
+                    + данные или скриншоты по продукту
+                  </button>
+                  {product.dataPaths.map((f) => (
+                    <span className="fin-file" key={f}>
+                      {fileName(f)}
+                      <button
+                        onClick={() =>
+                          patchProduct(product.id, {
+                            dataPaths: product.dataPaths.filter((x) => x !== f),
+                          })
+                        }
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={() =>
+                setProducts([
+                  ...products,
+                  {
+                    id: uid(),
+                    name: "",
+                    price: "",
+                    unitCost: "",
+                    baseVolume: "",
+                    launchMonth: "1",
+                    notes: "",
+                    market: "",
+                    dataPaths: [],
+                  },
+                ])
+              }
+            >
+              + продукт
+            </button>
+            {products.length > 1 && (
+              <p className="fin-hint">
+                Маржа на единицу и точка безубыточности в книге считаются по средневзвешенной цене —
+                одной цены у модели с несколькими продуктами нет. Выручка, себестоимость и объём
+                складываются по каждому продукту отдельно.
+              </p>
+            )}
           </section>
 
           <section className="fin-block">
@@ -597,6 +789,29 @@ export default function FinModelView({ settings, skills, onOpenSettings }: Props
                 placeholder="Что важно знать про этот бизнес: как приходят клиенты, есть ли предоплата, от чего зависит спрос"
               />
             </label>
+
+            <div className="fin-files">
+              <button
+                className="btn btn-secondary btn-small"
+                onClick={async () => {
+                  const files = await window.api.pickFiles();
+                  if (files?.length) setPlanPaths([...planPaths, ...files]);
+                }}
+              >
+                + бизнес-план
+              </button>
+              {planPaths.map((p) => (
+                <span className="fin-file" key={p}>
+                  {fileName(p)}
+                  <button onClick={() => setPlanPaths(planPaths.filter((x) => x !== p))}>✕</button>
+                </span>
+              ))}
+            </div>
+            <p className="fin-hint">
+              Бизнес-план читается словами: агент берёт из него объёмы, цены, сроки выхода продуктов,
+              каналы продаж и уже сделанные допущения. Если план расходится с тем, что введено в поля,
+              он скажет об этом прямо, а не подменит ваши числа молча.
+            </p>
 
             <div className="fin-files">
               <button

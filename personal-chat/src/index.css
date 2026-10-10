@@ -1672,6 +1672,10 @@ button.fin-row-x:hover { color: var(--accent); }
 .fin-season em { font-size: 10px; color: var(--text-dim); font-style: normal; text-align: center; }
 .fin-season input { width: 100%; padding: 3px; text-align: center; font-size: 12px; }
 
+.fin-product { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.fin-product-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.fin-product-head b { font-size: 13px; }
+.fin-product-head .fin-hint { margin: 0; flex: 1; }
 .fin-files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
 .fin-file { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
 .fin-file button { border: 0; background: none; cursor: pointer; color: var(--text-dim); margin-left: 4px; }
