@@ -225,6 +225,52 @@ function loanPlan(loans, totalMonths) {
   };
 }
 
+/**
+ * Продукты модели.
+ *
+ * Со старыми сохранёнными данными нужно работать по-прежнему, поэтому если
+ * списка продуктов нет, он собирается из одиночных полей — и модель с одним
+ * продуктом считается ровно как раньше, число в число.
+ *
+ * `launchMonth` — месяц ЗАПУСКА продукта, считая от старта проекта (0 —
+ * вместе с проектом). Он намеренно назван не startMonth: у проекта startMonth —
+ * это календарный месяц 1…12, и два разных смысла под одним именем рано или
+ * поздно сложились бы в ошибку.
+ */
+function normalizeProducts(raw = {}) {
+  const list = Array.isArray(raw.products) ? raw.products : [];
+  const cleaned = list
+    .map((p, i) => ({
+      id: String(p.id || `p${i + 1}`),
+      name: String(p.name || "").trim(),
+      price: num(p.price),
+      unitCost: num(p.unitCost),
+      baseVolume: num(p.baseVolume),
+      // Запуск позже конца горизонта модель не считает: продукт просто не
+      // появится в расчёте, и предупреждение об этом даёт раздел, а не тишина.
+      launchMonth: Math.max(0, Math.round(num(p.launchMonth, 0))),
+      notes: String(p.notes || "").trim(),
+      market: String(p.market || "").trim(),
+      dataPaths: (Array.isArray(p.dataPaths) ? p.dataPaths : []).map((x) => String(x)).filter(Boolean),
+    }))
+    .filter((p) => p.name || p.price || p.unitCost || p.baseVolume)
+    .map((p, i) => ({ ...p, name: p.name || `Продукт ${i + 1}` }));
+  if (cleaned.length) return cleaned;
+  return [
+    {
+      id: "p1",
+      name: String(raw.productName || "").trim() || "Продукт",
+      price: num(raw.price),
+      unitCost: num(raw.unitCost),
+      baseVolume: num(raw.baseVolume),
+      launchMonth: 0,
+      notes: "",
+      market: "",
+      dataPaths: [],
+    },
+  ];
+}
+
 function normalizeInput(raw = {}) {
   const horizonYears = Math.min(10, Math.max(1, Math.round(num(raw.horizonYears, 5))));
   const startMonth = Math.min(12, Math.max(1, Math.round(num(raw.startMonth, 1))));
@@ -250,12 +296,32 @@ function normalizeInput(raw = {}) {
     i < inflationRaw.length ? num(inflationRaw[i], rates.inflation) : num(rates.inflation, 0.04)
   );
 
+  // Продукты. Их может быть несколько, и у каждого своя цена, своя
+  // себестоимость, свой объём и свой месяц запуска: бизнес редко монетизирует
+  // ровно одну вещь, а запускает их не одновременно. Прежняя модель знала один
+  // продукт, и в поле «Продукт» было написано «если продуктов несколько —
+  // опишите усреднённый»: усреднение прятало как раз то, ради чего модель и
+  // строят, — что одно направление уже кормит, а второе ещё только вложения.
+  const products = normalizeProducts(raw);
+  // Сводные числа — средневзвешенные по объёму, а не сумма и не первое попавшееся.
+  // Они нужны там, где показатель по определению один на модель: маржа на
+  // единицу, точка безубыточности, доля переменных расходов от цены.
+  const volumeTotal = products.reduce((s2, p2) => s2 + p2.baseVolume, 0);
+  const weighted = (key) =>
+    volumeTotal > 0 ? products.reduce((s2, p2) => s2 + p2[key] * p2.baseVolume, 0) / volumeTotal : num(raw[key]);
+
   return {
     projectName: String(raw.projectName || "").trim() || "Проект",
-    productName: String(raw.productName || "").trim() || "Продукт",
-    price: num(raw.price),
-    unitCost: num(raw.unitCost),
-    baseVolume: num(raw.baseVolume),
+    products,
+    productName:
+      products.length === 1
+        ? products[0].name
+        : `${products.length} ${products.length < 5 ? "продукта" : "продуктов"}: ${products
+            .map((p2) => p2.name)
+            .join(", ")}`,
+    price: weighted("price"),
+    unitCost: weighted("unitCost"),
+    baseVolume: volumeTotal,
     startYear,
     startMonth,
     horizonYears,
@@ -418,11 +484,23 @@ function computeScenario(input, multiplier) {
     const priceIdx = input.indexPrice ? costIdx : 1;
 
     const season = input.seasonality[calMonth];
-    const ramp = input.rampUp[t] ?? 1;
-    const units = input.baseVolume * season * ramp * multiplier;
 
-    const revenue = units * input.price * priceIdx;
-    const cogs = units * input.unitCost * costIdx;
+    // Продукты считаются по отдельности и складываются. Раскрутка у каждого
+    // отсчитывается от ЕГО запуска, а не от старта проекта: продукт, вышедший
+    // на рынок в двадцатый месяц, начинает набирать клиентов с нуля, а не
+    // получает сразу зрелую долю от мощности. Со одним продуктом и запуском
+    // вместе с проектом это ровно прежний расчёт.
+    const perProduct = input.products.map((product) => {
+      const since = t - product.launchMonth;
+      if (since < 0) return { units: 0, revenue: 0, cogs: 0, ramp: 0 };
+      const ramp = input.rampUp[Math.min(since, input.rampUp.length - 1)] ?? 1;
+      const u = product.baseVolume * season * ramp * multiplier;
+      return { units: u, revenue: u * product.price * priceIdx, cogs: u * product.unitCost * costIdx, ramp };
+    });
+    const units = perProduct.reduce((s2, p2) => s2 + p2.units, 0);
+    const revenue = perProduct.reduce((s2, p2) => s2 + p2.revenue, 0);
+    const cogs = perProduct.reduce((s2, p2) => s2 + p2.cogs, 0);
+    const ramp = perProduct.length === 1 ? perProduct[0].ramp : input.rampUp[t] ?? 1;
     const gross = revenue - cogs;
 
     const payroll = salaryFund * costIdx;
@@ -440,6 +518,8 @@ function computeScenario(input, multiplier) {
       t, year: y, calMonth,
       label: `${MONTHS[calMonth]} ${input.startYear + y}`,
       units, revenue, cogs, gross, payroll, percentPay, insurance, fixed, variable,
+      ramp,
+      products: perProduct,
     };
     // EBITDA — «до процентов» по определению, поэтому проценты вычитаются
     // после неё: иначе показатель перестанет быть сравнимым с чужими моделями.
@@ -681,6 +761,8 @@ module.exports = {
 // колонкой, а IRR подписана как значение, посчитанное приложением.
 
 const SHEET_IN = "Исходные";
+const SHEET_PRODUCTS = "Продукты";
+const SHEET_PROD_MONTHS = "Продажи по продуктам";
 const SHEET_RATES = "Ставки";
 const SHEET_SUM = "Итоги";
 const SHEET_ADVICE = "Заключение";
@@ -720,7 +802,206 @@ function editable(ws, row, col, value, fmt) {
 }
 
 /** Лист исходных данных. Возвращает адреса, на которые ссылаются формулы. */
-function writeInputs(wb, input) {
+/**
+ * Лист продуктов — единственное место, где живут цены, себестоимость, объёмы и
+ * месяцы запуска.
+ *
+ * Раньше это были четыре ячейки на листе «Исходные», и модель знала один
+ * продукт. Теперь источник — таблица, а на «Исходных» остались средневзвешенные
+ * значения формулами: иначе получилось бы два места, где написана цена, и
+ * правка в одном из них ничего не меняла бы.
+ */
+function writeProducts(wb, input) {
+  const ws = wb.addWorksheet(SHEET_PRODUCTS);
+  ws.getColumn(1).width = 34;
+  for (let c = 2; c <= 8; c++) ws.getColumn(c).width = 16;
+  ws.getColumn(9).width = 52;
+
+  let r = 1;
+  ws.getCell(r, 1).value = `Продукты — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  r += 1;
+  ws.getCell(r, 1).value =
+    "Голубые ячейки можно менять — пересчитается вся книга. «Запуск» — месяц проекта, " +
+    "в котором продукт выходит: 1 — вместе с проектом.";
+  r += 2;
+
+  r = header(ws, r, [
+    "Продукт",
+    "Цена, ₽",
+    "Себестоимость, ₽",
+    "Маржа, ₽",
+    "Маржинальность",
+    "Объём, ед./мес",
+    "Запуск, месяц проекта",
+    "Выходит",
+    "Описание",
+  ]);
+  const firstRow = r;
+  for (const product of input.products) {
+    ws.getCell(r, 1).value = product.name;
+    editable(ws, r, 2, product.price, MONEY);
+    editable(ws, r, 3, product.unitCost, MONEY);
+    ws.getCell(r, 4).value = { formula: `B${r}-C${r}` };
+    ws.getCell(r, 4).numFmt = MONEY;
+    ws.getCell(r, 5).value = { formula: `IF(B${r}=0,0,(B${r}-C${r})/B${r})` };
+    ws.getCell(r, 5).numFmt = PCT;
+    editable(ws, r, 6, product.baseVolume, MONEY);
+    // Для человека месяцы считаются с единицы, в расчёте — смещением от старта.
+    editable(ws, r, 7, product.launchMonth + 1, "0");
+    ws.getCell(r, 8).value = monthLabelAt(input, product.launchMonth);
+    ws.getCell(r, 9).value = [product.notes, product.market].filter(Boolean).join(" — ");
+    ws.getCell(r, 9).alignment = { wrapText: true, vertical: "top" };
+    r += 1;
+  }
+  const lastRow = r - 1;
+
+  ws.getCell(r, 1).value = "Итого";
+  ws.getCell(r, 1).font = { bold: true };
+  ws.getCell(r, 6).value = { formula: `SUM(F${firstRow}:F${lastRow})` };
+  ws.getCell(r, 6).numFmt = MONEY;
+  for (const c of [1, 6]) ws.getCell(r, c).fill = TOTAL_FILL;
+  const totalRow = r;
+  r += 2;
+  r = note(
+    ws,
+    r,
+    "Объёмы складываются: модель считает каждый продукт отдельно и суммирует. " +
+      "Усреднять продукты в один «средний» не нужно."
+  );
+  note(
+    ws,
+    r,
+    "Раскрутка у каждого продукта отсчитывается от ЕГО запуска: продукт, вышедший на рынок " +
+      "позже, начинает набирать клиентов с нуля, а не получает сразу зрелую долю мощности."
+  );
+
+  const range = (col) => `${SHEET_PRODUCTS}!$${col}$${firstRow}:$${col}$${lastRow}`;
+  return {
+    firstRow,
+    lastRow,
+    count: input.products.length,
+    price: range("B"),
+    unitCost: range("C"),
+    volume: range("F"),
+    launch: range("G"),
+    volumeTotal: `${SHEET_PRODUCTS}!$F$${totalRow}`,
+    row: (i) => firstRow + i,
+  };
+}
+
+/**
+ * Продажи по продуктам по месяцам.
+ *
+ * Отдельный лист, потому что на листе расчёта один месяц — одна строка, и
+ * продукты в неё не помещаются. Здесь же видно главное, ради чего модель с
+ * несколькими продуктами и строят: когда какое направление начинает давать
+ * деньги.
+ *
+ * Коэффициент сценария здесь НЕ применяется: выручка в нём линейна, поэтому
+ * сценарные листы просто умножают итог на свой коэффициент, и одного такого
+ * листа хватает на все три сценария.
+ */
+function writeProductMonths(wb, input, prodRef, inRef) {
+  const ws = wb.addWorksheet(SHEET_PROD_MONTHS);
+  const totalMonths = input.rampUp.length;
+  const perProduct = 3;
+  const firstCol = 2;
+  const colOf = (i, k) => firstCol + i * perProduct + k;
+  const totalCol = (k) => colOf(prodRef.count, k);
+
+  ws.getColumn(1).width = 18;
+  for (let c = firstCol; c <= totalCol(2); c++) ws.getColumn(c).width = 14;
+
+  let r = 1;
+  ws.getCell(r, 1).value = `Продажи по продуктам — ${input.projectName}`;
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  r += 1;
+  r = note(
+    ws,
+    r,
+    "Объём продукта = его объём × сезонность месяца × раскрутка, считая от месяца ЕГО запуска. " +
+      "До запуска — нули. Коэффициент сценария применяется на листах расчёта."
+  );
+  r += 1;
+
+  const head = r;
+  ws.getCell(head, 1).value = "Месяц";
+  input.products.forEach((product, i) => {
+    ws.getCell(head, colOf(i, 0)).value = `${product.name}: ед.`;
+    ws.getCell(head, colOf(i, 1)).value = `${product.name}: выручка`;
+    ws.getCell(head, colOf(i, 2)).value = `${product.name}: себест.`;
+  });
+  ws.getCell(head, totalCol(0)).value = "ВСЕГО ед.";
+  ws.getCell(head, totalCol(1)).value = "ВСЕГО выручка";
+  ws.getCell(head, totalCol(2)).value = "ВСЕГО себест.";
+  for (let c = 1; c <= totalCol(2); c++) {
+    const cell = ws.getCell(head, c);
+    cell.font = { bold: true };
+    cell.fill = HEAD_FILL;
+    cell.alignment = { wrapText: true, vertical: "bottom" };
+  }
+  r += 1;
+
+  const firstRow = r;
+  const IN = `${SHEET_IN}!`;
+  // Раскрутка выбирается SUMIF по номеру месяца, а не INDEX по диапазону:
+  // встроенный просмотрщик книг в приложении не умеет INDEX по диапазону с
+  // ДРУГОГО листа — молча отдаёт пустоту, и весь расчёт обнуляется. Проверено
+  // на книге: INDEX по своему листу работает, по чужому — нет. SUMIF работает и
+  // там, и в самом Excel, а номера месяцев в блоке раскрутки уникальны, так что
+  // складывается ровно одно значение.
+  const rampKeys = `${IN}$A$${inRef.rampFirst}:$A$${inRef.rampFirst + totalMonths - 1}`;
+  const rampVals = `${IN}$B$${inRef.rampFirst}:$B$${inRef.rampFirst + totalMonths - 1}`;
+  for (let t = 0; t < totalMonths; t++) {
+    const y = Math.floor((input.startMonth - 1 + t) / 12);
+    const calMonth = (input.startMonth - 1 + t) % 12;
+    const row = firstRow + t;
+    ws.getCell(row, 1).value = `${MONTHS[calMonth]} ${input.startYear + y}`;
+    const season = `${IN}$B$${inRef.seasonFirst + calMonth}`;
+
+    input.products.forEach((product, i) => {
+      const pr = prodRef.row(i);
+      const priceCell = `${SHEET_PRODUCTS}!$B$${pr}`;
+      const costCell = `${SHEET_PRODUCTS}!$C$${pr}`;
+      const volumeCell = `${SHEET_PRODUCTS}!$F$${pr}`;
+      const launchCell = `${SHEET_PRODUCTS}!$G$${pr}`;
+      // Раскрутка берётся по номеру месяца ОТ ЗАПУСКА продукта, а за пределами
+      // заданной раскрутки держится последнее значение: вышедший на мощность
+      // продукт на ней и остаётся.
+      const sinceCell = `(${t + 1}-${launchCell}+1)`;
+      const rampPick = `SUMIF(${rampKeys},MAX(1,MIN(${totalMonths},${sinceCell})),${rampVals})`;
+      const units = `IF(${launchCell}>${t + 1},0,${volumeCell}*${season}*${rampPick})`;
+      const u = ws.getCell(row, colOf(i, 0));
+      u.value = { formula: units };
+      u.numFmt = COEF;
+      const rev = ws.getCell(row, colOf(i, 1));
+      rev.value = { formula: `${L(colOf(i, 0))}${row}*${priceCell}` };
+      rev.numFmt = MONEY;
+      const cg = ws.getCell(row, colOf(i, 2));
+      cg.value = { formula: `${L(colOf(i, 0))}${row}*${costCell}` };
+      cg.numFmt = MONEY;
+    });
+
+    for (let k = 0; k < perProduct; k++) {
+      const cells = input.products.map((_, i) => `${L(colOf(i, k))}${row}`).join(",");
+      const cell = ws.getCell(row, totalCol(k));
+      cell.value = { formula: `SUM(${cells})` };
+      cell.numFmt = k === 0 ? COEF : MONEY;
+      cell.fill = TOTAL_FILL;
+    }
+  }
+
+  return {
+    sheet: SHEET_PROD_MONTHS,
+    firstRow,
+    units: (t) => `'${SHEET_PROD_MONTHS}'!${L(totalCol(0))}${firstRow + t}`,
+    revenue: (t) => `'${SHEET_PROD_MONTHS}'!${L(totalCol(1))}${firstRow + t}`,
+    cogs: (t) => `'${SHEET_PROD_MONTHS}'!${L(totalCol(2))}${firstRow + t}`,
+  };
+}
+
+function writeInputs(wb, input, prodRef) {
   const ws = wb.addWorksheet(SHEET_IN);
   ws.getColumn(1).width = 42;
   ws.getColumn(2).width = 18;
@@ -736,16 +1017,28 @@ function writeInputs(wb, input) {
     "Голубые ячейки можно менять — вся книга пересчитается. Серые считаются формулами.";
   r += 2;
 
-  r = title(ws, r, "ПРОДУКТ");
-  ws.getCell(r, 1).value = "Название продукта";
-  editable(ws, r, 2, input.productName);
+  r = title(ws, r, input.products.length > 1 ? "ПРОДУКТЫ (средневзвешенно)" : "ПРОДУКТ");
+  r = note(
+    ws,
+    r,
+    `Цены, себестоимость, объёмы и месяцы запуска — на листе «${SHEET_PRODUCTS}». Меняйте там: ` +
+      "здесь стоят средневзвешенные по объёму значения, и они считаются формулами."
+  );
+  ws.getCell(r, 1).value = input.products.length > 1 ? "Продуктов в модели" : "Название продукта";
+  ws.getCell(r, 2).value = input.products.length > 1 ? input.products.length : input.products[0].name;
   r += 1;
-  ws.getCell(r, 1).value = "Цена за единицу, ₽";
-  editable(ws, r, 2, input.price, MONEY);
+  ws.getCell(r, 1).value = "Цена за единицу, ₽ (средневзвешенная по объёму)";
+  ws.getCell(r, 2).value = {
+    formula: `IF(${prodRef.volumeTotal}=0,0,SUMPRODUCT(${prodRef.price},${prodRef.volume})/${prodRef.volumeTotal})`,
+  };
+  ws.getCell(r, 2).numFmt = MONEY;
   ref.price = `$B$${r}`;
   r += 1;
-  ws.getCell(r, 1).value = "Себестоимость единицы, ₽";
-  editable(ws, r, 2, input.unitCost, MONEY);
+  ws.getCell(r, 1).value = "Себестоимость единицы, ₽ (средневзвешенная)";
+  ws.getCell(r, 2).value = {
+    formula: `IF(${prodRef.volumeTotal}=0,0,SUMPRODUCT(${prodRef.unitCost},${prodRef.volume})/${prodRef.volumeTotal})`,
+  };
+  ws.getCell(r, 2).numFmt = MONEY;
   ref.unitCost = `$B$${r}`;
   r += 1;
   ws.getCell(r, 1).value = "Маржа на единицу, ₽";
@@ -758,8 +1051,9 @@ function writeInputs(wb, input) {
   r += 2;
 
   r = title(ws, r, "ОБЪЁМ И ГОРИЗОНТ");
-  ws.getCell(r, 1).value = "Базовый объём, ед./мес (100% мощности, средний сезон)";
-  editable(ws, r, 2, input.baseVolume, MONEY);
+  ws.getCell(r, 1).value = "Базовый объём, ед./мес (100% мощности, средний сезон) — всего по продуктам";
+  ws.getCell(r, 2).value = { formula: prodRef.volumeTotal };
+  ws.getCell(r, 2).numFmt = MONEY;
   ref.baseVolume = `$B$${r}`;
   r += 1;
   ws.getCell(r, 1).value = "Старт продаж";
@@ -1107,7 +1401,7 @@ const L = (n) => {
  * считаются от годовой выручки. Складывать их в ту же колонку, что и месячный
  * налог, нельзя — формула начала бы ссылаться сама на себя.
  */
-function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
+function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef, prodMonths) {
   const ws = wb.addWorksheet(name);
   const regime = regimeById(input.tax.regime);
   const IN = `${SHEET_IN}!`;
@@ -1194,12 +1488,22 @@ function writeScenarioSheet(wb, input, name, scenarioRef, inRef, ratesRef) {
     ws.getCell(row, COLS.month).value = `${MONTHS[calMonth]} ${input.startYear + y}`;
     ws.getCell(row, COLS.season).value = { formula: `${IN}$B$${inRef.seasonFirst + calMonth}` };
     ws.getCell(row, COLS.ramp).value = { formula: `${IN}$B$${inRef.rampFirst + t}` };
+    // Объём, выручка и себестоимость приходят с листа продуктов: там каждый
+    // продукт посчитан отдельно, со своим запуском. Коэффициент сценария
+    // применяется здесь — выручка в нём линейна, поэтому одного листа продуктов
+    // хватает на все три сценария.
     ws.getCell(row, COLS.units).value = {
-      formula: `${IN}${inRef.baseVolume}*${at("season")}*${at("ramp")}*${IN}${scenarioRef}`,
+      formula: `${prodMonths.units(t)}*${IN}${scenarioRef}`,
     };
-    ws.getCell(row, COLS.price).value = { formula: `${IN}${inRef.price}*${priceIdx}` };
-    ws.getCell(row, COLS.revenue).value = { formula: `${at("units")}*${at("price")}` };
-    ws.getCell(row, COLS.cogs).value = { formula: `${at("units")}*${IN}${inRef.unitCost}*${idx}` };
+    ws.getCell(row, COLS.revenue).value = {
+      formula: `${prodMonths.revenue(t)}*${IN}${scenarioRef}*${priceIdx}`,
+    };
+    // Цена в этой колонке — средняя по факту месяца: при нескольких продуктах
+    // одной цены у месяца нет, а выручка уже посчитана по каждому продукту.
+    ws.getCell(row, COLS.price).value = {
+      formula: `IF(${at("units")}=0,0,${at("revenue")}/${at("units")})`,
+    };
+    ws.getCell(row, COLS.cogs).value = { formula: `${prodMonths.cogs(t)}*${IN}${scenarioRef}*${idx}` };
     ws.getCell(row, COLS.gross).value = { formula: `${at("revenue")}-${at("cogs")}` };
     ws.getCell(row, COLS.salary).value = { formula: `${IN}${inRef.salaryFund}*${idx}` };
     ws.getCell(row, COLS.percentPay).value = {
@@ -1892,7 +2196,9 @@ function writeContents(wb, input) {
 
   const rows = [
     [SHEET_INVEST, "Инвестиционные расходы: план и место для факта. Итог плана участвует в окупаемости."],
-    [SHEET_IN, "Все исходные данные: цена, объём, сезонность, раскрутка, штат, расходы. Голубые ячейки правятся — книга пересчитается."],
+    [SHEET_PRODUCTS, "Продукты: цена, себестоимость, объём и месяц выхода по каждому. Единственное место, где эти числа написаны, — правятся здесь."],
+    [SHEET_PROD_MONTHS, "Продажи по продуктам по месяцам: видно, когда какое направление начинает давать деньги. До запуска продукта — нули."],
+    [SHEET_IN, "Остальные исходные данные: сезонность, раскрутка, штат, расходы. Цена и объём здесь — средневзвешенные формулами с листа «Продукты»."],
     [SHEET_RATES, "Ставки налогов и взносов, МРОТ, инфляция по годам. Со ссылкой на источник и пометкой «проверьте»: закон меняется."],
     [SHEET_FC, "1. Прогноз продаж. Раскрутка, объём в штуках и выручка по месяцам и годам — по всем трём сценариям."],
     [SHEET_PROFIT, "2. Валовая прибыль и 3. чистая прибыль по месяцам и годам, с накопленным итогом и датой окупаемости."],
@@ -2106,14 +2412,18 @@ async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) 
   wb.created = new Date();
 
   writeContents(wb, input);
-  const inRef = writeInputs(wb, input);
+  const prodRef = writeProducts(wb, input);
+  const inRef = writeInputs(wb, input, prodRef);
+  const prodMonths = writeProductMonths(wb, input, prodRef, inRef);
   const ratesRef = writeRates(wb, input, sources);
   writeInvest(wb, input, inRef);
   if (input.loans.length) writeLoans(wb, input, computed);
 
   const marks = {};
   for (const key of SCEN_ORDER) {
-    marks[key] = writeScenarioSheet(wb, input, CALC_SHEETS[key], coefRefOf(inRef, key), inRef, ratesRef);
+    marks[key] = writeScenarioSheet(
+      wb, input, CALC_SHEETS[key], coefRefOf(inRef, key), inRef, ratesRef, prodMonths
+    );
   }
   writeForecast(wb, input, inRef, ratesRef, marks);
   writeProfit(wb, input, computed, marks);
@@ -2123,7 +2433,8 @@ async function save(raw, { destDir, fileName, advice = "", sources = {} } = {}) 
 
   // Листы движка ставим в конец: они нужны для проверки, но читают книгу не с них.
   const order = [
-    SHEET_CONTENTS, SHEET_INVEST, SHEET_LOAN, SHEET_IN, SHEET_RATES, SHEET_FC, SHEET_PROFIT,
+    SHEET_CONTENTS, SHEET_INVEST, SHEET_LOAN, SHEET_IN, SHEET_PRODUCTS, SHEET_PROD_MONTHS,
+    SHEET_RATES, SHEET_FC, SHEET_PROFIT,
     MODEL_SHEETS.pess, MODEL_SHEETS.base, MODEL_SHEETS.opt,
     SHEET_SUM, SHEET_ADVICE,
     CALC_SHEETS.pess, CALC_SHEETS.base, CALC_SHEETS.opt,
@@ -2172,16 +2483,52 @@ const money = (v) =>
   new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.round(v || 0));
 
 /** Первый проход: вытащить кривую спроса из данных и найти официальные ставки. */
-function buildParamsPrompt({ input, dataPaths = [], searchRates = true }) {
+function buildParamsPrompt({ input, dataPaths = [], searchRates = true, planPaths = [] }) {
   const horizon = input.horizonYears * 12;
+  const many = input.products.length > 1;
   const lines = [
     "Ты аналитик. Тебе нужно подготовить исходные допущения для финансовой модели.",
     "",
     `Проект: ${input.projectName}`,
-    `Продукт: ${input.productName}, цена ${money(input.price)} ₽ за единицу.`,
-    `Горизонт: ${input.horizonYears} лет, старт — ${MONTHS[input.startMonth - 1]} ${input.startYear}.`,
+    `Горизонт: ${yearsWord(input.horizonYears)}, старт — ${MONTHS[input.startMonth - 1]} ${input.startYear}.`,
+    "",
+    many
+      ? `ПРОДУКТЫ (${input.products.length}). У каждого своя цена, свой объём и свой месяц запуска:`
+      : "ПРОДУКТ:",
   ];
+  for (const product of input.products) {
+    const launch = product.launchMonth
+      ? `запуск через ${product.launchMonth} мес. от старта (${monthLabelAt(input, product.launchMonth)})`
+      : "запуск вместе с проектом";
+    lines.push(
+      `  • ${product.name}: цена ${money(product.price)} ₽, себестоимость ${money(product.unitCost)} ₽, ` +
+        `${launch}${product.baseVolume ? `, объём ${money(product.baseVolume)} ед./мес` : ", объём не задан"}.`
+    );
+    if (product.notes) lines.push(`    Описание: ${product.notes}`);
+    if (product.market) lines.push(`    Рынок: ${product.market}`);
+    for (const file of product.dataPaths) lines.push(`    Данные по продукту: ${file}`);
+  }
+  if (many) {
+    lines.push(
+      "",
+      "Считай продукты ПО ОТДЕЛЬНОСТИ: у них разные цены, разный спрос и разные сроки выхода.",
+      "Усреднять их в один «средний продукт» не нужно — модель складывает их сама."
+    );
+  }
   if (input.notes) lines.push("", "Особенности бизнес-модели, как их описал человек:", input.notes);
+
+  if (planPaths.length) {
+    lines.push(
+      "",
+      "БИЗНЕС-ПЛАН. Прочитай эти файлы инструментом чтения файлов — это план проекта словами:",
+      ...planPaths.map((p2) => `  ${p2}`),
+      "",
+      "Из плана бери то, что в нём есть: объёмы, цены, сроки выхода продуктов, каналы продаж,",
+      "расходы, уже сделанные допущения и их обоснование. Если план расходится с тем, что",
+      "введено в поля, — скажи об этом прямо и назови, какое из двух чисел считаешь верным",
+      "и почему. Не подменяй введённое человеком молча."
+    );
+  }
 
   if (dataPaths.length) {
     lines.push(
@@ -2220,7 +2567,12 @@ function buildParamsPrompt({ input, dataPaths = [], searchRates = true }) {
     "ОТВЕТ. Сначала коротко объясни, из чего вышли числа. Затем — блок ровно в таком виде:",
     "",
     "===ФИНМОДЕЛЬ ДАННЫЕ===",
-    "БАЗОВЫЙ ОБЪЁМ: <число единиц в месяц при полной мощности в средний сезон>",
+    "БАЗОВЫЙ ОБЪЁМ: <число единиц в месяц при полной мощности в средний сезон — всего по проекту>",
+    ...(many
+      ? input.products.map(
+          (p2) => `ОБЪЁМ ${p2.name.toUpperCase()}: <единиц в месяц при полной мощности именно этого продукта>`
+        )
+      : []),
     "СЕЗОННОСТЬ: <12 чисел через запятую, январь…декабрь, среднее около 1>",
     `РАСКРУТКА: <${horizon} чисел через запятую — доля от базового объёма по месяцам проекта>`,
     `ИНФЛЯЦИЯ: <${input.horizonYears} чисел через запятую в процентах, первый год базовый>`,
@@ -2247,6 +2599,28 @@ function parseNumberList(text, count) {
 }
 
 /** Разбор ответа первого прохода. Возвращает null, если блока нет. */
+/** «2 года», «5 лет» — чтобы в задании агенту не стояло «2 лет». */
+function yearsWord(n) {
+  const value = Math.abs(Math.round(n));
+  const last = value % 10;
+  const twoLast = value % 100;
+  if (twoLast >= 11 && twoLast <= 14) return `${value} лет`;
+  if (last === 1) return `${value} год`;
+  if (last >= 2 && last <= 4) return `${value} года`;
+  return `${value} лет`;
+}
+
+/** Имя продукта попадает в регулярное выражение — его нужно экранировать. */
+function escapeRe(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Месяц проекта номером — словами: «март 2027». */
+function monthLabelAt(input, offset) {
+  const total = input.startMonth - 1 + offset;
+  return `${MONTHS[total % 12]} ${input.startYear + Math.floor(total / 12)}`;
+}
+
 function parseParams(text, input) {
   const body = String(text || "");
   const m = /===ФИНМОДЕЛЬ ДАННЫЕ===([\s\S]*?)===КОНЕЦ===/i.exec(body);
@@ -2262,11 +2636,22 @@ function parseParams(text, input) {
   const seasonality = parseNumberList(field("СЕЗОННОСТЬ"), 12);
   const rampUp = parseNumberList(field("РАСКРУТКА"), horizon);
   const inflationPct = parseNumberList(field("ИНФЛЯЦИЯ"), input.horizonYears);
-  const baseVolume = Number(String(field("БАЗОВЫЙ ОБЪЁМ")).replace(/\s/g, "").replace(",", "."));
-  const minWage = Number(String(field("МРОТ")).replace(/\s/g, "").replace(",", "."));
+  const number = (text) => Number(String(text).replace(/[\s\u00a0]/g, "").replace(",", "."));
+  const baseVolume = number(field("БАЗОВЫЙ ОБЪЁМ"));
+  const minWage = number(field("МРОТ"));
+
+  // Объёмы по продуктам: строка «ОБЪЁМ <ИМЯ>: <число>». Имя сверяется с тем,
+  // что задано в разделе, без учёта регистра — иначе объём уехал бы продукту,
+  // которого в модели нет.
+  const productVolumes = {};
+  for (const product of input.products || []) {
+    const value = number(field(`ОБЪЁМ ${escapeRe(product.name.toUpperCase())}`));
+    if (Number.isFinite(value) && value > 0) productVolumes[product.id] = value;
+  }
 
   return {
     baseVolume: Number.isFinite(baseVolume) && baseVolume > 0 ? baseVolume : null,
+    productVolumes,
     seasonality,
     rampUp,
     // Проценты приходят как «4» или «4.5», а расчёту нужна доля.
@@ -2319,8 +2704,24 @@ function buildAdvicePrompt(computed) {
     "Ты экономист. Ниже — ПОСЧИТАННАЯ финансовая модель. Числа менять нельзя: они получены",
     "расчётом, а не оценкой. Твоя работа — прочитать их и дать заключение.",
     "",
-    `Проект: ${input.projectName}. Продукт: ${input.productName}.`,
-    `Цена ${money(input.price)} ₽, себестоимость ${money(input.unitCost)} ₽, маржа ${money(input.price - input.unitCost)} ₽ (${input.price ? (((input.price - input.unitCost) / input.price) * 100).toFixed(1) : 0}%).`,
+    `Проект: ${input.projectName}.`,
+    input.products.length > 1
+      ? `Продуктов ${input.products.length}: ` +
+        input.products
+          .map(
+            (p2) =>
+              `${p2.name} — ${money(p2.price)} ₽ за единицу, ${money(p2.baseVolume)} ед./мес, ` +
+              (p2.launchMonth ? `выход в ${monthLabelAt(input, p2.launchMonth)}` : "с начала проекта")
+          )
+          .join("; ") +
+        "."
+      : `Продукт: ${input.productName}.`,
+    `${input.products.length > 1 ? "Средневзвешенно по объёму: цена" : "Цена"} ${money(input.price)} ₽, ` +
+      `себестоимость ${money(input.unitCost)} ₽, маржа ${money(input.price - input.unitCost)} ₽ ` +
+      `(${input.price ? (((input.price - input.unitCost) / input.price) * 100).toFixed(1) : 0}%).` +
+      (input.products.length > 1
+        ? " Это средние по модели числа: у каждого продукта своя цена и своя маржа, они выше."
+        : ""),
     `Маржа после переменных расходов: ${money(computed.base.marginPerUnit)} ₽ с единицы.`,
     `Система налогообложения: ${regime.name}.`,
     `Инвестиции: ${money(computed.base.investment)} ₽.`,

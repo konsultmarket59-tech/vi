@@ -28,6 +28,9 @@ function check(label, condition, detail = "") {
     console.log(`  FAIL ${label}${detail ? " — " + String(detail).slice(0, 300) : ""}`);
   }
 }
+/** Число из подписи в интерфейсе: «1 200 000 ₽» → 1200000. */
+const числа = (text) => Number(String(text).replace(/[^\d]/g, "")) || 0;
+
 const near = (a, b, tol = 1) => typeof a === "number" && Number.isFinite(a) && Math.abs(a - b) <= tol;
 
 const fm = require("./finmodel.cjs");
@@ -310,28 +313,171 @@ async function workbookChecks() {
       SAMPLE.startMonth === 1
   );
 
-  // Книга должна быть живой: меняем цену — пересчитывается выручка. Ячейку
-  // правим тем же вызовом, каким это делает редактор таблиц в приложении.
+  // Книга должна быть живой: меняем цену — пересчитывается выручка. Цена теперь
+  // живёт на листе «Продукты», и это единственное место, где она написана: на
+  // «Исходных» стоит средневзвешенная формулой. Иначе было бы два места с ценой,
+  // и правка в одном из них ничего бы не меняла.
   const inputs = model.sheets.find((s) => s.name === "Исходные");
   const priceLabel = Object.entries(inputs.cells).find(([, c]) =>
     String(c.value || "").startsWith("Цена за единицу")
   );
   check("в исходных данных цена подписана словами", !!priceLabel);
   const priceKey = priceLabel ? "B" + excel.parseCellKey(priceLabel[0]).row : "";
-  excel.setCell(model, "Исходные", priceKey, String(SAMPLE.price * 2));
+  check("на «Исходных» цена — формула, а не второе место ввода",
+    Boolean(inputs.cells[priceKey] && inputs.cells[priceKey].formula), JSON.stringify(inputs.cells[priceKey]));
+
+  const products = model.sheets.find((s) => s.name === "Продукты");
+  const productRow = Object.keys(products.cells)
+    .map((k) => excel.parseCellKey(k))
+    .filter((k) => k.col === 1)
+    .map((k) => k.row)
+    .find((row) => products.cells[`A${row}`].value === SAMPLE.productName);
+  check("продукт из исходных данных попал на лист продуктов", !!productRow, String(productRow));
+  excel.setCell(model, "Продукты", `B${productRow}`, String(SAMPLE.price * 2));
   excel.recalculate(model);
   check(
-    "правка цены в книге пересчитывает выручку",
+    "правка цены на листе продуктов пересчитывает выручку",
     near(value(fm.L(fm.COLS.revenue) + firstRow), computed.base.months[0].revenue * 2, 2),
     `${value(fm.L(fm.COLS.revenue) + firstRow)} вместо ${computed.base.months[0].revenue * 2}`
   );
+  const weighted = inputs.cells[priceKey];
+  check("и средневзвешенная цена на «Исходных» идёт за ней",
+    near(weighted.computed !== undefined ? weighted.computed : weighted.value, SAMPLE.price * 2, 1),
+    String(weighted.computed));
   // И дальше по цепочке: выручка тянет за собой налог и накопленный итог.
-  excel.setCell(model, "Исходные", priceKey, String(SAMPLE.price));
+  excel.setCell(model, "Продукты", `B${productRow}`, String(SAMPLE.price));
   excel.recalculate(model);
   check(
     "возврат цены возвращает исходную выручку",
     near(value(fm.L(fm.COLS.revenue) + firstRow), computed.base.months[0].revenue, 1)
   );
+}
+
+/**
+ * Несколько продуктов с разными сроками запуска.
+ *
+ * Прежняя модель знала один продукт, и в поле было написано «если продуктов
+ * несколько — опишите усреднённый». Усреднение прятало ровно то, ради чего
+ * модель и строят: одно направление уже кормит, второе ещё только вложения.
+ * Поэтому здесь проверяется не «считается без ошибок», а три вещи: до запуска
+ * продукта его в расчёте нет, после — есть, и книга сходится с движком.
+ */
+async function productChecks() {
+  console.log("\nнесколько продуктов");
+
+  const many = {
+    projectName: "Два направления",
+    horizonYears: 2,
+    startMonth: 1,
+    startYear: 2026,
+    products: [
+      { id: "p1", name: "Абонемент", price: 50000, unitCost: 20000, baseVolume: 4, launchMonth: 0 },
+      { id: "p2", name: "Каталог", price: 90000, unitCost: 15000, baseVolume: 1, launchMonth: 12,
+        notes: "Продукт для застройщиков" },
+    ],
+    investments: [{ name: "старт", amount: 300000 }],
+    tax: { regime: "usn6" },
+  };
+  const computed = fm.compute(many);
+  const months = computed.base.months;
+
+  check("оба продукта в модели", computed.input.products.length === 2);
+  check("до запуска второго продукта его выручки нет",
+    months[0].products[1].revenue === 0 && months[11].products[1].revenue === 0,
+    `${months[0].products[1].revenue} / ${months[11].products[1].revenue}`);
+  check("первый продукт считается с самого начала", months[0].products[0].revenue > 0,
+    String(months[0].products[0].revenue));
+  check("в месяц запуска второй продукт появляется", months[12].products[1].revenue > 0,
+    String(months[12].products[1].revenue));
+  check("выручка месяца — сумма по продуктам",
+    near(months[12].revenue, months[12].products[0].revenue + months[12].products[1].revenue, 0.01),
+    `${months[12].revenue}`);
+  // Раскрутка у продукта отсчитывается от ЕГО запуска: вышедший позже продукт
+  // начинает с нуля, а не получает сразу зрелую долю мощности.
+  const сРаскруткой = fm.compute({ ...many, rampUp: [0.25, 0.5, 1] });
+  const м = сРаскруткой.base.months;
+  check("раскрутка второго продукта идёт от его запуска",
+    near(м[12].products[1].units, 1 * 0.25, 0.001) && near(м[13].products[1].units, 1 * 0.5, 0.001),
+    `${м[12].products[1].units} / ${м[13].products[1].units}`);
+  check("а первый к этому времени уже на мощности",
+    near(м[12].products[0].units, 4, 0.001), String(м[12].products[0].units));
+
+  // Сводные числа — средневзвешенные, а не первое попавшееся и не сумма.
+  check("средневзвешенная цена посчитана по объёмам",
+    near(computed.input.price, (50000 * 4 + 90000 * 1) / 5, 0.01), String(computed.input.price));
+  check("базовый объём — сумма объёмов", computed.input.baseVolume === 5, String(computed.input.baseVolume));
+  check("в названии видно, что продуктов несколько",
+    /2 продукта/.test(computed.input.productName), computed.input.productName);
+
+  // Старые сохранённые данные (без списка продуктов) должны считаться как раньше.
+  const старые = { ...many, products: undefined, productName: "Дом", price: 1000, unitCost: 600, baseVolume: 10 };
+  const один = fm.compute(старые);
+  check("данные без списка продуктов читаются как один продукт",
+    один.input.products.length === 1 && один.input.products[0].name === "Дом");
+  check("и считаются ровно как прежде",
+    near(один.base.months[0].revenue, 10 * 1000, 0.01), String(один.base.months[0].revenue));
+
+  console.log("\nкнига с несколькими продуктами");
+  const { path: file } = await fm.save(many, { destDir: outDir, fileName: "два продукта" });
+  const model = await excel.loadWorkbook(file);
+  const names = model.sheets.map((s) => s.name);
+  check("в книге есть листы продуктов",
+    names.includes("Продукты") && names.includes("Продажи по продуктам"), names.join(", "));
+  excel.recalculate(model);
+
+  const prodMonths = model.sheets.find((s) => s.name === "Продажи по продуктам");
+  const cellOf = (sheet, key) => {
+    const cell = sheet.cells[key];
+    return cell && (cell.computed !== undefined ? cell.computed : cell.value);
+  };
+  const headRow = Object.keys(prodMonths.cells)
+    .map((k) => excel.parseCellKey(k))
+    .filter((k) => k.col === 1 && String(prodMonths.cells[`A${k.row}`].value || "") === "Месяц")
+    .map((k) => k.row)[0];
+  check("шапка листа продаж по продуктам найдена", !!headRow, String(headRow));
+  const first = headRow + 1;
+  // Колонки: A месяц, далее по три на продукт, затем три итоговых.
+  check("в книге до запуска второго продукта нули",
+    cellOf(prodMonths, `F${first}`) === 0, String(cellOf(prodMonths, `F${first}`)));
+  check("в книге в месяц запуска второй продукт появляется",
+    near(cellOf(prodMonths, `F${first + 12}`), months[12].products[1].revenue / priceIdxOf(computed, 12), 1),
+    String(cellOf(prodMonths, `F${first + 12}`)));
+
+  const calc = model.sheets.find((s) => s.name === "Расчёт база");
+  const calcFirst = Object.keys(calc.cells)
+    .map((k) => excel.parseCellKey(k))
+    .filter((k) => k.col === 1 && /январь 2026/.test(String(calc.cells[`A${k.row}`].value || "")))
+    .map((k) => k.row)[0];
+  for (const t of [0, 11, 12, 13, months.length - 1]) {
+    const got = cellOf(calc, fm.L(fm.COLS.revenue) + (calcFirst + t));
+    check(`книга сходится с движком по выручке месяца ${t + 1}`,
+      near(got, months[t].revenue, 2), `${got} вместо ${months[t].revenue}`);
+  }
+
+  // Правка объёма второго продукта должна менять только месяцы после запуска.
+  const products = model.sheets.find((s) => s.name === "Продукты");
+  const secondRow = Object.keys(products.cells)
+    .map((k) => excel.parseCellKey(k))
+    .filter((k) => k.col === 1 && products.cells[`A${k.row}`].value === "Каталог")
+    .map((k) => k.row)[0];
+  excel.setCell(model, "Продукты", `F${secondRow}`, "3");
+  excel.recalculate(model);
+  check("правка объёма продукта не задевает месяцы до его запуска",
+    near(cellOf(calc, fm.L(fm.COLS.revenue) + calcFirst), months[0].revenue, 2),
+    String(cellOf(calc, fm.L(fm.COLS.revenue) + calcFirst)));
+  check("а после запуска выручка выросла",
+    cellOf(calc, fm.L(fm.COLS.revenue) + (calcFirst + 12)) > months[12].revenue + 1,
+    `${cellOf(calc, fm.L(fm.COLS.revenue) + (calcFirst + 12))} против ${months[12].revenue}`);
+}
+
+/** Индекс цен к месяцу t — чтобы сравнивать книгу до индексации с движком после. */
+function priceIdxOf(computed, t) {
+  const input = computed.input;
+  const y = Math.floor((input.startMonth - 1 + t) / 12);
+  if (!input.indexPrice) return 1;
+  let k = 1;
+  for (let i = 1; i <= y; i++) k *= 1 + (input.inflation[i] || 0);
+  return k;
 }
 
 /**
@@ -531,6 +677,7 @@ server.listen(0, "127.0.0.1", () => {
   app.whenReady().then(async () => {
     try {
       await mathChecks();
+      await productChecks();
       await loanChecks();
       await workbookChecks();
       promptChecks();
@@ -588,7 +735,7 @@ server.listen(0, "127.0.0.1", () => {
       check(
         "в форме есть все обязательные блоки",
         (await call(
-          `["Проект и продукт","Налоги","ФОТ","Постоянные расходы","Переменные расходы","Инвестиции","Спрос"]
+          `["Проект","Продукты","Налоги","ФОТ","Постоянные расходы","Переменные расходы","Инвестиции","Спрос"]
              .every(t => [...document.querySelectorAll(".fin-block h3")].some(h => h.textContent.includes(t)))`
         )) === true
       );
@@ -605,6 +752,7 @@ server.listen(0, "127.0.0.1", () => {
           input.dispatchEvent(new Event("input", { bubbles: true }));
         };
         fill("Название проекта", "Пробный");
+        fill("Название", "Основной");
         fill("Цена за единицу", "1000");
         fill("Себестоимость единицы", "600");
         fill("Базовый объём", "100");
@@ -625,6 +773,41 @@ server.listen(0, "127.0.0.1", () => {
         `document.querySelector(".fin-table tbody tr").children[2].textContent`
       );
       check("выручка в таблице непустая", /\d/.test(baseRevenue), baseRevenue);
+
+      console.log("\nвторой продукт через интерфейс");
+      check("в форме один продукт", (await call(`document.querySelectorAll(".fin-product").length`)) === 1);
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "+ продукт").click()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("продуктов стало два", (await call(`document.querySelectorAll(".fin-product").length`)) === 2);
+      await call(`(() => {
+        const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        const card = document.querySelectorAll(".fin-product")[1];
+        const fill = (labelText, value) => {
+          const label = [...card.querySelectorAll("label")].find(l => l.textContent.trim().startsWith(labelText));
+          const input = label && label.querySelector("input");
+          if (!input) throw new Error("нет поля " + labelText);
+          set.call(input, value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        };
+        fill("Название", "Второй");
+        fill("Цена за единицу", "5000");
+        fill("Себестоимость единицы", "1000");
+        fill("Базовый объём", "10");
+        fill("Выходит в месяц проекта", "13");
+      })()`);
+      await new Promise((r) => setTimeout(r, 300));
+      check("подпись месяца запуска считается за человека",
+        /выходит в янв/.test(await call(`document.querySelectorAll(".fin-product")[1].querySelector(".fin-hint").textContent`)),
+        await call(`document.querySelectorAll(".fin-product")[1].querySelector(".fin-hint").textContent`));
+      await call(`[...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Рассчитать").click()`);
+      await new Promise((r) => setTimeout(r, 1500));
+      const сДвумя = await call(
+        `document.querySelector(".fin-table tbody tr").children[2].textContent`
+      );
+      check("второй продукт увеличил выручку, а не заменил первый",
+        числа(сДвумя) > числа(baseRevenue), `${сДвумя} против ${baseRevenue}`);
+      check("кнопка «+ бизнес-план» в форме есть",
+        (await call(`[...document.querySelectorAll("button")].some(b => b.textContent.trim() === "+ бизнес-план")`)) === true);
 
       // Сохранение проверяем через тот же вызов, который делает кнопка: диалог
       // выбора папки в тесте не откроешь, а путь кнопка всё равно берёт снаружи.

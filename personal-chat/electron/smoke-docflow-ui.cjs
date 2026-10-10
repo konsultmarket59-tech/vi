@@ -83,9 +83,36 @@ async function makeFixtures() {
   const requisites = path.join(workDir, "Реквизиты ИП Павлов.txt");
   fs.writeFileSync(requisites, "ИП Павлов Иван Иванович, ИНН 590000000000, р/с 40802810000000000000", "utf-8");
 
+  // Второй шаблон — акт с перечнем работ ТАБЛИЦЕЙ, заполненной прошлым периодом.
+  // На нём проверяется, что негодный документ не доходит до диска через окно.
+  const actTemplate = path.join(workDir, "Шаблон акта с таблицей.docx");
+  const row = (cells) =>
+    new docx.TableRow({
+      children: cells.map((t) => new docx.TableCell({ children: [new docx.Paragraph(String(t))] })),
+    });
+  const actDoc = new docx.Document({
+    sections: [
+      {
+        children: [
+          new docx.Paragraph({ text: "АКТ ПРИЁМКИ ВЫПОЛНЕННЫХ РАБОТ", heading: docx.HeadingLevel.HEADING_1 }),
+          new docx.Paragraph({ text: "г. Пермь «31» августа 2026 г." }),
+          new docx.Table({
+            rows: [
+              row(["№", "Дата публикации", "Тип контента", "Стоимость, ₽"]),
+              row(["1", "31 авг. 2026г.", "Живой клип", "5000"]),
+              row(["2", "28 авг. 2026г.", "SEO-статья", "2500"]),
+            ],
+          }),
+          new docx.Paragraph({ text: "Общая стоимость: 7 500 рублей." }),
+        ],
+      },
+    ],
+  });
+  fs.writeFileSync(actTemplate, await docx.Packer.toBuffer(actDoc));
+
   const outDir = path.join(workDir, "готовые");
   fs.mkdirSync(outDir, { recursive: true });
-  return { ledger, template, requisites, outDir };
+  return { ledger, template, actTemplate, requisites, outDir };
 }
 
 function cleanup() {
@@ -207,6 +234,67 @@ server.listen(0, "127.0.0.1", async () => {
       // Word на этой машине не установлен, поэтому проверяется именно запасной путь.
       check("PDF собран запасным способом", Boolean(saved.pdfPath) && fs.existsSync(saved.pdfPath), saved.pdfError);
       check("приложение честно говорит, чем собрало PDF", saved.pdfVia === "render", saved.pdfVia);
+
+      console.log("\nнегодный документ не доходит до диска");
+      // Правки только к абзацам — ровно то, что раздел делал раньше: даты
+      // становятся сентябрьскими, перечень работ остаётся августовским.
+      const толькоАбзацы = {
+        mode: "template",
+        templatePath: fixtures.actTemplate,
+        ops: [{ op: "set", index: 1, text: "г. Пермь «30» сентября 2026 г." }],
+        markdown: "",
+        meta: { number: "43", date: "30.09.2026", counterparty: "ИП Павлов", sum: "7500", filename: "Акт №43" },
+        outputDir: fixtures.outDir,
+        kindId: "act",
+        ledgerPath: "",
+        writeLedger: false,
+        month: "2026-09",
+      };
+      const проверка = await call(
+        `window.api.checkDocflowResult(${JSON.stringify({
+          mode: "template",
+          templatePath: fixtures.actTemplate,
+          ops: толькоАбзацы.ops,
+          meta: толькоАбзацы.meta,
+          month: "2026-09",
+        })})`
+      );
+      check("окно получает замечание до сохранения",
+        проверка.blocking.length > 0 && /даты другого периода/.test(проверка.blocking[0]),
+        JSON.stringify(проверка.blocking));
+
+      const отказ = await call(`window.api.saveDocflowResult(${JSON.stringify(толькоАбзацы)})`);
+      check("сохранение просит подтверждения, а не падает", отказ.needsConfirm === true, JSON.stringify(отказ).slice(0, 160));
+      check("файла при этом нет", !отказ.docxPath, отказ.docxPath);
+      check("в папке с готовыми не появился акт №43",
+        !fs.readdirSync(fixtures.outDir).some((n) => n.includes("№43")),
+        fs.readdirSync(fixtures.outDir).join(", "));
+
+      const сТаблицей = {
+        ...толькоАбзацы,
+        ops: [
+          { op: "set", index: 1, text: "г. Пермь «30» сентября 2026 г." },
+          { op: "set", index: 3, text: "Общая стоимость: 4 200 рублей." },
+          {
+            op: "table",
+            index: 2,
+            from: 2,
+            rows: [
+              ["1", "03.09.2026", "Генеративное видео", "3000"],
+              ["2", "07.09.2026", "Пост текст+фото", "1200"],
+            ],
+          },
+        ],
+        meta: { ...толькоАбзацы.meta, sum: "4200" },
+      };
+      const готово = await call(`window.api.saveDocflowResult(${JSON.stringify(сТаблицей)})`);
+      check("с заполненной таблицей документ сохраняется", Boolean(готово.docxPath) && fs.existsSync(готово.docxPath),
+        JSON.stringify(готово).slice(0, 160));
+      const актГотовый = await require("./word.cjs").loadDocument(готово.docxPath);
+      const таблГотовая = актГотовый.blocks.find((b) => b.kind === "table");
+      check("в сохранённом акте перечень работ за новый период",
+        таблГотовая.rows.slice(1).every((r) => /\.09\.2026$/.test(r[1])),
+        JSON.stringify(таблГотовая.rows));
 
       console.log("\nзапись в документ сверки");
       check("строка дописана", Array.isArray(saved.ledgerRow), saved.ledgerError);

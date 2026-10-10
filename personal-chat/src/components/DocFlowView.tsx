@@ -9,6 +9,7 @@ import type {
   DocflowConfig,
   DocflowMeta,
   DocflowPrepared,
+  DocflowCheck,
   DocflowSaveResult,
   Settings,
   Skill,
@@ -69,6 +70,10 @@ export default function DocFlowView({ settings, skills, onOpenSettings }: Props)
   const [prefill, setPrefill] = useState<{ text: string; attachments?: ChatAttachment[]; nonce: number } | undefined>();
   const [pending, setPending] = useState<{ meta: DocflowMeta; ops: WordEditOp[]; markdown: string } | null>(null);
   const [saved, setSaved] = useState<DocflowSaveResult | null>(null);
+  // Проверка заполненного документа. Считается сразу, как агент вернул правки, —
+  // чтобы замечание про перечень работ из прошлого месяца человек видел ДО того,
+  // как нажмёт «сохранить», а не вместо сохранения.
+  const [check, setCheck] = useState<DocflowCheck | null>(null);
   const [namePrompt, setNamePrompt] = useState<NamePromptRequest | null>(null);
 
   const mode: "template" | "lawyer" = tab === "lawyer" ? "lawyer" : "template";
@@ -189,14 +194,31 @@ export default function DocFlowView({ settings, skills, onOpenSettings }: Props)
 
   async function onAssistantMessage(content: string) {
     setSaved(null);
+    setCheck(null);
+    let parsed: { meta: DocflowMeta; ops: WordEditOp[]; markdown: string } | null = null;
     try {
-      setPending(await window.api.parseDocflowResult(content));
+      parsed = await window.api.parseDocflowResult(content);
     } catch {
-      setPending(null);
+      parsed = null;
+    }
+    setPending(parsed);
+    if (!parsed || mode === "lawyer" || !templatePath || !parsed.ops.length) return;
+    try {
+      setCheck(
+        await window.api.checkDocflowResult({
+          mode,
+          templatePath,
+          ops: parsed.ops,
+          meta: parsed.meta,
+          month,
+        })
+      );
+    } catch {
+      setCheck(null);
     }
   }
 
-  async function saveResult() {
+  async function saveResult(confirm = false) {
     if (!pending) return;
     if (!outputDir) {
       setError("Не выбрана папка, куда сохранить документ.");
@@ -215,9 +237,17 @@ export default function DocFlowView({ settings, skills, onOpenSettings }: Props)
         kindId,
         ledgerPath: config.ledgerPath,
         writeLedger: writeLedger && Boolean(config.ledgerPath),
+        month,
+        confirm,
       });
+      // Проверка не пройдена: файла нет, документ остаётся на подтверждении.
+      if (result.needsConfirm) {
+        setCheck({ blocking: result.blocking || [], warnings: result.warnings || [], notes: [] });
+        return;
+      }
       setSaved(result);
       setPending(null);
+      setCheck(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -408,11 +438,58 @@ export default function DocFlowView({ settings, skills, onOpenSettings }: Props)
           </span>
         </div>
         <p className="hint">Файл: {meta.filename || "имя подставит приложение"}.docx + .pdf</p>
+        {!!check?.blocking.length && (
+          <div className="docflow-check docflow-check--stop">
+            <strong>Документ так сохранять нельзя:</strong>
+            <ul>
+              {check.blocking.map((text, i) => (
+                <li key={i}>{text}</li>
+              ))}
+            </ul>
+            <p className="hint">
+              Самое частое — перечень работ остался из шаблона, то есть за прошлый период. Напишите
+              агенту «заполни перечень работ в таблице за этот период»: таблицу он менять умеет.
+            </p>
+          </div>
+        )}
+        {!!check?.warnings.length && (
+          <div className="docflow-check">
+            <ul>
+              {check.warnings.map((text, i) => (
+                <li key={i}>{text}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {!!check?.notes.length && (
+          <div className="docflow-check">
+            <ul>
+              {check.notes.map((text, i) => (
+                <li key={i}>{text}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="excel-pending-actions">
-          <button className="btn btn-primary" onClick={saveResult} disabled={busy}>
+          <button
+            className="btn btn-primary"
+            onClick={() => saveResult(false)}
+            disabled={busy || !!check?.blocking.length}
+          >
             Сохранить в Word и PDF
           </button>
-          <button className="btn btn-secondary" onClick={() => setPending(null)}>
+          {!!check?.blocking.length && (
+            <button className="btn btn-secondary" onClick={() => saveResult(true)} disabled={busy}>
+              Всё равно сохранить
+            </button>
+          )}
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              setPending(null);
+              setCheck(null);
+            }}
+          >
             Отклонить
           </button>
         </div>

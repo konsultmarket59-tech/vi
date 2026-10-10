@@ -3805,8 +3805,24 @@ ipcMain.handle("docflow:prepare", async (_e, request) => {
  * рядом .pdf, и запись в документе сверки. Запись делается последней — если сохранение
  * файла не удалось, в сверке не появится строка про документ, которого нет.
  */
+/**
+ * Проверка заполненного документа до сохранения.
+ *
+ * Отдельным вызовом, чтобы человек увидел замечания рядом с предпросмотром, а
+ * не наткнулся на них, уже нажав «сохранить».
+ */
+ipcMain.handle("docflow:check", async (_e, payload) => {
+  const { mode, templatePath, ops, meta, month } = payload || {};
+  if (mode === "lawyer" || !templatePath || !ops || !ops.length) {
+    return { blocking: [], warnings: [], notes: [] };
+  }
+  const result = await docflow.checkTemplate(templatePath, ops, { month, sum: meta?.sum || "" });
+  return { blocking: result.blocking, warnings: result.warnings, notes: result.notes };
+});
+
 ipcMain.handle("docflow:save", async (_e, payload) => {
-  const { mode, templatePath, ops, markdown, meta, outputDir, kindId, ledgerPath, writeLedger } = payload || {};
+  const { mode, templatePath, ops, markdown, meta, outputDir, kindId, ledgerPath, writeLedger, month, confirm } =
+    payload || {};
   if (!outputDir) throw new Error("Не выбрана папка, куда сохранять документ.");
 
   const kind = docflow.kindById(kindId);
@@ -3816,13 +3832,35 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
   const docxPath = path.join(outputDir, `${baseName}.docx`);
   const pdfPath = path.join(outputDir, `${baseName}.pdf`);
 
+  let checkWarnings = [];
+  let fillNotes = [];
   if (mode === "lawyer") {
     if (!markdown) throw new Error("Агент не вернул текст документа.");
     await docflow.buildFromMarkdown(markdown, baseName, docxPath);
   } else {
     if (!templatePath) throw new Error("Не выбран шаблон документа.");
     if (!ops || ops.length === 0) throw new Error("Агент не предложил ни одной правки к шаблону.");
-    await docflow.fillTemplate(templatePath, ops, docxPath);
+    try {
+      const filled = await docflow.fillTemplate(templatePath, ops, docxPath, {
+        month,
+        sum: meta?.sum || "",
+        confirm: Boolean(confirm),
+      });
+      checkWarnings = filled.warnings;
+      fillNotes = filled.notes;
+    } catch (e) {
+      // Документ не прошёл проверку: файла на диске нет, и это не ошибка
+      // приложения — это вопрос человеку. Поэтому возвращаем замечания, а не
+      // бросаем исключение в окно.
+      if (!e.docflowCheck) throw e;
+      return {
+        needsConfirm: true,
+        blocking: e.docflowCheck.blocking,
+        warnings: e.docflowCheck.warnings,
+        docxPath: "",
+        pdfPath: "",
+      };
+    }
   }
 
   let pdf = null;
@@ -3857,6 +3895,8 @@ ipcMain.handle("docflow:save", async (_e, payload) => {
     pdfError,
     ledgerRow: ledgerRow?.values || null,
     ledgerError,
+    blocking: [],
+    warnings: [...checkWarnings, ...fillNotes],
   };
 });
 
@@ -5783,17 +5823,21 @@ ipcMain.handle("finmodel:options", () => ({
 // Первый проход: агент читает статистику и ищет официальные ставки. Расчёта
 // здесь ещё нет — есть только просьба достать допущения из данных.
 ipcMain.handle("finmodel:prepareParams", async (_e, request) => {
-  const { input, dataPaths, searchRates } = request || {};
+  const { input, dataPaths, planPaths, searchRates } = request || {};
   const normalized = finmodel.normalizeInput(input);
   const references = [];
-  for (const filePath of dataPaths || []) {
-    references.push(await docflow.readReference(filePath, extractDocText));
+  // Файлы по продуктам читаются наравне с общими: скриншоты и выгрузки,
+  // приложенные к конкретному продукту, — это данные по нему, а не украшение.
+  const productPaths = normalized.products.flatMap((p) => p.dataPaths);
+  for (const filePath of [...(dataPaths || []), ...(planPaths || []), ...productPaths]) {
+    if (filePath) references.push(await docflow.readReference(filePath, extractDocText));
   }
   return {
     prompt:
       finmodel.buildParamsPrompt({
         input: normalized,
         dataPaths: (dataPaths || []).filter(Boolean),
+        planPaths: (planPaths || []).filter(Boolean),
         searchRates: searchRates !== false,
       }) + (await userContextDigest()),
     problems: references.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`),

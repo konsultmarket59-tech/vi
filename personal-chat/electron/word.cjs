@@ -195,6 +195,138 @@ function setBlockText(model, index, text) {
 }
 
 /**
+ * Строки таблицы — диапазонами в её XML.
+ *
+ * Вложенная таблица сломала бы этот разбор: нежадный поиск до `</w:tr>`
+ * остановился бы на закрытии строки ВЛОЖЕННОЙ таблицы, и документ оказался бы
+ * покорёжен. Поэтому такие таблицы не правятся вовсе — об этом сказано ошибкой,
+ * а не испорченным файлом.
+ */
+function rowSpans(tableXml) {
+  const spans = [];
+  const re = /<w:tr(?=[\s/>])[^>]*>[\s\S]*?<\/w:tr>/g;
+  let m;
+  while ((m = re.exec(tableXml))) spans.push({ start: m.index, end: m.index + m[0].length, xml: m[0] });
+  return spans;
+}
+
+/** Ячейки строки — диапазонами в её XML. */
+function cellSpans(rowXml) {
+  const spans = [];
+  const re = /<w:tc(?=[\s/>])[^>]*>[\s\S]*?<\/w:tc>/g;
+  let m;
+  while ((m = re.exec(rowXml))) spans.push({ start: m.index, end: m.index + m[0].length, xml: m[0] });
+  return spans;
+}
+
+/** Абзацы внутри фрагмента — диапазонами. */
+function paragraphSpans(xml) {
+  const spans = [];
+  const re = /<w:p(?=[\s/>])[^>]*>[\s\S]*?<\/w:p>|<w:p(?=[\s/>])[^>]*\/>/g;
+  let m;
+  while ((m = re.exec(xml))) spans.push({ start: m.index, end: m.index + m[0].length, xml: m[0] });
+  return spans;
+}
+
+/**
+ * Текст ячейки — с сохранением её оформления.
+ *
+ * Свойства ячейки (<w:tcPr>: ширина, границы, заливка) не трогаются: они стоят
+ * до первого абзаца. Начертание берётся у первого прогона того абзаца, который
+ * в ячейке уже есть, — так новая строка выглядит как соседние, а не как текст
+ * по умолчанию. Остальные абзацы ячейки убираются: в строке данных их быть не
+ * должно, а оставленные пустыми они раздувают строку на две высоты.
+ */
+function setCellText(cellXml, text) {
+  const spans = paragraphSpans(cellXml);
+  if (!spans.length) return cellXml;
+  let out = cellXml;
+  for (let i = spans.length - 1; i >= 1; i--) out = out.slice(0, spans[i].start) + out.slice(spans[i].end);
+  const first = spans[0];
+  const openEnd = first.xml.indexOf(">") + 1;
+  const rebuilt = first.xml.endsWith("/>")
+    ? `<w:p>${buildRuns(text, "")}</w:p>`
+    : `${first.xml.slice(0, openEnd)}${paragraphProperties(first.xml)}${buildRuns(
+        text,
+        runProperties(first.xml)
+      )}</w:p>`;
+  return out.slice(0, first.start) + rebuilt + out.slice(first.end);
+}
+
+/** Новая строка таблицы по образцу существующей. */
+function buildRow(donorXml, cells) {
+  const spans = cellSpans(donorXml);
+  if (!spans.length) return { xml: donorXml, dropped: cells.length };
+  let out = donorXml;
+  for (let i = spans.length - 1; i >= 0; i--) {
+    const value = i < cells.length ? cells[i] : "";
+    out = out.slice(0, spans[i].start) + setCellText(spans[i].xml, value) + out.slice(spans[i].end);
+  }
+  return { xml: out, dropped: Math.max(0, cells.length - spans.length) };
+}
+
+/**
+ * Заменяет строки таблицы, начиная с указанной.
+ *
+ * Это та правка, без которой раздел документооборота собирал негодные акты:
+ * перечень выполненных работ в акте — таблица, менять её было нечем, и в
+ * готовом документе оставался перечень из шаблона, то есть за прошлый период.
+ * Даты в абзацах при этом обновлялись, и документ выглядел новым.
+ *
+ * `from` — номер первой заменяемой строки, считая с единицы. По умолчанию 2:
+ * первая строка в таких таблицах — шапка, и её менять не нужно. Оформление
+ * новых строк берётся у той строки, которая стояла первой из заменяемых.
+ */
+function setTableRows(model, index, rows, { from = 2 } = {}) {
+  const { nodes } = scanBody(model.xml);
+  const node = nodes[index];
+  if (!node) throw new Error(`Блок №${index} не найден.`);
+  if (node.tag !== "w:tbl") throw new Error(`Блок №${index} — не таблица, строки менять нечему.`);
+
+  const tableXml = model.xml.slice(node.start, node.end);
+  const nested = (tableXml.match(/<w:tbl(?=[\s/>])/g) || []).length;
+  if (nested > 1) {
+    throw new Error(`В таблице №${index} есть вложенная таблица — так менять её нельзя, документ был бы испорчен.`);
+  }
+
+  const spans = rowSpans(tableXml);
+  if (!spans.length) throw new Error(`В таблице №${index} не нашлось ни одной строки.`);
+
+  const startRow = Math.max(0, (Number(from) || 1) - 1);
+  if (startRow > spans.length) {
+    throw new Error(`В таблице №${index} всего ${spans.length} строк, а замена просит начать с ${startRow + 1}-й.`);
+  }
+
+  const donor = spans[Math.min(startRow, spans.length - 1)];
+  let dropped = 0;
+  let hadLinks = false;
+  const built = rows.map((cells) => {
+    const row = buildRow(donor.xml, Array.isArray(cells) ? cells : [String(cells)]);
+    dropped += row.dropped;
+    return row.xml;
+  });
+  // Ссылка в ячейке живёт отдельным узлом <w:hyperlink>; при пересборке абзаца
+  // она становится обычным текстом. Молчать об этом нельзя: в акте колонка
+  // «Ссылка» — это именно ссылки.
+  for (let i = startRow; i < spans.length; i++) {
+    if (/<w:hyperlink[\s>]/.test(spans[i].xml)) hadLinks = true;
+  }
+
+  const cutFrom = startRow < spans.length ? spans[startRow].start : spans[spans.length - 1].end;
+  const cutTo = spans[spans.length - 1].end;
+  const nextTable = tableXml.slice(0, cutFrom) + built.join("") + tableXml.slice(cutTo);
+  model.xml = model.xml.slice(0, node.start) + nextTable + model.xml.slice(node.end);
+
+  return {
+    rows: built.length,
+    columns: cellSpans(donor.xml).length,
+    replaced: spans.length - startRow,
+    dropped,
+    hadLinks,
+  };
+}
+
+/**
  * Вставляет новый абзац после указанного (или в начало, если index < 0).
  * `style` — имя стиля Word: Heading1, Heading2, ListParagraph и т.п.
  */
@@ -283,12 +415,29 @@ async function createDocument(name) {
 const MAX_AGENT_CHARS = 40000;
 
 /** Документ в виде текста для контекста агента — с номерами блоков. */
+/**
+ * Сколько строк таблицы показывать агенту.
+ *
+ * Было 30 — и этого мало: в акте за месяц перечень работ доходит до сорока
+ * строк, а невидимые строки агент заменить не может. Молча обрезанная таблица
+ * выглядит как «агент потерял половину работ».
+ */
+const TABLE_ROWS_SHOWN = 80;
+
 function toAgentText(model) {
   const lines = [];
   for (const block of model.blocks) {
     if (block.kind === "table") {
-      lines.push(`[${block.index}] ТАБЛИЦА (${block.rows.length} строк):`);
-      for (const row of block.rows.slice(0, 30)) lines.push(`    ${row.join(" | ")}`);
+      // Строки нумеруются: без номера агенту нечем сказать, какую строку он
+      // меняет, и команда TABLE … FROM становится игрой в угадайку.
+      const columns = block.rows.reduce((n, row) => Math.max(n, row.length), 0);
+      lines.push(`[${block.index}] ТАБЛИЦА (${block.rows.length} строк, ${columns} колонок):`);
+      for (const [i, row] of block.rows.slice(0, TABLE_ROWS_SHOWN).entries()) {
+        lines.push(`    ${i + 1}) ${row.join(" | ")}`);
+      }
+      if (block.rows.length > TABLE_ROWS_SHOWN) {
+        lines.push(`    [...ещё ${block.rows.length - TABLE_ROWS_SHOWN} строк не показано...]`);
+      }
       continue;
     }
     const label = block.level ? `H${block.level}` : block.kind === "list" ? "список" : "абзац";
@@ -311,6 +460,9 @@ SET 3: новый текст третьего блока
 INSERT AFTER 5 [Heading2]: Новый заголовок
 INSERT AFTER 5: Обычный новый абзац
 DELETE 7
+TABLE 9 FROM 2:
+| 1 | 03.09.2026 | Живой клип | 5000 |
+| 2 | 07.09.2026 | Пост текст+фото | 1200 |
 ===WORD EDIT END===
 
 Правила:
@@ -319,8 +471,12 @@ DELETE 7
 - INSERT AFTER вставляет новый абзац после указанного блока; в квадратных скобках можно указать стиль
   Word (Heading1, Heading2, ListParagraph). INSERT AFTER -1 вставляет в самое начало документа.
 - DELETE удаляет блок целиком.
+- TABLE заменяет строки таблицы целиком, начиная с указанной в FROM (по умолчанию со второй —
+  первая строка обычно шапка). Каждая строка — отдельная строчка вида «| ячейка | ячейка |»;
+  колонки разделяет знак «|». Строк можно дать больше или меньше, чем было: лишние старые
+  строки исчезнут, новые получат оформление той строки, с которой начинается замена. Значения,
+  которым не хватило колонок, отбрасываются — считай колонки по шапке.
 - Команд может быть несколько, каждая с новой строки; они применяются сверху вниз.
-- Менять текст внутри таблиц пока нельзя — если правка нужна в таблице, скажи об этом словами.
 - Никогда не применяй правку сам и не пиши, что уже применил.
 - Отвечай по-русски.
 
@@ -356,9 +512,33 @@ function parseAgentEdit(text) {
   const match = /===WORD EDIT START===([\s\S]*?)===WORD EDIT END===/.exec(text || "");
   if (!match) return null;
   const ops = [];
+  // Команда TABLE занимает несколько строк: за ней идут строки таблицы вида
+  // «| ячейка | ячейка |». Поэтому разбор держит состояние: пока идут строки с
+  // «|», они принадлежат последней команде TABLE, а любая другая строка её
+  // закрывает.
+  let table = null;
   for (const rawLine of match[1].split("\n")) {
     const line = rawLine.trim();
+
+    if (table) {
+      if (line.startsWith("|")) {
+        table.rows.push(splitRowCells(line));
+        continue;
+      }
+      if (!line) continue;
+      table = null;
+    }
     if (!line) continue;
+
+    const tableHead = /^TABLE\s+(\d+)(?:\s+FROM\s+(\d+))?\s*:\s*(.*)$/i.exec(line);
+    if (tableHead) {
+      table = { op: "table", index: Number(tableHead[1]), from: Number(tableHead[2] || 2), rows: [] };
+      // Первая строка может стоять сразу за двоеточием.
+      const tail = (tableHead[3] || "").trim();
+      if (tail.startsWith("|")) table.rows.push(splitRowCells(tail));
+      ops.push(table);
+      continue;
+    }
 
     const set = /^SET\s+(\d+)\s*:\s*([\s\S]*)$/i.exec(line);
     if (set) {
@@ -373,7 +553,16 @@ function parseAgentEdit(text) {
     const del = /^DELETE\s+(\d+)$/i.exec(line);
     if (del) ops.push({ op: "delete", index: Number(del[1]) });
   }
-  return ops.length ? { ops } : null;
+  // TABLE без единой строки — это не «очистить таблицу», а недописанный ответ.
+  // Применять его значило бы снести перечень работ начисто.
+  const kept = ops.filter((o) => o.op !== "table" || o.rows.length > 0);
+  return kept.length ? { ops: kept } : null;
+}
+
+/** «| 1 | 03.09.2026 | 5000 |» → ["1", "03.09.2026", "5000"]. */
+function splitRowCells(line) {
+  const body = line.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
+  return body.split("|").map((c) => c.trim());
 }
 
 /**
@@ -386,14 +575,34 @@ function parseAgentEdit(text) {
  */
 function applyAgentEdit(model, edit) {
   const ops = edit?.ops || [];
+  const notes = [];
   for (const op of ops.filter((o) => o.op === "set")) setBlockText(model, op.index, op.text);
+  // Строки таблицы меняются вместе с SET: нумерацию блоков они не двигают.
+  for (const op of ops.filter((o) => o.op === "table")) {
+    const result = setTableRows(model, op.index, op.rows, { from: op.from });
+    if (result.dropped) {
+      notes.push(
+        `Таблица №${op.index}: ${result.dropped} значений не поместились — в таблице ${result.columns} колонок.`
+      );
+    }
+    if (result.hadLinks) {
+      notes.push(`Таблица №${op.index}: ссылки в заменённых строках стали обычным текстом.`);
+    }
+  }
 
-  const structural = ops.filter((o) => o.op !== "set").sort((a, b) => b.index - a.index);
+  // Структурные — только вставки и удаления. «Не SET» здесь написать нельзя:
+  // под это условие попадает и TABLE, и тогда замена строк таблицы вторым
+  // проходом вставляла после неё абзац с текстом «undefined».
+  const structural = ops
+    .filter((o) => o.op === "insert" || o.op === "delete")
+    .sort((a, b) => b.index - a.index);
   for (const op of structural) {
     if (op.op === "delete") deleteBlock(model, op.index);
     else insertParagraph(model, op.index, op.text, op.style);
   }
-  return refresh(model);
+  refresh(model);
+  model.notes = notes;
+  return model;
 }
 
 module.exports = {
@@ -402,6 +611,7 @@ module.exports = {
   saveDocument,
   documentPayload,
   setBlockText,
+  setTableRows,
   insertParagraph,
   deleteBlock,
   refresh,
