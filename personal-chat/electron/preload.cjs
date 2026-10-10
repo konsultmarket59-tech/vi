@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld("api", {
   openDocflowFolder: (folderPath) => ipcRenderer.invoke("docflow:openFolder", folderPath),
   prepareDocflow: (request) => ipcRenderer.invoke("docflow:prepare", request),
   saveDocflowResult: (payload) => ipcRenderer.invoke("docflow:save", payload),
+  checkDocflowResult: (payload) => ipcRenderer.invoke("docflow:check", payload),
 
   // визуализация данных
   datavizOptions: () => ipcRenderer.invoke("dataviz:options"),

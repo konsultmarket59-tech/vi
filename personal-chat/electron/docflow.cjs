@@ -363,6 +363,9 @@ FILENAME: <имя файла без расширения, по образцу: �
 SET 3: новый текст третьего блока шаблона
 INSERT AFTER 5 [Heading2]: новый заголовок
 DELETE 7
+TABLE 9 FROM 2:
+| 1 | 03.09.2026 | Живой клип (газобетон или каркасник) | 5000 | ссылка |
+| 2 | 07.09.2026 | Пост текст+фото (график застройки) | 1200 | ссылка |
 ===КОНЕЦ===
 
 Правила заполнения шаблона:
@@ -371,8 +374,14 @@ DELETE 7
   (INSERT AFTER -1 — в самое начало); DELETE удаляет блок.
 - Меняй ТОЛЬКО те блоки, где действительно меняются данные: номер, дата, реквизиты, предмет,
   суммы, перечень работ. Остальной текст шаблона не трогай — он выверен юридически.
-- Текст внутри таблиц шаблона так менять нельзя. Если данные должны попасть в таблицу —
-  скажи об этом словами в ответе, документ всё равно будет сохранён.
+- ПЕРЕЧЕНЬ РАБОТ В ТАБЛИЦЕ ЗАПОЛНЯТЬ ОБЯЗАТЕЛЬНО, командой TABLE. В шаблоне таблица
+  заполнена данными ПРОШЛОГО периода: если её не заменить, документ уйдёт с датами нового
+  периода и работами прошлого. TABLE заменяет строки целиком, начиная с указанной в FROM
+  (по умолчанию со второй — первая строка обычно шапка). Каждая строка — отдельная строчка
+  вида «| ячейка | ячейка |». Строк можно дать больше или меньше, чем было. Колонки считай
+  по шапке: значения, которым не хватило колонок, отбрасываются.
+- Сумма документа в поле SUM и итог по колонке стоимости в таблице обязаны совпадать:
+  приложение их складывает и сверяет, расхождение остановит сохранение.
 - Никогда не пиши, что уже сохранил документ: сохраняет приложение после подтверждения.
 - Отвечай по-русски. Перед блоком ===ДОКУМЕНТ=== коротко объясни, что заполнил и откуда взял
   цифры — это то, что человек будет проверять.`;
@@ -507,6 +516,149 @@ function ledgerToText(ledger, limit = 40) {
   return [...header, ...body].map((row) => row.values.join(" | ")).join("\n");
 }
 
+// ---------- проверка заполненного документа ----------
+
+/**
+ * Месяцы словами — так, как их пишут в документах: «августа», «авг.», «мая».
+ *
+ * Корнем один класс не возьмёшь: у «мая» и «марта» он общий, поэтому каждый
+ * месяц описан своим выражением.
+ */
+const MONTH_WORDS = [
+  /^январ|^янв\.?$/i,
+  /^феврал|^фев\.?$/i,
+  /^март|^мар\.?$/i,
+  /^апрел|^апр\.?$/i,
+  /^ма[йя]$/i,
+  /^июн/i,
+  /^июл/i,
+  /^август|^авг\.?$/i,
+  /^сентябр|^сент?\.?$/i,
+  /^октябр|^окт\.?$/i,
+  /^ноябр|^нояб?\.?$/i,
+  /^декабр|^дек\.?$/i,
+];
+
+const DATE_DOTS = /\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\b/g;
+const DATE_WORDS = /(\d{1,2})\s*[»"']?\s*([А-Яа-яЁё]{3,10})\.?\s*(\d{4})/g;
+
+/** Все месяцы, упомянутые датами в тексте: «2026-08» → как это было написано. */
+function datesIn(text) {
+  const found = new Map();
+  const body = String(text || "");
+  let m;
+  DATE_DOTS.lastIndex = 0;
+  while ((m = DATE_DOTS.exec(body))) {
+    const mon = parseInt(m[2], 10);
+    if (mon >= 1 && mon <= 12) found.set(`${m[3]}-${pad(mon)}`, m[0]);
+  }
+  DATE_WORDS.lastIndex = 0;
+  while ((m = DATE_WORDS.exec(body))) {
+    const idx = MONTH_WORDS.findIndex((re) => re.test(m[2]));
+    if (idx >= 0) found.set(`${m[3]}-${pad(idx + 1)}`, m[0]);
+  }
+  return found;
+}
+
+/** Число из ячейки со стоимостью: «5 000», «2 500,00», «3000 ₽». */
+function money(text) {
+  const body = String(text == null ? "" : text).replace(/[\s\u00a0\u202f]/g, "");
+  const m = /-?\d+(?:[.,]\d+)?/.exec(body);
+  if (!m) return null;
+  const value = Number(m[0].replace(",", "."));
+  return Number.isFinite(value) ? value : null;
+}
+
+const MONEY_HEADERS = /стоимост|сумм|цена|цену|руб/i;
+
+/**
+ * Колонка со стоимостью в таблице: сначала по шапке, иначе — по содержимому.
+ *
+ * Разница важна: найденную по шапке колонку можно складывать уверенно, и
+ * расхождение с суммой документа тогда — ошибка, а не догадка приложения.
+ */
+function moneyColumn(rows) {
+  if (!rows.length) return { index: -1, byHeader: false };
+  const header = rows[0] || [];
+  const named = header.findIndex((cell) => MONEY_HEADERS.test(String(cell || "")));
+  if (named >= 0) return { index: named, byHeader: true };
+
+  const body = rows.slice(1);
+  let best = -1;
+  let bestCount = 0;
+  const columns = rows.reduce((n, row) => Math.max(n, row.length), 0);
+  for (let c = 0; c < columns; c++) {
+    const count = body.filter((row) => {
+      const value = money(row[c]);
+      return value !== null && value >= 100;
+    }).length;
+    if (count > bestCount) {
+      bestCount = count;
+      best = c;
+    }
+  }
+  return { index: bestCount >= Math.max(2, body.length - 1) ? best : -1, byHeader: false };
+}
+
+/**
+ * Проверка готового документа перед сохранением.
+ *
+ * Та самая проверка, которой не было и из-за которой уходил акт с датами нового
+ * периода и перечнем работ за прошлый. Смотрим ровно две вещи, и обе — в
+ * таблицах: там живёт перечень работ.
+ *
+ * Даты ищутся только в таблицах сознательно. В абзацах дата другого периода
+ * законна и нужна: «к Договору № 14 от 01.12.2025 г.» — и проверка, ругающаяся
+ * на неё, была бы шумом, который перестают читать.
+ */
+function checkFilled(model, { month = "", sum = "" } = {}) {
+  const blocking = [];
+  const warnings = [];
+  const tables = (model.blocks || []).filter((b) => b.kind === "table");
+
+  if (month && tables.length) {
+    const alien = new Map();
+    for (const table of tables) {
+      for (const row of table.rows || []) {
+        for (const cell of row) {
+          for (const [key, sample] of datesIn(cell)) {
+            if (key !== month && !alien.has(key)) alien.set(key, sample);
+          }
+        }
+      }
+    }
+    if (alien.size) {
+      const list = [...alien.entries()].map(([key, sample]) => `${monthLabel(key)} («${sample}»)`).join(", ");
+      blocking.push(
+        `В таблице документа остались даты другого периода: ${list}. Отчётный период документа — ` +
+          `${monthLabel(month)}. Похоже, перечень работ не заполнен и остался из шаблона.`
+      );
+    }
+  }
+
+  const declared = money(sum);
+  for (const table of tables) {
+    const rows = table.rows || [];
+    const column = moneyColumn(rows);
+    if (column.index < 0 || rows.length < 2) continue;
+    const values = rows
+      .slice(1)
+      .map((row) => money(row[column.index]))
+      .filter((v) => v !== null);
+    if (values.length < 2) continue;
+    const total = values.reduce((a, b) => a + b, 0);
+    if (declared === null || Math.abs(total - declared) < 0.5) continue;
+    const note =
+      `Сумма документа — ${declared.toLocaleString("ru-RU")}, а по колонке «${
+        rows[0][column.index] || "стоимость"
+      }» в таблице выходит ${total.toLocaleString("ru-RU")} (${values.length} строк).`;
+    if (column.byHeader) blocking.push(note + " Одно из двух неверно.");
+    else warnings.push(note + " Колонку со стоимостью приложение определило по содержимому — проверьте.");
+  }
+
+  return { blocking, warnings };
+}
+
 // ---------- сборка результата ----------
 
 function sanitizeFileName(name) {
@@ -517,13 +669,33 @@ function sanitizeFileName(name) {
     .slice(0, 120);
 }
 
-/** Заполняет шаблон правками агента и сохраняет копию — исходный шаблон не трогаем. */
-async function fillTemplate(templatePath, ops, destPath) {
+/**
+ * Заполняет шаблон правками агента и сохраняет копию — исходный шаблон не трогаем.
+ *
+ * Проверка идёт ДО записи: негодный документ не должен лежать на диске, пока
+ * человек решает, что с ним делать. С `confirm` он сохраняется как есть — право
+ * решить остаётся за человеком, но решает он, видя, что именно не так.
+ */
+async function fillTemplate(templatePath, ops, destPath, { month = "", sum = "", confirm = false } = {}) {
   const model = await word.loadDocument(templatePath);
   word.applyAgentEdit(model, { ops });
+  const check = checkFilled(model, { month, sum });
+  if (check.blocking.length && !confirm) {
+    const error = new Error(check.blocking.join(" "));
+    error.docflowCheck = check;
+    throw error;
+  }
   await fs.mkdir(path.dirname(destPath), { recursive: true });
   await word.saveDocument(model, destPath);
-  return destPath;
+  return { path: destPath, blocking: check.blocking, warnings: check.warnings, notes: model.notes || [] };
+}
+
+/** Проверка без записи файла: для предпросмотра, пока человек ещё не нажал «сохранить». */
+async function checkTemplate(templatePath, ops, { month = "", sum = "" } = {}) {
+  const model = await word.loadDocument(templatePath);
+  word.applyAgentEdit(model, { ops });
+  const check = checkFilled(model, { month, sum });
+  return { ...check, notes: model.notes || [], blocks: word.documentPayload(model).blocks };
 }
 
 /**
@@ -605,6 +777,9 @@ async function buildFromMarkdown(markdown, title, destPath) {
 }
 
 module.exports = {
+  checkFilled,
+  checkTemplate,
+  datesIn,
   DOC_KINDS,
   kindById,
   loadConfig,

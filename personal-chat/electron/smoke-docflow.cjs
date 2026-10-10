@@ -53,6 +53,42 @@ async function makeTemplateDocx(file) {
   await fsp.writeFile(file, await docx.Packer.toBuffer(doc));
 }
 
+/**
+ * Шаблон акта той же формы, что настоящий: перечень выполненных работ —
+ * ТАБЛИЦА, и в шаблоне она заполнена данными ПРОШЛОГО периода. Именно на такой
+ * форме раздел собирал негодный документ: даты в абзацах обновлялись, перечень
+ * работ оставался августовским, и файл сохранялся как готовый.
+ */
+async function makeActTemplate(file) {
+  const docx = require("docx");
+  const row = (cells) =>
+    new docx.TableRow({
+      children: cells.map((t) => new docx.TableCell({ children: [new docx.Paragraph(String(t))] })),
+    });
+  const doc = new docx.Document({
+    sections: [
+      {
+        children: [
+          new docx.Paragraph({ text: "АКТ ПРИЁМКИ ВЫПОЛНЕННЫХ РАБОТ", heading: docx.HeadingLevel.HEADING_1 }),
+          new docx.Paragraph({ text: "г. Пермь «31» августа 2026 г." }),
+          new docx.Paragraph({ text: "В отчетном периоде с 1 по 31 августа 2026 г. выполнены единицы контента:" }),
+          new docx.Table({
+            rows: [
+              row(["№", "Дата публикации", "Тип контента", "Стоимость, ₽"]),
+              row(["1", "31 авг. 2026г.", "Живой клип (энергоэффективность)", "5000"]),
+              row(["2", "28 авг. 2026г.", "SEO-статья (сайт)", "2500"]),
+              row(["3", "5 авг. 2026г.", "Живой клип (долговечность)", "5000"]),
+            ],
+          }),
+          new docx.Paragraph({ text: "Общая стоимость: 12 500 рублей 00 копеек, НДС не облагается." }),
+          new docx.Paragraph({ text: "Реквизиты и подписи сторон." }),
+        ],
+      },
+    ],
+  });
+  await fsp.writeFile(file, await docx.Packer.toBuffer(doc));
+}
+
 async function main() {
   console.log("справочники");
   const root = path.join(tmp, "data");
@@ -157,6 +193,113 @@ FILENAME: Договор оказания услуг
     result.blocks[3].text
   );
   check("стиль заголовка сохранён", result.blocks[0].level === 1, `level=${result.blocks[0].level}`);
+
+  console.log("\nперечень работ в таблице заполняется");
+  // Главная проверка этого раздела. Жалоба была: «сохраняется файл с датами
+  // сентября, но данные внутри акта августа — тот же документ, что плагин
+  // создал в прошлом месяце».
+  const actTemplate = path.join(tmp, "Шаблон акта с таблицей.docx");
+  await makeActTemplate(actTemplate);
+
+  const ответАгента = `Заполнил акт за сентябрь.
+
+===ДОКУМЕНТ===
+NUMBER: 43
+DATE: 30.09.2026
+COUNTERPARTY: ИП Павлов
+SUM: 13200
+FILENAME: Акт №43 от 30.09.2026
+===ПРАВКИ===
+SET 1: г. Пермь «30» сентября 2026 г.
+SET 2: В отчетном периоде с 1 по 30 сентября 2026 г. выполнены единицы контента:
+SET 4: Общая стоимость: 13 200 рублей 00 копеек, НДС не облагается.
+TABLE 3 FROM 2:
+| 1 | 03.09.2026 | Генеративное видео «Демо-дом» | 3000 |
+| 2 | 07.09.2026 | Пост текст+фото (график застройки) | 1200 |
+| 3 | 09.09.2026 | Живой клип (газобетон или каркасник) | 9000 |
+===КОНЕЦ===`;
+
+  const актПравки = docflow.parseResult(ответАгента);
+  const таблОп = актПравки.ops.find((o) => o.op === "table");
+  check("команда TABLE разобрана", !!таблОп && таблОп.index === 3 && таблОп.from === 2, JSON.stringify(таблОп && таблОп.index));
+  check("строки таблицы разобраны по колонкам",
+    таблОп.rows.length === 3 && таблОп.rows[0].length === 4, JSON.stringify(таблОп.rows[0]));
+  check("команда TABLE не считается вставкой абзаца",
+    актПравки.ops.filter((o) => o.op === "insert").length === 0, JSON.stringify(актПравки.ops.map((o) => o.op)));
+
+  const актFile = path.join(tmp, "результат", "Акт №43.docx");
+  const заполнен = await docflow.fillTemplate(actTemplate, актПравки.ops, актFile, {
+    month: "2026-09",
+    sum: "13200",
+  });
+  check("акт сохранён", fs.existsSync(заполнен.path));
+  const акт = await word.loadDocument(актFile);
+  const таблица = акт.blocks.find((b) => b.kind === "table");
+  check("в таблице новое число строк", таблица.rows.length === 4, `строк: ${таблица.rows.length}`);
+  check("шапка таблицы не тронута", таблица.rows[0][0] === "№" && таблица.rows[0][3] === "Стоимость, ₽",
+    таблица.rows[0].join(" | "));
+  check("перечень работ — за новый период",
+    таблица.rows.slice(1).every((r) => /\.09\.2026$/.test(r[1])), JSON.stringify(таблица.rows.slice(1).map((r) => r[1])));
+  check("августовских работ в документе не осталось",
+    !акт.blocks.some((b) => (b.rows || []).some((r) => r.some((c) => /авг/i.test(c)))),
+    JSON.stringify(таблица.rows));
+  check("число колонок не поехало",
+    таблица.rows.every((r) => r.length === 4), JSON.stringify(таблица.rows.map((r) => r.length)));
+  check("абзацы вокруг таблицы на месте",
+    акт.blocks[акт.blocks.length - 1].text === "Реквизиты и подписи сторон.",
+    акт.blocks[акт.blocks.length - 1].text);
+
+  console.log("\nпроверка перед сохранением");
+  // Те же правки, но БЕЗ команды TABLE: ровно то, что раздел делал раньше.
+  const безТаблицы = актПравки.ops.filter((o) => o.op !== "table");
+  const проверка = await docflow.checkTemplate(actTemplate, безТаблицы, { month: "2026-09", sum: "13200" });
+  check("незаполненная таблица останавливает сохранение",
+    проверка.blocking.some((t) => /даты другого периода/.test(t)), JSON.stringify(проверка.blocking));
+  check("в замечании названы и чужой период, и нужный",
+    проверка.blocking.some((t) => /август 2026/.test(t) && /сентябрь 2026/.test(t)), JSON.stringify(проверка.blocking));
+
+  const негодный = path.join(tmp, "результат", "негодный.docx");
+  let отказал = false;
+  try {
+    await docflow.fillTemplate(actTemplate, безТаблицы, негодный, { month: "2026-09", sum: "13200" });
+  } catch (e) {
+    отказал = Boolean(e.docflowCheck);
+  }
+  check("файл без подтверждения не записан", отказал && !fs.existsSync(негодный));
+  const силой = await docflow.fillTemplate(actTemplate, безТаблицы, негодный, {
+    month: "2026-09",
+    sum: "13200",
+    confirm: true,
+  });
+  check("с подтверждением человека сохраняется", fs.existsSync(силой.path) && силой.blocking.length > 0);
+
+  const сошлось = await docflow.checkTemplate(actTemplate, актПравки.ops, { month: "2026-09", sum: "13200" });
+  check("заполненный акт проверку проходит",
+    сошлось.blocking.length === 0 && сошлось.warnings.length === 0,
+    JSON.stringify([сошлось.blocking, сошлось.warnings]));
+
+  const расхождение = await docflow.checkTemplate(actTemplate, актПравки.ops, { month: "2026-09", sum: "37000" });
+  // Пробел в разрядах — НЕРАЗРЫВНЫЙ: его ставит toLocaleString. Обычный пробел в
+  // выражении здесь молча не совпадает, и проверка падала бы на ровном месте.
+  check("расхождение суммы с таблицей останавливает сохранение",
+    расхождение.blocking.some((t) => /13\s200/.test(t) && /37\s000/.test(t)), JSON.stringify(расхождение.blocking));
+
+  console.log("\nдаты в тексте — как их пишут люди");
+  const датыПрописью = docflow.datesIn("31 авг. 2026г. и «30» сентября 2026 г. и 05.12.2025");
+  check("«31 авг. 2026г.» опознано", датыПрописью.has("2026-08"), JSON.stringify([...датыПрописью.keys()]));
+  check("«30 сентября 2026» опознано", датыПрописью.has("2026-09"), JSON.stringify([...датыПрописью.keys()]));
+  check("«05.12.2025» опознано", датыПрописью.has("2025-12"), JSON.stringify([...датыПрописью.keys()]));
+  check("мая и марта не путаются",
+    docflow.datesIn("1 мая 2026").has("2026-05") && docflow.datesIn("1 марта 2026").has("2026-03"));
+  // Дата договора в АБЗАЦЕ — законна: «к Договору № 14 от 01.12.2025 г.». Проверка
+  // смотрит только таблицы, иначе она ругалась бы на каждый акт и её перестали бы читать.
+  const сДоговором = await docflow.checkTemplate(
+    actTemplate,
+    [...актПравки.ops, { op: "insert", index: 0, text: "К Договору № 14 от 01.12.2025 г.", style: "" }],
+    { month: "2026-09", sum: "13200" }
+  );
+  check("дата договора в абзаце не считается ошибкой", сДоговором.blocking.length === 0,
+    JSON.stringify(сДоговором.blocking));
 
   console.log("\nдокумент сверки в формате Word");
   const docxLedger = path.join(tmp, "Сверка.docx");

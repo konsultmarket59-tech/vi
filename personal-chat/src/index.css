@@ -1457,6 +1457,11 @@ a:hover { color: var(--accent-hover); }
 .docflow-badge-warn { border-color: var(--accent); color: var(--accent-text); }
 
 .docflow-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; margin: 6px 0; }
+.docflow-check { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  background: var(--surface-2); border: 1px solid var(--border); }
+.docflow-check ul { margin: 4px 0 0; padding-left: 18px; }
+.docflow-check li { margin-bottom: 4px; }
+.docflow-check--stop { border-color: #c0392b; background: rgba(192, 57, 43, 0.08); }
 .docflow-saved {
   border: 1px solid var(--border);
   border-radius: 8px;

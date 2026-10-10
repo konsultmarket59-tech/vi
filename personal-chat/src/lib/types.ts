@@ -1182,14 +1182,28 @@ export interface DocflowMeta {
   filename: string;
 }
 
+/** Замечания проверки заполненного документа. */
+export interface DocflowCheck {
+  /** Останавливают сохранение: даты другого периода в таблице, расхождение суммы. */
+  blocking: string[];
+  /** Сообщаются, но сохранению не мешают. */
+  warnings: string[];
+  /** Что приложение сделало с правками: отброшенные значения, потерянные ссылки. */
+  notes: string[];
+}
+
 export interface DocflowSaveResult {
   docxPath: string;
   pdfPath: string;
   /** "word" — печатал настоящий Word, "render" — приблизительная вёрстка приложения. */
-  pdfVia: string;
-  pdfError: string;
-  ledgerRow: string[] | null;
-  ledgerError: string;
+  pdfVia?: string;
+  pdfError?: string;
+  ledgerRow?: string[] | null;
+  ledgerError?: string;
+  /** Проверка не пройдена и файл не записан: нужно подтверждение человека. */
+  needsConfirm?: boolean;
+  blocking?: string[];
+  warnings?: string[];
 }
 
 export interface CanvasPreset {
@@ -1740,7 +1754,9 @@ export interface CleanupLedgerSheet {
 export type WordEditOp =
   | { op: "set"; index: number; text: string }
   | { op: "insert"; index: number; text: string; style: string }
-  | { op: "delete"; index: number };
+  | { op: "delete"; index: number }
+  /** Замена строк таблицы начиная с `from` (нумерация с единицы, по умолчанию 2 — под шапкой). */
+  | { op: "table"; index: number; from: number; rows: string[][] };
 
 export interface WordEdit {
   ops: WordEditOp[];
@@ -2292,7 +2308,17 @@ export interface ElectronAPI {
     kindId: string;
     ledgerPath?: string;
     writeLedger: boolean;
+    month?: string;
+    /** Сохранить, несмотря на замечания проверки. */
+    confirm?: boolean;
   }): Promise<DocflowSaveResult>;
+  checkDocflowResult(payload: {
+    mode: "template" | "lawyer";
+    templatePath?: string;
+    ops?: WordEditOp[];
+    meta: DocflowMeta;
+    month?: string;
+  }): Promise<DocflowCheck>;
 
   // Excel workbooks
   pickExcelFile(): Promise<string | null>;
