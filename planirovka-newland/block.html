@@ -13,7 +13,7 @@
 
   <section class="ed" id="nlEd" hidden>
     <header class="bar">
-      <button class="btn back" id="nlBack" title="Ко всем планировкам"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>Планировки</button>
+      <button class="btn back" id="nlBack" title="Ко всем планировкам"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span class="lbl">Планировки</span></button>
       <div class="ttl"><b id="nlTitle">Дом</b><span id="nlMeta"></span></div>
       <div class="views tagged" role="group" aria-label="Вид">
         <button data-view="plan" aria-pressed="true">План</button>
@@ -21,19 +21,20 @@
         <button data-view="top">Сверху</button>
         <button data-view="eye">Из гостиной</button>
         <button data-view="unfold">Развёртка</button>
-        <span class="tag" data-tag="views"><i>3</i>Смотрите в 3D и развёртке<button aria-label="Скрыть подсказку">×</button></span>
+        <span class="tag" data-tag="views"><i>3</i><span class="lg">Смотрите в 3D и развёртке</span><span class="sh">3D и развёртка</span><button aria-label="Скрыть подсказку">×</button></span>
       </div>
       <div class="acts tagged">
-        <button class="btn" id="nlDimOut" aria-pressed="false" title="Габариты дома снаружи">Наружные размеры</button>
-        <button class="btn" id="nlDimIn" aria-pressed="false" title="Размеры помещений внутри">Внутренние</button>
+        <button class="btn" id="nlDimOut" aria-pressed="false" title="Габариты дома снаружи"><span class="lg">Наружные размеры</span><span class="sh">Размеры снаружи</span></button>
+        <button class="btn" id="nlDimIn" aria-pressed="false" title="Размеры помещений внутри"><span class="lg">Внутренние</span><span class="sh">Внутри</span></button>
         <button class="btn" id="nlShot" title="Скачать картинку того, что сейчас на экране"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Снимок</button>
         <a class="btn primary" id="nlWhere" target="_blank" rel="noopener">Где есть такие дома</a>
-        <span class="tag" data-tag="acts"><i>4</i>Размеры и снимок<button aria-label="Скрыть подсказку">×</button></span>
+        <span class="tag" data-tag="acts"><i>4</i><span class="lg">Размеры и снимок</span><span class="sh">Размеры, снимок</span><button aria-label="Скрыть подсказку">×</button></span>
       </div>
     </header>
 
     <div class="work">
       <aside class="side">
+        <a class="btn primary wide" id="nlWhere2" target="_blank" rel="noopener">Где есть такие дома</a>
         <div class="stabs" role="group" aria-label="Панель">
           <button data-pane="furn" aria-pressed="true">Мебель</button>
           <button data-pane="paint" aria-pressed="false">Цвет стен</button>
@@ -59,8 +60,8 @@
         <canvas id="nlUnfold" hidden></canvas>
         <div class="v3" id="nlV3" hidden><button class="btn sm" id="nlCut" aria-pressed="false">Срезать стены</button><span class="muted" id="nlV3hint"></span></div>
         <div class="rooms-bar" id="nlRooms" hidden></div>
-        <div class="empty" id="nlEmpty" hidden>План пустой — перетащите мебель из каталога или просто нажмите на предмет</div>
-        <div class="paintbar" id="nlPaintBar" hidden><i id="nlPaintDot"></i>Нажмите на комнату, чтобы покрасить стены<button class="btn sm" id="nlPaintOff">Готово</button></div>
+        <div class="empty" id="nlEmpty" hidden><span class="lg">План пустой — перетащите мебель из каталога или просто нажмите на предмет</span><span class="sh">Нажмите на предмет в каталоге ниже ↓</span></div>
+        <div class="paintbar" id="nlPaintBar" hidden><i id="nlPaintDot"></i><span class="lg">Нажмите на комнату, чтобы покрасить стены</span><span class="sh">Нажмите на комнату</span><button class="btn sm" id="nlPaintOff">Готово</button></div>
         <div class="ft" id="nlFt" hidden>
           <button id="nlRot" title="Повернуть на 90° (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
           <button id="nlDup" title="Копия"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
@@ -118,7 +119,7 @@
 #nl-plan .card .cb{padding:12px 14px 14px;display:grid;gap:6px}
 #nl-plan .card b{font:800 34px/1 var(--display);color:var(--brand);text-transform:uppercase}
 #nl-plan .card b small{font-size:20px;font-weight:700;margin-left:3px}
-#nl-plan .card span{color:var(--muted);font-size:12.5px;min-height:2.9em}
+#nl-plan .card .nt{color:var(--muted);font-size:12.5px;min-height:2.9em}
 #nl-plan .card em{font-style:normal;color:var(--brand);border:1.5px solid var(--brand);border-radius:999px;padding:7px 10px;text-align:center;font:700 12px var(--text);letter-spacing:.06em;text-transform:uppercase;transition:background .18s,color .18s}
 #nl-plan .card:hover em{background:var(--brand);color:#fff}
 
@@ -194,10 +195,18 @@
 #nl-plan .acts .tag{right:auto;left:0;top:auto;bottom:0;transform:translateY(78%)}
 @keyframes nltag{0%,100%{translate:0 0}50%{translate:0 -2px}}
 
+#nl-plan .sh{display:none}
+#nl-plan #nlWhere2{display:none}
+#nl-plan .btn.wide{justify-content:center;width:calc(100% - 32px);margin:14px 16px 0;padding:12px 16px;font-size:14px}
+#nl-plan .paintbar{white-space:nowrap}
+@media (pointer:coarse){
+  #nl-plan .ft button,#nl-plan .ft label{width:40px;height:38px}
+  #nl-plan .btn,#nl-plan .views>button,#nl-plan .item,#nl-plan .sw,#nl-plan .rooms-bar button{touch-action:manipulation}
+}
 @media (max-width:980px){
   #nl-plan .ed{height:auto;min-height:0}
   #nl-plan .work{grid-template-columns:1fr}
-  #nl-plan .board{height:62vh;min-height:360px;order:-1}
+  #nl-plan .board{height:62vh;height:60svh;min-height:360px;max-height:720px;order:-1}
   #nl-plan .side{border-right:0;overflow:visible;display:block;padding-bottom:12px}
   #nl-plan .side .pane[data-pane="furn"]{overflow:visible}
   #nl-plan .stabs{display:flex;gap:2px;padding:3px;margin:12px 16px 0;border:1.5px solid var(--brand);border-radius:999px}
@@ -209,15 +218,40 @@
   #nl-plan .views{margin-left:0;order:3;width:100%;flex-wrap:wrap;border-radius:18px}
   #nl-plan .views>button{flex:1 1 auto;padding:7px 6px;font-size:12.5px}
   #nl-plan .acts{order:4}
+  #nl-plan .rooms-bar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+  #nl-plan .rooms-bar::-webkit-scrollbar{display:none}
+  #nl-plan .rooms-bar button{flex:none}
 }
 @media (max-width:560px){
+  #nl-plan .sh{display:inline}
+  #nl-plan .lg{display:none}
+  #nl-plan #nlWhere{display:none}
+  #nl-plan #nlWhere2{display:flex}
+  #nl-plan .back{padding:8px 10px}
+  #nl-plan .back .lbl{display:none}
+  #nl-plan .ttl b{font-size:24px}
+  #nl-plan .bar{gap:8px}
+  #nl-plan .acts{display:grid;grid-template-columns:1fr 1fr auto;width:100%;gap:6px}
+  #nl-plan .acts .btn{justify-content:center;padding:7px 8px}
+  #nl-plan .views>button{padding:7px 4px;font-size:12.5px}
+  #nl-plan .tag{font-size:10px;padding:3px}
+  #nl-plan .tag i{width:15px;height:15px;font-size:11px}
+  #nl-plan .views .tag,#nl-plan .acts .tag{left:auto;right:6px;top:auto;bottom:0;transform:translateY(62%)}
+  #nl-plan .empty{top:10px;padding:6px 12px;font-size:12.5px;white-space:nowrap}
+  #nl-plan .paintbar{top:10px;font-size:12.5px}
+  #nl-plan .v3{top:10px;left:10px}
+  #nl-plan .v3 .muted{font-size:11px}
+  #nl-plan .hud{left:10px;bottom:10px}
   #nl-plan .pick{padding-top:28px}
   #nl-plan .pick-head .num{display:none}
   #nl-plan .pick-head h2{font-size:36px}
   #nl-plan .cards{grid-template-columns:1fr 1fr;gap:10px}
   #nl-plan .card .cb{padding:10px}
   #nl-plan .card b{font-size:28px}
-  #nl-plan .card em{font-size:10.5px;letter-spacing:.03em;padding:6px 4px}
+  #nl-plan .card em{font-size:11px;letter-spacing:.04em;padding:7px 4px;white-space:nowrap}
+  #nl-plan .card:last-child:nth-child(odd){grid-column:1/-1}
+  #nl-plan .card:last-child:nth-child(odd) canvas{aspect-ratio:2/1}
+  #nl-plan .card .nt{min-height:0}
   #nl-plan .bar{padding:10px 12px}
   #nl-plan .acts .btn{padding:6px 11px;font-size:12.5px}
 }
@@ -423,7 +457,7 @@ function renderCards() {
     const cv = document.createElement('canvas'); cv.width = 480; cv.height = 320;
     b.append(cv);
     const n = roomsCount(P);
-    b.insertAdjacentHTML('beforeend', `<div class="cb"><b>${P.area}<small>м²</small></b><span>${P.note}</span><em>Открыть планировку →</em></div>`);
+    b.insertAdjacentHTML('beforeend', `<div class="cb"><b>${P.area}<small>м²</small></b><span class="nt">${P.note.replace(/ (м²)/g, '\u00a0$1')}</span><em><span class="lg">Открыть планировку →</span><span class="sh">Открыть →</span></em></div>`);
     b.setAttribute('aria-label', `Дом ${P.area} м², ${n} ${plural(n, 'спальня', 'спальни', 'спален')}`);
     b.onclick = () => openPlan(P.id);
     el.append(b);
@@ -481,9 +515,10 @@ function openPlan(id) {
   const b = P.box, n = roomsCount(P);
   $('#nlTitle').textContent = `Дом ${P.area} м²`;
   $('#nlMeta').textContent = `${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм · ${n} ${plural(n, 'спальня', 'спальни', 'спален')}`;
-  const wh = $('#nlWhere');
-  if (P.link) { wh.href = P.link; wh.removeAttribute('aria-disabled'); wh.textContent = 'Где есть такие дома'; wh.title = 'Каталог домов этой площади'; }
-  else { wh.removeAttribute('href'); wh.setAttribute('aria-disabled', 'true'); wh.textContent = 'Скоро в каталоге'; wh.title = 'Дома этой площади скоро появятся в каталоге'; }
+  for (const wh of [$('#nlWhere'), $('#nlWhere2')]) {
+    if (P.link) { wh.href = P.link; wh.removeAttribute('aria-disabled'); wh.textContent = `Где есть дома ${P.area} м²`; wh.title = 'Каталог домов этой площади'; }
+    else { wh.removeAttribute('href'); wh.setAttribute('aria-disabled', 'true'); wh.textContent = 'Скоро в каталоге'; wh.title = 'Дома этой площади скоро появятся в каталоге'; }
+  }
   try { history.replaceState(null, '', location.pathname + location.search + '#plan-' + P.area); } catch (e) { }
   renderSwatches(); renderTags(); setPaint(null);
   ROOT.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -507,6 +542,14 @@ function ensureKonva() {
   return konvaP;
 }
 const board = $('#nlBoard');
+const narrow = () => window.matchMedia('(max-width:980px)').matches;
+const touch = () => window.matchMedia('(pointer:coarse)').matches || navigator.maxTouchPoints > 0;
+/* на телефоне каталог и палитра под планом: после выбора показываем план */
+function showBoard() {
+  if (!narrow()) return;
+  const r = board.getBoundingClientRect();
+  if (r.top < -40 || r.top > window.innerHeight * .35) board.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function initKonva() {
   K = window.Konva;
   stage = new K.Stage({ container: $('#nlStage'), width: board.clientWidth || 800, height: board.clientHeight || 600 });
@@ -514,7 +557,7 @@ function initKonva() {
   stage.add(Lroom, Lwall, Lfurn, Lover);
   tr = new K.Transformer({
     rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315], rotationSnapTolerance: 8, keepRatio: false, ignoreStroke: true,
-    anchorSize: 10, anchorCornerRadius: 5, borderStroke: ACCENT, anchorStroke: BRAND, anchorFill: '#ffffff', rotateAnchorOffset: 24,
+    anchorSize: touch() ? 18 : 10, anchorCornerRadius: 9, borderStroke: ACCENT, anchorStroke: BRAND, anchorFill: '#ffffff', rotateAnchorOffset: 24,
     enabledAnchors: ['middle-left', 'middle-right', 'top-center', 'bottom-center'],
     boundBoxFunc: (o, n) => (Math.abs(n.width) < 8 || Math.abs(n.height) < 8 ? o : n),
   });
@@ -655,7 +698,7 @@ function addFurn(type, at) {
   const f = { id: uid(), type, x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10, rot: 0, w: CAT[type].w, d: CAT[type].d };
   if (roomAt(f.x, f.y) < 0) { toast('Поставьте предмет внутри дома'); return; }
   setPaint(null);
-  mutate(() => ST.furn.push(f)); setSel(f.id); doneTag('furn');
+  mutate(() => ST.furn.push(f)); setSel(f.id); doneTag('furn'); showBoard();
 }
 function setSel(id) {
   sel = id;
@@ -820,7 +863,7 @@ function renderSwatches() {
   for (const c of SWATCHES) {
     const b = document.createElement('button'); b.className = 'sw'; b.style.background = c; b.title = c; b.setAttribute('aria-label', 'Цвет ' + c);
     b.setAttribute('aria-pressed', paintColor === c);
-    b.onclick = () => setPaint(paintColor === c ? null : c);
+    b.onclick = () => { setPaint(paintColor === c ? null : c); if (paintColor) showBoard(); };
     el.append(b);
   }
 }
@@ -839,6 +882,7 @@ function paintRoom(i) {
 $('#nlPaintOff').onclick = () => setPaint(null);
 $('#nlPaintAll').onclick = () => { const c = paintColor || SWATCHES[1]; mutate(() => { ST.colors = P.rooms.map((r) => (r.k === 'terrace' ? null : c)); }); doneTag('paint'); };
 $('#nlCustom').oninput = (e) => { setPaint(e.target.value); };
+$('#nlCustom').onchange = () => showBoard();
 $$('.stabs button').forEach((b) => { b.onclick = () => { $$('.stabs button').forEach((x) => x.setAttribute('aria-pressed', x === b)); $('.side').dataset.pane = b.dataset.pane; }; });
 $('.side').dataset.pane = 'furn';
 
@@ -853,7 +897,9 @@ async function setView(v, quiet) {
   $('#nlEmpty').hidden = !(v === 'plan' && ST && ST.furn.length === 0);
   $('#nlPaintBar').hidden = !paintColor || v === 'unfold';
   $('#nlCut').hidden = v === 'eye';
-  $('#nlV3hint').textContent = v === 'eye' ? 'Тяните, чтобы осмотреться · колёсико — шаг вперёд' : 'Тяните — вращение, правая кнопка — сдвиг, колёсико — масштаб';
+  $('#nlV3hint').textContent = touch()
+    ? (v === 'eye' ? 'Ведите пальцем — осмотреться, два пальца — шаг' : 'Палец — вращение, два пальца — масштаб')
+    : (v === 'eye' ? 'Тяните, чтобы осмотреться · колёсико — шаг вперёд' : 'Тяните — вращение, правая кнопка — сдвиг, колёсико — масштаб');
   placeFt();
   if (v === 'plan') { if (three) three.renderer.setAnimationLoop(null); if (K && !quiet) { stage.size({ width: board.clientWidth, height: board.clientHeight }); render2D(); } else if (K) render2D(); return; }
   if (v === 'unfold') { if (three) three.renderer.setAnimationLoop(null); renderRoomChips(); drawUnfold(); return; }
@@ -951,8 +997,9 @@ function camPreset(k) {
     apply(); return;
   }
   st.mode = 'orbit'; st.target.set(cx, 0, cz);
-  if (k === 'top') { st.th = 0; st.ph = .02; st.r = size * 1.55; }
-  else { st.th = -.62; st.ph = .86; st.r = size * 1.25; }
+  const asp = three.camera.aspect || 1, far = asp < 1.25 ? Math.pow(1.25 / asp, .85) : 1;
+  if (k === 'top') { st.th = 0; st.ph = .02; st.r = size * 1.55 * far; }
+  else { st.th = -.62; st.ph = .86; st.r = size * 1.25 * far; }
   apply();
 }
 $('#nlCut').onclick = (e) => { cut = !cut; e.currentTarget.setAttribute('aria-pressed', cut); e.currentTarget.textContent = cut ? 'Полные стены' : 'Срезать стены'; build3D(); };
@@ -1263,7 +1310,7 @@ function setDims(k) {
   renderOver(); doneTag('acts');
 }
 $('#nlDimOut').onclick = () => setDims('out'); $('#nlDimIn').onclick = () => setDims('in');
-$('#nlWhere').addEventListener('click', (e) => { if (!P || !P.link) { e.preventDefault(); toast('Дома этой площади скоро появятся в каталоге'); } });
+for (const wh of [$('#nlWhere'), $('#nlWhere2')]) wh.addEventListener('click', (e) => { if (!P || !P.link) { e.preventDefault(); toast('Дома этой площади скоро появятся в каталоге'); } });
 
 /* ---------- клавиши: только когда курсор над блоком ---------- */
 let hot = false;
