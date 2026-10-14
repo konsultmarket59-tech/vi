@@ -1,10 +1,12 @@
-<!-- Нью Лэнд · примерка планировки. Вставьте целиком в блок T123 «HTML-код» Тильды. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Mono&family=PT+Sans+Narrow:wght@400;700&family=PT+Sans:wght@400;700&display=swap">
+<!-- Новая Земля · примерка планировки. Вставьте целиком в блок T123 «HTML-код» Тильды. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500&family=Raleway:ital,wght@0,400;0,600;0,700;1,500&display=swap">
 <div id="nl-plan">
   <section class="pick" id="nlPick">
     <div class="pick-head">
+      <div class="num">01</div>
+      <div><span class="kicker">Планировки домов</span>
       <h2>Примерьте планировку</h2>
-      <p>Выберите дом — расставьте мебель, подберите цвет стен и посмотрите интерьер в 3D.</p>
+      <p>Выберите дом — расставьте мебель, подберите цвет стен и посмотрите интерьер в 3D.</p></div>
     </div>
     <div class="cards" id="nlCards"></div>
   </section>
@@ -75,110 +77,121 @@
   </section>
 </div>
 <style>
-#nl-plan{--paper:#f3f2ee;--sheet:#fbfbf9;--panel:#fff;--ink:#22262a;--muted:#6b7178;--line:#dcdcd6;--wall:#25292d;
-  --accent:#2f6b4f;--accent-soft:#e4efe8;--tag:#e8743b;--shadow:0 1px 2px rgba(20,30,40,.08),0 6px 18px rgba(20,30,40,.08);
-  --f-ui:"PT Sans","Segoe UI",Arial,sans-serif;--f-draw:"PT Sans Narrow","Arial Narrow",Arial,sans-serif;--f-num:"PT Mono",ui-monospace,Menlo,monospace;
-  position:relative;background:var(--paper);color:var(--ink);font:14px/1.4 var(--f-ui);text-align:left}
+/* дизайн-система «Новая Земля»: Alumni Sans + Raleway, индиго #261A7E, акценты #5D74FF и #FCC21B */
+#nl-plan{--bg:#E9EBF2;--bg-2:#EEF0F6;--sheet:#F7F8FB;--panel:#fff;--ink:#373736;--muted:#6E6E78;--ink-3:#9A9AA6;--line:#E6E8F1;
+  --brand:#261A7E;--brand-700:#1C1361;--accent:#5D74FF;--accent-2:#7F92FF;--gold:#FCC21B;--brand-soft:#ECEEFF;
+  --r-sm:11px;--r-md:16px;--r-lg:22px;
+  --shadow-sm:0 2px 10px rgba(38,26,126,.06);--shadow:0 12px 40px -12px rgba(38,26,126,.18);
+  --display:"Alumni Sans",system-ui,sans-serif;--text:"Raleway",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace;
+  position:relative;background:var(--bg);color:var(--ink);font:14px/1.45 var(--text);font-variant-numeric:lining-nums;font-feature-settings:"lnum" 1;text-align:left}
 #nl-plan,#nl-plan *{box-sizing:border-box}
 #nl-plan [hidden]{display:none!important}
 #nl-plan button,#nl-plan input{font:inherit;color:inherit}
 #nl-plan button{cursor:pointer}
 #nl-plan :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #nl-plan h2,#nl-plan h3,#nl-plan p{margin:0}
-#nl-plan .btn{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:7px 12px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;text-decoration:none;color:var(--ink);font-size:14px;line-height:1.2}
-#nl-plan .btn:hover{border-color:var(--muted)}
+/* кнопки: пилюли с обводкой индиго, нажатая — заливка */
+#nl-plan .btn{border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);border-radius:999px;padding:8px 16px;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;text-decoration:none;font:700 13.5px/1.2 var(--text);letter-spacing:.01em;transition:background .18s,color .18s,transform .18s}
+#nl-plan .btn:hover{background:var(--brand-soft)}
 #nl-plan .btn svg{width:16px;height:16px;flex:none}
-#nl-plan .btn.sm{padding:5px 10px;font-size:13px}
-#nl-plan .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-#nl-plan .btn.primary[aria-disabled="true"]{background:var(--line);border-color:var(--line);color:var(--muted);cursor:default}
-#nl-plan .btn[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
-#nl-plan .btn:disabled{opacity:.45;cursor:default}
-#nl-plan .lnk{border:0;background:none;padding:0;color:var(--accent);font-size:13px;text-decoration:underline;text-underline-offset:2px}
+#nl-plan .btn.sm{padding:6px 13px;font-size:12.5px}
+#nl-plan .btn.primary{background:var(--brand);color:#fff;box-shadow:0 10px 24px -8px rgba(38,26,126,.6)}
+#nl-plan .btn.primary:hover{background:var(--brand-700);transform:translateY(-1px)}
+#nl-plan .btn.primary[aria-disabled="true"]{background:var(--line);border-color:var(--line);color:var(--muted);box-shadow:none;cursor:default;transform:none}
+#nl-plan .btn[aria-pressed="true"]{background:var(--brand);color:#fff}
+#nl-plan .btn:disabled{opacity:.4;cursor:default;background:var(--panel)}
+#nl-plan .lnk{border:0;background:none;padding:0;color:var(--brand);font:700 12.5px var(--text);text-decoration:underline;text-underline-offset:3px}
 #nl-plan .muted{color:var(--muted);font-size:12px}
 #nl-plan .row{display:flex;gap:6px;flex-wrap:wrap}
+#nl-plan .kicker{font:600 12px var(--text);letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
 
 /* выбор планировки */
-#nl-plan .pick{padding:32px 16px 36px;max-width:1240px;margin:0 auto}
-#nl-plan .pick-head{margin-bottom:20px}
-#nl-plan .pick-head h2{font:700 30px/1.15 var(--f-ui)}
-#nl-plan .pick-head p{color:var(--muted);margin-top:6px;font-size:16px}
-#nl-plan .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
-#nl-plan .card{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:12px;display:grid;gap:8px;text-align:left;transition:border-color .15s,box-shadow .15s}
-#nl-plan .card:hover{border-color:var(--accent);box-shadow:var(--shadow)}
-#nl-plan .card canvas{width:100%;aspect-ratio:3/2;background:var(--sheet);border-radius:8px}
-#nl-plan .card b{font:700 24px/1 var(--f-ui)}
-#nl-plan .card b small{font-size:15px;font-weight:400;color:var(--muted);margin-left:4px}
-#nl-plan .card span{color:var(--muted);font-size:13px}
-#nl-plan .card em{font-style:normal;color:var(--accent);font-size:13px;font-weight:700}
+#nl-plan .pick{padding:40px 16px 44px;max-width:1240px;margin:0 auto}
+#nl-plan .pick-head{margin-bottom:26px;display:flex;gap:20px;align-items:flex-start}
+#nl-plan .pick-head .num{font:800 64px/.8 var(--display);color:transparent;-webkit-text-stroke:1.6px var(--accent);flex:none}
+#nl-plan .pick-head h2{font:800 46px/.95 var(--display);text-transform:uppercase;letter-spacing:.02em;color:var(--brand);margin:6px 0 8px}
+#nl-plan .pick-head p{color:var(--muted);font-size:16px;max-width:640px}
+#nl-plan .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+#nl-plan .card{border:1.5px solid var(--brand);background:var(--panel);border-radius:var(--r-md);padding:0;display:grid;text-align:left;overflow:hidden;transition:box-shadow .18s,transform .18s}
+#nl-plan .card:hover{box-shadow:var(--shadow);transform:translateY(-2px)}
+#nl-plan .card canvas{width:100%;aspect-ratio:3/2;background:var(--sheet);display:block;border-bottom:1px solid var(--line)}
+#nl-plan .card .cb{padding:12px 14px 14px;display:grid;gap:6px}
+#nl-plan .card b{font:800 34px/1 var(--display);color:var(--brand);text-transform:uppercase}
+#nl-plan .card b small{font-size:20px;font-weight:700;margin-left:3px}
+#nl-plan .card span{color:var(--muted);font-size:12.5px;min-height:2.9em}
+#nl-plan .card em{font-style:normal;color:var(--brand);border:1.5px solid var(--brand);border-radius:999px;padding:7px 10px;text-align:center;font:700 12px var(--text);letter-spacing:.06em;text-transform:uppercase;transition:background .18s,color .18s}
+#nl-plan .card:hover em{background:var(--brand);color:#fff}
 
 /* редактор */
 #nl-plan .ed{height:min(880px,calc(100vh - 16px));min-height:620px;display:grid;grid-template-rows:auto 1fr}
-#nl-plan .bar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
-#nl-plan .ttl{display:grid;line-height:1.15}
-#nl-plan .ttl b{font:700 18px var(--f-ui)}
-#nl-plan .ttl span{font:12px var(--f-num);color:var(--muted)}
-#nl-plan .views{display:flex;border:1px solid var(--line);border-radius:8px;margin-left:auto}
-#nl-plan .views>button{border:0;background:transparent;padding:7px 12px;font-size:14px;border-radius:7px}
-#nl-plan .views>button[aria-pressed="true"]{background:var(--ink);color:#fff}
+#nl-plan .bar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+#nl-plan .ttl{display:grid;line-height:1.05}
+#nl-plan .ttl b{font:800 26px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;color:var(--brand)}
+#nl-plan .ttl span{font:11px var(--mono);color:var(--muted);margin-top:3px}
+#nl-plan .views{display:flex;gap:2px;padding:3px;border:1.5px solid var(--brand);border-radius:999px;margin-left:auto;background:var(--panel)}
+#nl-plan .views>button{border:0;background:transparent;padding:6px 13px;font:700 13px var(--text);color:var(--brand);border-radius:999px}
+#nl-plan .views>button:hover{background:var(--brand-soft)}
+#nl-plan .views>button[aria-pressed="true"]{background:var(--brand);color:#fff}
 #nl-plan .acts{display:flex;gap:6px;flex-wrap:wrap}
-#nl-plan .work{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:0}
+#nl-plan .work{display:grid;grid-template-columns:276px minmax(0,1fr);min-height:0}
 #nl-plan .side{background:var(--panel);border-right:1px solid var(--line);min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #nl-plan .side .pane[data-pane="furn"]{flex:1 1 auto;min-height:0;overflow:auto}
 #nl-plan .side .pane[data-pane="paint"]{flex:none}
 #nl-plan .stabs{display:none}
-#nl-plan .pane{padding:14px 16px;border-bottom:1px solid var(--line);display:grid;gap:10px;align-content:start}
-#nl-plan .pane h3{font:700 12px/1 var(--f-draw);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
-#nl-plan .pane h3 .lnk{letter-spacing:0;text-transform:none;font:13px var(--f-ui)}
-#nl-plan .tips{margin:8px 16px 10px;align-self:flex-start;flex:none}
-#nl-plan .cat-wrap{display:grid;gap:10px}
+#nl-plan .pane{padding:16px 18px;border-bottom:1px solid var(--line);display:grid;gap:10px;align-content:start}
+#nl-plan .pane h3{font:800 17px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--brand);display:flex;justify-content:space-between;align-items:center}
+#nl-plan .pane h3 .lnk{letter-spacing:0;text-transform:none}
+#nl-plan .tips{margin:8px 18px 10px;align-self:flex-start;flex:none}
+#nl-plan .cat-wrap{display:grid;gap:12px}
 #nl-plan .cat-group{display:grid;gap:6px}
-#nl-plan .cat-group h4{margin:2px 0 0;font:700 13px var(--f-draw);letter-spacing:.04em}
+#nl-plan .cat-group h4{margin:2px 0 0;font:600 11px var(--text);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
 #nl-plan .cat{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-#nl-plan .item{border:1px solid var(--line);border-radius:8px;background:var(--sheet);padding:4px 2px 5px;display:grid;justify-items:center;gap:2px;font-size:11px;line-height:1.15;text-align:center;cursor:grab;user-select:none;touch-action:manipulation}
-#nl-plan .item:hover{border-color:var(--accent)}
+#nl-plan .item{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--sheet);padding:5px 2px 6px;display:grid;justify-items:center;gap:3px;font-size:11px;font-weight:600;line-height:1.15;text-align:center;cursor:grab;user-select:none;touch-action:manipulation;color:var(--ink);transition:border-color .15s,background .15s}
+#nl-plan .item:hover{border-color:var(--accent);background:var(--brand-soft)}
 #nl-plan .item canvas{width:46px;height:40px}
 #nl-plan .swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
-#nl-plan .sw{aspect-ratio:1;border-radius:50%;border:1px solid rgba(0,0,0,.18);padding:0}
-#nl-plan .sw[aria-pressed="true"]{outline:2px solid var(--ink);outline-offset:2px}
+#nl-plan .sw{aspect-ratio:1;border-radius:50%;border:1px solid rgba(38,26,126,.16);padding:0}
+#nl-plan .sw[aria-pressed="true"]{outline:2px solid var(--brand);outline-offset:2px}
 #nl-plan .pickc{position:relative;overflow:hidden}
 #nl-plan .pickc input{position:absolute;inset:0;opacity:0;cursor:pointer}
 
 #nl-plan .board{position:relative;min-width:0;min-height:0;background:var(--sheet);overflow:hidden}
 #nl-plan #nlStage,#nl-plan #nlThree,#nl-plan #nlUnfold{position:absolute;inset:0;width:100%;height:100%}
 #nl-plan #nlStage{touch-action:none}
-#nl-plan .hud{position:absolute;left:12px;bottom:12px;display:flex;gap:8px;align-items:flex-end}
-#nl-plan .zoom{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden;box-shadow:var(--shadow)}
-#nl-plan .zoom button{border:0;background:transparent;width:34px;height:32px;font-size:17px}
+#nl-plan .hud{position:absolute;left:14px;bottom:14px;display:flex;gap:8px;align-items:flex-end}
+#nl-plan .zoom{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);overflow:hidden;box-shadow:var(--shadow-sm)}
+#nl-plan .zoom button{border:0;background:transparent;width:36px;height:34px;font-size:17px;color:var(--brand)}
+#nl-plan .zoom button:hover{background:var(--brand-soft)}
 #nl-plan .zoom button+button{border-top:1px solid var(--line)}
-#nl-plan .undo .btn{box-shadow:var(--shadow)}
-#nl-plan .empty{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px dashed var(--muted);color:var(--muted);border-radius:8px;padding:7px 12px;font-size:13px;max-width:calc(100% - 32px);text-align:center;pointer-events:none}
-#nl-plan .paintbar{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--ink);color:#fff;border-radius:8px;padding:6px 6px 6px 10px;font-size:13px;box-shadow:var(--shadow);max-width:calc(100% - 24px)}
-#nl-plan .paintbar i{width:16px;height:16px;border-radius:50%;border:2px solid #fff;flex:none}
-#nl-plan .paintbar .btn{background:#fff}
-#nl-plan .ft{position:absolute;display:flex;gap:2px;background:var(--ink);border-radius:8px;padding:3px;box-shadow:var(--shadow);transform:translate(-50%,-100%);z-index:3}
-#nl-plan .ft button,#nl-plan .ft label{width:32px;height:30px;border:0;background:transparent;color:#fff;border-radius:6px;display:grid;place-items:center;cursor:pointer;position:relative}
-#nl-plan .ft button:hover,#nl-plan .ft label:hover{background:rgba(255,255,255,.14)}
+#nl-plan .undo .btn{box-shadow:var(--shadow-sm)}
+#nl-plan .empty{position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.9);border:1.5px dashed var(--accent-2);color:var(--brand);border-radius:var(--r-sm);padding:8px 14px;font-size:13px;font-weight:600;max-width:calc(100% - 32px);text-align:center;pointer-events:none}
+#nl-plan .paintbar{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:9px;background:var(--brand);color:#fff;border-radius:999px;padding:5px 5px 5px 12px;font-size:13px;font-weight:600;box-shadow:var(--shadow);max-width:calc(100% - 24px)}
+#nl-plan .paintbar i{width:18px;height:18px;border-radius:50%;border:2px solid #fff;flex:none}
+#nl-plan .paintbar .btn{background:#fff;border-color:#fff}
+#nl-plan .ft{position:absolute;display:flex;gap:2px;background:var(--brand);border-radius:999px;padding:3px;box-shadow:var(--shadow);transform:translate(-50%,-100%);z-index:3}
+#nl-plan .ft button,#nl-plan .ft label{width:32px;height:30px;border:0;background:transparent;color:#fff;border-radius:999px;display:grid;place-items:center;cursor:pointer;position:relative}
+#nl-plan .ft button:hover,#nl-plan .ft label:hover{background:rgba(255,255,255,.16)}
 #nl-plan .ft svg{width:17px;height:17px}
 #nl-plan .ft label::before{content:"";width:16px;height:16px;border-radius:50%;background:var(--fc,#fff);border:2px solid #fff}
 #nl-plan .ft input{position:absolute;inset:0;opacity:0;cursor:pointer}
-#nl-plan .v3{position:absolute;top:12px;left:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100% - 24px)}
-#nl-plan .v3 .muted{background:rgba(255,255,255,.85);padding:3px 8px;border-radius:6px}
-#nl-plan .rooms-bar{position:absolute;top:10px;left:12px;right:12px;display:flex;gap:6px;flex-wrap:wrap}
-#nl-plan .rooms-bar button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 11px;font-size:13px}
-#nl-plan .rooms-bar button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:#fff}
-#nl-plan .toast{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;box-shadow:var(--shadow);max-width:min(520px,90%);text-align:center;z-index:5}
+#nl-plan .v3{position:absolute;top:14px;left:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:calc(100% - 28px)}
+#nl-plan .v3 .muted{background:rgba(255,255,255,.22);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.5);color:var(--brand);padding:4px 10px;border-radius:999px}
+#nl-plan .rooms-bar{position:absolute;top:12px;left:14px;right:14px;display:flex;gap:6px;flex-wrap:wrap}
+#nl-plan .rooms-bar button{border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);border-radius:999px;padding:4px 12px;font:700 12.5px var(--text)}
+#nl-plan .rooms-bar button[aria-pressed="true"]{background:var(--brand);color:#fff}
+#nl-plan .toast{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:var(--shadow);max-width:min(520px,90%);text-align:center;z-index:5}
 #nl-plan .loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);text-align:center;padding:16px}
 
-/* подсказки-теги на инструментах */
+/* подсказки-теги на инструментах — акцентный жёлтый */
 #nl-plan .tagged{position:relative}
-#nl-plan .tag{position:absolute;z-index:4;top:0;right:8px;transform:translateY(-62%);display:inline-flex;align-items:center;gap:5px;background:var(--tag);color:#fff;font:700 11px/1 var(--f-ui);padding:4px 4px 4px 4px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 6px rgba(232,116,59,.35);animation:nltag 2.4s ease-in-out infinite;pointer-events:auto}
-#nl-plan .tag i{font-style:normal;width:16px;height:16px;border-radius:50%;background:#fff;color:var(--tag);display:grid;place-items:center;font-size:10px}
-#nl-plan .tag button{border:0;background:rgba(255,255,255,.22);color:#fff;width:16px;height:16px;border-radius:50%;padding:0;font-size:12px;line-height:16px}
-#nl-plan .pane .tag{top:14px;right:16px;transform:none}
+#nl-plan .tag{position:absolute;z-index:4;top:0;right:8px;transform:translateY(-62%);display:inline-flex;align-items:center;gap:5px;background:var(--gold);color:var(--brand);font:700 11px/1 var(--text);padding:4px;border-radius:999px;white-space:nowrap;box-shadow:0 4px 12px -2px rgba(252,194,27,.55);animation:nltag 2.4s ease-in-out infinite;pointer-events:auto}
+#nl-plan .tag i{font-style:normal;width:17px;height:17px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font:800 12px var(--display)}
+#nl-plan .tag button{border:0;background:rgba(38,26,126,.12);color:var(--brand);width:16px;height:16px;border-radius:50%;padding:0;font-size:12px;line-height:16px}
+#nl-plan .pane .tag{top:15px;right:18px;transform:none}
 #nl-plan .pane[data-pane="furn"] h3 .lnk{visibility:hidden}
 #nl-plan .pane[data-pane="furn"].notag h3 .lnk{visibility:visible}
-#nl-plan .views .tag{right:auto;left:50%;top:auto;bottom:0;transform:translate(-50%,72%)}
-#nl-plan .acts .tag{right:auto;left:0;top:auto;bottom:0;transform:translateY(72%)}
+#nl-plan .views .tag{right:auto;left:50%;top:auto;bottom:0;transform:translate(-50%,78%)}
+#nl-plan .acts .tag{right:auto;left:0;top:auto;bottom:0;transform:translateY(78%)}
 @keyframes nltag{0%,100%{translate:0 0}50%{translate:0 -2px}}
 
 @media (max-width:980px){
@@ -187,23 +200,26 @@
   #nl-plan .board{height:62vh;min-height:360px;order:-1}
   #nl-plan .side{border-right:0;overflow:visible;display:block;padding-bottom:12px}
   #nl-plan .side .pane[data-pane="furn"]{overflow:visible}
-  #nl-plan .stabs{display:flex;margin:12px 16px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-  #nl-plan .stabs button{flex:1;border:0;background:transparent;padding:8px}
-  #nl-plan .stabs button[aria-pressed="true"]{background:var(--ink);color:#fff}
+  #nl-plan .stabs{display:flex;gap:2px;padding:3px;margin:12px 16px 0;border:1.5px solid var(--brand);border-radius:999px}
+  #nl-plan .stabs button{flex:1;border:0;background:transparent;padding:7px;border-radius:999px;font-weight:700;color:var(--brand)}
+  #nl-plan .stabs button[aria-pressed="true"]{background:var(--brand);color:#fff}
   #nl-plan .side[data-pane="furn"] .pane[data-pane="paint"],#nl-plan .side[data-pane="paint"] .pane[data-pane="furn"]{display:none}
   #nl-plan .cat{grid-template-columns:repeat(auto-fill,minmax(72px,1fr))}
   #nl-plan .swatches{grid-template-columns:repeat(auto-fill,minmax(34px,1fr))}
-  #nl-plan .views{margin-left:0;order:3;width:100%;flex-wrap:wrap}
-  #nl-plan .views>button{flex:1 1 auto;padding:7px 6px;font-size:13px}
+  #nl-plan .views{margin-left:0;order:3;width:100%;flex-wrap:wrap;border-radius:18px}
+  #nl-plan .views>button{flex:1 1 auto;padding:7px 6px;font-size:12.5px}
   #nl-plan .acts{order:4}
 }
 @media (max-width:560px){
-  #nl-plan .pick-head h2{font-size:24px}
+  #nl-plan .pick{padding-top:28px}
+  #nl-plan .pick-head .num{display:none}
+  #nl-plan .pick-head h2{font-size:36px}
   #nl-plan .cards{grid-template-columns:1fr 1fr;gap:10px}
-  #nl-plan .card{padding:8px}
-  #nl-plan .card b{font-size:20px}
-  #nl-plan .bar{padding:8px 12px}
-  #nl-plan .acts .btn{padding:6px 9px;font-size:13px}
+  #nl-plan .card .cb{padding:10px}
+  #nl-plan .card b{font-size:28px}
+  #nl-plan .card em{font-size:10.5px;letter-spacing:.03em;padding:6px 4px}
+  #nl-plan .bar{padding:10px 12px}
+  #nl-plan .acts .btn{padding:6px 11px;font-size:12.5px}
 }
 @media (prefers-reduced-motion:reduce){#nl-plan .tag{animation:none}#nl-plan *{transition:none!important}}
 </style>
@@ -294,7 +310,8 @@ function toast(m) { const t = $('#nlToast'); t.textContent = m; t.hidden = false
 const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
 
 /* ---------- чертёжные функции, общие для превью и плана ---------- */
-const INK = '#22262a', WALL = '#25292d';
+const INK = '#2a2556', WALL = '#261A7E', BRAND = '#261A7E', ACCENT = '#5D74FF', SHEET = '#F7F8FB';
+const F_DRAW = 'Raleway, Arial, sans-serif', F_DISP = 'Alumni Sans, Arial Narrow, sans-serif', F_MONO = 'JetBrains Mono, monospace';
 function drawFurn(c, f, lw) {
   const w = f.w, d = f.d, L = -w / 2, Tp = -d / 2, R = w / 2, B = d / 2, type = f.type;
   c.lineWidth = lw; c.strokeStyle = INK; c.fillStyle = f.color || '#ffffff'; c.lineJoin = 'round'; c.lineCap = 'round';
@@ -360,9 +377,9 @@ function drawPlanBasic(c, P, opt = {}) {
   c.save();
   // свес кровли
   if (opt.roof !== false) {
-    c.strokeStyle = '#9aa0a6'; c.lineWidth = lw * 1.6;
+    c.strokeStyle = '#7F92FF'; c.lineWidth = lw * 1.6;
     for (const r of P.roof) c.strokeRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
-    c.fillStyle = opt.bg || '#fbfbf9';
+    c.fillStyle = opt.bg || SHEET;
     for (const r of P.roof) c.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
   }
   c.lineWidth = lw; c.strokeStyle = INK;
@@ -406,12 +423,12 @@ function renderCards() {
     const cv = document.createElement('canvas'); cv.width = 480; cv.height = 320;
     b.append(cv);
     const n = roomsCount(P);
-    b.insertAdjacentHTML('beforeend', `<b>${P.area}<small>м²</small></b><span>${P.note}</span><em>Открыть планировку →</em>`);
+    b.insertAdjacentHTML('beforeend', `<div class="cb"><b>${P.area}<small>м²</small></b><span>${P.note}</span><em>Открыть планировку →</em></div>`);
     b.setAttribute('aria-label', `Дом ${P.area} м², ${n} ${plural(n, 'спальня', 'спальни', 'спален')}`);
     b.onclick = () => openPlan(P.id);
     el.append(b);
     const c = cv.getContext('2d'), e = extent(P), s = Math.min(440 / (e[2] - e[0]), 280 / (e[3] - e[1]));
-    c.fillStyle = '#fbfbf9'; c.fillRect(0, 0, 480, 320);
+    c.fillStyle = SHEET; c.fillRect(0, 0, 480, 320);
     c.translate(240 - (e[0] + e[2]) / 2 * s, 160 - (e[1] + e[3]) / 2 * s); c.scale(s, s);
     drawPlanBasic(c, P, { lw: 1.2 / s });
   }
@@ -497,7 +514,7 @@ function initKonva() {
   stage.add(Lroom, Lwall, Lfurn, Lover);
   tr = new K.Transformer({
     rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315], rotationSnapTolerance: 8, keepRatio: false, ignoreStroke: true,
-    anchorSize: 10, anchorCornerRadius: 5, borderStroke: '#2f6b4f', anchorStroke: '#2f6b4f', rotateAnchorOffset: 24,
+    anchorSize: 10, anchorCornerRadius: 5, borderStroke: ACCENT, anchorStroke: BRAND, anchorFill: '#ffffff', rotateAnchorOffset: 24,
     enabledAnchors: ['middle-left', 'middle-right', 'top-center', 'bottom-center'],
     boundBoxFunc: (o, n) => (Math.abs(n.width) < 8 || Math.abs(n.height) < 8 ? o : n),
   });
@@ -534,8 +551,8 @@ function renderRooms() {
   Lroom.destroyChildren();
   Lroom.add(new K.Rect({ x: -1e5, y: -1e5, width: 2e5, height: 2e5, fill: 'rgba(0,0,0,0)', name: 'bg' }));
   const g = new K.Group({ listening: false });
-  for (const r of P.roof) g.add(new K.Rect({ x: r[0], y: r[1], width: r[2] - r[0], height: r[3] - r[1], stroke: '#a3a8ad', strokeWidth: 2.4, strokeScaleEnabled: false }));
-  for (const r of P.roof) g.add(new K.Rect({ x: r[0], y: r[1], width: r[2] - r[0], height: r[3] - r[1], fill: '#fbfbf9' }));
+  for (const r of P.roof) g.add(new K.Rect({ x: r[0], y: r[1], width: r[2] - r[0], height: r[3] - r[1], stroke: '#7F92FF', strokeWidth: 2, strokeScaleEnabled: false }));
+  for (const r of P.roof) g.add(new K.Rect({ x: r[0], y: r[1], width: r[2] - r[0], height: r[3] - r[1], fill: SHEET }));
   for (const d of P.decks) g.add(new K.Rect({ x: d.r[0], y: d.r[1], width: d.r[2] - d.r[0], height: d.r[3] - d.r[1], fill: '#f1ebe1', stroke: INK, strokeWidth: 1, strokeScaleEnabled: false }));
   Lroom.add(g);
   P.rooms.forEach((room, i) => {
@@ -714,14 +731,14 @@ function drawOver() {
     const tw = w * .9;
     let f1 = w > fs * 4 ? fs : fs * .85;
     // самое длинное слово должно влезать в комнату целиком, иначе уменьшаем шрифт
-    const probe = new K.Text({ fontFamily: 'PT Sans Narrow, Arial Narrow, Arial', fontSize: f1, fontStyle: 'italic' });
-    const longest = Math.max(...room.n.split(' ').map((wd) => { probe.text(wd); return probe.width(); }));
-    if (longest > tw) f1 *= tw / longest;
+    const probe = new K.Text({ fontFamily: F_DISP, fontSize: f1 * 1.2, fontStyle: '700', letterSpacing: f1 * .04 });
+    const longest = Math.max(...room.n.split(' ').map((wd) => { probe.text(wd.toUpperCase()); return probe.width(); }));
+    if (longest > tw * .9) f1 *= tw * .9 / longest;
     const g = new K.Group({ x: cx, y: cy + (dims.in ? -fs * .8 : 0) });
-    const t1 = new K.Text({ text: room.n, fontFamily: 'PT Sans Narrow, Arial Narrow, Arial', fontSize: f1, fill: INK, fontStyle: 'italic', width: tw, align: 'center', wrap: 'word', lineHeight: 1.05 });
-    const t2 = new K.Text({ text: fmtA(room.a), fontFamily: 'PT Sans Narrow, Arial Narrow, Arial', fontSize: f1 * .92, fill: INK, y: t1.height() + fs * .1 });
+    const t1 = new K.Text({ text: room.n.toUpperCase(), fontFamily: F_DISP, fontSize: f1 * 1.2, fill: BRAND, fontStyle: '700', letterSpacing: f1 * .04, width: tw, align: 'center', wrap: 'word', lineHeight: 1.05 });
+    const t2 = new K.Text({ text: fmtA(room.a) + ' м²', fontFamily: F_MONO, fontSize: f1 * .8, fill: INK, y: t1.height() + fs * .1 });
     t1.offsetX(tw / 2); t2.offsetX(t2.width() / 2);
-    const ul = new K.Line({ points: [-t2.width() / 2 - fs * .2, t2.y() + t2.height() + fs * .05, t2.width() / 2 + fs * .2, t2.y() + t2.height() + fs * .05], stroke: INK, strokeWidth: 1, strokeScaleEnabled: false });
+    const ul = new K.Line({ points: [-t2.width() / 2 - fs * .2, t2.y() + t2.height() + fs * .05, t2.width() / 2 + fs * .2, t2.y() + t2.height() + fs * .05], stroke: '#FCC21B', strokeWidth: 2, strokeScaleEnabled: false });
     g.add(t1, t2, ul); g.offsetY((t1.height() + t2.height()) / 2);
     if (room.r.length && (m[3] - m[1]) > fs * 2.6) Lover.add(g);
   });
@@ -733,7 +750,7 @@ function dimLine(x1, y1, x2, y2, label, fs, px, off = 0, color = INK) {
   const g = new K.Group(), h = Math.abs(y2 - y1) < 1, tk = 5 * px;
   g.add(new K.Line({ points: [x1, y1, x2, y2], stroke: color, strokeWidth: 1, strokeScaleEnabled: false }));
   for (const [x, y] of [[x1, y1], [x2, y2]]) g.add(new K.Line({ points: [x - tk, y + tk, x + tk, y - tk], stroke: color, strokeWidth: 1.6, strokeScaleEnabled: false }));
-  const t = new K.Text({ text: label, fontFamily: 'PT Mono, monospace', fontSize: fs, fill: color });
+  const t = new K.Text({ text: label, fontFamily: F_MONO, fontSize: fs, fill: color });
   t.offsetX(t.width() / 2); t.offsetY(t.height() + 2 * px);
   if (h) { t.x((x1 + x2) / 2); t.y(y1 - off); }
   else { t.rotation(-90); t.x(x1 - off); t.y((y1 + y2) / 2); }
@@ -742,7 +759,7 @@ function dimLine(x1, y1, x2, y2, label, fs, px, off = 0, color = INK) {
   return g;
 }
 function drawInnerDims(px, fs) {
-  const col = '#1e5aa8';
+  const col = ACCENT;
   P.rooms.forEach((room) => {
     const m = mainRect(room), w = m[2] - m[0], h = m[3] - m[1], i = Math.min(260, h * .12, w * .12);
     Lover.add(dimLine(m[0], m[1] + i + fs * 1.1, m[2], m[1] + i + fs * 1.1, fmtMM(w), fs, px, 0, col));
@@ -771,7 +788,7 @@ function drawOuterDims(px, fs) {
   for (const x of cx) Lover.add(new K.Line({ points: [x, b[1] - 80, x, yTop2 - 150], stroke: col, strokeWidth: .6, strokeScaleEnabled: false, opacity: .6 }));
   for (const y of cy) Lover.add(new K.Line({ points: [b[0] - 80, y, xL2 - 150, y], stroke: col, strokeWidth: .6, strokeScaleEnabled: false, opacity: .6 }));
   // оси
-  const bub = (x, y, s) => { const r = Math.max(260, 13 * px), g = new K.Group({ x, y }); g.add(new K.Circle({ radius: r, stroke: col, strokeWidth: 1, strokeScaleEnabled: false, fill: '#fbfbf9' })); const t = new K.Text({ text: s, fontSize: r * 1.1, fontFamily: 'PT Sans Narrow, Arial', fontStyle: 'italic', fill: col }); t.offset({ x: t.width() / 2, y: t.height() / 2 }); g.add(t); return g; };
+  const bub = (x, y, s) => { const r = Math.max(260, 13 * px), g = new K.Group({ x, y }); g.add(new K.Circle({ radius: r, stroke: col, strokeWidth: 1, strokeScaleEnabled: false, fill: SHEET })); const t = new K.Text({ text: s, fontSize: r * 1.1, fontFamily: F_DISP, fontStyle: '800', fill: col }); t.offset({ x: t.width() / 2, y: t.height() / 2 }); g.add(t); return g; };
   const rb = Math.max(260, 13 * px);
   Lover.add(bub(b[0], yTop2 - gap * .5 - rb, '1'), bub(b[2], yTop2 - gap * .5 - rb, '2'), bub(xL2 - gap * .5 - rb, b[1], 'Б'), bub(xL2 - gap * .5 - rb, b[3], 'А'));
 }
@@ -986,7 +1003,7 @@ function build3D() {
   const { group, scene, sun } = three;
   group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.userData.ownMat) o.material.dispose(); });
   group.clear();
-  scene.background = new THREE.Color('#eef0ec').convertSRGBToLinear();
+  scene.background = new THREE.Color('#E9EBF2').convertSRGBToLinear();
   const b = P.box, e = extent(P), cx = (b[0] + b[2]) / 2000, cz = (b[1] + b[3]) / 2000, size = Math.max(e[2] - e[0], e[3] - e[1]) / 1000;
   sun.position.set(cx - size * .5, size * 1.2, cz - size * .7); sun.target.position.set(cx, 0, cz);
   Object.assign(sun.shadow.camera, { left: -size * .8, right: size * .8, top: size * .8, bottom: -size * .8, near: 1, far: size * 4 }); sun.shadow.camera.updateProjectionMatrix();
@@ -1131,7 +1148,7 @@ function drawUnfold() {
   const cv = $('#nlUnfold'), W = board.clientWidth, H = board.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2);
   if (!W || !H || !P) return;
   cv.width = W * dpr; cv.height = H * dpr; const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.fillStyle = '#fbfbf9'; c.fillRect(0, 0, W, H);
+  c.fillStyle = SHEET; c.fillRect(0, 0, W, H);
   if (unfoldRoom < 0) unfoldRoom = P.rooms.indexOf(living(P));
   const room = P.rooms[unfoldRoom], edges = wallsOfRoom(room), col = ST.colors[unfoldRoom] || DEFAULT_WALL, WH = WALL_H;
   const top = $('#nlRooms').offsetHeight + 30, pad = 20, gap = 60, lab = 46;
@@ -1149,9 +1166,9 @@ function drawUnfold() {
       c.fillStyle = col; c.fillRect(x, y, w, h);
       c.fillStyle = 'rgba(0,0,0,.06)'; c.fillRect(x, y + h - 80 * sc, w, 80 * sc); // плинтус
       for (const [a, b] of e.open) {
-        c.fillStyle = '#fbfbf9'; c.fillRect(X(a), y, (b - a) * sc, h);
+        c.fillStyle = SHEET; c.fillRect(X(a), y, (b - a) * sc, h);
         c.save(); c.strokeStyle = '#b8bcc0'; c.setLineDash([4, 4]); c.strokeRect(X(a) + .5, y + .5, (b - a) * sc - 1, h - 1); c.restore();
-        if ((b - a) * sc > 60) { c.fillStyle = '#9aa0a6'; c.font = '12px "PT Sans", Arial'; c.textAlign = 'center'; c.fillText('проём', X((a + b) / 2), y + h / 2); }
+        if ((b - a) * sc > 60) { c.fillStyle = '#9aa0a6'; c.font = '12px Raleway, Arial'; c.textAlign = 'center'; c.fillText('проём', X((a + b) / 2), y + h / 2); }
       }
       for (const [a, b] of e.wins) {
         const x0 = X(a), ww = (b - a) * sc, y0 = Yh(HEAD), hh = (HEAD - SILL) * sc;
@@ -1167,9 +1184,9 @@ function drawUnfold() {
       for (const it of e.furn) elevFurn(c, it, X, Yh, sc);
       c.strokeStyle = INK; c.lineWidth = 1.4; c.strokeRect(x + .5, y + .5, w - 1, h - 1);
       // подписи и размеры
-      c.fillStyle = INK; c.textAlign = 'left'; c.font = '700 14px "PT Sans", Arial';
-      c.fillText('Стена ' + names[i], x, y - 8);
-      c.font = '12px "PT Mono", monospace'; c.textAlign = 'center';
+      c.fillStyle = BRAND; c.textAlign = 'left'; c.font = `800 19px ${F_DISP}`;
+      c.fillText('СТЕНА ' + names[i], x, y - 8);
+      c.font = '12px "JetBrains Mono", monospace'; c.textAlign = 'center';
       const yd = y + h + 16; c.beginPath(); c.moveTo(x, yd); c.lineTo(x + w, yd); c.moveTo(x - 4, yd + 4); c.lineTo(x + 4, yd - 4); c.moveTo(x + w - 4, yd + 4); c.lineTo(x + w + 4, yd - 4); c.lineWidth = 1; c.stroke();
       c.fillText(fmtMM(e.L) + ' мм', x + w / 2, yd + 16);
       if (i === r[0]) { c.save(); c.translate(x - 10, y + h / 2); c.rotate(-Math.PI / 2); c.fillText(fmtMM(WH), 0, 0); c.restore(); }
@@ -1181,7 +1198,7 @@ function drawUnfold() {
   const m = mainRect(room), ms = Math.min(90 / (m[2] - m[0]), 54 / (m[3] - m[1])), mw = (m[2] - m[0]) * ms, mh = (m[3] - m[1]) * ms, mx = W - pad - mw - 12, my = H - pad - mh - 14;
   if (W > 520 && y + 10 < my) {
     c.fillStyle = col; c.fillRect(mx, my, mw, mh); c.strokeStyle = INK; c.lineWidth = 2; c.strokeRect(mx, my, mw, mh);
-    c.fillStyle = INK; c.font = '700 11px "PT Sans", Arial'; c.textAlign = 'center';
+    c.fillStyle = INK; c.font = '700 11px Raleway, Arial'; c.textAlign = 'center';
     c.fillText('А', mx + mw / 2, my - 4); c.fillText('В', mx + mw / 2, my + mh + 12); c.fillText('Б', mx + mw + 8, my + mh / 2 + 4); c.fillText('Г', mx - 8, my + mh / 2 + 4);
   }
 }
@@ -1214,17 +1231,23 @@ function snapshot() {
   else if (view === 'unfold') src = $('#nlUnfold');
   else if (three) { three.renderer.render(three.scene, three.camera); src = three.renderer.domElement; }
   if (!src) return;
-  const k = src.width / board.clientWidth, head = Math.round(64 * k), foot = Math.round(40 * k);
+  // шапка в цвете бренда, внизу адрес сайта
+  const k = src.width / board.clientWidth, head = Math.round(76 * k), foot = Math.round(42 * k), x0 = 22 * k;
   const out = document.createElement('canvas'); out.width = src.width; out.height = src.height + head + foot;
   const c = out.getContext('2d'); c.fillStyle = '#ffffff'; c.fillRect(0, 0, out.width, out.height);
-  if (view === 'plan') { c.fillStyle = '#fbfbf9'; c.fillRect(0, head, out.width, src.height); }
+  if (view === 'plan') { c.fillStyle = SHEET; c.fillRect(0, head, out.width, src.height); }
   c.drawImage(src, 0, head);
-  c.fillStyle = INK; c.font = `700 ${Math.round(24 * k)}px "PT Sans", Arial`; c.textBaseline = 'middle';
+  c.fillStyle = BRAND; c.fillRect(0, 0, out.width, head);
+  c.fillStyle = '#ffffff'; c.font = `800 ${Math.round(34 * k)}px ${F_DISP}`; c.textBaseline = 'middle';
   const b = P.box, vn = { plan: 'План', '3d': '3D', top: 'Вид сверху', eye: 'Вид из гостиной', unfold: 'Развёртка: ' + (P.rooms[unfoldRoom] || {}).n }[view];
-  c.fillText(`Дом ${P.area} м² — моя планировка`, 20 * k, head / 2 - 6 * k);
-  c.font = `${Math.round(14 * k)}px "PT Sans", Arial`; c.fillStyle = '#6b7178';
-  c.fillText(`${vn} · габариты ${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм`, 20 * k, head / 2 + 16 * k);
-  c.fillText('newland59.ru', 20 * k, out.height - foot / 2);
+  c.fillText(`ДОМ ${P.area} М² — МОЯ ПЛАНИРОВКА`, x0, head / 2 - 9 * k);
+  c.font = `${Math.round(12 * k)}px ${F_MONO}`; c.fillStyle = '#7F92FF';
+  c.fillText(`${vn} · габариты ${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм`, x0, head / 2 + 18 * k);
+  c.textAlign = 'right'; c.fillStyle = '#ffffff'; c.font = `800 ${Math.round(20 * k)}px ${F_DISP}`;
+  c.fillText('НОВАЯ ЗЕМЛЯ', out.width - x0, head / 2);
+  c.textAlign = 'left'; c.fillStyle = BRAND; c.font = `700 ${Math.round(13 * k)}px ${F_DRAW}`;
+  c.fillText('newland59.ru', x0, out.height - foot / 2);
+  c.fillStyle = '#FCC21B'; c.fillRect(0, out.height - 4 * k, out.width, 4 * k);
   const a = document.createElement('a');
   a.download = `planirovka-${P.area}m2-${VIEW_LABEL[view]}.png`;
   try { a.href = out.toDataURL('image/png'); } catch (e) { toast('Браузер не дал сохранить картинку'); return; }
@@ -1258,6 +1281,8 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------- запуск ---------- */
 renderCards(); renderCatalog(); renderTags();
+if (document.fonts && document.fonts.load) Promise.all(['800 20px "Alumni Sans"', '700 20px "Alumni Sans"', '400 14px Raleway', '700 14px Raleway', '400 12px "JetBrains Mono"'].map((f) => document.fonts.load(f).catch(() => null)))
+  .then(() => { renderCards(); if (K && P) { render2D(); if (view === 'unfold') drawUnfold(); } });
 const want = (location.hash.match(/^#plan-(\d+)/) || [])[1];
 if (want) { const p = PLANS.find((x) => String(x.area) === want); if (p) openPlan(p.id); }
 window.__nlPlan = { get P() { return P; }, get ST() { return ST; }, get view() { return view; }, openPlan, setView, addFurn, paintRoom, setPaint, toScreen: (x, y) => { const r = $('#nlStage').getBoundingClientRect(), p = toScreen({ x, y }); return { x: r.left + p.x, y: r.top + p.y }; } };

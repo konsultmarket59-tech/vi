@@ -17,8 +17,8 @@ page = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Примерка планировки — Нью Лэнд</title>
-<style>body{{margin:0;background:#f3f2ee}}</style>
+<title>Примерка планировки — Новая Земля</title>
+<style>body{{margin:0;background:#E9EBF2}}</style>
 </head>
 <body>
 {block}</body>
