@@ -17,7 +17,7 @@ CAT_AREA = CAT + '?tfc_charact:9351132%5B2427391811%5D={}&tfc_div=:::'
 
 PLANS = [
     {
-        'id': 'p58', 'area': 58, 'img': '5.png', 'k': 14.3, 'o': (87, 217), 'link': CAT_AREA.format(58),
+        'id': 'p58', 'area': 58, 'hidden': True, 'img': '5.png', 'k': 14.3, 'o': (87, 217), 'link': CAT_AREA.format(58),
         'note': '2 спальни · крытая терраса',
         'walls': [
             [87, 217, 350, 236], [456, 217, 580, 238], [648, 217, 744, 238], [849, 217, 925, 238],
@@ -260,7 +260,8 @@ def mm(plan):
 
 
 def plans_json():
-    return json.dumps([mm(p) for p in PLANS], ensure_ascii=False, separators=(',', ':'))
+    # 'hidden': True — план есть в данных, но в блоке не показывается
+    return json.dumps([mm(p) for p in PLANS if not p.get('hidden')], ensure_ascii=False, separators=(',', ':'))
 
 
 if __name__ == '__main__':

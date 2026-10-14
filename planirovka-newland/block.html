@@ -3,10 +3,8 @@
 <div id="nl-plan">
   <section class="pick" id="nlPick">
     <div class="pick-head">
-      <div class="num">01</div>
-      <div><span class="kicker">Планировки домов</span>
       <h2>Примерьте планировку</h2>
-      <p>Выберите дом — расставьте мебель, подберите цвет стен и посмотрите интерьер в 3D.</p></div>
+      <p>Выберите дом — расставьте мебель, подберите цвет стен и посмотрите интерьер в 3D.</p>
     </div>
     <div class="cards" id="nlCards"></div>
   </section>
@@ -108,16 +106,18 @@
 #nl-plan .kicker{font:600 12px var(--text);letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
 
 /* выбор планировки */
-#nl-plan .pick{padding:40px 16px 44px;max-width:1240px;margin:0 auto}
-#nl-plan .pick-head{margin-bottom:26px;display:flex;gap:20px;align-items:flex-start}
-#nl-plan .pick-head .num{font:800 64px/.8 var(--display);color:transparent;-webkit-text-stroke:1.6px var(--accent);flex:none}
-#nl-plan .pick-head h2{font:800 46px/.95 var(--display);text-transform:uppercase;letter-spacing:.02em;color:var(--brand);margin:6px 0 8px}
+#nl-plan .pick{padding:56px clamp(24px,7vw,120px) 64px;max-width:1440px;margin:0 auto}
+#nl-plan .pick-head{margin-bottom:30px}
+#nl-plan .pick-head h2{font:800 46px/.95 var(--display);text-transform:uppercase;letter-spacing:.02em;color:var(--brand);margin:0 0 10px}
 #nl-plan .pick-head p{color:var(--muted);font-size:16px;max-width:640px}
-#nl-plan .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+#nl-plan .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+@media (max-width:1100px){#nl-plan .cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #nl-plan .card{border:1.5px solid var(--brand);background:var(--panel);border-radius:var(--r-md);padding:0;display:grid;text-align:left;overflow:hidden;transition:box-shadow .18s,transform .18s}
 #nl-plan .card:hover{box-shadow:var(--shadow);transform:translateY(-2px)}
 #nl-plan .card canvas{width:100%;aspect-ratio:3/2;background:var(--sheet);display:block;border-bottom:1px solid var(--line)}
-#nl-plan .card .cb{padding:12px 14px 14px;display:grid;gap:6px}
+#nl-plan .card{grid-template-rows:auto 1fr;align-content:stretch}
+#nl-plan .card .cb{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px}
+#nl-plan .card em{margin-top:auto}
 #nl-plan .card b{font:800 34px/1 var(--display);color:var(--brand);text-transform:uppercase}
 #nl-plan .card b small{font-size:20px;font-weight:700;margin-left:3px}
 #nl-plan .card .nt{color:var(--muted);font-size:12.5px;min-height:2.9em}
@@ -126,7 +126,7 @@
 
 /* редактор */
 #nl-plan .ed{height:min(880px,calc(100vh - 16px));min-height:620px;display:grid;grid-template-rows:auto 1fr}
-#nl-plan .bar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+#nl-plan .bar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:12px clamp(18px,2.5vw,32px);background:var(--panel);border-bottom:1px solid var(--line)}
 #nl-plan .ttl{display:grid;line-height:1.05}
 #nl-plan .ttl b{font:800 26px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;color:var(--brand)}
 #nl-plan .ttl span{font:11px var(--mono);color:var(--muted);margin-top:3px}
@@ -251,9 +251,8 @@
   #nl-plan .v3{top:10px;left:10px}
   #nl-plan .v3 .muted{font-size:11px}
   #nl-plan .hud{left:10px;bottom:10px}
-  #nl-plan .pick{padding-top:28px}
-  #nl-plan .pick-head .num{display:none}
-  #nl-plan .pick-head h2{font-size:36px}
+  #nl-plan .pick{padding:32px 20px 40px}
+    #nl-plan .pick-head h2{font-size:36px}
   #nl-plan .cards{grid-template-columns:1fr 1fr;gap:10px}
   #nl-plan .card .cb{padding:10px}
   #nl-plan .card b{font-size:28px}
