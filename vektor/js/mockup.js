@@ -575,13 +575,14 @@ const Mockup = {
   },
   genBase() {
     const prompt = h('textarea', { rows: 4, class: 'wide', value: 'Plain white t-shirt on a hanger, front view, studio lighting, soft shadows, photorealistic, empty chest area' });
-    UI.dialog('Фото-основа для мокапа (Polza)', h('div', { class: 'form' }, h('label', {}, 'Что на фото', prompt), h('p', { class: 'muted' }, 'Чистый объект без принта: футболка, худи, кружка, шопер, коробка, банка, билборд…')),
+    UI.dialog('Фото-основа для мокапа (Polza)', h('div', { class: 'form' }, h('label', {}, 'Что на фото', prompt), Polza.pickRow('image'), h('p', { class: 'muted' }, 'Чистый объект без принта: футболка, худи, кружка, шопер, коробка, банка, билборд…')),
       [{ label: 'Отмена' }, { label: 'Сгенерировать', primary: true, action: () => {
         withBusy('Генерирую основу…', async onStatus => { const b = await Polza.generateImage(prompt.value.trim(), { onStatus }); await Mockup.setBase(b); await Mockup.E.maskAI(onStatus).catch(() => { }); Mockup.remesh(); Mockup.draw(); });
       } }]);
   },
   async maskAI() {
     if (!Mockup.E.base) return UI.toast('Сначала выберите фото-основу', true);
+    if (!await Polza.choose(['bg', 'edit'], 'Найти объект (ИИ)')) return;
     await withBusy('ИИ ищет объект…', async onStatus => { await Mockup.E.maskAI(onStatus); Mockup.remesh(); Mockup.draw(); UI.toast('Объект выделен. Поправьте палочкой или кистью, если нужно'); });
   },
   async pickDesign() {
@@ -634,6 +635,7 @@ const Mockup = {
   },
   async photoreal() {
     if (!Mockup.need()) return;
+    if (!await Polza.choose(['edit'], 'Фотореализм (ИИ)')) return;
     await withBusy('ИИ дорабатывает реализм…', async onStatus => {
       const b = await Mockup.E.blob();
       const out = await Polza.generateImage('Make the printed design look naturally printed on the object: keep the design artwork, its colors, position and the whole photo composition exactly the same; add realistic material texture, lighting, folds and shading on the print. Do not change anything else.', { images: [b], onStatus });

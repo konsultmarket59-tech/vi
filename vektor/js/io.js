@@ -19,20 +19,41 @@ const IO = {
 
   // ---------- сохранение ----------
   async save() {
-    try {
-      if (Host.desktop && IO.path) { await vkHost.write(IO.path, IO.json()); return IO.saved(); }
-      if (IO.handle) { const w = await IO.handle.createWritable(); await w.write(IO.json()); await w.close(); return IO.saved(); }
-    } catch (e) { console.warn(e); }
+    if (Host.desktop && IO.path) return IO.writeTo(IO.path);
+    if (IO.handle) {
+      try { const w = await IO.handle.createWritable(); await w.write(IO.json()); await w.close(); return IO.saved(); }
+      catch (e) { console.warn(e); return UI.toast('Не удалось сохранить: ' + (e.message || e), true); }
+    }
     return IO.saveAs();
+  },
+  // запись документа в файл по расширению: .vkt — сам документ, .cdr — через CorelDRAW, .pdf — PDF для печати
+  async writeTo(p) {
+    const ext = IO.ext(p);
+    UI.busy('Сохраняю…');
+    try {
+      if (ext === 'cdr') {
+        const v = Math.floor((IO.lastCDRVersion || 0) / 100) || 17;
+        await IO.exportCDR(Math.min(Math.max(v, 11), 26), { out: p, cmyk: true });
+      } else if (ext === 'pdf') {
+        const bytes = await PDFWriter.build(App.doc.pages, { cmyk: true, title: App.doc.name, imageJpeg: true });
+        await vkHost.write(p, bytes);
+      } else await vkHost.write(p, IO.json());
+      IO.path = p; App.fileName = p.split(/[\\/]/).pop();
+      IO.saved();
+    } catch (e) { console.error(e); UI.toast('Не удалось сохранить: ' + (e.message || e), true); }
+    finally { UI.busy(null); }
   },
   saved() { App.dirty = false; UI.refresh({ panels: false }); UI.toast('Сохранено: ' + App.fileName); },
   async saveAs() {
     const name = IO.baseName() + '.vkt';
     if (Host.desktop) {
-      const p = await vkHost.saveDialog({ defaultPath: name, filters: [{ name: 'Документ Вектор', extensions: ['vkt'] }] });
+      const filters = [{ name: 'Документ Вектор', extensions: ['vkt'] }, { name: 'CorelDRAW (через установленный Corel)', extensions: ['cdr'] }, { name: 'PDF для печати (CMYK)', extensions: ['pdf'] }];
+      // файл из Corel по умолчанию сохраняется обратно в CDR, если Corel установлен
+      const fromCdr = /\.cdr$/i.test(App.fileName || '') || (Docs.active() && /\.cdr$/i.test(Docs.active().src || ''));
+      if (fromCdr && await IO.corelAvailable()) filters.unshift(filters.splice(1, 1)[0]);
+      const p = await vkHost.saveDialog({ defaultPath: IO.baseName() + '.' + filters[0].extensions[0], filters });
       if (!p) return;
-      IO.path = p; App.fileName = p.split(/[\\/]/).pop();
-      return IO.save();
+      return IO.writeTo(p);
     }
     if (window.showSaveFilePicker) {
       try {
@@ -57,10 +78,14 @@ const IO = {
   },
   async openEntry(f) {
     const ext = IO.ext(f.name);
+    let tab = null;
     try {
       if (ext === 'fig' || ext === 'pen') { UI.busy(null); return FigmaWS.openBuffer(await f.read(), f.name); }
       if (ext === 'vkm') { UI.busy(null); return Motion.openBuffer(await f.read(), f.name); }
       if (ext === 'psd') { UI.busy(null); WS.show('photo'); return PhotoWS.openBuffer(await f.read(), f.name); }
+      if (!['vkt', 'json', 'svg', 'cdr', 'cdt', 'pdf', 'ai'].includes(ext)) return UI.toast('Этот тип файла не открывается: ' + f.name);
+      tab = Docs.begin(f.path || null);
+      if (tab.already) return;
       UI.busy('Открываю ' + f.name + '…');
       const buf = await f.read();
       if (ext === 'vkt' || ext === 'json') { IO.loadText(new TextDecoder().decode(buf), f.name); if (f.path) IO.path = f.path; else if (f.handle) IO.handle = f.handle; }
@@ -68,26 +93,27 @@ const IO = {
       else if (ext === 'cdr' || ext === 'cdt') IO.docFromPages(await IO.readCDR(buf, f.path), f.name);
       else if (ext === 'pdf' || ext === 'ai') IO.docFromPages((await PDFImport.open(buf)).pages, f.name);
       else UI.toast('Этот тип файла не открывается: ' + f.name);
-    } catch (e) { console.error(e); UI.toast('Не удалось открыть: ' + (e.message || e)); }
+      if (tab && f.path && Docs.active()) Docs.active().src = f.path;
+    } catch (e) { console.error(e); Docs.cancel(tab); UI.toast('Не удалось открыть: ' + (e.message || e)); }
     finally { UI.busy(null); }
   },
   loadText(text, name) {
     let d;
-    try { d = JSON.parse(text); if (!d.layers && !d.pages) throw new Error('нет слоёв'); } catch (e) { return UI.toast('Не удалось открыть файл: это не документ Вектора'); }
+    try { d = JSON.parse(text); if (!d.layers && !d.pages) throw new Error('нет слоёв'); } catch (e) { throw new Error('это не документ Вектора'); }
     App.doc = App.migrate(d); Model.syncSeq(App.doc); App.sel = [];
     App.fileName = name; App.dirty = false; IO.handle = null; IO.path = null;
-    App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
+    App.resetHistory();
     Text.cache.clear(); App.autosave(); App.zoomPage(); UI.refresh();
     UI.toast('Открыт: ' + name);
   },
   openSVGAsDoc(text, name) {
     App.doc = Model.newDoc(); App.sel = [];
-    App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
+    App.resetHistory();
     const size = IO.importSVGText(text, null, true);
     if (size) { App.pg().w = G.round(size.w, 3); App.pg().h = G.round(size.h, 3); }
     App.doc.name = name.replace(/\.svg$/i, '');
     App.fileName = null; IO.handle = null; IO.path = null; App.sel = [];
-    App.commit('Открыт SVG'); App.zoomPage();
+    App.resetHistory(); App.dirty = false; App.autosave(); App.zoomPage(); UI.refresh();
   },
   // страницы из CDR/PDF → новый документ
   docFromPages(pages, name) {
@@ -97,22 +123,47 @@ const IO = {
     d.name = name.replace(/\.\w+$/, '');
     App.doc = d; Model.syncSeq(d); App.sel = [];
     App.fileName = null; IO.handle = null; IO.path = null;
-    Text.cache.clear(); App.commit('Открыт ' + name); App.zoomPage();
+    Text.cache.clear(); App.resetHistory(); App.dirty = false; App.autosave(); App.zoomPage(); UI.refresh();
     const n = pages.reduce((s, p) => s + p.objects.length, 0);
     UI.toast(`Открыт ${name}: страниц ${pages.length}, объектов ${n}`);
   },
-  // CDR: сначала собственный разборщик; если он не справился и есть CorelDRAW — Corel пересохраняет файл
+  // CDR. В настольной версии с установленным CorelDRAW файл по умолчанию открывается через сам Corel
+  // (он публикует PDF — фото, PowerClip, эффекты и тексты переносятся точно). Без Corel — собственный разборщик.
+  cdrMode() { try { return localStorage.getItem('vektor.cdrOpen') || 'auto'; } catch (e) { return 'auto'; } },
+  setCdrMode(m) { try { localStorage.setItem('vektor.cdrOpen', m); } catch (e) { } UI.toast(m === 'own' ? 'CDR открываются встроенным разборщиком' : 'CDR открываются через CorelDRAW, если он установлен'); },
+  _corel: undefined,
+  async corelAvailable() {
+    if (!Host.desktop || !window.vkHost || !vkHost.corelProbe) return false;
+    if (IO._corel === undefined) { const r = await vkHost.corelProbe().catch(() => ({ ok: false })); IO._corel = !!r.ok; }
+    return IO._corel;
+  },
+  async readCDRviaCorel(path) {
+    UI.busy('CorelDRAW открывает файл… (большие файлы — до пары минут)');
+    const r = await vkHost.corelPDF(path);
+    if (!r || !r.ok) throw new Error(r && r.error || 'CorelDRAW не открыл файл');
+    UI.busy('Читаю страницы…');
+    const pdf = await PDFImport.open(r.data);
+    IO.lastCDRVersion = r.version ? r.version * 100 : 0;
+    UI.toast('Файл открыт через CorelDRAW: страниц ' + pdf.pages.length);
+    return pdf.pages;
+  },
   async readCDR(buf, path) {
+    const viaCorel = Host.desktop && path && IO.cdrMode() !== 'own' && await IO.corelAvailable();
+    if (viaCorel) {
+      try { return await IO.readCDRviaCorel(path); } catch (e) { console.warn(e); UI.toast('CorelDRAW: ' + (e.message || e) + '. Открываю встроенным разборщиком'); }
+    }
     let res = null, err = null;
     try { res = CDR.parse(buf); } catch (e) { err = e; }
     const empty = !res || !res.pages.some(p => p.objects.length);
-    if ((empty || err) && Host.desktop && path) {
+    if ((empty || err) && Host.desktop && path && !viaCorel) {
       const r = await vkHost.corelNormalize(path);
       if (r && r.ok) { res = CDR.parse(r.data); UI.toast('Файл прочитан через установленный CorelDRAW'); }
       else if (!res) throw new Error((err && err.message) + (r && r.error ? '; CorelDRAW: ' + r.error : ''));
     }
     if (!res) throw err || new Error('Не удалось прочитать CDR');
+    IO.lastCDRVersion = res.version || 0;
     if (res.version) UI.toast('Версия файла: ' + CDR.versionName(res.version));
+    if (res.missingImages) UI.toast(`Не прочитано изображений: ${res.missingImages} — на их месте серые заглушки.` + (Host.desktop ? ' С установленным CorelDRAW файл откроется точно.' : ' Откройте файл в настольной версии с CorelDRAW или пересохраните его в Corel как PDF.'), true);
     return res.pages;
   },
 
@@ -408,8 +459,12 @@ const IO = {
         ctx.drawImage(img, 0, 0, W, H);
         c.toBlob(b => b ? res({ blob: b, W, H }) : rej(new Error('Не удалось создать изображение')), fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.95);
       };
-      img.onerror = () => rej(new Error('Ошибка при растеризации'));
-      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sized);
+      // blob:-адрес вместо data: — у data:-адресов есть предел длины, и большие фото пропадали из экспорта
+      const url = URL.createObjectURL(new Blob([sized], { type: 'image/svg+xml' }));
+      const done = img.onload;
+      img.onload = () => { try { done(); } finally { URL.revokeObjectURL(url); } };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Ошибка при растеризации')); };
+      img.src = url;
     });
   },
   // картинка страницы для агента (data URL)

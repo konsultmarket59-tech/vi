@@ -1,6 +1,99 @@
 // Состояние приложения, история правок, вид (масштаб/панорама), привязки, события мыши и клавиатуры.
 'use strict';
 
+// Снимки истории. Каждый объект верхнего уровня сериализуется заново только если изменился
+// (сверка по быстрому отпечатку), большие строки (картинки) хранятся один раз — в снимке короткая ссылка.
+const Snap = {
+  ids: new Map(), strs: [], cache: new WeakMap(),
+  _f: new Float64Array(1), _u: null,
+  // отпечаток содержимого: числа побитно, короткие строки целиком, длинные — длина и выборка символов
+  hash(o) {
+    const f = Snap._f, u = Snap._u || (Snap._u = new Uint32Array(f.buffer));
+    let h1 = 0x9e3779b9 | 0, h2 = 0x85ebca6b | 0;
+    const walk = v => {
+      switch (typeof v) {
+        case 'number':
+          if ((v | 0) === v) { h1 = Math.imul(h1 ^ v, 0x01000193); h2 = Math.imul(h2 + v, 0x5bd1e995); }
+          else { f[0] = v; h1 = Math.imul(h1 ^ u[0], 0x01000193); h2 = Math.imul(h2 + u[1], 0x5bd1e995) ^ (h2 >>> 15); }
+          return;
+        case 'string': {
+          const n = v.length; h1 = Math.imul(h1 ^ n, 0x01000193);
+          const st = n <= 256 ? 1 : Math.floor(n / 97);
+          for (let i = 0; i < n; i += st) h2 = Math.imul(h2 + v.charCodeAt(i), 0x5bd1e995) ^ (h2 >>> 15);
+          if (n) h2 = Math.imul(h2 + v.charCodeAt(n - 1), 0x5bd1e995);
+          return;
+        }
+        case 'boolean': h1 = Math.imul(h1 ^ (v ? 3 : 5), 0x01000193); return;
+        case 'object':
+          if (v === null) { h1 = Math.imul(h1 ^ 7, 0x01000193); return; }
+          if (Array.isArray(v)) { h1 = Math.imul(h1 ^ (v.length + 11), 0x01000193); for (let i = 0; i < v.length; i++) walk(v[i]); return; }
+          {
+            const ks = Object.keys(v);
+            h1 = Math.imul(h1 ^ (ks.length + 13), 0x01000193);
+            for (let i = 0; i < ks.length; i++) { const k = ks[i]; h2 = Math.imul(h2 + k.charCodeAt(0) + (k.length << 8), 0x5bd1e995); walk(v[k]); }
+          }
+      }
+    };
+    walk(o);
+    return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
+  },
+  ref(v) { let i = Snap.ids.get(v); if (i === undefined) { i = Snap.strs.length; Snap.strs.push(v); Snap.ids.set(v, i); } return '\u0001' + i; },
+  raw(x) {
+    const undo = [];
+    const walk = o => { for (const k in o) { const v = o[k]; if (typeof v === 'string') { if (v.length > 4096) { undo.push(o, k, v); o[k] = Snap.ref(v); } } else if (v && typeof v === 'object') walk(v); } };
+    if (x && typeof x === 'object') walk(x);
+    try { return JSON.stringify(x); } finally { for (let i = 0; i < undo.length; i += 3) undo[i][undo[i + 1]] = undo[i + 2]; }
+  },
+  obj(o, h) {
+    h = h || Snap.hash(o);
+    const c = Snap.cache.get(o);
+    if (c && c.h === h) return c.json;
+    const json = Snap.raw(o);
+    Snap.cache.set(o, { h, json });
+    return json;
+  },
+  // снимок документа: дерево строк JSON, неизменённые объекты делят строки с прошлыми снимками
+  _shell(o, key) { const c = Object.assign({}, o); delete c[key]; return Snap.raw(c); },
+  take(doc) {
+    if (!doc || !doc.pages) return { raw: Snap.raw(doc) };
+    return { d: Snap._shell(doc, 'pages'), p: doc.pages.map(P => !P.layers ? { raw: Snap.raw(P) } :
+      { d: Snap._shell(P, 'layers'), l: P.layers.map(L => !L.objects ? { raw: Snap.raw(L) } : { d: Snap._shell(L, 'objects'), o: L.objects.map(o => Snap.obj(o)) }) }) };
+  },
+  // объекты текущего документа по их JSON — при отмене неизменённые объекты переиспользуются, а не разбираются заново
+  _live(doc) {
+    const m = new Map();
+    for (const P of (doc && doc.pages) || []) for (const L of P.layers || []) for (const o of L.objects || []) { const c = Snap.cache.get(o); if (c) m.set(c.json, o); }
+    return m;
+  },
+  restore(sn, cur) {
+    const P = s => Snap.parse(s), live = Snap._live(cur);
+    const O = s => {
+      const o = live.get(s);
+      if (o) { live.delete(s); const c = Snap.cache.get(o); if (c && c.json === s && Snap.hash(o) === c.h) return o; }
+      const n = P(s);
+      if (n && typeof n === 'object') Snap.cache.set(n, { h: Snap.hash(n), json: s });
+      return n;
+    };
+    if (sn.raw !== undefined) return P(sn.raw);
+    const doc = P(sn.d);
+    doc.pages = sn.p.map(p => {
+      if (p.raw !== undefined) return P(p.raw);
+      const pg = P(p.d);
+      pg.layers = p.l.map(l => { if (l.raw !== undefined) return P(l.raw); const L = P(l.d); L.objects = l.o.map(O); return L; });
+      return pg;
+    });
+    return doc;
+  },
+  // одна строка JSON (для сохранения)
+  str(doc) { return JSON.stringify(Snap.restore(Snap.take(doc))); },
+  parse(s) {
+    const d = JSON.parse(s);
+    const walk = o => { for (const k in o) { const v = o[k]; if (typeof v === 'string') { if (v.charCodeAt(0) === 1) o[k] = Snap.strs[+v.slice(1)]; } else if (v && typeof v === 'object') walk(v); } };
+    if (d && typeof d === 'object') walk(d);
+    return d;
+  },
+};
+
 const App = {
   doc: null,
   sel: [],             // id выбранных объектов верхнего уровня (порядок выбора важен для выравнивания)
@@ -28,7 +121,7 @@ const App = {
     } catch (e) { App.doc = null; }
     if (!App.doc) App.doc = Model.newDoc();
     Model.syncSeq(App.doc);
-    App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
+    App.resetHistory();
     UI.init();
     Events.init();
     requestAnimationFrame(() => { App.zoomPage(); UI.refresh(); });
@@ -62,9 +155,10 @@ const App = {
   },
 
   // ---- история ----
+  resetHistory() { App.history = [Snap.take(App.doc)]; App.hpos = 0; },
   commit(label) {
     App.history.length = App.hpos + 1;
-    App.history.push(JSON.stringify(App.doc));
+    App.history.push(Snap.take(App.doc));
     if (App.history.length > 150) App.history.shift();
     App.hpos = App.history.length - 1;
     App.dirty = true;
@@ -80,25 +174,21 @@ const App = {
     App.hpos++; App.restore();
   },
   restore() {
-    App.doc = JSON.parse(App.history[App.hpos]);
+    App.doc = Snap.restore(App.history[App.hpos], App.doc);
     App.sel = App.sel.filter(id => Model.find(id));
     Text.cache.clear();
     App.autosave(); UI.refresh();
   },
   _saveTimer: 0,
-  autosave() {
-    clearTimeout(App._saveTimer);
-    App._saveTimer = setTimeout(() => {
-      try { localStorage.setItem('vektor.autosave', JSON.stringify(App.doc)); } catch (e) { /* место закончилось — не критично */ }
-    }, 400);
-  },
+  // автосохранение открытых документов — в IndexedDB, в фоне (без JSON целого документа)
+  autosave() { if (typeof Docs !== 'undefined') Docs.persist(); },
   saveView() { try { localStorage.setItem('vektor.view', JSON.stringify(App.view)); } catch (e) { } },
 
   // ---- выделение ----
   setSel(ids) {
     App.sel = ids.filter(id => Model.find(id));
     App.rotateMode = false; App.rotCenter = null;
-    UI.refresh();
+    UI.refresh({ doc: false });
   },
   selObjs() { return App.sel.map(id => Model.get(id)).filter(Boolean); },
 
@@ -116,7 +206,7 @@ const App = {
     const p = App.toDoc(cx, cy);
     App.zoom = z;
     App.panX = cx - r.left - p.x * z; App.panY = cy - r.top - p.y * z;
-    UI.refresh({ panels: false });
+    UI.refresh({ panels: false, doc: false });
     UI.updateZoomBox();
   },
   zoomBox(b, pad = 30) {
@@ -126,7 +216,7 @@ const App = {
     App.zoom = G.clamp(Math.min((r.width - pad * 2) / w, (r.height - pad * 2) / h), 0.02, 400);
     App.panX = r.width / 2 - (b.x1 + w / 2) * App.zoom;
     App.panY = r.height / 2 - (b.y1 + h / 2) * App.zoom;
-    UI.refresh({ panels: false }); UI.updateZoomBox();
+    UI.refresh({ panels: false, doc: false }); UI.updateZoomBox();
   },
   zoomPage() { App.zoomBox({ x1: 0, y1: 0, x2: App.pg().w, y2: App.pg().h }); },
   zoomAll() {
@@ -266,7 +356,7 @@ const Events = {
     });
     st.addEventListener('wheel', Events.wheel, { passive: false });
     window.addEventListener('keydown', Events.key);
-    window.addEventListener('resize', () => UI.refresh({ panels: false }));
+    window.addEventListener('resize', () => UI.refresh({ panels: false, doc: false }));
     document.addEventListener('copy', e => { if (Events.typing() || (typeof WS !== 'undefined' && WS.active())) return; if (Actions.copy()) { Actions.toSystemClipboard(e); e.preventDefault(); } });
     document.addEventListener('cut', e => { if (Events.typing() || (typeof WS !== 'undefined' && WS.active())) return; if (Actions.copy()) { Actions.toSystemClipboard(e); e.preventDefault(); Actions.del(); } });
     document.addEventListener('paste', e => { if (Events.typing() || (typeof WS !== 'undefined' && WS.active())) return; e.preventDefault(); Actions.pasteEvent(e); });
@@ -323,7 +413,7 @@ const Events = {
     Events.drag = null;
     if (!d) return;
     Events.moves = [Events.moves[1], Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 3];
-    if (d.pan) { UI.refresh({ panels: false }); return; }
+    if (d.pan) { UI.refresh({ panels: false, doc: false }); return; }
     const t = Tools[App.tool];
     if (t.up) t.up(e, App.toDoc(e.clientX, e.clientY));
     if (App.snapLines.length) { App.snapLines = []; UI.renderOverlay(); }
@@ -336,7 +426,7 @@ const Events = {
       App.setZoom(App.zoom * k, e.clientX, e.clientY);
     } else {
       if (e.shiftKey && !e.deltaX) App.panX -= e.deltaY; else { App.panX -= e.deltaX; App.panY -= e.deltaY; }
-      UI.refresh({ panels: false });
+      UI.refresh({ panels: false, doc: false });
     }
   },
   key(e) {

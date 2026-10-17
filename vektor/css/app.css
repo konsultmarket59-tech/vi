@@ -19,8 +19,8 @@ textarea { user-select: text; }
 
 #app { display: grid; height: 100vh;
   grid-template-columns: 46px minmax(0, 1fr) 300px 24px;
-  grid-template-rows: 28px 38px 40px minmax(0, 1fr) 26px 26px;
-  grid-template-areas: "menu menu menu menu" "std std std std" "prop prop prop prop" "tools canvas dock pal" "dpal dpal dpal dpal" "status status status status"; }
+  grid-template-rows: 28px 38px 40px 30px minmax(0, 1fr) 26px 26px;
+  grid-template-areas: "menu menu menu menu" "std std std std" "prop prop prop prop" "tabs tabs tabs tabs" "tools canvas dock pal" "dpal dpal dpal dpal" "status status status status"; }
 #app.nodock { grid-template-columns: 46px minmax(0, 1fr) 0 24px; }
 #app.nodock .docker { display: none; }
 
@@ -429,3 +429,34 @@ body.ws-other #app > :not(#menubar) { visibility: hidden; }
 .dv-dot { width: 10px; height: 10px; border-radius: 50%; }
 .dv-dialog .dlg-b { flex: 1; display: flex; }
 .dv { width: 100%; flex: 1; }
+.orow .otog { width: 14px; min-width: 14px; font-size: 10px; color: var(--muted, #888); }
+.otree .omore { width: 100%; margin: 4px 0; }
+/* выбор модели Polza */
+.mpick { display: inline-flex; align-items: stretch; min-width: 0; width: 100%; }
+.mpick .mp-in { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.mpick .mp-btn { border: 1px solid var(--line); border-left: 0; background: var(--panel2, var(--hover)); padding: 0 8px; border-radius: 0 4px 4px 0; cursor: pointer; color: inherit; }
+.mpick .mp-btn:hover { background: var(--hover); }
+.mp-pop { position: fixed; z-index: 10050; max-width: 420px; background: var(--panel, #fff); color: var(--text, #111); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.25); padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.mp-pop .mp-q { width: 100%; box-sizing: border-box; }
+.mp-list { max-height: 300px; overflow: auto; }
+.mp-it { padding: 5px 8px; border-radius: 4px; cursor: pointer; display: flex; flex-direction: column; }
+.mp-it:hover { background: var(--hover); }
+.mp-it.on { background: var(--accent-soft, rgba(47,143,58,.15)); }
+.mp-it b { font-weight: 600; font-size: 12.5px; }
+.mp-it span { font-size: 11px; opacity: .65; }
+.mp-note { padding: 8px; font-size: 12px; opacity: .75; }
+.mp-note.err { color: #c62828; opacity: 1; }
+.ag-ml { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .9; }
+.ag-model { cursor: pointer; text-decoration: underline dotted; }
+.nd-file { display: flex; flex-direction: column; gap: 6px; }
+
+/* вкладки открытых документов */
+.doctabs { grid-area: tabs; display: flex; align-items: flex-end; gap: 2px; padding: 0 6px; background: var(--panel2, var(--bg)); border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.doctab { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px 0 12px; max-width: 240px; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--hover); cursor: default; font-size: 12.5px; white-space: nowrap; flex-shrink: 0; opacity: .85; }
+.doctab.on { background: var(--panel, #fff); opacity: 1; font-weight: 600; box-shadow: 0 1px 0 var(--panel, #fff); }
+.doctab .dt-name { overflow: hidden; text-overflow: ellipsis; }
+.doctab .dt-dirty { color: #e67e22; font-size: 10px; }
+.doctab .dt-x { border: 0; background: none; color: inherit; width: 18px; height: 18px; border-radius: 4px; cursor: pointer; opacity: .6; padding: 0; font-size: 14px; line-height: 1; }
+.doctab .dt-x:hover { background: rgba(0,0,0,.12); opacity: 1; }
+.doctabs .dt-new { border: 0; background: none; color: inherit; height: 24px; width: 26px; cursor: pointer; font-size: 17px; opacity: .7; flex-shrink: 0; }
+.doctabs .dt-new:hover { opacity: 1; background: var(--hover); border-radius: 4px; }

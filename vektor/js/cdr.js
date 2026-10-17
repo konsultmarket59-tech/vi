@@ -907,7 +907,7 @@ const CDR = (() => {
       if (image && image.data) {
         const M = fullM();
         const xmin = Math.min(image.x1, image.x2), xmax = Math.max(image.x1, image.x2), ymin = Math.min(image.y1, image.y2), ymax = Math.max(image.y1, image.y2);
-        const o = Model.make('image', { w: (xmax - xmin) * 25.4, h: (ymax - ymin) * 25.4, href: image.data, name: 'Изображение из CDR' });
+        const o = Model.make('image', { w: (xmax - xmin) * 25.4, h: (ymax - ymin) * 25.4, href: image.data, name: image.missing ? 'Изображение не прочитано' : 'Изображение из CDR' });
         o.stroke = Object.assign(Model.defaults().stroke, { color: null }); o.fill = { type: 'none' };
         o.m = Mx.mul(M, Mx.mul(Mx.translate(xmin, ymax), Mx.scale(1 / 25.4, -1 / 25.4)));
         Model.normalize(o);
@@ -1030,7 +1030,11 @@ const CDR = (() => {
       opacity(o) { fillOpacity = o; },
       bbox(x0, y0, x1, y1) { bbox = { x0, y0, x1, y1 }; },
       spnd(v) { spnd = v; },
-      bitmap(id, x1, x2, y1, y2) { const b = ps.bmps[id]; if (b) image = { data: CDR.bitmapURL(b, ps), x1, x2, y1, y2 }; },
+      bitmap(id, x1, x2, y1, y2) {
+        const b = ps.bmps[id], data = b ? CDR.bitmapURL(b, ps) : null;
+        if (data) image = { data, x1, x2, y1, y2 };
+        else { out.missingImages = (out.missingImages || 0) + 1; image = { data: CDR.MISSING, x1, x2, y1, y2, missing: true }; }
+      },
       artisticText(x, y) { textBox = { x, y, w: 0, h: 0 }; text = ps.texts[spnd] || null; },
       paragraphText(w, h) { textBox = { x: 0, y: 0, w, h }; text = ps.texts[spnd] || null; },
       pageSize() { }, fillStyle() { }, lineStyle() { }, paletteEntry() { }, style() { }, bmp() { }, bmpFile() { }, text() { }, font() { },
@@ -1190,13 +1194,16 @@ const CDR = (() => {
       }
     },
     // растр CDR → data:URL (PNG)
+    // заглушка вместо растра, который не удалось прочитать (серая клетка — видно, что здесь было фото)
+    MISSING: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#d9dde3"/><path d="M0 0L64 64M64 0L0 64" stroke="#9aa3ad" stroke-width="2"/></svg>'),
     bitmapURL(b, ps) {
       if (b.url) return b.url;
       try {
         const c = document.createElement('canvas');
         if (b.file) {
           // старые версии хранят готовый BMP
-          b.url = 'data:image/bmp;base64,' + btoa(String.fromCharCode(...b.file));
+          let bin = ''; for (let i = 0; i < b.file.length; i += 0x8000) bin += String.fromCharCode.apply(null, b.file.subarray(i, i + 0x8000));
+          b.url = 'data:image/bmp;base64,' + btoa(bin);
           return b.url;
         }
         const { model, w, h, bpp, palette, data } = b;
@@ -1212,24 +1219,33 @@ const CDR = (() => {
           return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
         };
         const cache = new Map();
-        const cc = (v, m) => { const k = v * 16 + m; let r = cache.get(k); if (!r) { r = color(v, m); if (cache.size < 100000) cache.set(k, r); } return r; };
+        const cc = (v, m) => { const k = v * 16 + m; let r = cache.get(k); if (!r) { r = color(v, m); if (cache.size < 1 << 20) cache.set(k, r); } return r; };
+        // RGB-растры (модели 1, 8, 9, 10) — прямо из байтов, без пересчёта цвета для каждой точки
+        const direct = !palette.length && (bpp === 24 || bpp === 32) && (model === 1 || model === 8 || model === 9 || model === 10);
+        const px = img.data;
         for (let j = 0; j < h; j++) {
           const row = h - 1 - j; // строки BMP идут снизу вверх
-          for (let k = 0; k < w; k++) {
+          const o = j * lineW;
+          let p = row * w * 4;
+          if (direct) {
+            const st = bpp >> 3;
+            for (let k = 0, i = o; k < w; k++, i += st, p += 4) { px[p] = data[i + 2]; px[p + 1] = data[i + 1]; px[p + 2] = data[i]; px[p + 3] = 255; }
+            continue;
+          }
+          for (let k = 0; k < w; k++, p += 4) {
             let rgb;
-            const o = j * lineW;
             if (model === 6) { const byte = data[o + (k >> 3)]; rgb = byte & (0x80 >> (k & 7)) ? [255, 255, 255] : [0, 0, 0]; }
-            else if (model === 5) { const g = data[o + k]; rgb = [g, g, g]; }
+            else if (model === 5) { const g = data[o + k]; px[p] = px[p + 1] = px[p + 2] = g; px[p + 3] = 255; continue; }
             else if (palette.length) { let ix = data[o + k]; if (ix >= palette.length) ix = palette.length - 1; rgb = cc(palette[ix], model); }
             else if (bpp === 24) { const i = o + k * 3; rgb = cc((data[i + 2] << 16) | (data[i + 1] << 8) | data[i], model); }
             else if (bpp === 32) { const i = o + k * 4; rgb = cc(((data[i + 3] << 24) | (data[i + 2] << 16) | (data[i + 1] << 8) | data[i]) >>> 0, model); }
             else rgb = [255, 255, 255];
-            const p = (row * w + k) * 4;
-            img.data[p] = rgb[0]; img.data[p + 1] = rgb[1]; img.data[p + 2] = rgb[2]; img.data[p + 3] = 255;
+            px[p] = rgb[0]; px[p + 1] = rgb[1]; px[p + 2] = rgb[2]; px[p + 3] = 255;
           }
         }
         ctx.putImageData(img, 0, 0);
-        b.url = c.toDataURL('image/png');
+        // фотографии — JPEG высокого качества (в разы меньше и быстрее), штриховые и палитровые — PNG
+        b.url = w * h > 250000 && (bpp >= 24 || model === 5) ? c.toDataURL('image/jpeg', 0.95) : c.toDataURL('image/png');
       } catch (e) { console.warn('CDR растр', e); b.url = null; }
       return b.url;
     },

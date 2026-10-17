@@ -304,6 +304,19 @@ try {
     $doc.Close()
     Write-Output 'OK'; exit 0
   }
+  if ($job.op -eq 'pdf') {
+    # файл любой версии — в PDF средствами самого Corel: фото, PowerClip и эффекты сохраняются как есть
+    $doc = $app.OpenDocument($job.input)
+    $s = $doc.PDFSettings
+    foreach ($kv in @(@('PublishRange', 0), @('DownsampleColor', $false), @('DownsampleGray', $false), @('DownsampleMono', $false), @('TextAsCurves', $false), @('EmbedFonts', $true), @('ComplexFillsAsBitmaps', $false), @('Linearize', $false))) {
+      try { $s.($kv[0]) = $kv[1] } catch { }
+    }
+    $doc.PublishToPDF($job.output)
+    $n = $doc.Pages.Count
+    $v = 0; try { $v = [int]$doc.SourceFileVersion } catch { }
+    $doc.Close()
+    Write-Output ('OK ' + $n + ' ' + $v); exit 0
+  }
   if ($job.op -eq 'build') {
     $doc = $app.CreateDocument()
     $doc.Unit = 3
@@ -348,14 +361,14 @@ try {
 } catch { Write-Output ('ERR: ' + $_.Exception.Message); exit 1 }
 `;
 
-async function runCorel(job) {
+async function runCorel(job, timeout = 180000) {
   if (process.platform !== "win32") return { ok: false, error: "Связь с CorelDRAW работает только в Windows" };
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "vektor-corel-"));
   const script = path.join(dir, "corel.ps1"), jobFile = path.join(dir, "job.json");
   await fsp.writeFile(script, "﻿" + PS_SCRIPT, "utf8");
   await fsp.writeFile(jobFile, JSON.stringify(job), "utf8");
   return new Promise((resolve) => {
-    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, jobFile], { timeout: 180000, windowsHide: true }, (err, stdout) => {
+    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, jobFile], { timeout, windowsHide: true, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
       const out = String(stdout || "").trim().split(/\r?\n/).pop() || "";
       if (out.startsWith("OK")) resolve({ ok: true, info: out.slice(2).trim() });
       else resolve({ ok: false, error: out.replace(/^ERR:\s*/, "") || (err && err.message) || "Ошибка CorelDRAW" });
@@ -373,6 +386,19 @@ ipcMain.handle("corel:normalize", async (e, input) => {
   const b = await fsp.readFile(out);
   fsp.rm(out, { force: true }).catch(() => { });
   return { ok: true, data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
+});
+// открыть CDR через CorelDRAW: Corel публикует документ в PDF, «Вектор» читает PDF
+ipcMain.handle("corel:pdf", async (e, input) => {
+  if (!isAllowed(input)) throw new Error("Нет доступа к файлу");
+  const out = path.join(os.tmpdir(), "vektor-" + Date.now() + ".pdf");
+  const r = await runCorel({ op: "pdf", input, output: out }, 600000);
+  if (!r.ok) return r;
+  try {
+    const b = await fsp.readFile(out);
+    const [pages, version] = String(r.info || "").split(/\s+/).map(Number);
+    return { ok: true, pages, version, data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
+  } catch (err) { return { ok: false, error: "CorelDRAW не создал PDF" }; }
+  finally { fsp.rm(out, { force: true }).catch(() => { }); }
 });
 // собрать CDR нужной версии из страниц-SVG
 ipcMain.handle("corel:build", async (e, pages, output, version, opts = {}) => {

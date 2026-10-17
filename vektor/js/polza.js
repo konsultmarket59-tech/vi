@@ -185,20 +185,20 @@ const Polza = {
   },
   // удаление фона: модель удаления фона, а если её нет — модель редактирования кладёт объект
   // на чистый зелёный, и фон вырезается здесь же (хромакей с подавлением зелёной каймы)
-  async removeBackground(image, { onStatus, signal } = {}) {
-    const m = await Polza.pick('bg');
+  async removeBackground(image, { model, onStatus, signal } = {}) {
+    const m = model || await Polza.pick('bg');
     if (m) return (await Polza.run(m, { prompt: 'remove background', image, images: [image] }, { onStatus, signal })).blob;
     const green = await Polza.generateImage('Keep the main subject exactly as it is (same shape, colors, details, position and size). Replace the whole background with a flat solid pure green color #00FF00. No shadows, no gradients, no green on the subject.', { images: [image], onStatus, signal });
     return Polza.chromaKey(green);
   },
-  async upscale(image, { scale = 2, onStatus, signal } = {}) {
-    const m = await Polza.pick('upscale');
+  async upscale(image, { scale = 2, model, onStatus, signal } = {}) {
+    const m = model || await Polza.pick('upscale');
     if (m) return (await Polza.run(m, { prompt: 'upscale', image, images: [image], scale, upscale_factor: scale }, { onStatus, signal })).blob;
     return Polza.generateImage(`Upscale this image ${scale}x: identical content and composition, sharper details, higher resolution, no changes.`, { images: [image], onStatus, signal });
   },
   // векторизация: модель Polza, отдающая SVG; без неё — трассировка на компьютере
-  async vectorize(image, { colors = 8, palette, onStatus, signal } = {}) {
-    const m = await Polza.pick('vector');
+  async vectorize(image, { colors = 8, palette, model, onStatus, signal } = {}) {
+    const m = model || await Polza.pick('vector');
     if (m) {
       const b = (await Polza.run(m, { prompt: 'vectorize', image, images: [image] }, { onStatus, signal })).blob;
       const t = await b.text();
@@ -309,29 +309,114 @@ const Polza = {
   async settingsDialog() {
     Polza.load();
     const M = Polza.media;
-    const dl = (id) => h('datalist', { id });
-    const field = (k, label, list) => { const i = h('input', { type: 'text', class: 'wide', value: M[k] || '', list, placeholder: 'автоматически' }); i.dataset.k = k; return h('label', {}, label, i); };
-    const lists = [dl('pzImg'), dl('pzVid')];
-    const load = h('button', { class: 'pbt', onclick: async () => {
-      load.textContent = 'Загружаю…';
-      try {
-        const [im, vi] = await Promise.all([Polza.models('image').catch(() => []), Polza.models('video').catch(() => [])]);
-        lists[0].innerHTML = im.map(m => `<option value="${Render.esc(m.id)}">${Render.esc(m.name)}</option>`).join('');
-        lists[1].innerHTML = vi.map(m => `<option value="${Render.esc(m.id)}">${Render.esc(m.name)}</option>`).join('');
-        load.textContent = `Картинки: ${im.length}, видео: ${vi.length}`;
-      } catch (e) { load.textContent = e.message; }
-    } }, 'Загрузить модели Polza');
+    const row = (k, label) => { const auto = ['bg', 'upscale', 'vector'].includes(k); const p = ModelPick.el(MODEL_KIND[k], M[k], () => { }, { auto }); p.dataset.k = k; return h('label', {}, label, p); };
     const form = h('div', { class: 'form' },
-      h('p', { class: 'muted' }, 'Модели Polza.ai для картинок и видео (ключ — из настроек агента). Пустое поле — модель подбирается автоматически, а если подходящей нет: фон вырезается хромакеем, векторизация идёт на компьютере.'),
-      ...lists, load,
-      field('image', 'Генерация картинок', 'pzImg'), field('edit', 'Правка по картинке (референсы)', 'pzImg'),
-      field('video', 'Генерация видео', 'pzVid'), field('bg', 'Удаление фона', 'pzImg'), field('upscale', 'Увеличение (апскейл)', 'pzImg'),
-      field('vector', 'Векторизация (SVG)', 'pzImg'), field('videoUpscale', 'Апскейл видео', 'pzVid'),
-      h('label', {}, 'Поле для референсов', h('select', { 'data-k': 'imageField' }, ...['images', 'image', 'image_url', 'image_urls'].map(v => h('option', { value: v, selected: M.imageField === v ? true : undefined }, v)))));
-    UI.dialog('Модели Polza для картинок и видео', form, [{ label: 'Отмена' }, { label: 'Сохранить', primary: true, action: () => {
-      form.querySelectorAll('[data-k]').forEach(i => { M[i.dataset.k] = i.value.trim(); });
+      h('p', { class: 'muted' }, 'Модели Polza.ai для каждой задачи (ключ — из настроек агента). ▾ — выбрать из списка моделей Polza, можно и вписать вручную. «Автоматически» — модель подбирается по названию, а если подходящей нет: фон вырезается хромакеем, векторизация идёт на компьютере.'),
+      h('label', {}, 'Модель агентов (чат)', (() => { const p = ModelPick.el('chat', Agent.settings.model, () => { }); p.dataset.chat = '1'; return p; })()),
+      row('image', 'Генерация картинок'), row('edit', 'Правка по картинке (референсы)'),
+      row('video', 'Генерация видео'), row('bg', 'Удаление фона'), row('upscale', 'Увеличение (апскейл)'),
+      row('vector', 'Векторизация (SVG)'), row('videoUpscale', 'Апскейл видео'),
+      h('label', {}, 'Поле для референсов', h('select', { 'data-sel': 'imageField' }, ...['images', 'image', 'image_url', 'image_urls'].map(v => h('option', { value: v, selected: M.imageField === v ? true : undefined }, v)))));
+    UI.dialog('Модели Polza', form, [{ label: 'Отмена' }, { label: 'Сохранить', primary: true, action: () => {
+      form.querySelectorAll('.mpick[data-k]').forEach(p => { M[p.dataset.k] = p.get(); });
+      const ch = form.querySelector('.mpick[data-chat]'); if (ch && ch.get()) { Agent.settings.model = ch.get(); Agent.saveSettings(); Agent.renderMaterials && Agent.el && Agent.renderMaterials(); }
+      const sel = form.querySelector('[data-sel]'); if (sel) M.imageField = sel.value;
       Polza.save();
     } }]);
   },
 };
 Polza.load();
+
+// ---------- выбор модели из списка Polza (везде, где работает ИИ) ----------
+// type: 'image' | 'video' | 'chat'. Поле можно и заполнить вручную; ▾ — список моделей Polza с поиском.
+const MODEL_KIND = { image: 'image', edit: 'image', bg: 'image', upscale: 'image', vector: 'image', video: 'video', videoUpscale: 'video', chat: 'chat' };
+const MODEL_LABEL = { image: 'Генерация картинок', edit: 'Правка по картинке', bg: 'Удаление фона', upscale: 'Апскейл', vector: 'Векторизация', video: 'Видео', videoUpscale: 'Апскейл видео', chat: 'Модель агента (чат)' };
+const ModelPick = {
+  async list(type) {
+    if (type === 'chat') {
+      try { const l = await Polza.models('chat'); if (l.length) return l; } catch (e) { }
+      return (await Agent.listModels()).map(id => ({ id, name: id, description: '' }));
+    }
+    return Polza.models(type);
+  },
+  // поле с кнопкой списка; auto — разрешить «Автоматически» (пустое значение)
+  el(type, value, onChange, { auto = false, placeholder = '', width } = {}) {
+    const inp = h('input', { type: 'text', class: 'mp-in', value: value || '', placeholder: placeholder || (auto ? 'Автоматически' : 'Модель Polza'), spellcheck: 'false' });
+    const stop = e => e.stopPropagation();
+    inp.addEventListener('keydown', stop); inp.addEventListener('pointerdown', stop);
+    inp.addEventListener('change', () => onChange(inp.value.trim()));
+    const btn = h('button', { class: 'mp-btn', type: 'button', title: 'Выбрать из моделей Polza' }, '▾');
+    const wrap = h('span', { class: 'mpick', style: width ? { width: width + 'px' } : {} }, inp, btn);
+    btn.addEventListener('pointerdown', stop);
+    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); ModelPick.open(wrap, type, inp.value.trim(), v => { inp.value = v; onChange(v); }, auto); });
+    wrap.get = () => inp.value.trim();
+    wrap.set = v => { inp.value = v || ''; };
+    return wrap;
+  },
+  close() { if (ModelPick.pop) { ModelPick.pop.remove(); ModelPick.pop = null; document.removeEventListener('pointerdown', ModelPick._out, true); } },
+  _out(e) { if (ModelPick.pop && !ModelPick.pop.contains(e.target)) ModelPick.close(); },
+  async open(anchor, type, cur, done, auto) {
+    ModelPick.close();
+    const r = anchor.getBoundingClientRect();
+    const q = h('input', { type: 'text', class: 'mp-q', placeholder: 'Поиск модели…', spellcheck: 'false' });
+    const box = h('div', { class: 'mp-list' }, h('div', { class: 'mp-note' }, 'Загружаю модели Polza…'));
+    const pop = h('div', { class: 'mp-pop' }, q, box);
+    const top = Math.min(r.bottom + 2, window.innerHeight - 340);
+    Object.assign(pop.style, { left: Math.max(4, Math.min(r.left, window.innerWidth - 424)) + 'px', top: Math.max(4, top) + 'px', minWidth: Math.max(r.width, 300) + 'px' });
+    document.body.append(pop);
+    ModelPick.pop = pop;
+    setTimeout(() => document.addEventListener('pointerdown', ModelPick._out, true), 0);
+    q.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') ModelPick.close(); if (e.key === 'Enter') { const f = box.querySelector('.mp-it'); if (f) f.click(); } });
+    let list = [];
+    try { list = await ModelPick.list(type); } catch (e) { box.innerHTML = ''; box.append(h('div', { class: 'mp-note err' }, 'Список не загрузился: ' + (e.message || e) + '. Модель можно вписать в поле вручную.')); return; }
+    const draw = () => {
+      const s = q.value.trim().toLowerCase();
+      box.innerHTML = '';
+      const pick = v => { ModelPick.close(); done(v); };
+      if (auto && !s) box.append(h('div', { class: 'mp-it' + (!cur ? ' on' : ''), onclick: () => pick('') }, h('b', {}, 'Автоматически'), h('span', {}, 'подбирается по задаче')));
+      const f = list.filter(m => !s || (m.id + ' ' + m.name + ' ' + (m.description || '')).toLowerCase().includes(s));
+      for (const m of f.slice(0, 300)) box.append(h('div', { class: 'mp-it' + (m.id === cur ? ' on' : ''), title: m.description || m.id, onclick: () => pick(m.id) }, h('b', {}, m.name || m.id), m.name && m.name !== m.id ? h('span', {}, m.id) : null));
+      if (!f.length) box.append(h('div', { class: 'mp-note' }, list.length ? 'Ничего не найдено' : 'Polza не вернула модели этого типа'));
+    };
+    q.addEventListener('input', draw);
+    draw(); q.focus();
+  },
+};
+
+// перед запуском ИИ-операции из интерфейса: показать и дать сменить модели (выбор запоминается)
+Polza.choose = function (kinds, title, extra) {
+  Polza.load();
+  let skip = false; try { skip = localStorage.getItem('vektor.askModel') === 'no'; } catch (e) { }
+  if (skip && !extra) return Promise.resolve(true);
+  return new Promise(res => {
+    const picks = kinds.map(k => {
+      const auto = ['bg', 'upscale', 'vector'].includes(k);
+      const p = ModelPick.el(MODEL_KIND[k] || 'image', k === 'chat' ? Agent.settings.model : Polza.media[k], () => { }, { auto });
+      return [k, p];
+    });
+    const ask = h('input', { type: 'checkbox' });
+    const form = h('div', { class: 'form' },
+      ...picks.map(([k, p]) => h('label', {}, MODEL_LABEL[k] || k, p)),
+      ...(extra ? [].concat(extra) : []),
+      ['bg', 'upscale', 'vector'].some(k => kinds.includes(k)) ? h('p', { class: 'muted' }, '«Автоматически» — модель подбирается по названию; если подходящей нет, работает модель правки по картинке.') : null,
+      h('label', { class: 'row' }, ask, ' Больше не спрашивать (сменить можно в ИИ → Модели Polza)'));
+    let ok = false;
+    UI.dialog(title || 'Модель Polza', form, [{ label: 'Отмена' }, { label: 'Запустить', primary: true, action: () => {
+      for (const [k, p] of picks) { if (k === 'chat') { if (p.get()) { Agent.settings.model = p.get(); Agent.saveSettings(); } } else Polza.media[k] = p.get(); }
+      Polza.save();
+      if (ask.checked) try { localStorage.setItem('vektor.askModel', 'no'); } catch (e) { }
+      ok = true;
+    } }], { onClose: () => res(ok) });
+  });
+};
+
+// строка «модель» для диалогов: выбор сразу запоминается
+Polza.pickRow = function (kind, label) {
+  Polza.load();
+  const auto = ['bg', 'upscale', 'vector'].includes(kind);
+  const cur = kind === 'chat' ? Agent.settings.model : Polza.media[kind];
+  const p = ModelPick.el(MODEL_KIND[kind] || 'image', cur, v => {
+    if (kind === 'chat') { if (v) { Agent.settings.model = v; Agent.saveSettings(); } } else { Polza.media[kind] = v; Polza.save(); }
+  }, { auto });
+  return h('label', {}, (label || MODEL_LABEL[kind] || kind) + ' — модель', p);
+};

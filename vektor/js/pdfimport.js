@@ -27,7 +27,33 @@ const PDFImport = {
     let path = new PathAcc();
     const cur = { x: 0, y: 0 };
     const M = () => Mx.mul(V, st.ctm);
+    // обтравка (PowerClip): объекты под одной обтравкой собираются в один PowerClip
+    let clipPending = false, clipSeq = 0;
+    const place = o => {
+      const c = st.clip;
+      if (!c) return objects.push(o);
+      const last = objects[objects.length - 1];
+      if (last && last.type === 'powerclip' && last._clip === c.id) return last.children.push(o);
+      const cont = Model.make('path', { subs: structuredClone(c.subs), name: 'Рамка' });
+      cont.fill = { type: 'none', color: '#000000', color2: '#ffffff', angle: 0 };
+      cont.stroke = Object.assign(Model.defaults().stroke, { color: null, width: 0 });
+      const pc = Model.make('powerclip', { container: cont, children: [o] });
+      Object.defineProperty(pc, '_clip', { value: c.id, enumerable: false });
+      objects.push(pc);
+    };
+    const takeClip = () => {
+      if (!clipPending) return;
+      clipPending = false;
+      const subs = path.subs.filter(sp => sp.nodes.length > 1).map(sp => structuredClone(sp));
+      if (!subs.length) return;
+      Path.transform(subs, M());
+      // обтравка во всю страницу ничего не режет
+      const b = Path.bbox ? Path.bbox(subs) : null;
+      if (b && b.x1 <= 0.5 && b.y1 <= 0.5 && b.x2 >= vp.width - 0.5 && b.y2 >= vp.height - 0.5 && subs.length === 1 && subs[0].nodes.length <= 5) return;
+      st.clip = { id: ++clipSeq, subs };
+    };
     const emit = (fill, stroke, evenodd) => {
+      takeClip();
       if (!path.subs.length) return;
       const subs = path.subs.filter(sp => sp.nodes.length > 1);
       Path.transform(subs, M());
@@ -43,7 +69,7 @@ const PDFImport = {
       const a = fill ? st.fa : st.sa;
       if (a < 1) o.opacity = a;
       void evenodd;
-      objects.push(o);
+      place(o);
     };
     const { fnArray, argsArray } = ops;
     const textColors = [];
@@ -94,7 +120,8 @@ const PDFImport = {
           case OPS.closeStroke: path.Z(); emit(false, true); break;
           case OPS.fillStroke: case OPS.eoFillStroke: emit(true, true); break;
           case OPS.closeFillStroke: case OPS.closeEOFillStroke: path.Z(); emit(true, true); break;
-          case OPS.endPath: path = new PathAcc(); break; // обтравочные контуры не переносим
+          case OPS.clip: case OPS.eoClip: clipPending = true; break;
+          case OPS.endPath: takeClip(); path = new PathAcc(); break;
           case OPS.showText: case OPS.showSpacedText: case OPS.nextLineShowText: case OPS.nextLineSetSpacingShowText: textColors.push({ c: st.fill, a: st.fa }); break;
           case OPS.paintImageXObject: case OPS.paintInlineImageXObject: {
             const img = fn === OPS.paintInlineImageXObject ? args[0] : await PDFImport.getObj(page, args[0]);
@@ -104,7 +131,7 @@ const PDFImport = {
               o.fill = { type: 'none' }; o.stroke = Object.assign(Model.defaults().stroke, { color: null });
               o.m = Mx.mul(M(), [1, 0, 0, -1, 0, 1]);
               Model.normalize(o);
-              objects.push(o);
+              place(o);
             }
             break;
           }

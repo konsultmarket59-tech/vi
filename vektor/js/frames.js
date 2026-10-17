@@ -70,9 +70,7 @@ const Frames = {
     }
   },
   newDoc(f) {
-    if (App.dirty && !confirm('Начать новый документ? Несохранённые изменения пропадут.')) return;
-    App.doc = Model.newDoc(); App.sel = []; App.fileName = null; App.dirty = false;
-    App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
+    Docs.begin();
     const P = App.pg();
     Frames.apply(P, f);
     App.doc.name = f.name;

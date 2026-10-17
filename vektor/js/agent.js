@@ -841,7 +841,7 @@ const Agent = {
     Agent.load();
     const el = h('div', { id: 'agentPanel', class: 'agent' });
     el.innerHTML = `
-      <div class="ag-head"><b>ИИ-агент</b><span class="ag-model" title="Модель"></span><span class="grow"></span>
+      <div class="ag-head"><b>ИИ-агент</b><span class="ag-model" title="Щёлкните — выбрать модель из списка Polza"></span><span class="grow"></span>
         <button class="ib" data-a="new" title="Новый разговор">＋</button><button class="ib" data-a="settings" title="Настройки подключения">⚙</button></div>
       <div class="ag-mats"><div class="ag-mats-t">Материалы <span class="muted">— папки и файлы для задачи</span></div><div class="ag-chips"></div>
         <div class="ag-add"><select class="ag-role"></select><button class="pbt" data-a="folder">+ Папка</button><button class="pbt" data-a="files">+ Файлы</button></div></div>
@@ -853,6 +853,8 @@ const Agent = {
     const roleSel = el.querySelector('.ag-role');
     for (const [k, l] of Agent.ROLES) roleSel.append(h('option', { value: k }, l));
     el.addEventListener('click', e => {
+      const mm = e.target.closest('.ag-model');
+      if (mm) return ModelPick.open(mm, 'chat', Agent.settings.model, v => { if (v) { Agent.settings.model = v; Agent.saveSettings(); Agent.renderMaterials(); } });
       const b = e.target.closest('[data-a]'); if (!b) return;
       const act = b.dataset.a;
       if (act === 'send') { const ta = el.querySelector('textarea'); const t = ta.value; ta.value = ''; Agent.send(t); }
@@ -890,7 +892,7 @@ const Agent = {
         h('button', { class: 'ib', 'data-a': 'rm', 'data-id': m.id, title: 'Убрать' }, '×')));
     }
     const model = Agent.el.querySelector('.ag-model');
-    model.textContent = Agent.settings.model + (Agent.settings.apiKey ? '' : ' · нет ключа');
+    model.textContent = Agent.settings.model + ' ▾' + (Agent.settings.apiKey ? '' : ' · нет ключа');
   },
   renderChat() {
     if (!Agent.el) return;
@@ -927,11 +929,12 @@ const Agent = {
     const s = Agent.settings;
     const base = h('input', { type: 'text', class: 'wide', value: s.baseUrl });
     const key = h('input', { type: 'password', class: 'wide', value: s.apiKey, placeholder: 'Ключ Polza.ai' });
-    const model = h('input', { type: 'text', class: 'wide', value: s.model, list: 'agModels' });
-    const dl = h('datalist', { id: 'agModels' });
+    const model = ModelPick.el('chat', s.model, () => { });
+    model.value = s.model; Object.defineProperty(model, 'value', { get: () => model.get(), set: v => model.set(v) });
+    const dl = h('span');
     const temp = h('input', { type: 'number', value: s.temperature, step: 0.1, min: 0, max: 2 });
     const steps = h('input', { type: 'number', value: s.maxSteps, min: 5, max: 300 });
-    const load = h('button', { class: 'pbt', onclick: async () => { load.textContent = 'Загружаю…'; const list = await Agent.listModels(); dl.innerHTML = list.map(m => `<option value="${Render.esc(m)}">`).join(''); load.textContent = `Моделей: ${list.length}`; } }, 'Загрузить список моделей');
+    const load = h('span');
     // сеть — как в «Личном чате»: системный прокси/VPN, свой прокси с паролем или напрямую
     const desk = !!(window.vkHost && vkHost.netGet);
     const net = desk ? await vkHost.netGet() : {};

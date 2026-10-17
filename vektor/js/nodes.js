@@ -16,9 +16,9 @@ const Nodes = {
     llm: { title: 'Текстовая модель', color: '#f59e0b', inputs: [['text', 'text'], ['image', 'image']], outputs: [['text', 'text']], params: [['instruction', 'textarea', 'Что сделать с текстом/картинкой'], ['model', 'model:chat', 'Модель (пусто — модель агента)']] },
     genImage: { title: 'Модель: картинка', color: '#ec4899', inputs: [['prompt', 'text'], ['refs', 'image', true]], outputs: [['image', 'image']], params: [['model', 'model:image', 'Модель Polza'], ['extra', 'json', 'Доп. параметры JSON, например {"aspect_ratio":"9:16"}']] },
     genVideo: { title: 'Модель: видео', color: '#ef4444', inputs: [['prompt', 'text'], ['image', 'image'], ['end', 'image']], outputs: [['video', 'video']], params: [['model', 'model:video', 'Модель Polza'], ['duration', 'number', 'Длительность, с'], ['extra', 'json', 'Доп. параметры JSON']] },
-    removeBg: { title: 'Удалить фон', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [] },
-    upscale: { title: 'Увеличить', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [['scale', 'number', 'Во сколько раз']] },
-    vectorize: { title: 'В вектор (SVG)', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['svg', 'svg']], params: [['colors', 'number', 'Цветов'], ['palette', 'text', 'Палитра: #hex через запятую']] },
+    removeBg: { title: 'Удалить фон', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [['model', 'model:image:auto', 'Модель (автоматически)']] },
+    upscale: { title: 'Увеличить', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [['model', 'model:image:auto', 'Модель (автоматически)'], ['scale', 'number', 'Во сколько раз']] },
+    vectorize: { title: 'В вектор (SVG)', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['svg', 'svg']], params: [['model', 'model:image:auto', 'Модель (без неё — трассировка)'], ['colors', 'number', 'Цветов'], ['palette', 'text', 'Палитра: #hex через запятую']] },
     mockup: { title: 'Мокап', color: '#8b5cf6', inputs: [['base', 'image'], ['design', 'image']], outputs: [['image', 'image']], params: [['mode', 'select:shape=По форме объекта|cylinder=Цилиндр|flat=Плоскость', 'Посадка'], ['mask', 'select:ai=Объект находит ИИ|full=Весь кадр', 'Объект'], ['blend', 'select:normal=С тенями|multiply=Умножение|screen=Экран', 'Смешивание']] },
     save: { title: 'Сохранить', color: '#334155', inputs: [['in', 'any', true]], outputs: [], params: [['folder', 'folder', 'Папка (пусто — спросить)'], ['name', 'text', 'Имя файлов']] },
     toApp: { title: 'Отправить', color: '#334155', inputs: [['in', 'any', true]], outputs: [], params: [['where', 'select:vektor=В «Вектор»|figma=В «Фигму»|motion=В «Моушн»', 'Куда']] },
@@ -143,12 +143,12 @@ const Nodes = {
         const blob = await Polza.generateVideo(prompt, { image: ins.image && ins.image.blob, endImage: ins.end && ins.end.blob, model: P.model, params, onStatus: st, signal: ctx.signal });
         return { kind: 'video', blob, name: 'видео.mp4' };
       }
-      case 'removeBg': if (!ins.image) throw new Error('Нет картинки на входе'); return { kind: 'image', blob: await Polza.removeBackground(ins.image.blob, { onStatus: st, signal: ctx.signal }), name: 'без-фона.png' };
-      case 'upscale': if (!ins.image) throw new Error('Нет картинки на входе'); return { kind: 'image', blob: await Polza.upscale(ins.image.blob, { scale: +P.scale || 2, onStatus: st, signal: ctx.signal }), name: 'апскейл.png' };
+      case 'removeBg': if (!ins.image) throw new Error('Нет картинки на входе'); return { kind: 'image', blob: await Polza.removeBackground(ins.image.blob, { model: P.model, onStatus: st, signal: ctx.signal }), name: 'без-фона.png' };
+      case 'upscale': if (!ins.image) throw new Error('Нет картинки на входе'); return { kind: 'image', blob: await Polza.upscale(ins.image.blob, { scale: +P.scale || 2, model: P.model, onStatus: st, signal: ctx.signal }), name: 'апскейл.png' };
       case 'vectorize': {
         if (!ins.image) throw new Error('Нет картинки на входе');
         const palette = String(P.palette || '').split(/[,;\s]+/).filter(s => /^#?[0-9a-f]{6}$/i.test(s)).map(s => s[0] === '#' ? s : '#' + s);
-        const svg = palette.length ? await Polza.trace(ins.image.blob, { colors: palette.length, palette }) : await Polza.vectorize(ins.image.blob, { colors: +P.colors || 8, onStatus: st });
+        const svg = palette.length ? await Polza.trace(ins.image.blob, { colors: palette.length, palette }) : await Polza.vectorize(ins.image.blob, { colors: +P.colors || 8, model: P.model, onStatus: st });
         return { kind: 'svg', text: svg, name: 'вектор.svg' };
       }
       case 'mockup': {
@@ -385,24 +385,25 @@ const Nodes = {
       return h('label', { class: 'nd-l' }, label + ' ', stop(UI.sel(opts, P[key] || opts[0][0], v => set(v), '', 150)));
     }
     if (kind.startsWith('model:')) {
-      const type = kind.slice(6);
-      const listId = 'ndm-' + type;
-      if (!document.getElementById(listId)) {
-        const dl = h('datalist', { id: listId }); document.body.append(dl);
-        if (type === 'chat') Agent.listModels().then(l => { dl.innerHTML = l.map(m => `<option value="${Render.esc(m)}">`).join(''); });
-        else Polza.models(type).then(l => { dl.innerHTML = l.map(m => `<option value="${Render.esc(m.id)}">${Render.esc(m.name)}</option>`).join(''); }).catch(() => { });
-      }
-      return stop(h('input', { type: 'text', list: listId, placeholder: label, value: P[key] || '', onchange: e => set(e.target.value.trim()) }));
+      // модель — из списка Polza (▾) или вручную
+      const [, type, auto] = kind.split(':');
+      return ModelPick.el(type, P[key] || '', v => set(v), { auto: !!auto || type === 'chat', placeholder: label });
     }
     if (kind === 'file') {
       const b = h('button', { class: 'pbt', onclick: async () => {
         const [f] = await Host.pickFiles('.png,.jpg,.jpeg,.webp,.gif,.bmp', false, 'Картинка');
         if (!f) return;
         const rec = { name: f.name, path: f.path };
-        if (!f.path) rec.data = await Polza.dataURL(await Host.blobOf(f));
+        const blob = await Host.blobOf(f);
+        if (!f.path) rec.data = await Polza.dataURL(blob);
+        try { rec.thumb = await Polza.thumb(blob, 360, 'image/png'); } catch (e) { }
         set(rec); Nodes.paint(n.id);
       } }, P[key] ? '🖼 ' + P[key].name : 'Выбрать картинку…');
-      return b;
+      if (!P[key] || Nodes.results[n.id]) return b;
+      // превью выбранной картинки — сразу, не дожидаясь запуска
+      const src = P[key].thumb || P[key].data || (P[key].path && Host.desktop ? Host.fileURL(P[key].path) : '');
+      if (!src) return b;
+      return h('div', { class: 'nd-file' }, b, h('img', { class: 'nd-img', src, onerror: e => { e.target.remove(); } }));
     }
     if (kind === 'folder') {
       return h('button', { class: 'pbt', onclick: async () => {

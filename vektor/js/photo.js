@@ -219,6 +219,7 @@ const PhotoWS = {
   // ---------- ИИ ----------
   async ai(kind) {
     let cur; try { cur = await PhotoWS.current(); } catch (e) { return UI.toast(e.message, true); }
+    if (!await Polza.choose([kind === 'bg' ? 'bg' : 'upscale', 'edit'], kind === 'bg' ? 'Удалить фон' : 'Апскейл')) return;
     await withBusy(kind === 'bg' ? 'Удаляю фон…' : 'Увеличиваю…', async onStatus => {
       const blob = await new Promise(r => cur.canvas.toBlob(r, 'image/png'));
       const out = kind === 'bg' ? await Polza.removeBackground(blob, { onStatus }) : await Polza.upscale(blob, { onStatus });
@@ -233,7 +234,7 @@ const PhotoWS = {
     const sides = ['top', 'right', 'bottom', 'left'].map(() => h('input', { type: 'number', value: 25, min: 0, max: 200, class: 'num' }));
     const prompt = h('textarea', { rows: 3, class: 'wide', placeholder: 'Необязательно: что должно появиться по краям' });
     UI.dialog('Дорисовать края (ИИ)', h('div', { class: 'form' }, h('div', { class: 'row' }, ...['Сверху', 'Справа', 'Снизу', 'Слева'].map((l, i) => h('label', {}, l + ', %', sides[i]))), prompt,
-      h('p', { class: 'muted' }, 'Холст увеличится, модель Polza достроит фон так, будто кадр был шире. Исходная картинка сохранится отдельным слоем поверх.')),
+      Polza.pickRow('edit'), h('p', { class: 'muted' }, 'Холст увеличится, модель Polza достроит фон так, будто кадр был шире. Исходная картинка сохранится отдельным слоем поверх.')),
     [{ label: 'Отмена' }, { label: 'Дорисовать', primary: true, action: () => { PhotoWS.outpaint(sides.map(s => +s.value / 100), prompt.value.trim()); } }]);
   },
   async outpaint([t, r, b, l], extra) {
@@ -252,7 +253,7 @@ const PhotoWS = {
   },
   editDialog() {
     const prompt = h('textarea', { rows: 4, class: 'wide', placeholder: 'Например: «убрать людей на заднем плане», «сделать вечер с тёплым светом», «заменить фон на студийный серый»' });
-    UI.dialog('Изменить по описанию (ИИ)', h('div', { class: 'form' }, prompt, h('p', { class: 'muted' }, 'Результат добавится новым слоем — исходник останется.')),
+    UI.dialog('Изменить по описанию (ИИ)', h('div', { class: 'form' }, prompt, Polza.pickRow('edit'), h('p', { class: 'muted' }, 'Результат добавится новым слоем — исходник останется.')),
       [{ label: 'Отмена' }, { label: 'Изменить', primary: true, action: () => {
         const p = prompt.value.trim(); if (!p) return false;
         withBusy('ИИ правит картинку…', async onStatus => {

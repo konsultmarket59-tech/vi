@@ -9,13 +9,8 @@ const Actions = {
   undo() { App.undo(); },
   redo() { App.redo(); },
 
-  newDoc() {
-    UI.confirm('Создать новый документ? Несохранённые изменения будут потеряны.', () => {
-      App.doc = Model.newDoc(); App.sel = []; App.fileName = null; App.dirty = false;
-      App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
-      App.autosave(); App.zoomPage(); UI.refresh();
-    });
-  },
+  // новый документ — в новой вкладке, открытые остаются
+  newDoc() { Docs.newDoc(); },
 
   // удаление из списков
   removeIds(ids) {

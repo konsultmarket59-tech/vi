@@ -129,7 +129,7 @@ const UI = {
   // ================== Отрисовка ==================
   refresh(o = {}) {
     const panels = o.panels !== false, doc = o.doc !== false;
-    UI.renderStage(doc);
+    UI.renderStage(doc, !panels);
     UI.renderOverlay();
     UI.drawRulers();
     if (panels) { UI.renderPropbar(); UI.renderDocker(); UI.renderDocPalette(); UI.renderPagebar(); }
@@ -137,8 +137,9 @@ const UI = {
     UI.updateToolbox();
     if (Tools.text.editing && Tools.text.place) Tools.text.place();
     document.title = (App.fileName || App.doc.name) + (App.dirty ? ' *' : '') + ' — Вектор';
+    if (typeof Docs !== 'undefined') Docs.renderBar();
   },
-  renderStage(doc) {
+  renderStage(doc, live) {
     const vp = UI.$('#viewport');
     vp.setAttribute('transform', `translate(${App.panX} ${App.panY}) scale(${App.zoom})`);
     const { w, h, color } = App.pg();
@@ -158,13 +159,60 @@ const UI = {
     }
     if (typeof Prepress !== 'undefined') Prepress.renderMarks();
     if (doc) {
-      const r = Render.layers(App.pg(), { ids: true });
-      UI.$('#docDefs').innerHTML = r.defs;
-      UI.$('#docG').innerHTML = r.body;
+      UI.renderDoc(App.pg(), live);
       UI.$('#docG').classList.toggle('wire', !!App.view.wire);
       // редактируемый текст показывает поле ввода, а не SVG
-      if (Tools.text.editing) { const el = UI.$(`#docG [data-id="${Tools.text.editing.id}"]`); if (el) el.style.visibility = 'hidden'; }
+      if (Tools.text.editing) { const el = UI.$(`#docG [data-id="${Tools.text.editing.id}"]`); if (el) { el.style.visibility = 'hidden'; UI._hidden = el; } }
     }
+  },
+  // Отрисовка страницы с заменой только изменившихся объектов: большие файлы не перестраиваются целиком.
+  // Неизменившиеся объекты (сверка по отпечатку) берутся из кэша разметки.
+  _sc: null, _memo: new WeakMap(), _tsize: 0, _defsStr: null, _hidden: null,
+  renderDoc(page, live) {
+    const defs = [], tsize = Text.cache.size;
+    if (tsize < UI._tsize) UI._memo = new WeakMap(); // кэш шрифтов сброшен — тексты перерисовываются заново
+    UI._tsize = tsize;
+    const one = o => {
+      const hh = Snap.hash(o), c = UI._memo.get(o);
+      if (c && c.h === hh) { if (c.defs.length) defs.push(...c.defs); return c.str; }
+      const d = [];
+      let str;
+      try { str = Render.obj(o, d, { ids: true }) || '<g/>'; } catch (e) { console.warn('Объект не отрисован', o && o.id, e); str = '<g/>'; }
+      UI._memo.set(o, { h: hh, str, defs: d });
+      if (d.length) defs.push(...d);
+      return str;
+    };
+    Render.live = true;
+    let layers;
+    try { layers = page.layers.map(L => ({ id: L.id, objs: L.visible ? L.objects.map(one) : [] })); }
+    finally { Render.live = false; }
+    const dstr = defs.join('');
+    if (dstr !== UI._defsStr) { UI.$('#docDefs').innerHTML = dstr; UI._defsStr = dstr; }
+    if (UI._hidden) { UI._hidden.style.visibility = ''; UI._hidden = null; }
+    const root = UI.$('#docG'), C = UI._sc;
+    if (!C || C.layers.length !== layers.length || C.layers.some((l, i) => l.id !== layers[i].id) || root.children.length !== layers.length) {
+      root.innerHTML = layers.map(l => `<g data-layer="${l.id}">${l.objs.join('')}</g>`).join('');
+      UI._sc = { page, layers };
+      return;
+    }
+    const frag = (g, html) => { const r = document.createRange(); r.selectNodeContents(g); return r.createContextualFragment(html); };
+    layers.forEach((l, i) => {
+      const old = C.layers[i].objs, nw = l.objs, g = root.children[i];
+      if (old === nw) return;
+      if (g.children.length !== old.length) { g.innerHTML = nw.join(''); return; }
+      let a = 0; const n = Math.min(old.length, nw.length);
+      while (a < n && old[a] === nw[a]) a++;
+      let bo = old.length, bn = nw.length;
+      while (bo > a && bn > a && old[bo - 1] === nw[bn - 1]) { bo--; bn--; }
+      if (bo - a === bn - a) {
+        // тот же состав — заменяем только отличающиеся объекты
+        for (let k = a; k < bo; k++) if (old[k] !== nw[k]) g.replaceChild(frag(g, nw[k]), g.children[k]);
+      } else {
+        for (let k = bo - 1; k >= a; k--) g.children[k].remove();
+        if (bn > a) g.insertBefore(frag(g, nw.slice(a, bn).join('')), g.children[a] || null);
+      }
+    });
+    C.layers = layers;
   },
   preview(markup, defs) {
     UI.$('#previewG').innerHTML = markup;
@@ -302,6 +350,9 @@ const UI = {
         { label: 'Создать', key: 'Ctrl+N', action: A.newDoc },
         { label: 'Создать из фрейма… (листовки, буклеты, сувенирка)', action: () => Frames.dialog() },
         { label: 'Открыть…', key: 'Ctrl+O', action: IO.open },
+        { label: 'Закрыть документ', key: 'Ctrl+W', action: () => Docs.close() },
+        { label: 'Следующий документ', key: 'Ctrl+Tab', action: () => Docs.next(1), disabled: () => Docs.list.length < 2 },
+        { label: 'CDR открывать через CorelDRAW (точно: фото, PowerClip, эффекты)', check: () => IO.cdrMode() !== 'own', action: () => IO.setCdrMode(IO.cdrMode() === 'own' ? 'auto' : 'own') },
         '-',
         { label: 'Сохранить', key: 'Ctrl+S', action: IO.save },
         { label: 'Сохранить как…', key: 'Ctrl+Shift+S', action: IO.saveAs },
@@ -1110,6 +1161,7 @@ const UI = {
       body.append(UI.section('Объект', UI.row(h('span', { class: 'dl' }, 'Имя'), nm)));
     }
   },
+  objOpen: new Set(), objRows: 400,
   dockObjects(body) {
     const tools = h('div', { class: 'drow' },
       h('button', { class: 'pbt', onclick: Actions.addLayer }, '+ Слой'),
@@ -1120,6 +1172,9 @@ const UI = {
     body.append(tools);
     const list = h('div', { class: 'otree' });
     const layers = App.pg().layers.slice().reverse();
+    let rows = 0, more = 0;
+    // выделенные объекты внутри групп — разворачиваем их родителей
+    for (const id of App.sel) { let f = Model.find(id); while (f && f.parent) { UI.objOpen.add(f.parent.id); f = Model.find(f.parent.id); } }
     for (const L of layers) {
       const active = L.id === App.pg().activeLayer;
       const lrow = h('div', { class: 'orow layer' + (active ? ' active' : ''), onclick: () => { App.pg().activeLayer = L.id; UI.refresh(); } },
@@ -1131,15 +1186,20 @@ const UI = {
       lrow.addEventListener('drop', e => { e.preventDefault(); UI.dropTo(e.dataTransfer.getData('text/x-obj'), L, null); });
       list.append(lrow);
       const rec = (objs, depth) => {
-        for (const o of objs.slice().reverse()) {
+        for (let ri = objs.length - 1; ri >= 0; ri--) {
+          const o = objs[ri];
+          if (++rows > UI.objRows) { more++; continue; }
           const selected = App.sel.includes(o.id);
+          const kids = o.children || o.container ? (o.children || []).length + (o.container ? 1 : 0) : 0;
+          const open = UI.objOpen.has(o.id);
           const r = h('div', { class: 'orow' + (selected ? ' sel' : ''), style: { paddingLeft: (10 + depth * 14) + 'px' }, draggable: depth === 0 ? 'true' : null,
             onclick: e => {
               if (depth > 0) return;
               if (e.shiftKey || e.ctrlKey) App.sel = selected ? App.sel.filter(x => x !== o.id) : App.sel.concat(o.id);
               else App.sel = [o.id];
-              App.rotateMode = false; UI.refresh();
+              App.rotateMode = false; UI.refresh({ doc: false });
             } },
+          kids ? h('button', { class: 'ib otog', title: open ? 'Свернуть' : 'Развернуть', onclick: e => { e.stopPropagation(); open ? UI.objOpen.delete(o.id) : UI.objOpen.add(o.id); UI.renderDocker(); } }, open ? '▾' : '▸') : h('span', { class: 'ib otog' }),
           h('button', { class: 'ib', title: 'Показать/скрыть', html: icon(o.visible ? 'eye' : 'eyeOff', 14), onclick: e => { e.stopPropagation(); o.visible = !o.visible; App.commit('Видимость'); } }),
           h('button', { class: 'ib', title: 'Блокировать', html: icon(o.locked ? 'lock' : 'unlock', 14), onclick: e => { e.stopPropagation(); o.locked = !o.locked; if (o.locked) App.sel = App.sel.filter(x => x !== o.id); App.commit('Блокировка'); } }),
           h('span', { class: 'oswatch', style: { background: o.fill && o.fill.type !== 'none' ? (o.fill.color || '#000') : 'transparent', borderColor: o.stroke && o.stroke.color || '#999' } }),
@@ -1150,12 +1210,15 @@ const UI = {
             r.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); UI.dropTo(e.dataTransfer.getData('text/x-obj'), L, o.id); });
           }
           list.append(r);
-          if (o.children) rec(o.children, depth + 1);
-          if (o.container) rec([o.container], depth + 1);
+          if (kids && open) {
+            if (o.children) rec(o.children, depth + 1);
+            if (o.container) rec([o.container], depth + 1);
+          }
         }
       };
       rec(L.objects, 1 - 1);
     }
+    if (more) list.append(h('button', { class: 'pbt omore', onclick: () => { UI.objRows += 500; UI.renderDocker(); } }, `Показать ещё (скрыто строк: ${more})`));
     body.append(list);
     body.append(h('div', { class: 'dnote' }, 'Перетаскивайте строки, чтобы менять порядок и слой. Двойной щелчок — переименовать.'));
   },
@@ -1251,8 +1314,9 @@ const UI = {
 
   // ================== Диалоги ==================
   modalOpen() { return !!UI.$('.modal'); },
-  dialog(title, content, buttons = [{ label: 'OK', primary: true }]) {
+  dialog(title, content, buttons = [{ label: 'OK', primary: true }], opts = {}) {
     UI.closeDialog();
+    UI._onClose = opts.onClose || null;
     const box = h('div', { class: 'dialog' },
       h('div', { class: 'dlg-t' }, title, h('button', { class: 'ib', html: '×', onclick: UI.closeDialog })),
       h('div', { class: 'dlg-b' }, content),
@@ -1268,7 +1332,11 @@ const UI = {
     });
     return box;
   },
-  closeDialog() { document.querySelectorAll('.modal').forEach(m => m.remove()); },
+  closeDialog() {
+    document.querySelectorAll('.modal').forEach(m => m.remove());
+    if (typeof ModelPick !== 'undefined') ModelPick.close();
+    const f = UI._onClose; UI._onClose = null; if (f) f();
+  },
   confirm(msg, ok) { UI.dialog('Подтверждение', h('p', {}, msg), [{ label: 'Отмена' }, { label: 'Да', primary: true, action: ok }]); },
   prompt(title, val, ok) {
     const inp = h('input', { type: 'text', class: 'wide', value: val });

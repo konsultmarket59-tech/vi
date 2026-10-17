@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("vkHost", {
   printPDF: (html, out) => ipcRenderer.invoke("print:pdf", html, out),
   capture: (rect) => ipcRenderer.invoke("win:capture", rect),
   corelProbe: () => ipcRenderer.invoke("corel:probe"),
+  corelPDF: (p) => ipcRenderer.invoke("corel:pdf", p),
   corelNormalize: (p) => ipcRenderer.invoke("corel:normalize", p),
   corelBuild: (pages, output, version, opts) => ipcRenderer.invoke("corel:build", pages, output, version, opts),
 });

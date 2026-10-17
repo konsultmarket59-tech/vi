@@ -79,15 +79,15 @@ Tools.pick = {
       const already = App.sel.includes(top);
       if (e.shiftKey) {
         if (already) App.sel = App.sel.filter(x => x !== top); else App.sel.push(top);
-        App.rotateMode = false; UI.refresh();
+        App.rotateMode = false; UI.refresh({ doc: false });
         if (!App.sel.includes(top)) return;
-      } else if (!already) { App.sel = [top]; App.rotateMode = false; App.rotCenter = null; UI.refresh(); }
+      } else if (!already) { App.sel = [top]; App.rotateMode = false; App.rotCenter = null; UI.refresh({ doc: false }); }
       T.st = { mode: 'maybeMove', start: p, sx: e.clientX, sy: e.clientY, toggleRotate: already && !e.shiftKey, alt: e.altKey };
       return;
     }
     if (!e.shiftKey) { App.sel = []; App.rotateMode = false; }
     T.st = { mode: 'marquee', start: p, cur: p, add: e.shiftKey, touch: e.altKey };
-    UI.refresh();
+    UI.refresh({ doc: false });
   },
   move(e, p, dragging) {
     const T = Tools.pick, st = T.st;
@@ -925,7 +925,7 @@ Tools.pan = {
   down(e) { Tools.pan.st = { sx: e.clientX, sy: e.clientY, px: App.panX, py: App.panY }; },
   move(e, p, d) {
     const st = Tools.pan.st;
-    if (d && st) { App.panX = st.px + e.clientX - st.sx; App.panY = st.py + e.clientY - st.sy; UI.refresh({ panels: false }); }
+    if (d && st) { App.panX = st.px + e.clientX - st.sx; App.panY = st.py + e.clientY - st.sy; UI.refresh({ panels: false, doc: false }); }
   },
   up() { Tools.pan.st = null; },
 };

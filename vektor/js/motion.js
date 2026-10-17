@@ -732,6 +732,7 @@ const Motion = {
   },
   async aiLayer(L, kind) {
     const a = Motion.assets[L.asset]; if (!a || a.kind !== 'image') return UI.toast('Это не картинка');
+    if (!await Polza.choose([kind === 'bg' ? 'bg' : 'upscale', 'edit'], kind === 'bg' ? 'Удалить фон' : 'Апскейл')) return;
     await withBusy(kind === 'bg' ? 'Удаляю фон…' : 'Увеличиваю…', async onStatus => {
       const src = a.blob || await (await fetch(a.url)).blob();
       const out = kind === 'bg' ? await Polza.removeBackground(src, { onStatus }) : await Polza.upscale(src, { onStatus });
@@ -744,8 +745,8 @@ const Motion = {
     const from = UI.sel([['frame', 'Из текущего кадра'], ['layer', 'Из выделенной картинки'], ['text', 'Только по описанию']], 'frame', () => { });
     const as = UI.sel([['bg', 'Поставить фоном'], ['layer', 'Добавить слоем']], 'bg', () => { });
     const dur = h('input', { type: 'number', class: 'num', value: 5, min: 2, max: 15 });
-    UI.dialog('ИИ-видео (Polza)', h('div', { class: 'form' }, h('label', {}, 'Описание движения', prompt), h('label', {}, 'Исходник', from), h('label', {}, 'Длительность, с', dur), h('label', {}, 'Результат', as),
-      h('p', { class: 'muted' }, 'Модель видео — в «⚙ Polza». Генерация занимает минуты; заказ не пропадёт, даже если закрыть окно.')),
+    UI.dialog('ИИ-видео (Polza)', h('div', { class: 'form' }, h('label', {}, 'Описание движения', prompt), h('label', {}, 'Исходник', from), h('label', {}, 'Длительность, с', dur), h('label', {}, 'Результат', as), Polza.pickRow('video'),
+      h('p', { class: 'muted' }, 'Генерация занимает минуты; заказ не пропадёт, даже если закрыть окно.')),
     [{ label: 'Отмена' }, { label: 'Сгенерировать', primary: true, action: () => {
       const p = prompt.value.trim(); if (!p) return false;
       Motion.aiVideo(p, { from: from.value, as: as.value, duration: +dur.value || 5 });

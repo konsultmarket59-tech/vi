@@ -261,6 +261,22 @@ const Model = {
 
 // ---------- Отрисовка ----------
 const Render = {
+  // на холсте большие data:-картинки подменяются blob:-ссылками — браузер не разбирает их заново при каждой перерисовке
+  live: false, urls: new Map(),
+  url(h) {
+    if (!h || h.length < 8192 || !h.startsWith('data:')) return h;
+    let u = Render.urls.get(h);
+    if (!u) {
+      try {
+        const i = h.indexOf(','), meta = h.slice(5, i), b64 = /;base64/.test(meta);
+        const raw = b64 ? atob(h.slice(i + 1)) : decodeURIComponent(h.slice(i + 1));
+        const a = new Uint8Array(raw.length); for (let k = 0; k < raw.length; k++) a[k] = raw.charCodeAt(k);
+        u = URL.createObjectURL(new Blob([a], { type: meta.split(';')[0] || 'application/octet-stream' }));
+      } catch (e) { u = h; }
+      Render.urls.set(h, u);
+    }
+    return u;
+  },
   esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
 
   fill(o, defs) {
@@ -323,7 +339,7 @@ const Render = {
         return `<path${cls} d="${Path.toD(Model.toSubs(o))}"${paint}/>`;
       case 'text': return Text.markup(o, (cls + paint).trim());
       case 'image':
-        return `<image${cls} href="${o.href}" width="${+o.w.toFixed(4)}" height="${+o.h.toFixed(4)}" preserveAspectRatio="none"/>` +
+        return `<image${cls} href="${Render.live ? Render.url(o.href) : o.href}" width="${+o.w.toFixed(4)}" height="${+o.h.toFixed(4)}" preserveAspectRatio="none"/>` +
           (o.stroke && o.stroke.color && o.stroke.width > 0 ? `<rect width="${o.w}" height="${o.h}" fill="none" stroke="${o.stroke.color}" stroke-width="${o.stroke.width}"/>` : '');
     }
     return '';

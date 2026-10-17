@@ -42,7 +42,9 @@ function ChatBox({ placeholder, quick = [], empty, onSend, onStop }) {
   const send = h('button', { class: 'primary' }, 'Отправить');
   const stop = h('button', { class: 'pbt', style: { display: 'none' } }, '■ Стоп');
   const q = h('div', { class: 'ag-quick' }, quick.map(([l, t]) => h('button', { class: 'ag-q', title: t, onclick: () => { ta.value = t; ta.focus(); } }, l)));
-  el.append(log, q, status, h('div', { class: 'ag-input' }, ta, h('div', { class: 'ag-btns' }, h('span', { class: 'grow' }), stop, send)));
+  // модель агента — выбирается прямо здесь из списка Polza (общая для всех агентов)
+  const mp = ModelPick.el('chat', Agent.settings.model, v => { if (v) { Agent.settings.model = v; Agent.saveSettings(); if (Agent.el) Agent.renderMaterials && Agent.renderMaterials(); } }, { width: 230 });
+  el.append(log, q, status, h('div', { class: 'ag-input' }, ta, h('div', { class: 'ag-btns' }, h('span', { class: 'ag-ml', title: 'Модель агента (Polza)' }, 'Модель ', mp), h('span', { class: 'grow' }), stop, send)));
   const items = [];
   const api = {
     el, running: false, stopFlag: false,
@@ -165,6 +167,7 @@ const FigmaWS = {
     let img;
     try { img = await FigmaWS.selectionImage(); } catch (e) { return UI.toast(e.message, true); }
     const labels = { bg: 'Удаляю фон', upscale: 'Увеличиваю', vector: 'Векторизую' };
+    if (!await Polza.choose(kind === 'vector' ? ['vector'] : [kind, 'edit'], { bg: 'Удалить фон', upscale: 'Апскейл', vector: 'Векторизация' }[kind])) return;
     await withBusy(labels[kind] + '…', async onStatus => {
       if (kind === 'vector') {
         const svg = await Polza.vectorize(img, { onStatus });
@@ -179,7 +182,7 @@ const FigmaWS = {
   genDialog() {
     const prompt = h('textarea', { rows: 4, class: 'wide', placeholder: 'Что нарисовать: «иллюстрация кофейни в плоском стиле, тёплые цвета»' });
     const useSel = h('input', { type: 'checkbox' });
-    UI.dialog('Сгенерировать картинку (Polza)', h('div', { class: 'form' }, h('label', {}, 'Описание', prompt), h('label', { class: 'row' }, useSel, ' Выделение — как референс')),
+    UI.dialog('Сгенерировать картинку (Polza)', h('div', { class: 'form' }, h('label', {}, 'Описание', prompt), h('label', { class: 'row' }, useSel, ' Выделение — как референс'), Polza.pickRow('image'), Polza.pickRow('edit', 'С референсом')),
       [{ label: 'Отмена' }, { label: 'Сгенерировать', primary: true, action: () => {
         const p = prompt.value.trim(); if (!p) return false;
         withBusy('Генерирую…', async onStatus => {
@@ -376,17 +379,19 @@ const AIOps = {
   },
   async removeBg() {
     const o = AIOps.selImage(); if (!o) return;
+    if (!await Polza.choose(['bg', 'edit'], 'Удалить фон')) return;
     await withBusy('Удаляю фон…', async onStatus => AIOps.replaceHref(o, await Polza.removeBackground(o.href, { onStatus }), 'Удаление фона'));
   },
   async upscale() {
     const o = AIOps.selImage(); if (!o) return;
+    if (!await Polza.choose(['upscale', 'edit'], 'Увеличить (апскейл)')) return;
     await withBusy('Увеличиваю…', async onStatus => AIOps.replaceHref(o, await Polza.upscale(o.href, { onStatus }), 'Апскейл'));
   },
   async vectorize() {
     const o = AIOps.selImage(); if (!o) return;
     const pal = h('input', { type: 'text', class: 'wide', placeholder: 'Фирменные цвета через запятую, например #E30613, #1D1D1B (необязательно)' });
     const colors = h('input', { type: 'number', value: 8, min: 2, max: 64 });
-    UI.dialog('Векторизация', h('div', { class: 'form' }, h('label', {}, 'Цветов', colors), h('label', {}, 'Палитра', pal),
+    UI.dialog('Векторизация', h('div', { class: 'form' }, h('label', {}, 'Цветов', colors), h('label', {}, 'Палитра', pal), Polza.pickRow('vector'),
       h('p', { class: 'muted' }, 'Если в настройках Polza выбрана модель векторизации — работает она, иначе трассировка на компьютере.')),
     [{ label: 'Отмена' }, { label: 'Векторизовать', primary: true, action: () => {
       const palette = pal.value.split(/[,;\s]+/).map(s => s.trim()).filter(s => /^#?[0-9a-f]{6}$/i.test(s)).map(s => s[0] === '#' ? s : '#' + s);
@@ -404,7 +409,7 @@ const AIOps = {
   generate() {
     const prompt = h('textarea', { rows: 4, class: 'wide', placeholder: 'Описание картинки' });
     const useSel = h('input', { type: 'checkbox', checked: !!App.selObjs().find(x => x.type === 'image') });
-    UI.dialog('Сгенерировать картинку (Polza)', h('div', { class: 'form' }, h('label', {}, 'Описание', prompt), h('label', { class: 'row' }, useSel, ' Выделенные изображения — как референсы')),
+    UI.dialog('Сгенерировать картинку (Polza)', h('div', { class: 'form' }, h('label', {}, 'Описание', prompt), h('label', { class: 'row' }, useSel, ' Выделенные изображения — как референсы'), Polza.pickRow('image'), Polza.pickRow('edit', 'С референсами')),
       [{ label: 'Отмена' }, { label: 'Сгенерировать', primary: true, action: () => {
         const p = prompt.value.trim(); if (!p) return false;
         const refs = useSel.checked ? App.selObjs().filter(x => x.type === 'image').map(x => x.href) : [];
@@ -445,7 +450,8 @@ const AIOps = {
       { label: 'Отправить в «Фигму»', action: AIOps.toFigma, disabled: () => !App.sel.length },
       { label: 'Отправить в «Моушн»', action: AIOps.toMotion },
       '-',
-      { label: 'Модели Polza для картинок и видео…', action: () => Polza.settingsDialog() },
+      { label: 'Модели Polza (выбор для каждой задачи)…', action: () => Polza.settingsDialog() },
+      { label: 'Спрашивать модель перед запуском', check: () => { try { return localStorage.getItem('vektor.askModel') !== 'no'; } catch (e) { return true; } }, action: () => { try { localStorage.setItem('vektor.askModel', localStorage.getItem('vektor.askModel') === 'no' ? 'yes' : 'no'); } catch (e) { } } },
     ] };
   },
 };
