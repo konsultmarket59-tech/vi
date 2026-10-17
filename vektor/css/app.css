@@ -79,7 +79,7 @@ button.primary:hover { filter: brightness(1.08); }
 .ruler { display: block; width: 100%; height: 100%; background: var(--ruler-bg); }
 .ruler.top { grid-column: 2; grid-row: 1; cursor: row-resize; border-bottom: 1px solid var(--line); }
 .ruler.left { grid-column: 1; grid-row: 2; cursor: col-resize; border-right: 1px solid var(--line); }
-.stage { grid-column: 2; grid-row: 2; width: 100%; height: 100%; display: block; touch-action: none; }
+.stage { grid-column: 2; grid-row: 2; width: 100%; height: 100%; display: block; touch-action: none; will-change: transform; }
 .canvaswrap.norulers .stage { grid-column: 1 / 3; grid-row: 1 / 3; }
 .stage.cur-target { cursor: crosshair !important; }
 
@@ -460,3 +460,6 @@ body.ws-other #app > :not(#menubar) { visibility: hidden; }
 .doctab .dt-x:hover { background: rgba(0,0,0,.12); opacity: 1; }
 .doctabs .dt-new { border: 0; background: none; color: inherit; height: 24px; width: 26px; cursor: pointer; font-size: 17px; opacity: .7; flex-shrink: 0; }
 .doctabs .dt-new:hover { opacity: 1; background: var(--hover); border-radius: 4px; }
+
+/* тонкие абрисы на холсте — не тоньше 1 пикселя на любом масштабе */
+#docG [data-hl] { vector-effect: non-scaling-stroke; stroke-width: max(1px, calc(var(--sw) * var(--z) * 1px)); }

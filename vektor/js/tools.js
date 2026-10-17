@@ -925,9 +925,9 @@ Tools.pan = {
   down(e) { Tools.pan.st = { sx: e.clientX, sy: e.clientY, px: App.panX, py: App.panY }; },
   move(e, p, d) {
     const st = Tools.pan.st;
-    if (d && st) { App.panX = st.px + e.clientX - st.sx; App.panY = st.py + e.clientY - st.sy; UI.refresh({ panels: false, doc: false }); }
+    if (d && st) { App.panX = st.px + e.clientX - st.sx; App.panY = st.py + e.clientY - st.sy; UI.fastView(); }
   },
-  up() { Tools.pan.st = null; },
+  up() { Tools.pan.st = null; UI.endFastView(); },
 };
 
 // ======================= Пипетка и заливка =======================

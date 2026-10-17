@@ -139,9 +139,33 @@ const UI = {
     document.title = (App.fileName || App.doc.name) + (App.dirty ? ' *' : '') + ' — Вектор';
     if (typeof Docs !== 'undefined') Docs.renderBar();
   },
+  // Быстрый масштаб и прокрутка: уже нарисованный холст сдвигается и масштабируется CSS-трансформом
+  // (без перерисовки тысяч кривых), чёткая перерисовка — когда движение остановилось.
+  _fv: null, _fvT: 0, _vz: 1, _vx: 0, _vy: 0,
+  fastView() {
+    const st = UI.$('#stage');
+    if (!UI._fv) {
+      if (UI._vz <= 0) return UI.refresh({ panels: false, doc: false });
+      UI._fv = { rect: st.getBoundingClientRect() };
+      st.style.transformOrigin = '0 0';
+    }
+    const k = App.zoom / UI._vz, tx = App.panX - UI._vx * k, ty = App.panY - UI._vy * k;
+    st.style.transform = `translate(${tx}px, ${ty}px) scale(${k})`;
+    UI.drawRulers();
+    clearTimeout(UI._fvT);
+    UI._fvT = setTimeout(UI.endFastView, 160);
+  },
+  endFastView() {
+    clearTimeout(UI._fvT);
+    if (UI._fv) { UI._fv = null; UI.$('#stage').style.transform = ''; }
+    UI.refresh({ panels: false, doc: false });
+  },
   renderStage(doc, live) {
     const vp = UI.$('#viewport');
+    if (UI._fv) { clearTimeout(UI._fvT); UI._fv = null; UI.$('#stage').style.transform = ''; }
+    UI._vz = App.zoom; UI._vx = App.panX; UI._vy = App.panY;
     vp.setAttribute('transform', `translate(${App.panX} ${App.panY}) scale(${App.zoom})`);
+    UI.$('#docG').style.setProperty('--z', App.zoom);
     const { w, h, color } = App.pg();
     for (const id of ['#page', '#pageShadow']) { UI.$(id).setAttribute('width', w); UI.$(id).setAttribute('height', h); }
     UI.$('#page').setAttribute('fill', color || '#ffffff');
@@ -352,7 +376,7 @@ const UI = {
         { label: 'Открыть…', key: 'Ctrl+O', action: IO.open },
         { label: 'Закрыть документ', key: 'Ctrl+W', action: () => Docs.close() },
         { label: 'Следующий документ', key: 'Ctrl+Tab', action: () => Docs.next(1), disabled: () => Docs.list.length < 2 },
-        { label: 'CDR открывать через CorelDRAW (точно: фото, PowerClip, эффекты)', check: () => IO.cdrMode() !== 'own', action: () => IO.setCdrMode(IO.cdrMode() === 'own' ? 'auto' : 'own') },
+        { label: 'CDR всегда открывать через CorelDRAW', check: () => IO.cdrMode() === 'corel', action: () => IO.setCdrMode(IO.cdrMode() === 'corel' ? 'auto' : 'corel') },
         '-',
         { label: 'Сохранить', key: 'Ctrl+S', action: IO.save },
         { label: 'Сохранить как…', key: 'Ctrl+Shift+S', action: IO.saveAs },

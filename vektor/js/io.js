@@ -3,7 +3,7 @@
 'use strict';
 
 const CDR_VERSIONS = [
-  [26, 'CorelDRAW 2024'], [25, 'CorelDRAW 2023'], [24, 'CorelDRAW 2022'], [23, 'CorelDRAW 2021'], [22, 'CorelDRAW 2020'],
+  [27, 'CorelDRAW 2025'], [26, 'CorelDRAW 2024'], [25, 'CorelDRAW 2023'], [24, 'CorelDRAW 2022'], [23, 'CorelDRAW 2021'], [22, 'CorelDRAW 2020'],
   [21, 'CorelDRAW 2019'], [20, 'CorelDRAW 2018'], [19, 'CorelDRAW 2017'], [18, 'CorelDRAW X8'], [17, 'CorelDRAW X7'],
   [16, 'CorelDRAW X6'], [15, 'CorelDRAW X5'], [14, 'CorelDRAW X4'], [13, 'CorelDRAW X3'], [12, 'CorelDRAW 12'], [11, 'CorelDRAW 11'],
 ];
@@ -33,7 +33,7 @@ const IO = {
     try {
       if (ext === 'cdr') {
         const v = Math.floor((IO.lastCDRVersion || 0) / 100) || 17;
-        await IO.exportCDR(Math.min(Math.max(v, 11), 26), { out: p, cmyk: true });
+        await IO.exportCDR(Math.min(Math.max(v, 11), 27), { out: p, cmyk: true });
       } else if (ext === 'pdf') {
         const bytes = await PDFWriter.build(App.doc.pages, { cmyk: true, title: App.doc.name, imageJpeg: true });
         await vkHost.write(p, bytes);
@@ -119,18 +119,21 @@ const IO = {
   docFromPages(pages, name) {
     if (!pages || !pages.length) return UI.toast('В файле нет страниц');
     const d = Model.newDoc();
-    d.pages = pages.map((pg, i) => { const P = Model.newPage(G.round(pg.w, 3), G.round(pg.h, 3), i + 1); P.layers[0].objects = pg.objects; return P; });
+    d.pages = pages.map((pg, i) => { const P = Model.newPage(G.round(pg.w, 3), G.round(pg.h, 3), i + 1); P.layers[0].objects = pg.objects; if (pg.name) P.name = pg.name; return P; });
     d.name = name.replace(/\.\w+$/, '');
     App.doc = d; Model.syncSeq(d); App.sel = [];
     App.fileName = null; IO.handle = null; IO.path = null;
     Text.cache.clear(); App.resetHistory(); App.dirty = false; App.autosave(); App.zoomPage(); UI.refresh();
+    // всё нарисовано на рабочем столе вокруг листа (частый случай в Corel) — показываем содержимое
+    const P = App.pg(), onPage = Model.topLevel().some(({ o }) => { const b = Model.worldBox(o); return G.boxValid(b) && b.x2 > 0 && b.y2 > 0 && b.x1 < P.w && b.y1 < P.h; });
+    if (!onPage && App.pg().layers.some(L => L.objects.length)) { App.zoomAll(); UI.toast('Объекты лежат за пределами листа — показан весь рисунок (F4 — всё, Shift+F4 — лист)'); }
     const n = pages.reduce((s, p) => s + p.objects.length, 0);
     UI.toast(`Открыт ${name}: страниц ${pages.length}, объектов ${n}`);
   },
   // CDR. В настольной версии с установленным CorelDRAW файл по умолчанию открывается через сам Corel
   // (он публикует PDF — фото, PowerClip, эффекты и тексты переносятся точно). Без Corel — собственный разборщик.
   cdrMode() { try { return localStorage.getItem('vektor.cdrOpen') || 'auto'; } catch (e) { return 'auto'; } },
-  setCdrMode(m) { try { localStorage.setItem('vektor.cdrOpen', m); } catch (e) { } UI.toast(m === 'own' ? 'CDR открываются встроенным разборщиком' : 'CDR открываются через CorelDRAW, если он установлен'); },
+  setCdrMode(m) { try { localStorage.setItem('vektor.cdrOpen', m); } catch (e) { } UI.toast(m === 'corel' ? 'CDR всегда открываются через CorelDRAW (если он установлен)' : 'CDR открываются встроенным разборщиком; CorelDRAW — если файл прочитан не полностью'); },
   _corel: undefined,
   async corelAvailable() {
     if (!Host.desktop || !window.vkHost || !vkHost.corelProbe) return false;
@@ -148,21 +151,26 @@ const IO = {
     return pdf.pages;
   },
   async readCDR(buf, path) {
-    const viaCorel = Host.desktop && path && IO.cdrMode() !== 'own' && await IO.corelAvailable();
+    // по умолчанию — встроенный разборщик (сохраняет группы, слои и имена страниц);
+    // CorelDRAW подключается, если так выбрано или файл прочитан не полностью
+    const viaCorel = Host.desktop && path && IO.cdrMode() === 'corel' && await IO.corelAvailable();
     if (viaCorel) {
       try { return await IO.readCDRviaCorel(path); } catch (e) { console.warn(e); UI.toast('CorelDRAW: ' + (e.message || e) + '. Открываю встроенным разборщиком'); }
     }
     let res = null, err = null;
     try { res = CDR.parse(buf); } catch (e) { err = e; }
     const empty = !res || !res.pages.some(p => p.objects.length);
+    if (!viaCorel && Host.desktop && path && (empty || err || (res && res.missingImages)) && await IO.corelAvailable()) {
+      try { return await IO.readCDRviaCorel(path); } catch (e) { console.warn(e); }
+    }
     if ((empty || err) && Host.desktop && path && !viaCorel) {
       const r = await vkHost.corelNormalize(path);
       if (r && r.ok) { res = CDR.parse(r.data); UI.toast('Файл прочитан через установленный CorelDRAW'); }
       else if (!res) throw new Error((err && err.message) + (r && r.error ? '; CorelDRAW: ' + r.error : ''));
     }
     if (!res) throw err || new Error('Не удалось прочитать CDR');
-    IO.lastCDRVersion = res.version || 0;
-    if (res.version) UI.toast('Версия файла: ' + CDR.versionName(res.version));
+    IO.lastCDRVersion = res.appVersion || res.version || 0;
+    if (res.version) UI.toast('Файл ' + CDR.versionName(res.appVersion || res.version) + (res.appVersion && Math.floor(res.appVersion / 100) !== Math.floor(res.version / 100) ? ` (формат ${CDR.versionName(res.version).replace('CorelDRAW ', '')})` : ''));
     if (res.missingImages) UI.toast(`Не прочитано изображений: ${res.missingImages} — на их месте серые заглушки.` + (Host.desktop ? ' С установленным CorelDRAW файл откроется точно.' : ' Откройте файл в настольной версии с CorelDRAW или пересохраните его в Corel как PDF.'), true);
     return res.pages;
   },

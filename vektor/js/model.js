@@ -305,6 +305,8 @@ const Render = {
     const s = o.stroke;
     if (!opt.noStroke && s && s.color && s.width > 0) {
       a += ` stroke="${s.color}" stroke-width="${+s.width.toFixed(4)}"`;
+      // на холсте тонкие линии не тоньше пикселя (как в CorelDRAW): ширина в мм для CSS
+      if (Render.live && s.width < 0.6) { const m = o.m, k = m ? Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1 : 1; a += ` data-hl style="--sw:${+(s.width * k).toFixed(4)}"`; }
       const d = Render.dash(s);
       if (d) a += ` stroke-dasharray="${d}"`;
       const cap = s.dash === 'dot' ? 'round' : s.cap;

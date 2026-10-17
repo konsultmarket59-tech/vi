@@ -193,20 +193,21 @@ const App = {
   selObjs() { return App.sel.map(id => Model.get(id)).filter(Boolean); },
 
   // ---- вид ----
-  stageRect() { return UI.$('#stage').getBoundingClientRect(); },
+  // во время быстрого масштаба/прокрутки холст сдвинут CSS-трансформом — берём исходные размеры
+  stageRect() { return UI._fv ? UI._fv.rect : UI.$('#stage').getBoundingClientRect(); },
   toDoc(cx, cy) {
     const r = App.stageRect();
     return { x: (cx - r.left - App.panX) / App.zoom, y: (cy - r.top - App.panY) / App.zoom };
   },
   toScreen(x, y) { return { x: x * App.zoom + App.panX, y: y * App.zoom + App.panY }; },
-  setZoom(z, cx, cy) {
+  setZoom(z, cx, cy, gesture) {
     z = G.clamp(z, 0.02, 400);
     const r = App.stageRect();
     if (cx === undefined) { cx = r.left + r.width / 2; cy = r.top + r.height / 2; }
     const p = App.toDoc(cx, cy);
     App.zoom = z;
     App.panX = cx - r.left - p.x * z; App.panY = cy - r.top - p.y * z;
-    UI.refresh({ panels: false, doc: false });
+    if (gesture) UI.fastView(); else UI.refresh({ panels: false, doc: false });
     UI.updateZoomBox();
   },
   zoomBox(b, pad = 30) {
@@ -401,7 +402,7 @@ const Events = {
     const d = Events.drag;
     if (d && d.pan) {
       App.panX = d.px + e.clientX - d.sx; App.panY = d.py + e.clientY - d.sy;
-      UI.refresh({ panels: false, doc: false });
+      UI.fastView();
       return;
     }
     const t = Tools[App.tool];
@@ -413,7 +414,7 @@ const Events = {
     Events.drag = null;
     if (!d) return;
     Events.moves = [Events.moves[1], Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 3];
-    if (d.pan) { UI.refresh({ panels: false, doc: false }); return; }
+    if (d.pan) { UI.endFastView(); return; }
     const t = Tools[App.tool];
     if (t.up) t.up(e, App.toDoc(e.clientX, e.clientY));
     if (App.snapLines.length) { App.snapLines = []; UI.renderOverlay(); }
@@ -423,10 +424,10 @@ const Events = {
     const zoomIt = App.view.wheel === 'zoom' ? !e.shiftKey : e.ctrlKey;
     if (zoomIt || e.ctrlKey) {
       const k = Math.exp(-e.deltaY * (e.ctrlKey && Math.abs(e.deltaY) < 30 ? 0.01 : 0.0015));
-      App.setZoom(App.zoom * k, e.clientX, e.clientY);
+      App.setZoom(App.zoom * k, e.clientX, e.clientY, true);
     } else {
       if (e.shiftKey && !e.deltaX) App.panX -= e.deltaY; else { App.panX -= e.deltaX; App.panY -= e.deltaY; }
-      UI.refresh({ panels: false, doc: false });
+      UI.fastView();
     }
   },
   key(e) {

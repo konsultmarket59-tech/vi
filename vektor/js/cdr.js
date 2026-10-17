@@ -270,7 +270,11 @@ const CDR = (() => {
     readFild(r, length) {
       const x = this.redirect(r, length); r = x.r;
       const id = r.u32() >>> 0;
-      if (this.version >= 1300) r.seek(8);
+      if (this.version >= 1300) {
+        // CorelDRAW 2017+: перед заливкой — блок с идентификатором (u32, длина 16, 16 байт GUID)
+        r.u32(); const n = r.u32();
+        if (n === 16 && r.remaining() >= 26) r.seek(16 + 8);
+      }
       let type = r.u16();
       const st = { type, c1: null, c2: null, grad: null, image: null };
       const v = this.version;
@@ -392,6 +396,11 @@ const CDR = (() => {
           else if (t === 0x2af8) this.readPolygonTransform(r);
           else if (t === 0x1f40) { r.seek(v < 1300 ? 10 : 14); this.col.opacity(r.u16() / 1000); }
           else if (t === 0x4aba) { const w = this.coord(r), h = this.coord(r); this.col.pageSize(w, h, -w / 2, -h / 2); }
+          else if (t === 0x3e8 && v >= 1300 && !types.includes(0x9c72) && chunkType === 0) {
+            // имя страницы (UTF-16) — в той же записи, что и её размер
+            let name = ''; for (let k = 0; k < 200 && r.remaining() >= 2; k++) { const c = r.u16(); if (!c) break; name += String.fromCharCode(c); }
+            if (name && this.col.pageName) this.col.pageName(name.trim());
+          }
         } catch (e) { if (!(e instanceof EOS)) console.warn('CDR loda', e); }
       }
       r.seek(start + chunkLength, 'set');
@@ -819,7 +828,10 @@ const CDR = (() => {
       level: noop, otherList: noop, object: noop, group: noop, vect: noop, flags: noop, bbox: noop, spnd: noop, transform: noop,
       fillId: noop, lineId: noop, styleId: noop, path: noop, polygon: noop, polygonTransform: noop, spline: noop, ppdt: noop,
       artisticText: noop, paragraphText: noop, bitmap: noop, opacity: noop, font: noop,
-      pageSize(w, h, ox, oy) { const p = { w, h, ox, oy }; if (!ps.pages.length) page = p; else ps.pages[ps.pages.length - 1] = p; },
+      pageSize(w, h, ox, oy) { const last = ps.pages[ps.pages.length - 1], p = { w, h, ox, oy, name: last && last.name }; if (!ps.pages.length) page = p; else ps.pages[ps.pages.length - 1] = p; },
+      // запись свойств страницы (CorelDRAW X3+) содержит её имя
+      pageName(n) { if (ps.pages.length) ps.pages[ps.pages.length - 1] = Object.assign({}, ps.pages[ps.pages.length - 1], { name: n }); },
+
       page() { ps.pages.push(page); },
       fillStyle(id, st) { ps.fills[id] = st; },
       lineStyle(id, st) { ps.lines[id] = st; },
@@ -867,6 +879,7 @@ const CDR = (() => {
     const startPage = () => {
       if (ignorePage || pageStarted) return;
       curPage = { w: page.w * 25.4, h: page.h * 25.4, objects: [] };
+      if (page.name) curPage.name = page.name;
       out.pages.push(curPage);
       listStack = [curPage.objects];
       pageStarted = true;
@@ -1003,6 +1016,7 @@ const CDR = (() => {
       },
       otherList() { },
       page(level) { pageProps = true; ignorePage = false; pageLevel = level; page = ps.pages[pageIndex++] || page; },
+
       object(level) { if (!pageStarted && !vectLevel && !ignorePage) startPage(); objLevel = level; fill = null; line = null; styleId = 0; bbox = null; },
       group(level) {
         if (!pageStarted && !vectLevel && !ignorePage) startPage();
@@ -1254,7 +1268,7 @@ const CDR = (() => {
     // возвращает { version, pages: [{ w, h, objects }] }
     parse(buffer) {
       let u8 = new Uint8Array(buffer);
-      let ext = [];
+      let ext = [], meta = null;
       const isRiff = u => u[0] === 0x52 && u[1] === 0x49 && u[2] === 0x46 && u[3] === 0x46;
       if (!isRiff(u8)) {
         if (u8[0] !== 0x50 || u8[1] !== 0x4b) throw new Error('Это не файл CorelDRAW');
@@ -1266,6 +1280,15 @@ const CDR = (() => {
           ext = names.map(n => z['content/data/' + n] || null);
         }
         u8 = main;
+        // CorelDRAW X4+: в metadata.xml — версия программы, сохранившей файл, и имена страниц
+        const mx = z['META-INF/metadata.xml'], tx = z['META-INF/textinfo.xml'];
+        if (mx || tx) {
+          const xml = (mx ? new TextDecoder().decode(mx) : '') + (tx ? new TextDecoder().decode(tx) : '');
+          const app = xml.match(/<cdr:AppVersion>(\d+)</);
+          const pn = xml.match(/<PageNames>\s*<rdf:Bag>([\s\S]*?)<\/rdf:Bag>/);
+          const un = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+          meta = { appVersion: app ? +app[1] : 0, pageNames: pn ? [...pn[1].matchAll(/<rdf:li>([\s\S]*?)<\/rdf:li>/g)].map(m => un(m[1]).trim()) : [] };
+        }
       }
       const sig = String.fromCharCode(u8[8], u8[9], u8[10]).toUpperCase();
       if (!isRiff(u8) || sig !== 'CDR') throw new Error('Неизвестный формат файла CorelDRAW');
@@ -1292,11 +1315,15 @@ const CDR = (() => {
       const clean = list => list.filter(o => { if (o.type === 'group') { o.children = clean(o.children); return o.children.length > 0; } return true; });
       for (const p of out.pages) p.objects = clean(p.objects);
       out.version = p2.version || version;
+      if (meta) {
+        if (meta.appVersion) out.appVersion = meta.appVersion;
+
+      }
       return out;
     },
     versionName(v) {
       const n = Math.floor(v / 100);
-      const map = { 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: '11', 12: '12', 13: 'X3', 14: 'X4', 15: 'X5', 16: 'X6', 17: 'X7', 18: 'X8', 19: '2017', 20: '2018', 21: '2019', 22: '2020', 23: '2021', 24: '2022', 25: '2023', 26: '2024', 27: '2025' };
+      const map = { 27: '2025', 28: '2026', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: '11', 12: '12', 13: 'X3', 14: 'X4', 15: 'X5', 16: 'X6', 17: 'X7', 18: 'X8', 19: '2017', 20: '2018', 21: '2019', 22: '2020', 23: '2021', 24: '2022', 25: '2023', 26: '2024', 27: '2025' };
       return map[n] ? 'CorelDRAW ' + map[n] : 'CorelDRAW (версия ' + n + ')';
     },
   };
