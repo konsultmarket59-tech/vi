@@ -21,10 +21,7 @@ const run = (cmd, cwd = src, env = {}) => {
 if (!fs.existsSync(path.join(src, 'package.json'))) {
   run(`git clone --filter=blob:none ${REPO} "${src}"`, root)
 }
-if (argSrc < 0) {
-  run('git fetch --depth=200 origin main || true')
-  run(`git checkout --force ${COMMIT}`)
-}
+if (argSrc < 0) run(`git checkout --force ${COMMIT}`)
 
 // ---------- правки для встраивания ----------
 function patch(file, from, to) {
