@@ -117,6 +117,7 @@ const FigmaWS = {
       B('Увеличить', 'Апскейл выделенного изображения', () => FigmaWS.ai('upscale')),
       B('В вектор', 'Векторизовать выделенное изображение в SVG-слои', () => FigmaWS.ai('vector')),
       B('Сгенерировать…', 'Картинка по описанию (выделение — как референс)', () => FigmaWS.ai('gen')),
+      B('Мокап…', 'Выделение — дизайном на фото объекта (футболка, кружка, упаковка…)', async () => { let design = null; try { design = await FigmaWS.selectionImage(); } catch (e) { } Mockup.open({ design }); }),
       h('span', { class: 'sep' }),
       B('→ Вектор', 'Выделение (или страницу) — в документ «Вектора» как редактируемые кривые', () => FigmaWS.toVektor()),
       B('← из Вектора', 'Выделенное в «Векторе» — сюда', () => FigmaWS.fromVektor()),
@@ -411,6 +412,12 @@ const AIOps = {
       } }]);
   },
   toFigma() { FigmaWS.fromVektor(); },
+  // мокап: выделенное (или страница) — дизайн; фото выбирается в студии
+  async mockup() {
+    let design = null;
+    if (App.sel.length) { try { design = await Mockup.vektorSelectionBlob(); } catch (e) { } }
+    Mockup.open({ design });
+  },
   async toMotion() {
     const kind = App.sel.length ? 'sel' : 'page';
     const r = IO.svgFor(kind, kind === 'sel');
@@ -426,6 +433,7 @@ const AIOps = {
       { label: 'Увеличить (апскейл)', action: AIOps.upscale, disabled: () => !img() },
       { label: 'Векторизовать в фирменных цветах…', action: AIOps.vectorize, disabled: () => !img() },
       { label: 'Сгенерировать картинку…', action: AIOps.generate },
+      { label: 'Мокап: дизайн на фото объекта…', action: AIOps.mockup },
       '-',
       { label: 'Отправить в «Фигму»', action: AIOps.toFigma, disabled: () => !App.sel.length },
       { label: 'Отправить в «Моушн»', action: AIOps.toMotion },

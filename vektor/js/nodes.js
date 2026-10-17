@@ -19,10 +19,11 @@ const Nodes = {
     removeBg: { title: 'Удалить фон', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [] },
     upscale: { title: 'Увеличить', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [['scale', 'number', 'Во сколько раз']] },
     vectorize: { title: 'В вектор (SVG)', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['svg', 'svg']], params: [['colors', 'number', 'Цветов'], ['palette', 'text', 'Палитра: #hex через запятую']] },
+    mockup: { title: 'Мокап', color: '#8b5cf6', inputs: [['base', 'image'], ['design', 'image']], outputs: [['image', 'image']], params: [['mode', 'select:shape=По форме объекта|cylinder=Цилиндр|flat=Плоскость', 'Посадка'], ['mask', 'select:ai=Объект находит ИИ|full=Весь кадр', 'Объект'], ['blend', 'select:normal=С тенями|multiply=Умножение|screen=Экран', 'Смешивание']] },
     save: { title: 'Сохранить', color: '#334155', inputs: [['in', 'any', true]], outputs: [], params: [['folder', 'folder', 'Папка (пусто — спросить)'], ['name', 'text', 'Имя файлов']] },
     toApp: { title: 'Отправить', color: '#334155', inputs: [['in', 'any', true]], outputs: [], params: [['where', 'select:vektor=В «Вектор»|figma=В «Фигму»|motion=В «Моушн»', 'Куда']] },
   },
-  ORDER: ['text', 'template', 'image', 'folder', 'figma', 'vektor', 'llm', 'genImage', 'genVideo', 'removeBg', 'upscale', 'vectorize', 'save', 'toApp'],
+  ORDER: ['text', 'template', 'image', 'folder', 'figma', 'vektor', 'llm', 'genImage', 'genVideo', 'removeBg', 'upscale', 'vectorize', 'mockup', 'save', 'toApp'],
 
   uid() { return 'n' + Math.random().toString(36).slice(2, 8); },
   node(id) { return Nodes.g.nodes.find(n => n.id === id); },
@@ -149,6 +150,11 @@ const Nodes = {
         const palette = String(P.palette || '').split(/[,;\s]+/).filter(s => /^#?[0-9a-f]{6}$/i.test(s)).map(s => s[0] === '#' ? s : '#' + s);
         const svg = palette.length ? await Polza.trace(ins.image.blob, { colors: palette.length, palette }) : await Polza.vectorize(ins.image.blob, { colors: +P.colors || 8, onStatus: st });
         return { kind: 'svg', text: svg, name: 'вектор.svg' };
+      }
+      case 'mockup': {
+        if (!ins.base || !ins.design) throw new Error('Нужны оба входа: base (фото объекта) и design');
+        const blob = await makeMockup({ base: ins.base.blob, design: ins.design.blob, mode: P.mode || 'shape', mask: P.mask || 'ai', blend: P.blend || 'normal', onStatus: st });
+        return { kind: 'image', blob, name: 'мокап.png' };
       }
       case 'save': {
         const items = Nodes.flatValues(ins.in);
@@ -441,6 +447,10 @@ const Nodes = {
     vectorBrand: ['Картинка → вектор в фирменных цветах', g => {
       const i = g('image', 0, 0), v = g('vectorize', 300, 0, { colors: 6, palette: '#E30613, #1D1D1B, #FFFFFF' }), s = g('toApp', 600, 0, { where: 'vektor' });
       return [[i, 'image', v, 'image'], [v, 'svg', s, 'in']];
+    }],
+    mockupSeries: ['Мокап: папка дизайнов на фото объекта', g => {
+      const b = g('image', 0, 0), d = g('folder', 0, 200), m = g('mockup', 320, 60), s = g('save', 640, 60, { name: 'мокап' });
+      return [[b, 'image', m, 'base'], [d, 'images', m, 'design'], [m, 'image', s, 'in']];
     }],
     figmaAnimate: ['Кадр из «Фигмы» → оживить видео → «Моушн»', g => {
       const f = g('figma', 0, 0), p = g('text', 0, 160, { text: 'Subtle parallax motion, elements gently float, smooth loop' });

@@ -374,3 +374,21 @@ body.ws-other #app > :not(#menubar) { visibility: hidden; }
 .mk-code { width: 46%; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); padding: 6px; gap: 6px; }
 .mk-tabs { display: flex; gap: 3px; flex-wrap: wrap; }
 .mk-ta { flex: 1; width: 100%; font: 12px/1.45 ui-monospace, Consolas, monospace; white-space: pre; resize: none; }
+
+/* Мокап-студия */
+.mockup { position: fixed; inset: 0; z-index: 1900; background: var(--bg); display: flex; flex-direction: column; }
+.mk-body { flex: 1; display: flex; min-height: 0; }
+.mk-viewport { flex: 1; display: flex; align-items: center; justify-content: center; background: repeating-conic-gradient(#d8dade 0 25%, #eceef1 0 50%) 0 0/20px 20px; min-width: 0; position: relative; overflow: hidden; }
+.mk-stagebox { position: relative; box-shadow: 0 6px 30px rgba(0,0,0,.25); touch-action: none; }
+.mk-gl, .mk-overlay, .mk-mesh { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mk-overlay { pointer-events: none; }
+.mk-mesh { pointer-events: none; overflow: visible; }
+.mk-line { fill: none; stroke: rgba(47,143,255,.85); }
+.mk-pt { fill: #fff; stroke: #2f8fff; }
+.mk-empty { position: absolute; max-width: 420px; text-align: center; background: var(--panel); padding: 20px 26px; border-radius: 10px; box-shadow: var(--shadow); }
+.mk-panel { width: 360px; flex: none; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--line); padding: 8px 12px 20px; display: flex; flex-direction: column; gap: 4px; }
+.mk-sec { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.mk-st { font-weight: 600; }
+.mk-sl { display: grid; grid-template-columns: 110px 1fr 46px; align-items: center; gap: 6px; font-size: 12px; }
+.mk-sl input { width: 100%; }
+.mockup .pbt.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }

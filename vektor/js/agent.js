@@ -131,6 +131,7 @@ const Agent = {
       T('import_design', 'Открыть макет из материалов (CDR любой версии, PDF/AI, SVG, VKT). as: new_document — новым документом (по умолчанию), append_pages — добавить страницы в конец, into_page — на текущую страницу.', { path: str('Путь файла'), as: { type: 'string', enum: ['new_document', 'append_pages', 'into_page'] } }, ['path']),
       T('load_font', 'Подключить файл шрифта (.ttf/.otf) из материалов. Возвращает имя семейства.', { path: str('Путь файла') }, ['path']),
       T('generate_image', 'Сгенерировать картинку моделью Polza (платно — только когда пользователь просит или без этого не обойтись) и поставить на страницу.', Object.assign({ prompt: str('Описание, лучше на английском'), refs: { type: 'array', items: { type: 'string' }, description: 'Референсы: пути файлов в материалах или id изображений в документе' }, fit: { type: 'string', enum: ['cover', 'contain', 'stretch'] }, name: str('Имя') }, box), ['prompt']),
+      T('make_mockup', 'Мокап: положить дизайн на фото объекта (футболка, кружка, упаковка, вывеска) так, что дизайн принимает форму объекта, со складками и тенями. Результат ставится на страницу.', Object.assign({ base: str('Фото объекта: путь в материалах или id изображения'), design: str('Дизайн: путь в материалах, id объекта/группы или «selection» — выделенное'), mode: { type: 'string', enum: ['shape', 'cylinder', 'flat'], description: 'shape — по силуэту, cylinder — кружка/бутылка, flat — плоскость (вывеска, экран)' }, blend: { type: 'string', enum: ['normal', 'multiply', 'screen'] }, name: str('Имя') }, box), ['base', 'design']),
       T('remove_background', 'Вырезать фон у изображения в документе (Polza).', { id: str('id изображения') }, ['id']),
       T('upscale_image', 'Увеличить разрешение изображения в документе (Polza).', { id: str('id изображения') }, ['id']),
             T('export', 'Сохранить результат: png, jpg, svg, pdf, cdr (через установленный CorelDRAW; version — номер версии: 17 = X7, 20 = 2018, 24 = 2022) или vkt. Если прикреплена папка для результата — файлы сохраняются туда.', { format: { type: 'string', enum: ['png', 'jpg', 'svg', 'pdf', 'cdr', 'vkt'] }, pages: str('«current», «all» или номера через запятую'), dpi: num('Разрешение для PNG/JPG (по умолчанию 300)'), file_name: str('Имя файла без расширения'), version: num('Версия CorelDRAW для cdr') }, ['format']),
@@ -532,6 +533,21 @@ const Agent = {
         commit('генерация');
         return { id: o && o.id, ...(o ? Agent.boxOf(o) : {}), _image: await Polza.thumb(blob, 768), _caption: 'сгенерированная картинка' };
       }
+      case 'make_mockup': {
+        const src = async (ref) => {
+          if (ref === 'selection') return Mockup.vektorSelectionBlob();
+          const o = Model.get(ref);
+          if (o && o.type === 'image') return (await fetch(o.href)).blob();
+          if (o) { const keep = App.sel; App.sel = [o.id]; try { return await Mockup.vektorSelectionBlob(); } finally { App.sel = keep; } }
+          const f = Agent.findFile(ref); if (!f) throw new Error('Не найдено: ' + ref);
+          return Host.blobOf(f.entry);
+        };
+        const blob = await makeMockup({ base: await src(a.base), design: await src(a.design), mode: a.mode || 'shape', blend: a.blend || 'normal' });
+        const o = await IO.importRaster(blob, a.name || 'Мокап');
+        if (o && (a.x !== undefined || a.w)) Agent.setBox(o, a);
+        commit('мокап');
+        return { id: o && o.id, ...(o ? Agent.boxOf(o) : {}), _image: await Polza.thumb(blob, 900), _caption: 'мокап' };
+      }
       case 'remove_background': case 'upscale_image': {
         const o = Agent.obj(a.id); if (o.type !== 'image') throw new Error('Это не изображение');
         const blob = name === 'remove_background' ? await Polza.removeBackground(o.href) : await Polza.upscale(o.href);
@@ -800,7 +816,7 @@ const Agent = {
       vectorize_image: 'Векторизую ' + (a.path || a.image_id || ''), update_object: 'Правлю ' + (a.text !== undefined ? '«' + String(a.text).slice(0, 40) + '»' : a.id), fit_text: 'Подбираю кегль', find_objects: 'Ищу объекты',
       delete_objects: 'Удаляю объекты', duplicate_objects: 'Дублирую', arrange: 'Упорядочиваю: ' + a.action, set_effect: 'Эффект', import_design: 'Открываю макет ' + (a.path || ''), load_font: 'Подключаю шрифт ' + (a.path || ''),
       export: 'Сохраняю ' + String(a.format || '').toUpperCase(),
-      generate_image: 'Генерирую картинку (Polza)', remove_background: 'Вырезаю фон', upscale_image: 'Увеличиваю изображение',
+      generate_image: 'Генерирую картинку (Polza)', make_mockup: 'Делаю мокап', remove_background: 'Вырезаю фон', upscale_image: 'Увеличиваю изображение',
     };
     return L[name] || name;
   },
