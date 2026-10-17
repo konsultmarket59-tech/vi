@@ -10,7 +10,28 @@ permissions:
   contents: write
 
 jobs:
+  # Рабочее пространство «Фигма» — открытый редактор OpenPencil (MIT), собирается из исходников
+  build-figma:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vektor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: node tools/figma/build.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: figma
+          path: vektor/figma
+
   build-windows:
+    needs: build-figma
     runs-on: windows-latest
     defaults:
       run:
@@ -21,6 +42,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: figma
+          path: vektor/figma
 
       - run: npm ci
 
@@ -35,7 +61,7 @@ jobs:
           body: |
             Автоматическая сборка векторного редактора «Вектор» из ветки ${{ github.ref_name }}.
             Скачайте `.exe` ниже: portable-версия запускается без установки,
-            Setup-версия — обычный установщик (ассоциирует файлы .vkt).
+            Setup-версия — обычный установщик (ассоциирует файлы .vkt, .fig, .vkm).
           prerelease: true
           files: |
             vektor/release/*.exe

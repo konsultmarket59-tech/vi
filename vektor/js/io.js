@@ -46,7 +46,7 @@ const IO = {
   },
 
   // ---------- открытие ----------
-  OPEN_ACCEPT: '.vkt,.json,.cdr,.cdt,.svg,.pdf,.ai',
+  OPEN_ACCEPT: '.vkt,.json,.cdr,.cdt,.svg,.pdf,.ai,.fig,.pen,.vkm,.vkn',
   async open() {
     const [f] = await Host.pickFiles(IO.OPEN_ACCEPT, false, 'Открыть документ');
     if (f) IO.openEntry(f);
@@ -58,6 +58,8 @@ const IO = {
   async openEntry(f) {
     const ext = IO.ext(f.name);
     try {
+      if (ext === 'fig' || ext === 'pen') { UI.busy(null); return FigmaWS.openBuffer(await f.read(), f.name); }
+      if (ext === 'vkm') { UI.busy(null); return Motion.openBuffer(await f.read(), f.name); }
       UI.busy('Открываю ' + f.name + '…');
       const buf = await f.read();
       if (ext === 'vkt' || ext === 'json') { IO.loadText(new TextDecoder().decode(buf), f.name); if (f.path) IO.path = f.path; else if (f.handle) IO.handle = f.handle; }

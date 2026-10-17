@@ -1,8 +1,10 @@
 // Настольная оболочка «Вектора»: то же веб-приложение в окне Electron плюс то, чего нет у браузера:
 // папки и файлы на диске (для агента), запросы к Polza.ai без ограничений CORS,
 // шрифты системы и мост к установленному CorelDRAW (открытие и сохранение CDR любой версии).
-const { app, BrowserWindow, dialog, shell, ipcMain, session } = require("electron");
+const { app, BrowserWindow, dialog, shell, ipcMain, session, protocol, net } = require("electron");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
+const { Readable } = require("node:stream");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
@@ -18,7 +20,70 @@ const isAllowed = (p) => {
 };
 
 function fileFromArgs(argv) {
-  return argv.slice(1).find((a) => /\.(vkt|svg|cdr|cdt)$/i.test(a) && fs.existsSync(a)) || null;
+  return argv.slice(1).find((a) => /\.(vkt|svg|cdr|cdt|fig|pen|vkm)$/i.test(a) && fs.existsSync(a)) || null;
+}
+
+// ---------- vk://app/ — страницы программы, мост к Polza и локальные файлы ----------
+// Свой адрес вместо file:// нужен встроенному редактору «Фигма» (модули, wasm) и видео с диска
+// (перемотка по диапазонам). Всё отдаётся из папки программы или из папок, выбранных пользователем.
+protocol.registerSchemesAsPrivileged([
+  { scheme: "vk", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } },
+]);
+const APP_ROOT = path.resolve(__dirname, "..");
+// в строке браузера по умолчанию — русское имя программы, а заголовки HTTP принимают только латиницу
+app.userAgentFallback = app.userAgentFallback.replace(/[^\x20-\x7E]+/g, "Vektor");
+const MIME = {
+  ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json",
+  ".wasm": "application/wasm", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".webp": "image/webp", ".gif": "image/gif", ".ico": "image/x-icon", ".woff2": "font/woff2", ".woff": "font/woff",
+  ".ttf": "font/ttf", ".otf": "font/otf", ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+  ".webm": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4",
+  ".fig": "application/octet-stream", ".txt": "text/plain",
+};
+async function serveFile(p, req) {
+  let st;
+  try { st = await fsp.stat(p); } catch (e) { return new Response("Not found", { status: 404 }); }
+  if (!st.isFile()) return new Response("Not found", { status: 404 });
+  const size = st.size;
+  const type = MIME[path.extname(p).toLowerCase()] || "application/octet-stream";
+  const m = /bytes=(\d*)-(\d*)/.exec(req.headers.get("range") || "");
+  if (m && size > 0) {
+    let start = m[1] ? +m[1] : Math.max(0, size - +m[2]);
+    let end = m[1] && m[2] ? Math.min(+m[2], size - 1) : size - 1;
+    if (start >= size || start > end) return new Response("", { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+    return new Response(Readable.toWeb(fs.createReadStream(p, { start, end })), {
+      status: 206,
+      headers: { "Content-Type": type, "Content-Length": String(end - start + 1), "Content-Range": `bytes ${start}-${end}/${size}`, "Accept-Ranges": "bytes" },
+    });
+  }
+  return new Response(Readable.toWeb(fs.createReadStream(p)), { headers: { "Content-Type": type, "Content-Length": String(size), "Accept-Ranges": "bytes" } });
+}
+async function handleVk(req) {
+  const u = new URL(req.url);
+  const pathname = decodeURIComponent(u.pathname);
+  // /__net/https/host/path → запрос к API из главного процесса (Polza.ai без ограничений CORS)
+  if (pathname.startsWith("/__net/")) {
+    const mm = /^\/__net\/(https?)\/(.+)$/.exec(u.pathname);
+    if (!mm) return new Response("Bad request", { status: 400 });
+    const target = new URL(`${mm[1]}://${mm[2]}${u.search}`);
+    if (mm[1] === "http" && !["localhost", "127.0.0.1"].includes(target.hostname)) return new Response("Forbidden", { status: 403 });
+    const headers = new Headers(req.headers);
+    for (const h of ["origin", "referer", "host", "cookie"]) headers.delete(h);
+    const body = ["GET", "HEAD"].includes(req.method) ? undefined : await req.arrayBuffer();
+    const res = await net.fetch(target.href, { method: req.method, headers, body, bypassCustomProtocolHandlers: true });
+    const out = new Headers(res.headers);
+    out.delete("content-encoding"); out.delete("content-length");
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
+  }
+  // /__file/?p=путь → файл с диска (только из выбранных пользователем папок)
+  if (pathname === "/__file/" || pathname === "/__file") {
+    const p = u.searchParams.get("p") || "";
+    if (!isAllowed(p)) return new Response("Forbidden", { status: 403 });
+    return serveFile(path.resolve(p), req);
+  }
+  const p = path.normalize(path.join(APP_ROOT, pathname === "/" ? "index.html" : pathname));
+  if (p !== APP_ROOT && !p.startsWith(APP_ROOT + path.sep)) return new Response("Forbidden", { status: 403 });
+  return serveFile(p, req);
 }
 
 function openFileInWindow(win, file) {
@@ -39,7 +104,7 @@ function createWindow(file) {
     webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, "preload.cjs") },
   });
   win.setMenu(null); // у приложения своё меню внутри окна
-  win.loadFile(path.join(__dirname, "..", "index.html"));
+  win.loadURL("vk://app/index.html");
   win.webContents.once("did-finish-load", () => openFileInWindow(win, file));
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
@@ -126,6 +191,16 @@ ipcMain.handle("net:fetch", async (e, req) => {
   const res = await fetch(req.url, { method: req.method || "GET", headers: req.headers || {}, body: req.body });
   const text = await res.text();
   return { status: res.status, ok: res.ok, statusText: res.statusText, body: text };
+});
+
+// ---------- снимок части окна (просмотр прототипа в «Make» видит агент) ----------
+ipcMain.handle("win:capture", async (e, r) => {
+  const rect = r ? { x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.max(1, Math.round(r.width)), height: Math.max(1, Math.round(r.height)) } : undefined;
+  const img = await e.sender.capturePage(rect);
+  const size = img.getSize();
+  const k = Math.min(1, 1400 / Math.max(size.width, 1));
+  const out = k < 1 ? img.resize({ width: Math.round(size.width * k) }) : img;
+  return "data:image/jpeg;base64," + out.toJPEG(80).toString("base64");
 });
 
 // ---------- PDF: страницы печатаются скрытым окном Chromium в файл ----------
@@ -240,6 +315,7 @@ if (!gotLock) {
     openFileInWindow(win, fileFromArgs(argv));
   });
   app.whenReady().then(() => {
+    protocol.handle("vk", (req) => handleVk(req).catch((e) => new Response(String(e && e.message || e), { status: 502 })));
     // шрифты системы (Local Font Access API) — без лишних вопросов
     session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(["local-fonts", "clipboard-read", "clipboard-sanitized-write"].includes(permission)));
     session.defaultSession.setPermissionCheckHandler((wc, permission) => ["local-fonts", "clipboard-read", "clipboard-sanitized-write"].includes(permission));

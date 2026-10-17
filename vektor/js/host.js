@@ -108,6 +108,22 @@ const Host = {
     }
     return fetch(url, opts);
   },
+  // адрес для fetch: в настольной версии внешние запросы идут через главный процесс
+  // (vk://app/__net/…) — без CORS, с потоками и двоичными данными
+  net(url) { return location.protocol === 'vk:' && /^https?:\/\//.test(url) ? location.origin + '/__net/' + url.replace('://', '/') : url; },
+  // локальный файл как адрес (видео и большие картинки без копирования в память)
+  fileURL(p) { return location.protocol === 'vk:' ? location.origin + '/__file/?p=' + encodeURIComponent(p) : null; },
+  // прочитать файл/запись как Blob
+  async blobOf(entry, type) {
+    if (entry.file) return entry.file;
+    const buf = await entry.read();
+    return new Blob([buf], { type: type || Host.mimeOf(entry.name) });
+  },
+  mimeOf(name) {
+    return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml',
+      mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4',
+      json: 'application/json', html: 'text/html', txt: 'text/plain' }[Host.extOf(name)] || 'application/octet-stream';
+  },
   // загрузка тяжёлых библиотек по требованию
   _libs: {},
   loadScript(src) {
@@ -130,6 +146,8 @@ const Host = {
       return lib;
     }
     if (name === 'tracer') { await Host.loadScript('vendor/imagetracer.js'); return window.ImageTracer; }
+    if (name === 'mp4') { await Host.loadScript('vendor/mp4-muxer.js'); return window.Mp4Muxer; }
+    if (name === 'webm') { await Host.loadScript('vendor/webm-muxer.js'); return window.WebMMuxer; }
     throw new Error('Нет библиотеки ' + name);
   },
 };

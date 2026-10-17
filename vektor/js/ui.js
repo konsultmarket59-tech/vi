@@ -430,6 +430,7 @@ const UI = {
         { label: 'Подключить шрифты системы', action: () => Fonts.loadLocal() },
         { label: 'Преобразовать текст в кривые', key: 'Ctrl+Q', action: A.toCurves, disabled: () => !sel() },
       ] },
+      ...(typeof AIOps !== 'undefined' ? [AIOps.menu()] : []),
       { label: 'Окно', items: [
         { label: 'ИИ-агент', check: () => UI.dockOpen && UI.dockTab === 'agent', action: () => UI.docker('agent') },
         { label: 'Свойства объекта', check: () => UI.dockOpen && UI.dockTab === 'props', action: () => UI.docker('props') },

@@ -130,7 +130,10 @@ const Agent = {
       T('set_effect', 'Эффекты: тень, прозрачность, контур, выдавливание, оболочка (дуга и т. п.), градиент.', { id: str('id объекта'), shadow: bool('Тень вкл/выкл'), envelope: { type: 'string', enum: ['none', 'arcUp', 'arcDown', 'bulge', 'pinch', 'flagUp', 'perspective', 'trapezoid'] }, envelope_strength: num('Сила 0..1'), contour_steps: num('Шагов контура (0 — убрать)'), contour_offset: num('Шаг контура, мм'), contour_color: str('Цвет последнего шага'), extrude_depth: num('Глубина выдавливания, мм (0 — убрать)'), extrude_angle: num('Угол выдавливания'), gradient: { type: 'array', items: { type: 'string' }, description: 'Два цвета линейного градиента' }, gradient_angle: num('Угол градиента') }, ['id']),
       T('import_design', 'Открыть макет из материалов (CDR любой версии, PDF/AI, SVG, VKT). as: new_document — новым документом (по умолчанию), append_pages — добавить страницы в конец, into_page — на текущую страницу.', { path: str('Путь файла'), as: { type: 'string', enum: ['new_document', 'append_pages', 'into_page'] } }, ['path']),
       T('load_font', 'Подключить файл шрифта (.ttf/.otf) из материалов. Возвращает имя семейства.', { path: str('Путь файла') }, ['path']),
-      T('export', 'Сохранить результат: png, jpg, svg, pdf, cdr (через установленный CorelDRAW; version — номер версии: 17 = X7, 20 = 2018, 24 = 2022) или vkt. Если прикреплена папка для результата — файлы сохраняются туда.', { format: { type: 'string', enum: ['png', 'jpg', 'svg', 'pdf', 'cdr', 'vkt'] }, pages: str('«current», «all» или номера через запятую'), dpi: num('Разрешение для PNG/JPG (по умолчанию 300)'), file_name: str('Имя файла без расширения'), version: num('Версия CorelDRAW для cdr') }, ['format']),
+      T('generate_image', 'Сгенерировать картинку моделью Polza (платно — только когда пользователь просит или без этого не обойтись) и поставить на страницу.', Object.assign({ prompt: str('Описание, лучше на английском'), refs: { type: 'array', items: { type: 'string' }, description: 'Референсы: пути файлов в материалах или id изображений в документе' }, fit: { type: 'string', enum: ['cover', 'contain', 'stretch'] }, name: str('Имя') }, box), ['prompt']),
+      T('remove_background', 'Вырезать фон у изображения в документе (Polza).', { id: str('id изображения') }, ['id']),
+      T('upscale_image', 'Увеличить разрешение изображения в документе (Polza).', { id: str('id изображения') }, ['id']),
+            T('export', 'Сохранить результат: png, jpg, svg, pdf, cdr (через установленный CorelDRAW; version — номер версии: 17 = X7, 20 = 2018, 24 = 2022) или vkt. Если прикреплена папка для результата — файлы сохраняются туда.', { format: { type: 'string', enum: ['png', 'jpg', 'svg', 'pdf', 'cdr', 'vkt'] }, pages: str('«current», «all» или номера через запятую'), dpi: num('Разрешение для PNG/JPG (по умолчанию 300)'), file_name: str('Имя файла без расширения'), version: num('Версия CorelDRAW для cdr') }, ['format']),
     ];
   },
 
@@ -516,6 +519,26 @@ const Agent = {
         return { family: fam };
       }
       case 'export': return Agent.export(a);
+      case 'generate_image': {
+        const refs = [];
+        for (const r of a.refs || []) {
+          const o = Model.get(r);
+          if (o && o.type === 'image') { refs.push(o.href); continue; }
+          const f = Agent.findFile(r); if (f) refs.push(await Host.blobOf(f.entry));
+        }
+        const blob = await Polza.generateImage(a.prompt, { images: refs });
+        const o = await IO.importRaster(blob, a.name || 'Генерация');
+        if (o && (a.x !== undefined || a.w)) Agent.setBox(o, a);
+        commit('генерация');
+        return { id: o && o.id, ...(o ? Agent.boxOf(o) : {}), _image: await Polza.thumb(blob, 768), _caption: 'сгенерированная картинка' };
+      }
+      case 'remove_background': case 'upscale_image': {
+        const o = Agent.obj(a.id); if (o.type !== 'image') throw new Error('Это не изображение');
+        const blob = name === 'remove_background' ? await Polza.removeBackground(o.href) : await Polza.upscale(o.href);
+        o.href = await Polza.dataURL(blob);
+        commit(name === 'remove_background' ? 'без фона' : 'апскейл');
+        return { id: o.id, ok: true };
+      }
       default: throw new Error('Неизвестный инструмент ' + name);
     }
   },
@@ -777,6 +800,7 @@ const Agent = {
       vectorize_image: 'Векторизую ' + (a.path || a.image_id || ''), update_object: 'Правлю ' + (a.text !== undefined ? '«' + String(a.text).slice(0, 40) + '»' : a.id), fit_text: 'Подбираю кегль', find_objects: 'Ищу объекты',
       delete_objects: 'Удаляю объекты', duplicate_objects: 'Дублирую', arrange: 'Упорядочиваю: ' + a.action, set_effect: 'Эффект', import_design: 'Открываю макет ' + (a.path || ''), load_font: 'Подключаю шрифт ' + (a.path || ''),
       export: 'Сохраняю ' + String(a.format || '').toUpperCase(),
+      generate_image: 'Генерирую картинку (Polza)', remove_background: 'Вырезаю фон', upscale_image: 'Увеличиваю изображение',
     };
     return L[name] || name;
   },

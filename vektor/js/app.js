@@ -267,9 +267,9 @@ const Events = {
     st.addEventListener('wheel', Events.wheel, { passive: false });
     window.addEventListener('keydown', Events.key);
     window.addEventListener('resize', () => UI.refresh({ panels: false }));
-    document.addEventListener('copy', e => { if (Events.typing()) return; if (Actions.copy()) { Actions.toSystemClipboard(e); e.preventDefault(); } });
-    document.addEventListener('cut', e => { if (Events.typing()) return; if (Actions.copy()) { Actions.toSystemClipboard(e); e.preventDefault(); Actions.del(); } });
-    document.addEventListener('paste', e => { if (Events.typing()) return; e.preventDefault(); Actions.pasteEvent(e); });
+    document.addEventListener('copy', e => { if (Events.typing() || (typeof WS !== 'undefined' && WS.active())) return; if (Actions.copy()) { Actions.toSystemClipboard(e); e.preventDefault(); } });
+    document.addEventListener('cut', e => { if (Events.typing() || (typeof WS !== 'undefined' && WS.active())) return; if (Actions.copy()) { Actions.toSystemClipboard(e); e.preventDefault(); Actions.del(); } });
+    document.addEventListener('paste', e => { if (Events.typing() || (typeof WS !== 'undefined' && WS.active())) return; e.preventDefault(); Actions.pasteEvent(e); });
     window.addEventListener('beforeunload', e => { if (App.dirty && App.fileName) { e.preventDefault(); e.returnValue = ''; } });
     // перетаскивание файлов на холст
     const wrap = UI.$('#canvasWrap');
@@ -340,6 +340,7 @@ const Events = {
     }
   },
   key(e) {
+    if (typeof WS !== 'undefined' && WS.active()) return;
     if (UI.modalOpen()) { if (e.key === 'Escape') UI.closeDialog(); return; }
     if (Events.typing()) return;
     const k = e.key, ctrl = e.ctrlKey || e.metaKey, sh = e.shiftKey, alt = e.altKey;
