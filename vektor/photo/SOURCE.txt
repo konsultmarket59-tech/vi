@@ -1,0 +1,5 @@
+Встроенный растровый редактор — miniPaint (https://github.com/viliusle/miniPaint), лицензия MIT
+(LICENSE.minipaint.txt). Сборка из коммита a79733eb803fc97084ef0ee4faa96b031e69e1c0 (v4.14.3)
+с одной правкой в src/js/main.js: после «window.FileSave = File_save;» добавлено
+«window.MiniPaintApp = app;» (доступ «Вектора» к действиям редактора). Пересборка: npm ci && npm run build,
+затем скопировать index.html, dist/bundle.js и images/ сюда.

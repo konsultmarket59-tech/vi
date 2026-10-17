@@ -46,7 +46,7 @@ const IO = {
   },
 
   // ---------- открытие ----------
-  OPEN_ACCEPT: '.vkt,.json,.cdr,.cdt,.svg,.pdf,.ai,.fig,.pen,.vkm,.vkn',
+  OPEN_ACCEPT: '.vkt,.json,.cdr,.cdt,.svg,.pdf,.ai,.fig,.pen,.vkm,.vkn,.psd',
   async open() {
     const [f] = await Host.pickFiles(IO.OPEN_ACCEPT, false, 'Открыть документ');
     if (f) IO.openEntry(f);
@@ -60,6 +60,7 @@ const IO = {
     try {
       if (ext === 'fig' || ext === 'pen') { UI.busy(null); return FigmaWS.openBuffer(await f.read(), f.name); }
       if (ext === 'vkm') { UI.busy(null); return Motion.openBuffer(await f.read(), f.name); }
+      if (ext === 'psd') { UI.busy(null); WS.show('photo'); return PhotoWS.openBuffer(await f.read(), f.name); }
       UI.busy('Открываю ' + f.name + '…');
       const buf = await f.read();
       if (ext === 'vkt' || ext === 'json') { IO.loadText(new TextDecoder().decode(buf), f.name); if (f.path) IO.path = f.path; else if (f.handle) IO.handle = f.handle; }
@@ -459,12 +460,12 @@ const IO = {
   },
   // CDR нужной версии: страницы → SVG → установленный CorelDRAW → «Сохранить как» с версией
   async exportCDR(version, opt = {}) {
-    if (!Host.desktop) return UI.toast('Сохранение в CDR доступно в настольной версии на Windows с установленным CorelDRAW');
+    if (!Host.desktop) { if (opt.out) throw new Error('CDR — только в настольной версии с CorelDRAW'); return UI.toast('Сохранение в CDR доступно в настольной версии на Windows с установленным CorelDRAW'); }
     UI.busy('Проверяю CorelDRAW…');
     const probe = await vkHost.corelProbe();
     UI.busy(null);
-    if (!probe.ok) return UI.toast('CorelDRAW недоступен: ' + probe.error);
-    const out = await vkHost.saveDialog({ defaultPath: IO.baseName() + '.cdr', filters: [{ name: 'CorelDRAW', extensions: ['cdr'] }] });
+    if (!probe.ok) { if (opt.out) throw new Error('CorelDRAW недоступен: ' + probe.error); return UI.toast('CorelDRAW недоступен: ' + probe.error); }
+    const out = opt.out || await vkHost.saveDialog({ defaultPath: IO.baseName() + '.cdr', filters: [{ name: 'CorelDRAW', extensions: ['cdr'] }] });
     if (!out) return;
     const pages = App.doc.pages.map(P => {
       let svg = Render.exportSVG(P, { background: false, frames: true });
@@ -485,6 +486,7 @@ const IO = {
     }
     const r = await vkHost.corelBuild(pages, out, version, { cmyk: opt.cmyk ? cmyk : null, bitmapsCmyk: !!opt.cmyk });
     UI.busy(null);
+    if (opt.out) { if (!r.ok) throw new Error(r.error); return out; }
     if (r.ok) { UI.toast('Сохранено для ' + (CDR_VERSIONS.find(v => v[0] === version) || [, ''])[1] + ': ' + out.split(/[\\/]/).pop()); vkHost.reveal(out); }
     else UI.toast('CorelDRAW не сохранил файл: ' + r.error);
   },

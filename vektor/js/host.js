@@ -146,6 +146,7 @@ const Host = {
       return lib;
     }
     if (name === 'tracer') { await Host.loadScript('vendor/imagetracer.js'); return window.ImageTracer; }
+    if (name === 'psd') { await Host.loadScript('vendor/ag-psd.js'); return window.agPsd; }
     if (name === 'mp4') { await Host.loadScript('vendor/mp4-muxer.js'); return window.Mp4Muxer; }
     if (name === 'webm') { await Host.loadScript('vendor/webm-muxer.js'); return window.WebMMuxer; }
     throw new Error('Нет библиотеки ' + name);

@@ -29,6 +29,7 @@
       "fonts/**/*",
       "vendor/**/*",
       "figma/**/*",
+      "photo/**/*",
       "electron/**/*",
       "build/icon.png",
       "package.json"
@@ -36,7 +37,8 @@
     "fileAssociations": [
       { "ext": "vkt", "name": "Документ Вектор", "description": "Документ векторного редактора Вектор", "role": "Editor" },
       { "ext": "fig", "name": "Файл Figma", "description": "Файл Figma — открывается в рабочем пространстве «Фигма»", "role": "Editor" },
-      { "ext": "vkm", "name": "Проект моушна", "description": "Проект моушн-дизайна программы Вектор", "role": "Editor" }
+      { "ext": "vkm", "name": "Проект моушна", "description": "Проект моушн-дизайна программы Вектор", "role": "Editor" },
+      { "ext": "psd", "name": "Файл Photoshop", "description": "Открывается в рабочем пространстве «Фото»", "role": "Editor" }
     ],
     "win": { "icon": "build/icon.png", "target": ["nsis", "portable"] },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "perMachine": false },

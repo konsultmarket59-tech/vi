@@ -312,6 +312,7 @@ const UI = {
         { label: 'Печать / PDF…', key: 'Ctrl+P', action: IO.print },
         { label: 'PDF для типографии (CMYK, вылеты, метки)…', action: () => IO.exportDialog('pdfx') },
         { label: 'Подготовить файл для типографии…', action: () => Prepress.dialog() },
+        { label: 'Конвертер файлов (CDR, PDF, AI, SVG, FIG, PSD, PNG…)…', action: () => Convert.dialog() },
         '-',
         { label: 'Свойства документа…', action: UI.pageDialog },
       ] },

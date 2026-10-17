@@ -1,7 +1,7 @@
 // Мост «Вектора» к встроенному редактору OpenPencil (рабочее пространство «Фигма»).
 // Окно «Вектора» вызывает window.vkFigma: открыть файл, вставить SVG и картинки, отдать
 // выделение картинкой или SVG и запустить плагин Figma (manifest.json + код + интерфейс).
-import { renderNodesToSVG } from '@open-pencil/core'
+import { exportFigFile, renderNodesToSVG } from '@open-pencil/core'
 
 import { aiModelSettings } from '@/app/ai/models'
 import { setAPIKey } from '@/app/ai/chat/storage'
@@ -11,7 +11,7 @@ import { executeWithDocumentUndo } from '@/app/automation/execution/editor'
 import { pastePoint, pasteSVGText } from '@/app/editor/clipboard/paste/content'
 import { openDesignFile } from '@/app/shell/menu/files'
 import { browserCredentialsRemembered, setBrowserCredentialPersistence } from '@/app/settings/credentials/app'
-import { getActiveStore } from '@/app/tabs'
+import { createTab, getActiveStore } from '@/app/tabs'
 
 type AnyStore = any
 
@@ -325,6 +325,28 @@ const api = {
     return pageChildren(s).map((id) => {
       const n = s.graph.getNode(id)
       return { id, name: n?.name, type: n?.type, width: n?.width, height: n?.height }
+    })
+  },
+  // ---------- конвертер: документ «Вектора» ↔ .fig ----------
+  async newDocument() {
+    createTab()
+    await new Promise((r) => setTimeout(r, 400))
+  },
+  async importSVG(svg: string, x = 0, y = 0) {
+    const s = store()
+    return s.pasteSVG(svg, x, y)
+  },
+  async exportFig(name?: string): Promise<ArrayBuffer> {
+    const s = store()
+    const bytes = await exportFigFile(s.graph, { ck: s.renderer?.ck, renderer: s.renderer, documentName: name })
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  },
+  // все страницы открытого файла — SVG для «Вектора»
+  pagesSVG() {
+    const s = store()
+    return s.graph.getPages().map((page: AnyStore) => {
+      const ids = s.graph.getChildren(page.id).filter((n: AnyStore) => !n.internalOnly).map((n: AnyStore) => n.id)
+      return { name: page.name, svg: ids.length ? renderNodesToSVG(s.graph, page.id, ids) : null }
     })
   },
   runPlugin,

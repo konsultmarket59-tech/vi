@@ -4,7 +4,7 @@
 
 const WS = {
   current: 'vektor',
-  LIST: [['vektor', 'Вектор', 'Векторная графика и вёрстка в духе CorelDRAW'], ['figma', 'Фигма', 'Интерфейсы, компоненты, автолейаут, файлы .fig, плагины'],
+  LIST: [['vektor', 'Вектор', 'Векторная графика и вёрстка в духе CorelDRAW'], ['figma', 'Фигма', 'Интерфейсы, компоненты, автолейаут, файлы .fig, плагины'], ['photo', 'Фото', 'Растровый редактор как Photoshop, обработка как Lightroom, PSD'],
     ['motion', 'Моушн', 'Анимация кадров на фоне фото или видео, ИИ-агент, экспорт в MP4/WebM'], ['nodes', 'Ноды', 'Генерация картинок и видео цепочками моделей Polza'],
     ['make', 'Make', 'Интерактивный прототип или страница по описанию']],
   mods: {},
@@ -14,7 +14,7 @@ const WS = {
     document.body.append(bar);
     WS.host = h('div', { id: 'wsHost', class: 'wshost' });
     document.body.append(WS.host);
-    WS.mods = { figma: FigmaWS, motion: typeof Motion !== 'undefined' ? Motion : null, nodes: typeof Nodes !== 'undefined' ? Nodes : null, make: typeof Make !== 'undefined' ? Make : null };
+    WS.mods = { figma: FigmaWS, photo: typeof PhotoWS !== 'undefined' ? PhotoWS : null, motion: typeof Motion !== 'undefined' ? Motion : null, nodes: typeof Nodes !== 'undefined' ? Nodes : null, make: typeof Make !== 'undefined' ? Make : null };
   },
   show(name) {
     if (Tools.text && Tools.text.editing) Tools.text.commit();
@@ -412,6 +412,11 @@ const AIOps = {
       } }]);
   },
   toFigma() { FigmaWS.fromVektor(); },
+  async develop() {
+    const o = AIOps.selImage(); if (!o) return;
+    const img = await Polza.loadImage(o.href);
+    Develop.open(img, { title: 'Обработка: ' + (o.name || 'фото'), done: c => { o.href = c.toDataURL(o.href.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.92); App.commit('Обработка фото'); UI.refresh(); } });
+  },
   // мокап: выделенное (или страница) — дизайн; фото выбирается в студии
   async mockup() {
     let design = null;
@@ -434,6 +439,8 @@ const AIOps = {
       { label: 'Векторизовать в фирменных цветах…', action: AIOps.vectorize, disabled: () => !img() },
       { label: 'Сгенерировать картинку…', action: AIOps.generate },
       { label: 'Мокап: дизайн на фото объекта…', action: AIOps.mockup },
+      { label: 'Обработка фото (как Lightroom)…', action: AIOps.develop, disabled: () => !img() },
+      { label: 'Открыть картинку в «Фото» (как Photoshop)', action: () => { const o = AIOps.selImage(); if (o) PhotoWS.editFromVektor(o); }, disabled: () => !img() },
       '-',
       { label: 'Отправить в «Фигму»', action: AIOps.toFigma, disabled: () => !App.sel.length },
       { label: 'Отправить в «Моушн»', action: AIOps.toMotion },

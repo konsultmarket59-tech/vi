@@ -20,7 +20,7 @@ const isAllowed = (p) => {
 };
 
 function fileFromArgs(argv) {
-  return argv.slice(1).find((a) => /\.(vkt|svg|cdr|cdt|fig|pen|vkm)$/i.test(a) && fs.existsSync(a)) || null;
+  return argv.slice(1).find((a) => /\.(vkt|svg|cdr|cdt|fig|pen|vkm|psd)$/i.test(a) && fs.existsSync(a)) || null;
 }
 
 // ---------- vk://app/ — страницы программы, мост к Polza и локальные файлы ----------

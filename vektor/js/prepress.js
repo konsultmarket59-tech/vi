@@ -257,7 +257,7 @@ const Prepress = {
     render();
   },
   profileSelect(val, set) { return UI.sel(Prepress.profiles().map(p => [p.id, p.name]), val, set, '', 360); },
-  async fixAll(prof, pages = App.doc.pages) {
+  async fixAll(prof, pages = App.doc.pages, silent = false) {
     const log = [];
     if (prof.colorMode === 'CMYK') log.push(['CMYK', Prepress.fixCMYK(pages)]);
     if (prof.curves) log.push(['кривые', await Prepress.fixCurves(pages)]);
@@ -268,6 +268,7 @@ const Prepress = {
     if (!(App.doc.print && App.doc.print.bleed > 0) && prof.bleed > 0) App.doc.print = Object.assign({}, App.doc.print, { bleed: prof.bleed, safe: prof.safe });
     log.push(['вылеты', Prepress.fixBleed(pages)]);
     App.doc.print = Object.assign({}, App.doc.print, { profile: prof.id, colorMode: prof.colorMode });
+    if (silent) return log;
     App.commit('Подготовка к печати'); UI.refresh();
     UI.toast('Исправлено: ' + log.filter(x => x[1]).map(x => `${x[0]} ${x[1]}`).join(', ') || 'нечего');
     return log;
