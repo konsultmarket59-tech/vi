@@ -110,20 +110,23 @@ Tools.pick = {
         const copies = App.selObjs().map(o => Model.clone(o));
         Actions.placeAfter(copies);
       }
-      st.mode = 'move'; Drag.begin(); st.box = Model.selBox();
+      st.mode = 'move'; st.box = Model.selBox(); st.dx = 0; st.dy = 0;
+      if (st.alt) UI.refresh({ panels: false });
+      // пока мышь движется, на холсте сдвигается уже нарисованное (без пересчёта тысяч узлов),
+      // координаты объектов меняются один раз — при отпускании кнопки
+      st.els = App.sel.map(id => document.querySelector(`#docG [data-id="${id}"]`)).filter(Boolean);
     }
     if (st.mode === 'move') {
-      Drag.reset();
       let dx = p.x - st.start.x, dy = p.y - st.start.y;
       if (e.ctrlKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
       const b = st.box;
       const s = App.snapBox({ x1: b.x1 + dx, y1: b.y1 + dy, x2: b.x2 + dx, y2: b.y2 + dy }, App.sel);
       dx += e.ctrlKey && !dx ? 0 : s.dx; dy += e.ctrlKey && !dy ? 0 : s.dy;
-      App.selObjs().forEach(o => Model.applyT(o, Mx.translate(dx, dy)));
-      if (App.rotCenter && st.rc0 === undefined) st.rc0 = { ...App.rotCenter };
-      if (st.rc0) App.rotCenter = { x: st.rc0.x + dx, y: st.rc0.y + dy };
+      st.dx = dx; st.dy = dy;
+      if (st.els.some(el => !el.isConnected)) st.els = App.sel.map(id => document.querySelector(`#docG [data-id="${id}"]`)).filter(Boolean);
+      for (const el of st.els) el.setAttribute('transform', `translate(${dx} ${dy})`);
+      UI.$('#overlay').setAttribute('transform', `translate(${dx * App.zoom} ${dy * App.zoom})`);
       UI.status(`Смещение: ${dx.toFixed(2)} × ${dy.toFixed(2)} мм`);
-      UI.refresh({ panels: false });
     } else if (st.mode === 'handle') T.dragHandle(e, p);
     else if (st.mode === 'marquee') { st.cur = p; UI.refresh({ panels: false }); }
     else if (st.mode === 'guide') {
@@ -187,7 +190,14 @@ Tools.pick = {
     if (st.mode === 'maybeMove') {
       if (st.toggleRotate) { App.rotateMode = !App.rotateMode; if (!App.rotateMode) App.rotCenter = null; }
       UI.refresh();
-    } else if (st.mode === 'move' || st.mode === 'handle') {
+    } else if (st.mode === 'move') {
+      for (const el of st.els || []) el.removeAttribute('transform');
+      UI.$('#overlay').removeAttribute('transform');
+      if (!st.dx && !st.dy) { UI.refresh(); return; }
+      App.selObjs().forEach(o => Model.applyT(o, Mx.translate(st.dx, st.dy)));
+      if (App.rotCenter) App.rotCenter = { x: App.rotCenter.x + st.dx, y: App.rotCenter.y + st.dy };
+      App.commit('Перемещение');
+    } else if (st.mode === 'handle') {
       Drag.end();
       if (st.mode === 'handle' && st.h.k === 'center') { UI.refresh(); return; }
       App.commit('Преобразование');
