@@ -1,0 +1,41 @@
+name: Build Vektor desktop app
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "vektor-build-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: vektor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      # --publish never: иначе electron-builder сам пробует выложить сборку и требует GH_TOKEN
+      - run: npx electron-builder --win --publish never
+
+      - name: Publish build to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vektor-desktop
+          name: "Вектор — сборка для Windows"
+          body: |
+            Автоматическая сборка векторного редактора «Вектор» из ветки ${{ github.ref_name }}.
+            Скачайте `.exe` ниже: portable-версия запускается без установки,
+            Setup-версия — обычный установщик (ассоциирует файлы .vkt).
+          prerelease: true
+          files: |
+            vektor/release/*.exe
