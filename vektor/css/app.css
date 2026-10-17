@@ -475,3 +475,18 @@ body.ws-other #app > :not(#menubar) { visibility: hidden; }
 .tpl-list { display: flex; flex-direction: column; gap: 6px; min-width: 460px; max-height: 60vh; overflow: auto; }
 .tpl-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 .tpl-row .grow { flex: 1; }
+.vz-cols { display: grid; grid-template-columns: 280px 320px; gap: 14px; max-width: 80vw; }
+.vz-cols label { display: flex; flex-direction: column; gap: 3px; }
+.vz-cols label.row { flex-direction: row; align-items: center; }
+.vz-prev { width: 320px; height: 290px; max-width: 100%; background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0/14px 14px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+
+/* дизайн-системы */
+.ds-chip { border: 1px dashed var(--line, #bbb); background: transparent; color: inherit; border-radius: 12px; padding: 2px 10px; font-size: 12px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-chip.on { border-style: solid; border-color: var(--accent, #3b82f6); color: var(--accent, #3b82f6); }
+.ag-ds { margin: 4px 0; }
+.ds-list { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow: auto; min-width: 420px; }
+.ds-row { border: 1px solid var(--line, #ddd); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ds-sw { display: flex; flex-wrap: wrap; gap: 3px; }
+.ds-sw span { width: 16px; height: 16px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); display: inline-block; }
+.ds-pre { white-space: pre-wrap; max-height: 60vh; overflow: auto; font-size: 12px; max-width: 70vw; }
+.ds-row > label.row { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }

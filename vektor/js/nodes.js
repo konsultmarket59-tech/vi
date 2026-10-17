@@ -18,7 +18,7 @@ const Nodes = {
     genVideo: { title: 'Модель: видео', color: '#ef4444', inputs: [['prompt', 'text'], ['image', 'image'], ['end', 'image']], outputs: [['video', 'video']], params: [['model', 'model:video', 'Модель Polza'], ['duration', 'number', 'Длительность, с'], ['extra', 'json', 'Доп. параметры JSON']] },
     removeBg: { title: 'Удалить фон', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [['model', 'model:image:auto', 'Модель (автоматически)']] },
     upscale: { title: 'Увеличить', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['image', 'image']], params: [['model', 'model:image:auto', 'Модель (автоматически)'], ['scale', 'number', 'Во сколько раз']] },
-    vectorize: { title: 'В вектор (SVG)', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['svg', 'svg']], params: [['model', 'model:image:auto', 'Модель (без неё — трассировка)'], ['colors', 'number', 'Цветов'], ['palette', 'text', 'Палитра: #hex через запятую']] },
+    vectorize: { title: 'В вектор (SVG)', color: '#14b8a6', inputs: [['image', 'image']], outputs: [['svg', 'svg']], params: [['model', 'model:image:auto', 'Модель (без неё — трассировка)'], ['colors', 'number', 'Цветов'], ['detail', 'select:mid=Детализация: средняя|low=Детализация: низкая|high=Детализация: высокая|max=Детализация: максимальная', 'Детализация'], ['smooth', 'number', 'Сглаживание 0–5'], ['nobg', 'select:no=Фон оставить|yes=Фон убрать', 'Фон'], ['palette', 'text', 'Палитра: #hex через запятую']] },
     mockup: { title: 'Мокап', color: '#8b5cf6', inputs: [['base', 'image'], ['design', 'image']], outputs: [['image', 'image']], params: [['mode', 'select:shape=По форме объекта|cylinder=Цилиндр|flat=Плоскость', 'Посадка'], ['mask', 'select:ai=Объект находит ИИ|full=Весь кадр', 'Объект'], ['blend', 'select:normal=С тенями|multiply=Умножение|screen=Экран', 'Смешивание']] },
     save: { title: 'Сохранить', color: '#334155', inputs: [['in', 'any', true]], outputs: [], params: [['folder', 'folder', 'Папка (пусто — спросить)'], ['name', 'text', 'Имя файлов']] },
     toApp: { title: 'Отправить', color: '#334155', inputs: [['in', 'any', true]], outputs: [], params: [['where', 'select:vektor=В «Вектор»|figma=В «Фигму»|motion=В «Моушн»', 'Куда']] },
@@ -148,7 +148,8 @@ const Nodes = {
       case 'vectorize': {
         if (!ins.image) throw new Error('Нет картинки на входе');
         const palette = String(P.palette || '').split(/[,;\s]+/).filter(s => /^#?[0-9a-f]{6}$/i.test(s)).map(s => s[0] === '#' ? s : '#' + s);
-        const svg = palette.length ? await Polza.trace(ins.image.blob, { colors: palette.length, palette }) : await Polza.vectorize(ins.image.blob, { colors: +P.colors || 8, model: P.model, onStatus: st });
+        const vo = { detail: P.detail || 'mid', smooth: +P.smooth || 0, removeBg: P.nobg === 'yes' };
+        const svg = palette.length ? await Polza.trace(ins.image.blob, Object.assign({ colors: palette.length, palette }, vo)) : P.model ? await Polza.vectorize(ins.image.blob, Object.assign({ colors: +P.colors || 8, model: P.model, onStatus: st }, vo)) : await Polza.trace(ins.image.blob, Object.assign({ colors: +P.colors || 8 }, vo));
         return { kind: 'svg', text: svg, name: 'вектор.svg' };
       }
       case 'mockup': {

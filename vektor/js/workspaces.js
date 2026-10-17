@@ -167,7 +167,8 @@ const FigmaWS = {
     let img;
     try { img = await FigmaWS.selectionImage(); } catch (e) { return UI.toast(e.message, true); }
     const labels = { bg: 'Удаляю фон', upscale: 'Увеличиваю', vector: 'Векторизую' };
-    if (!await Polza.choose(kind === 'vector' ? ['vector'] : [kind, 'edit'], { bg: 'Удалить фон', upscale: 'Апскейл', vector: 'Векторизация' }[kind])) return;
+    if (kind === 'vector') return Polza.vectorizeDialog(img, async svg => { await api.pasteSVG(svg); UI.toast('Готово: вектор добавлен рядом'); });
+    if (!await Polza.choose([kind, 'edit'], { bg: 'Удалить фон', upscale: 'Апскейл' }[kind])) return;
     await withBusy(labels[kind] + '…', async onStatus => {
       if (kind === 'vector') {
         const svg = await Polza.vectorize(img, { onStatus });
@@ -389,22 +390,14 @@ const AIOps = {
   },
   async vectorize() {
     const o = AIOps.selImage(); if (!o) return;
-    const pal = h('input', { type: 'text', class: 'wide', placeholder: 'Фирменные цвета через запятую, например #E30613, #1D1D1B (необязательно)' });
-    const colors = h('input', { type: 'number', value: 8, min: 2, max: 64 });
-    UI.dialog('Векторизация', h('div', { class: 'form' }, h('label', {}, 'Цветов', colors), h('label', {}, 'Палитра', pal), Polza.pickRow('vector'),
-      h('p', { class: 'muted' }, 'Если в настройках Polza выбрана модель векторизации — работает она, иначе трассировка на компьютере.')),
-    [{ label: 'Отмена' }, { label: 'Векторизовать', primary: true, action: () => {
-      const palette = pal.value.split(/[,;\s]+/).map(s => s.trim()).filter(s => /^#?[0-9a-f]{6}$/i.test(s)).map(s => s[0] === '#' ? s : '#' + s);
-      withBusy('Векторизую…', async onStatus => {
-        const svg = palette.length ? await Polza.trace(o.href, { colors: palette.length, palette }) : await Polza.vectorize(o.href, { colors: +colors.value || 8, onStatus });
-        const b = Model.worldBox(o);
-        IO.importSVGText(svg, null);
-        const v = Model.get(App.sel[0]);
-        if (v && v !== o) { Agent.setBox(v, { x: b.x1, y: b.y1, w: b.x2 - b.x1, h: b.y2 - b.y1 }); v.name = (o.name || 'Изображение') + ' (вектор)'; o.visible = false; }
-        App.commit('Векторизация'); UI.refresh();
-        UI.toast('Готово. Исходное изображение скрыто (Диспетчер объектов)');
-      });
-    } }]);
+    Polza.vectorizeDialog(o.href, async svg => {
+      const b = Model.worldBox(o);
+      IO.importSVGText(svg, null);
+      const v = Model.get(App.sel[0]);
+      if (v && v !== o) { Agent.setBox(v, { x: b.x1, y: b.y1, w: b.x2 - b.x1, h: b.y2 - b.y1 }); v.name = (o.name || 'Изображение') + ' (вектор)'; o.visible = false; }
+      App.commit('Векторизация'); UI.refresh();
+      UI.toast('Готово. Исходное изображение скрыто (Диспетчер объектов)');
+    });
   },
   generate() {
     const prompt = h('textarea', { rows: 4, class: 'wide', placeholder: 'Описание картинки' });
@@ -439,9 +432,11 @@ const AIOps = {
   menu() {
     const img = () => App.selObjs().some(o => o.type === 'image');
     return { label: 'ИИ', items: [
+      { label: 'Дизайн-системы (папки на компьютере)…', action: () => DS.dialog() },
+      '-',
       { label: 'Удалить фон', action: AIOps.removeBg, disabled: () => !img() },
       { label: 'Увеличить (апскейл)', action: AIOps.upscale, disabled: () => !img() },
-      { label: 'Векторизовать в фирменных цветах…', action: AIOps.vectorize, disabled: () => !img() },
+      { label: 'Векторизовать (цвета, детализация, палитра)…', action: AIOps.vectorize, disabled: () => !img() },
       { label: 'Сгенерировать картинку…', action: AIOps.generate },
       { label: 'Мокап: дизайн на фото объекта…', action: AIOps.mockup },
       { label: 'Обработка фото (как Lightroom)…', action: AIOps.develop, disabled: () => !img() },

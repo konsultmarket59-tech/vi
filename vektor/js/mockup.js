@@ -104,6 +104,41 @@ function MockupEngine() {
     if (add) E.fillHoles();
     E.dirty.mask = true;
   };
+  // объект без ИИ: фон растёт от краёв кадра по похожему цвету (предметная съёмка на однотонном фоне)
+  E.maskAuto = () => {
+    const { W, H } = E, p = E.baseData.data;
+    const bord = [];
+    for (let x = 0; x < W; x += 2) bord.push(x, (H - 1) * W + x);
+    for (let y = 0; y < H; y += 2) bord.push(y * W, y * W + W - 1);
+    // цвета фона — по краям; допуск — по их разбросу
+    let mr = 0, mg = 0, mb = 0; for (const i of bord) { mr += p[i * 4]; mg += p[i * 4 + 1]; mb += p[i * 4 + 2]; }
+    mr /= bord.length; mg /= bord.length; mb /= bord.length;
+    let vr = 0; for (const i of bord) { const dr = p[i * 4] - mr, dg = p[i * 4 + 1] - mg, db = p[i * 4 + 2] - mb; vr += dr * dr + dg * dg + db * db; }
+    const sd = Math.sqrt(vr / bord.length);
+    const tol = Math.min(70, Math.max(14, sd * 2.2 + 10)), t2 = tol * tol;
+    const bg = new Uint8Array(W * H), st = [];
+    // фон — связная область, где соседние точки похожи друг на друга и на средний цвет края
+    const near = (a, b) => { const i = a * 4, j = b * 4, dr = p[i] - p[j], dg = p[i + 1] - p[j + 1], db = p[i + 2] - p[j + 2]; return dr * dr + dg * dg + db * db <= t2 * 0.35; };
+    const like = a => { const i = a * 4, dr = p[i] - mr, dg = p[i + 1] - mg, db = p[i + 2] - mb; return dr * dr + dg * dg + db * db <= t2 * 4; };
+    for (const i of bord) if (like(i)) { bg[i] = 1; st.push(i); }
+    while (st.length) {
+      const i = st.pop(), x = i % W;
+      const nb = [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i >= W ? i - W : -1, i < W * (H - 1) ? i + W : -1];
+      for (const j of nb) if (j >= 0 && !bg[j] && near(i, j) && like(j)) { bg[j] = 1; st.push(j); }
+    }
+    const g = E.maskCtx(), d = g.createImageData(W, H), q = d.data;
+    let n = 0;
+    for (let i = 0; i < W * H; i++) if (!bg[i]) { const j = i * 4; q[j] = q[j + 1] = q[j + 2] = q[j + 3] = 255; n++; }
+    const share = n / (W * H);
+    if (share < 0.02 || share > 0.97) { E.maskClear(); return 0; } // фон не однотонный — оставляем выбор пользователю
+    g.putImageData(d, 0, 0);
+    E.fillHoles();
+    // мелкие клочки по краям убираем лёгким сглаживанием маски
+    const t = document.createElement('canvas'); t.width = W; t.height = H; const tg = t.getContext('2d');
+    tg.filter = 'blur(1.5px)'; tg.drawImage(E.mask, 0, 0); g.clearRect(0, 0, W, H); g.drawImage(t, 0, 0);
+    E.dirty.mask = true;
+    return share;
+  };
   E.fillHoles = () => {
     const { W, H } = E, g = E.maskCtx(), d = g.getImageData(0, 0, W, H), q = d.data;
     const out = new Uint8Array(W * H), st = [];
@@ -433,7 +468,7 @@ const Mockup = {
         h('div', { class: 'row' }, B('С компьютера…', 'Фото футболки, кружки, упаковки, вывески…', () => Mockup.pickBase()), B('Из «Вектора»', 'Выделенное изображение', () => Mockup.baseFromVektor()), B('Сгенерировать (ИИ)…', 'Фото-основа моделью Polza', () => Mockup.genBase())),
         h('div', { class: 'row' }, B('Открыть шаблон…', 'Сохранённый мокап .vkmock', () => Mockup.openTemplate()), B('Сохранить шаблон…', 'Основа, объект и посадка — для следующих дизайнов', () => Mockup.saveTemplate()))),
       sec('2. Объект — куда ляжет дизайн',
-        h('div', { class: 'row' }, B('✦ Найти объект (ИИ)', 'Выделить главный объект моделью Polza', () => Mockup.maskAI(), 'primary'), B('Весь кадр', '', () => { Mockup.E.maskFull(); Mockup.remesh(); Mockup.draw(); }), B('Инвертировать', '', () => { Mockup.E.maskInvert(); Mockup.remesh(); Mockup.draw(); }), B('Очистить', '', () => { Mockup.E.maskClear(); Mockup.remesh(); Mockup.draw(); })),
+        h('div', { class: 'row' }, B('✦ Найти объект (ИИ)', 'Выделить главный объект моделью Polza', () => Mockup.maskAI(), 'primary'), B('Без ИИ', 'Выделить объект на однотонном фоне без ИИ', () => { if (!Mockup.E.maskAuto()) UI.toast('Фон не однотонный — выделите палочкой или ИИ'); Mockup.remesh(); Mockup.draw(); }), B('Весь кадр', '', () => { Mockup.E.maskFull(); Mockup.remesh(); Mockup.draw(); }), B('Инвертировать', '', () => { Mockup.E.maskInvert(); Mockup.remesh(); Mockup.draw(); }), B('Очистить', '', () => { Mockup.E.maskClear(); Mockup.remesh(); Mockup.draw(); })),
         tools, h('label', { class: 'mk-sl' }, h('span', {}, 'Кисть'), Mockup.sizeIn), h('label', { class: 'mk-sl' }, h('span', {}, 'Палочка: допуск'), Mockup.tolIn),
         h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: true, onchange: e => { Mockup.showMask = e.target.checked; Mockup.drawOverlay(); } }), ' показывать объект'),
         h('label', { class: 'row' }, clip, ' дизайн только на объекте (по силуэту)')),
@@ -469,7 +504,10 @@ const Mockup = {
   setTool(k) { Mockup.tool = k; Mockup.side.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === k)); Mockup.drawOverlay(); },
   async setBase(src) {
     await Mockup.E.setBase(src);
-    Mockup.E.maskClear(); Mockup.E.autoMesh();
+    Mockup.E.maskClear();
+    // объект сразу выделяется без ИИ; не вышло — палочкой, кистью или кнопкой «Найти объект (ИИ)»
+    if (Mockup.E.maskAuto()) UI.toast('Объект выделен автоматически. Поправьте палочкой или кистью, если нужно');
+    Mockup.E.autoMesh();
     Mockup.layout();
   },
   remesh() { if (Mockup.E.base) Mockup.E.autoMesh(Mockup.E.opt.mode); },
@@ -669,7 +707,8 @@ const Mockup = {
 async function makeMockup({ base, design, mode = 'shape', mask = 'ai', fit = 'cover', blend = 'normal', disp, shade, onStatus } = {}) {
   const E = MockupEngine();
   await E.setBase(base);
-  if (mask === 'ai') { try { await E.maskAI(onStatus); } catch (e) { E.maskFull(); } }
+  if (mask === 'ai') { try { await E.maskAI(onStatus); } catch (e) { if (!E.maskAuto()) E.maskFull(); } }
+  else if (mask === 'auto') { if (!E.maskAuto()) E.maskFull(); }
   else E.maskFull();
   Object.assign(E.opt, { mode, fit, blend });
   if (disp !== undefined) E.opt.disp = disp;

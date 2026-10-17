@@ -46,9 +46,11 @@ const Agent = {
     Agent.renderMaterials();
   },
   // все файлы материалов с путями вида «роль/папка/подпапка/файл»
+  // прикреплённые материалы и папки активных дизайн-систем
+  allMats() { return Agent.materials.concat(typeof DS !== 'undefined' ? DS.materials() : []); },
   allFiles() {
     const out = [];
-    for (const m of Agent.materials) {
+    for (const m of Agent.allMats()) {
       if (m.kind === 'folder') for (const f of m.folder.files) out.push({ path: m.name + '/' + f.rel, role: m.role, size: f.size, entry: f });
       else out.push({ path: m.name, role: m.role, size: m.file.size, entry: m.file });
     }
@@ -309,7 +311,7 @@ const Agent = {
     const commit = (label) => App.commit('Агент: ' + label);
     switch (name) {
       case 'list_materials': {
-        const mats = Agent.materials.filter(m => !a.role || m.role === a.role);
+        const mats = Agent.allMats().filter(m => !a.role || m.role === a.role);
         if (!mats.length) return { materials: [], note: 'Пользователь пока ничего не прикрепил. Можно работать с текущим документом или попросить прикрепить материалы.' };
         return {
           materials: mats.map(m => m.kind === 'folder'
@@ -742,6 +744,7 @@ const Agent = {
     if (Tools.text.editing) Tools.text.commit();
     Agent.running = true; Agent.stopFlag = false;
     Agent.startHpos = App.hpos;
+    if (typeof DS !== 'undefined') await DS.ready();
     Agent.chat.push({ role: 'user', text });
     const mats = Agent.materials.length ? '\n\n[Прикреплено: ' + Agent.materials.map(m => `${Agent.roleName(m.role)} — ${m.kind === 'folder' ? 'папка «' + m.name + '» (' + m.folder.files.length + ' файлов)' : 'файл «' + m.name + '»'}`).join('; ') + ']' : '';
     Agent.history.push({ role: 'user', content: text + mats });
@@ -752,7 +755,7 @@ const Agent = {
       for (let step = 0; step < +Agent.settings.maxSteps; step++) {
         if (Agent.stopFlag) { Agent.chat.push({ role: 'note', text: 'Остановлено.' }); break; }
         Agent.setStatus('Думаю…');
-        const js = await Agent.callModel([{ role: 'system', content: Agent.systemPrompt() }, ...Agent.trimHistory()], tools);
+        const js = await Agent.callModel([{ role: 'system', content: Agent.systemPrompt() + (typeof DS !== 'undefined' ? DS.prompt() : '') }, ...Agent.trimHistory()], tools);
         if (js.usage) { usage.p += js.usage.prompt_tokens || 0; usage.c += js.usage.completion_tokens || 0; }
         const msg = js.choices && js.choices[0] && js.choices[0].message;
         if (!msg) throw new Error('Пустой ответ модели');
@@ -850,6 +853,7 @@ const Agent = {
       <div class="ag-status"></div>
       <div class="ag-input"><textarea rows="3" placeholder="Задача агенту… (Ctrl+Enter — отправить)"></textarea>
         <div class="ag-btns"><button class="pbt" data-a="undo" title="Отменить все изменения последнего задания">↶ Отменить</button><span class="grow"></span><button class="pbt" data-a="stop">■ Стоп</button><button class="primary" data-a="send">Отправить</button></div></div>`;
+    el.querySelector('.ag-mats-t').after(h('div', { class: 'ag-ds' }, DS.chip()));
     const roleSel = el.querySelector('.ag-role');
     for (const [k, l] of Agent.ROLES) roleSel.append(h('option', { value: k }, l));
     el.addEventListener('click', e => {

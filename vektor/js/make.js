@@ -26,6 +26,7 @@ const Make = {
       h('span', { class: 'sep' }), Make.codeBtn, B('↻', 'Перезапустить просмотр', () => Make.preview()),
       B('Версии ▾', 'Вернуться к прошлой версии', e => Make.versionsMenu(e.currentTarget)),
       h('span', { class: 'grow' }),
+      DS.chip(),
       B('+ Дизайн из «Фигмы»', 'Выделение в «Фигме» — картинкой-образцом для агента', () => Make.attachFigma()),
       B('+ Картинки', 'Картинки-образцы и ресурсы для проекта', () => Make.attachImages()));
     Make.frame = h('iframe', { class: 'mk-frame', sandbox: 'allow-scripts allow-forms allow-modals allow-popups' });
@@ -120,9 +121,13 @@ window.addEventListener('message',function(e){var d=e.data||{};if(d.vkMake!=='as
     Make.logs = [];
     let html = Make.inline(Make.files['index.html'] || '');
     const br = Make.bridgeScript();
-    html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => m + br) : br + html;
+    // шрифты подключённых дизайн-систем — прямо с компьютера, через @font-face
+    const ds = Make.dsCSS ? `<style data-ds>${Make.dsCSS}</style>` : '';
+    html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, m => m + br + ds) : br + ds + html;
     Make.frame.srcdoc = html;
+    if (typeof DS !== 'undefined') DS.fontCSS().then(css => { if (css !== Make.dsCSS) { Make.dsCSS = css; Make.preview(); } }).catch(() => { });
   },
+  dsCSS: '',
   ask(what, extra = {}, timeout = 15000) {
     return new Promise(res => {
       const id = ++Make.msgId;
@@ -231,7 +236,8 @@ window.addEventListener('message',function(e){var d=e.data||{};if(d.vkMake!=='as
 2. Дизайн — современный и аккуратный: сетка, воздух, иерархия, единая палитра и шрифты, адаптивность (мобильный 390, планшет 834, десктоп 1440), состояния кнопок, плавные переходы. Если приложен образец (дизайн из «Фигмы», брендбук) — повторяй его точно.
 3. Интерактивность настоящая: навигация между экранами, формы с проверкой, переключатели, модальные окна, корзины, фильтры — с данными в JS.
 4. После изменений ОБЯЗАТЕЛЬНО проверь: check_preview (ошибки консоли и текст страницы) и view_preview (снимок, можно на разных ширинах). Исправь найденное.
-5. Тексты — по-русски (если не просили иначе), реалистичные, без «Lorem ipsum». Цены и факты бери из материалов, не выдумывай.
+5. Если подключена дизайн-система (материалы «ДС …», блок правил ниже) — она главная: только её цвета, шрифты (они уже подключены в просмотре через @font-face под своими именами — пиши font-family как в ДС), размеры и отступы, логотипы (add_asset из папки ДС). Перед работой прочитай её гайд (read_file) и посмотри логотипы (view_file).
+6. Тексты — по-русски (если не просили иначе), реалистичные, без «Lorem ipsum». Цены и факты бери из материалов, не выдумывай.
 В конце — коротко, что сделано и что можно попросить дальше.`;
   },
   tools() {

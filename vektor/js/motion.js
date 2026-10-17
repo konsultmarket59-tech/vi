@@ -972,7 +972,8 @@ const Motion = {
       mats.append(h('div', { class: 'row' }, h('b', {}, 'Материалы'), h('span', { class: 'grow' }),
         h('button', { class: 'pbt', onclick: async () => { await Agent.addFolder('sources'); renderMats(); } }, '+ Папка'),
         h('button', { class: 'pbt', onclick: async () => { await Agent.addFiles('sources'); renderMats(); } }, '+ Файлы'),
-        h('button', { class: 'pbt', title: 'Папка, куда агент сохранит ролик', onclick: async () => { await Agent.addFolder('output'); renderMats(); } }, '+ Куда сохранить')));
+        h('button', { class: 'pbt', title: 'Папка, куда агент сохранит ролик', onclick: async () => { await Agent.addFolder('output'); renderMats(); } }, '+ Куда сохранить')),
+        h('div', { class: 'row' }, DS.chip()));
       if (!Agent.materials.length) mats.append(h('div', { class: 'muted small' }, 'Кадры, фото, видео для фона, музыка, брендбук — всё с вашего компьютера.'));
       for (const m of Agent.materials) mats.append(h('span', { class: 'ag-chip role-' + m.role }, (m.kind === 'folder' ? '📁 ' + m.name + ' (' + m.folder.files.length + ')' : '📄 ' + m.name),
         h('button', { class: 'ib', onclick: () => { Agent.materials = Agent.materials.filter(x => x !== m); renderMats(); Agent.renderMaterials(); } }, '×')));
@@ -988,7 +989,7 @@ const Motion = {
         ['Под ключ на фоне видео', 'Сделай ролик под ключ: возьми мои кадры из материалов, поставь на фон видео из материалов, добавь текст и анимацию, проверь кадры и сохрани MP4 в папку для результата.'],
         ['Оживить картинку (ИИ)', 'Оживи выделенную картинку: сгенерируй видео из неё моделью Polza (лёгкое движение камеры) и поставь фоном, сверху — анимированный заголовок.'],
       ],
-      onSend: (text, ui) => Polza.agent(text, {
+      onSend: (text, ui) => Polza.agent(text + Motion.contextNote(), {
         system: Motion.systemPrompt, tools: Motion.tools(), history: Motion.history,
         exec: (n, a) => Motion.exec(n, a), shouldStop: () => ui.stopFlag,
         onEvent: ui.event((n, a) => Motion.toolLabel(n, a)),
@@ -998,6 +999,15 @@ const Motion = {
     Motion.chat = chat;
     return wrap;
   },
+  // к сообщению пользователя — что прикреплено и что лежит в проекте с прошлого раза
+  contextNote() {
+    const mats = Agent.materials.map(m => `${Agent.roleName(m.role)} — ${m.kind === 'folder' ? 'папка «' + m.name + '» (' + m.folder.files.length + ' файлов)' : 'файл «' + m.name + '»'}`);
+    const P = Motion.p, old = P.layers.length || P.bg.asset;
+    let s = '';
+    if (mats.length) s += '\n\n[Прикреплено: ' + mats.join('; ') + ']';
+    if (old && Motion.history.length <= 1) s += `\n[В проекте с прошлого раза: слоёв ${P.layers.length}${P.bg.asset ? ', видео/фото на фоне' : ''}. Это НЕ материалы для этой задачи, если пользователь прямо не просит доработать этот ролик.]`;
+    return s;
+  },
   systemPrompt() {
     const P = Motion.p;
     return `Ты — моушн-дизайнер и работаешь в редакторе «Моушн» программы «Вектор». Делаешь анимационные ролики из кадров, картинок и текста на фоне цвета, фото или видео с компьютера пользователя.
@@ -1005,7 +1015,8 @@ const Motion = {
 Слои: image (картинка/кадр), video, text, shape. Анимация — ключевые кадры свойств x, y, scale, rotation (градусы), opacity (0..1), blur (px), reveal (0..1, шторка слева направо), chars (0..1, печать текста) или готовые анимации (animate): ${Object.entries(Motion.PRESETS).map(([k, v]) => k + ' — ' + v).join('; ')}. Плавности: ${Motion.EASES.join(', ')}.
 
 Порядок работы:
-1. Посмотри проект (get_project) и материалы (list_materials, view_file для кадров) — пойми, что за продукт/сообщение и какие есть кадры.
+0. ИСТОЧНИКИ: делай ролик из материалов, которые прикрепил пользователь (list_materials), и из его задачи. Если в проекте остались слои, фон или тексты от прошлой работы, а пользователь прикрепил новые материалы или просит новый ролик, — НЕ бери оттуда ничего (ни видео, ни тексты): сразу new_project. Дорабатывай текущий проект, только если пользователь прямо об этом просит («доработай», «поправь этот ролик»).
+1. Посмотри материалы (list_materials, view_file для кадров) и при необходимости проект (get_project) — пойми, что за продукт/сообщение и какие есть кадры. Если подключена дизайн-система (роль brand, «ДС …»), сначала прочитай её правила и посмотри логотип: цвета, шрифты, логотип и тон — только из неё.
 2. Сначала коротко напиши ПЛАН АНИМАЦИИ: сцены по секундам, что появляется, как движется, переходы, где текст. Затем сразу делай.
 3. Собирай: размер и длительность (set_canvas), фон (set_background — фото/видео из материалов или цвет), слои (add_layer), анимации (animate, set_keyframes). Кадры из нескольких картинок — по очереди с переходами (появление/выезд/шторка), не все сразу.
 4. Хороший моушн: каждое появление с движением и плавностью (easeOut/backOut), паузы для чтения текста (≥1.5 с), акцент на главном, финальный кадр с логотипом/призывом держится ≥1.5 с. Текст крупный и контрастный, не у самых краёв (поля ≥6% кадра).
@@ -1026,6 +1037,7 @@ const Motion = {
       T('view_file', 'Посмотреть картинку или страницу документа из материалов.', { path: str('Путь файла'), page: num('Страница') }, ['path']),
       T('read_file', 'Прочитать текстовый файл, таблицу, документ из материалов.', { path: str('Путь файла') }, ['path']),
       T('get_project', 'Проект: размер, длительность, фон, слои с id, временем, свойствами и ключами.'),
+      T('new_project', 'Начать новый чистый ролик (убрать все слои, фон и музыку прошлой работы).', { w: num('Ширина, px'), h: num('Высота, px'), name: str('Название') }),
       T('set_canvas', 'Размер кадра, частота и длительность ролика.', { w: num('Ширина, px'), h: num('Высота, px'), fps: num('Кадров в секунду'), duration: num('Длительность, с'), name: str('Название ролика') }),
       T('set_background', 'Фон ролика: цвет или фото/видео из материалов.', { color: str('Цвет #rrggbb'), path: str('Файл фото/видео из материалов'), fit: { type: 'string', enum: ['cover', 'contain'] }, dim: num('Затемнение 0..0.9'), zoom: num('Медленный наезд за ролик, 1..1.3'), start: num('Видео: начать с секунды'), audio: bool('Оставить звук видео') }),
       T('set_music', 'Музыка из материалов.', { path: str('Аудиофайл'), volume: num('Громкость 0..1'), start: num('Начать с секунды файла') }, ['path']),
@@ -1092,6 +1104,7 @@ const Motion = {
     switch (n) {
       case 'list_materials': case 'search_files': case 'view_file': case 'read_file': return Agent.exec(n, a);
       case 'get_project': return Motion.describe();
+      case 'new_project': { const P = Motion.newProject(a.w || Motion.p.w, a.h || Motion.p.h); if (a.name) P.name = a.name; Motion.load(P); return { ok: true, w: P.w, h: P.h }; }
       case 'set_canvas': {
         if (a.w && a.h && (a.w !== P.w || a.h !== P.h)) Motion.resize(+a.w, +a.h);
         if (a.fps) P.fps = +a.fps;

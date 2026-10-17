@@ -204,18 +204,78 @@ const Polza = {
       const t = await b.text();
       if (/<svg[\s>]/i.test(t)) return t;
     }
-    return Polza.trace(image, { colors, palette });
+    return Polza.trace(image, { colors, palette, detail: arguments[1] && arguments[1].detail, smooth: arguments[1] && arguments[1].smooth, removeBg: arguments[1] && arguments[1].removeBg });
   },
-  async trace(image, { colors = 8, palette } = {}) {
+  // трассировка на компьютере: число цветов, детализация, сглаживание, фирменная палитра, без фона
+  async trace(image, { colors = 8, palette, detail = 'mid', smooth = 0, removeBg = false, maxSide = 1600 } = {}) {
     const T = await Host.lib('tracer');
-    const img = await Polza.loadImage(image);
-    const k = Math.min(1, 1600 / Math.max(img.width, img.height));
-    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    const img = image instanceof HTMLImageElement || image instanceof HTMLCanvasElement ? image : await Polza.loadImage(image);
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+    const k = Math.min(1, maxSide / Math.max(iw, ih));
+    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k));
     const g = c.getContext('2d'); g.drawImage(img, 0, 0, c.width, c.height);
     const data = g.getImageData(0, 0, c.width, c.height);
-    const opt = { numberofcolors: colors, ltres: 1, qtres: 1, pathomit: 8, blurradius: 0, strokewidth: 0, viewbox: true };
+    const D = { low: { ltres: 3, qtres: 3, pathomit: 24 }, mid: { ltres: 1, qtres: 1, pathomit: 8 }, high: { ltres: 0.5, qtres: 0.5, pathomit: 2 }, max: { ltres: 0.2, qtres: 0.2, pathomit: 0 } }[detail] || {};
+    const opt = Object.assign({ numberofcolors: colors, blurradius: smooth, blurdelta: 20, strokewidth: 0, viewbox: true, colorquantcycles: 4, mincolorratio: 0 }, D);
     if (palette && palette.length) opt.pal = palette.map(hx => { const [r, gg, b] = Color.hexToRgb(hx); return { r, g: gg, b, a: 255 }; });
-    return T.imagedataToSVG(data, opt);
+    let svg = T.imagedataToSVG(data, opt);
+    if (removeBg) {
+      // фон — цвет углов картинки: такие контуры удаляются
+      const P = data.data, W = c.width, H = c.height, cs = [0, (W - 1) * 4, (H - 1) * W * 4, ((H - 1) * W + W - 1) * 4];
+      const bg = cs.map(i => [P[i], P[i + 1], P[i + 2]]).reduce((a, x) => [a[0] + x[0] / 4, a[1] + x[1] / 4, a[2] + x[2] / 4], [0, 0, 0]);
+      svg = svg.replace(/<path[^>]*fill="rgb\((\d+),(\d+),(\d+)\)"[^>]*\/>/g, (m, r, gg, bb) => (Math.abs(r - bg[0]) + Math.abs(gg - bg[1]) + Math.abs(bb - bg[2]) < 45 ? '' : m));
+    }
+    return svg;
+  },
+  // окно векторизации (как в плагинах Figma): настройки и живой просмотр; done(svg)
+  async vectorizeDialog(image, done, title = 'Векторизация') {
+    const O = Object.assign({ colors: 8, detail: 'mid', smooth: 0, removeBg: false, palette: '', how: 'local' }, (() => { try { return JSON.parse(localStorage.getItem('vektor.vectorize') || '{}'); } catch (e) { return {}; } })());
+    const img = await Polza.loadImage(image);
+    const colors = h('input', { type: 'range', min: 2, max: 64, value: O.colors }), colorsN = h('b', {}, O.colors);
+    const detail = UI.sel([['low', 'Низкая (меньше узлов)'], ['mid', 'Средняя'], ['high', 'Высокая'], ['max', 'Максимальная']], O.detail, () => upd(), '', 200);
+    const smooth = h('input', { type: 'range', min: 0, max: 5, value: O.smooth }), smoothN = h('b', {}, O.smooth);
+    const removeBg = h('input', { type: 'checkbox', checked: O.removeBg });
+    const pal = h('input', { type: 'text', class: 'wide', value: O.palette, placeholder: 'Фирменные цвета через запятую: #E30613, #1D1D1B (необязательно — тогда число цветов из ползунка)' });
+    const how = UI.sel([['local', 'На компьютере (трассировка)'], ['model', 'Модель Polza (если выбрана)']], O.how, () => upd(), '', 240);
+    const prev = h('div', { class: 'vz-prev' }), info = h('div', { class: 'muted small' });
+    const read = () => {
+      const palette = pal.value.split(/[,;\s]+/).map(x => x.trim()).filter(x => /^#?[0-9a-f]{6}$/i.test(x)).map(x => x[0] === '#' ? x : '#' + x);
+      return { colors: palette.length || +colors.value, detail: detail.value, smooth: +smooth.value, removeBg: removeBg.checked, palette, how: how.value };
+    };
+    let t = 0;
+    const upd = () => {
+      colorsN.textContent = colors.value; smoothN.textContent = smooth.value;
+      clearTimeout(t);
+      t = setTimeout(async () => {
+        const o = read();
+        if (o.how === 'model') { prev.innerHTML = ''; info.textContent = 'Векторизует модель Polza (просмотра нет).'; return; }
+        info.textContent = 'Строю просмотр…';
+        const svg = await Polza.trace(img, Object.assign({}, o, { maxSide: 420 }));
+        prev.innerHTML = svg.replace(/<svg /, '<svg style="max-width:100%;max-height:100%" ');
+        info.textContent = `Контуров в просмотре: ${(svg.match(/<path/g) || []).length}. В результате детализация будет выше.`;
+      }, 250);
+    };
+    for (const el of [colors, smooth, removeBg, pal]) el.addEventListener('input', upd);
+    UI.dialog(title, h('div', { class: 'form vz' },
+      h('div', { class: 'vz-cols' },
+        h('div', {},
+          h('label', {}, 'Цветов: ', colorsN, colors),
+          h('label', {}, 'Детализация', detail),
+          h('label', {}, 'Сглаживание: ', smoothN, smooth),
+          h('label', { class: 'row' }, removeBg, ' убрать фон (цвет углов картинки)'),
+          h('label', {}, 'Фирменная палитра', pal),
+          h('label', {}, 'Чем векторизовать', how),
+          Polza.pickRow('vector')),
+        h('div', {}, prev, info))),
+      [{ label: 'Отмена' }, { label: 'Векторизовать', primary: true, action: () => {
+        const o = read();
+        try { localStorage.setItem('vektor.vectorize', JSON.stringify(Object.assign({}, o, { palette: pal.value, colors: +colors.value }))); } catch (e) { }
+        withBusy('Векторизую…', async onStatus => {
+          const svg = o.how === 'model' && (Polza.media.vector || await Polza.pick('vector')) ? await Polza.vectorize(image, Object.assign({ onStatus }, o)) : await Polza.trace(image, o);
+          await done(svg, o);
+        });
+      } }]);
+    upd();
   },
   async chromaKey(blob) {
     const img = await Polza.loadImage(blob);
@@ -255,13 +315,14 @@ const Polza = {
   // opts: { system, tools, exec(name,args), history (массив, дополняется), onEvent(ev), maxSteps, shouldStop() }
   async agent(text, opts) {
     const H = opts.history;
+    if (typeof DS !== 'undefined') await DS.ready();
     H.push({ role: 'user', content: text });
     const ev = opts.onEvent || (() => { });
     let usage = { p: 0, c: 0 };
     for (let step = 0; step < (opts.maxSteps || +Agent.settings.maxSteps || 60); step++) {
       if (opts.shouldStop && opts.shouldStop()) { ev({ type: 'note', text: 'Остановлено.' }); break; }
       ev({ type: 'status', text: 'Думаю…' });
-      const js = await Agent.callModel([{ role: 'system', content: typeof opts.system === 'function' ? opts.system() : opts.system }, ...Polza.trim(H)], opts.tools);
+      const js = await Agent.callModel([{ role: 'system', content: (typeof opts.system === 'function' ? opts.system() : opts.system) + (typeof DS !== 'undefined' ? DS.prompt() : '') }, ...Polza.trim(H)], opts.tools);
       if (js.usage) { usage.p += js.usage.prompt_tokens || 0; usage.c += js.usage.completion_tokens || 0; }
       const msg = js.choices && js.choices[0] && js.choices[0].message;
       if (!msg) throw new Error('Пустой ответ модели');
