@@ -125,6 +125,7 @@ const FigmaWS = {
       B('← из Вектора', 'Выделенное в «Векторе» — сюда', () => FigmaWS.fromVektor()),
       B('→ Моушн', 'Выделенные кадры — слоями в «Моушн»', () => FigmaWS.toMotion()),
       h('span', { class: 'grow' }),
+      DS.chip(),
       B('⚙ Polza', 'Модели Polza для картинок и видео', () => Polza.settingsDialog()));
     const frame = h('iframe', { class: 'figframe', src: 'figma/index.html', allow: 'clipboard-read; clipboard-write; local-fonts' });
     const missing = h('div', { class: 'figmissing', style: { display: 'none' } },
