@@ -20,7 +20,7 @@ const Docs = {
     IO.lastCDRVersion = e.cdrVersion || 0;
     App.rotateMode = false; App.rotCenter = null;
     if (e.zoom) { App.zoom = e.zoom; App.panX = e.panX; App.panY = e.panY; UI.refresh(); UI.updateZoomBox(); }
-    else { App.zoomPage(); UI.refresh(); }
+    else { App.zoomFit(); UI.refresh(); }
   },
   blank() {
     return !App.dirty && !App.fileName && !IO.path && App.history.length <= 1 && App.countObjects() === 0;

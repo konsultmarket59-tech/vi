@@ -220,6 +220,13 @@ const App = {
     UI.refresh({ panels: false, doc: false }); UI.updateZoomBox();
   },
   zoomPage() { App.zoomBox({ x1: 0, y1: 0, x2: App.pg().w, y2: App.pg().h }); },
+  // лист, а если всё нарисовано на рабочем столе вокруг пустого листа (частый случай в Corel) — весь рисунок
+  zoomFit() {
+    const P = App.pg(), top = Model.topLevel();
+    const onPage = top.some(({ o }) => { const b = Model.worldBox(o); return G.boxValid(b) && b.x2 > 0 && b.y2 > 0 && b.x1 < P.w && b.y1 < P.h; });
+    if (!onPage && top.length) { App.zoomAll(); return true; }
+    App.zoomPage(); return false;
+  },
   zoomAll() {
     let b = G.emptyBox();
     Model.topLevel().forEach(({ o }) => { if (o.visible) b = G.unionBox(b, Model.worldBox(o)); });

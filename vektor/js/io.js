@@ -123,10 +123,8 @@ const IO = {
     d.name = name.replace(/\.\w+$/, '');
     App.doc = d; Model.syncSeq(d); App.sel = [];
     App.fileName = null; IO.handle = null; IO.path = null;
-    Text.cache.clear(); App.resetHistory(); App.dirty = false; App.autosave(); App.zoomPage(); UI.refresh();
-    // всё нарисовано на рабочем столе вокруг листа (частый случай в Corel) — показываем содержимое
-    const P = App.pg(), onPage = Model.topLevel().some(({ o }) => { const b = Model.worldBox(o); return G.boxValid(b) && b.x2 > 0 && b.y2 > 0 && b.x1 < P.w && b.y1 < P.h; });
-    if (!onPage && App.pg().layers.some(L => L.objects.length)) { App.zoomAll(); UI.toast('Объекты лежат за пределами листа — показан весь рисунок (F4 — всё, Shift+F4 — лист)'); }
+    Text.cache.clear(); App.resetHistory(); App.dirty = false; App.autosave(); UI.refresh();
+    if (App.zoomFit()) UI.toast('Объекты лежат за пределами листа — показан весь рисунок (F4 — всё, Shift+F4 — лист)');
     const n = pages.reduce((s, p) => s + p.objects.length, 0);
     UI.toast(`Открыт ${name}: страниц ${pages.length}, объектов ${n}`);
   },

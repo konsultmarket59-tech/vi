@@ -321,7 +321,8 @@ const UI = {
     for (const [id, horiz] of [['#rulerTop', true], ['#rulerLeft', false]]) {
       const c = UI.$(id), w = c.clientWidth, hh = c.clientHeight;
       if (!w || !hh) continue;
-      if (c.width !== w * dpr || c.height !== hh * dpr) { c.width = w * dpr; c.height = hh * dpr; }
+      const W = Math.round(w * dpr), H = Math.round(hh * dpr);
+      if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
       const ctx = c.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = bg; ctx.fillRect(0, 0, w, hh);
