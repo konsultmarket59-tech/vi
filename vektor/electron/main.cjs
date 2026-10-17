@@ -5,6 +5,27 @@ const { app, BrowserWindow, dialog, shell, ipcMain, session, protocol, net } = r
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { Readable } = require("node:stream");
+const { proxyAwareFetch, setProxyCredentials } = require("./netFetch.cjs");
+
+// Все запросы главного процесса (Polza, Figma, файлы моделей) — через сетевой стек Electron,
+// как в «Личном чате»: так учитываются системный прокси, VPN и пароль прокси.
+global.fetch = proxyAwareFetch;
+let cachedProxyAuth = { username: "", password: "" };
+// запросы из окна программы: пароль прокси — только прокси, не сайту
+app.on("login", (event, _wc, _details, authInfo, callback) => {
+  if (!authInfo.isProxy || !cachedProxyAuth.username) return;
+  event.preventDefault();
+  callback(cachedProxyAuth.username, cachedProxyAuth.password || "");
+});
+const NET_SETTINGS = () => path.join(app.getPath("userData"), "network.json");
+function loadNet() { try { return JSON.parse(fs.readFileSync(NET_SETTINGS(), "utf8")); } catch { return {}; } }
+async function applyProxySettings(s = {}) {
+  cachedProxyAuth = { username: s.proxyUsername || "", password: s.proxyPassword || "" };
+  setProxyCredentials(cachedProxyAuth.username, cachedProxyAuth.password);
+  const mode = s.proxyMode || "system";
+  const config = mode === "manual" && (s.proxyUrl || "").trim() ? { proxyRules: s.proxyUrl.trim() } : mode === "direct" ? { mode: "direct" } : { mode: "system" };
+  try { await session.defaultSession.setProxy(config); } catch (e) { console.error("Прокси не применён:", e); }
+}
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
@@ -70,7 +91,7 @@ async function handleVk(req) {
     const headers = new Headers(req.headers);
     for (const h of ["origin", "referer", "host", "cookie"]) headers.delete(h);
     const body = ["GET", "HEAD"].includes(req.method) ? undefined : await req.arrayBuffer();
-    const res = await net.fetch(target.href, { method: req.method, headers, body, bypassCustomProtocolHandlers: true });
+    const res = await proxyAwareFetch(target.href, { method: req.method, headers, body });
     const out = new Headers(res.headers);
     out.delete("content-encoding"); out.delete("content-length");
     return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
@@ -201,6 +222,48 @@ ipcMain.handle("win:capture", async (e, r) => {
   const k = Math.min(1, 1400 / Math.max(size.width, 1));
   const out = k < 1 ? img.resize({ width: Math.round(size.width * k) }) : img;
   return "data:image/jpeg;base64," + out.toJPEG(80).toString("base64");
+});
+
+// ---------- сеть: прокси и проверка подключения (как в «Личном чате») ----------
+ipcMain.handle("net:getSettings", () => { const s = loadNet(); return { proxyMode: s.proxyMode || "system", proxyUrl: s.proxyUrl || "", proxyUsername: s.proxyUsername || "", hasPassword: !!s.proxyPassword }; });
+ipcMain.handle("net:setSettings", async (e, s) => {
+  const cur = loadNet();
+  const next = { proxyMode: s.proxyMode || "system", proxyUrl: s.proxyUrl || "", proxyUsername: s.proxyUsername || "", proxyPassword: s.proxyPassword === undefined ? cur.proxyPassword || "" : s.proxyPassword };
+  await fsp.mkdir(path.dirname(NET_SETTINGS()), { recursive: true });
+  await fsp.writeFile(NET_SETTINGS(), JSON.stringify(next, null, 1), "utf8");
+  await applyProxySettings(next);
+  return true;
+});
+ipcMain.handle("net:test", async (e, { baseUrl, apiKey }) => {
+  await session.defaultSession.clearAuthCache();
+  const url = String(baseUrl || "https://polza.ai/api/v1").replace(/\/+$/, "") + "/models";
+  const t0 = Date.now();
+  try {
+    const res = await proxyAwareFetch(url, { headers: apiKey ? { Authorization: "Bearer " + apiKey } : {} });
+    const ms = Date.now() - t0;
+    if (res.status === 401 || res.status === 403) return { ok: false, ms, error: "Сервер отклонил ключ (" + res.status + "). Проверьте API-ключ." };
+    if (res.status === 407) return { ok: false, ms, error: "Прокси просит пароль (407): укажите логин и пароль прокси." };
+    if (!res.ok) return { ok: false, ms, error: "Соединение есть, но сервер ответил " + res.status + " " + res.statusText };
+    let models = 0; try { const js = await res.json(); models = (js.data || js.models || []).length; } catch { }
+    return { ok: true, ms, models };
+  } catch (err) {
+    const m = String(err && err.message || err);
+    const hint = /ERR_PROXY|ERR_TUNNEL/.test(m) ? "прокси недоступен или не пропускает" : /ERR_NAME_NOT_RESOLVED/.test(m) ? "адрес не найден (DNS) — нет интернета или его блокирует сеть" : /ERR_CONNECTION|ERR_TIMED_OUT|ERR_NETWORK/.test(m) ? "нет соединения — проверьте интернет, VPN или прокси" : /CERT/.test(m) ? "ошибка сертификата — сеть подменяет защищённое соединение" : m;
+    return { ok: false, error: "Не удалось подключиться: " + hint };
+  }
+});
+// ключ, модель и прокси — из «Личного чата» на этом же компьютере
+ipcMain.handle("pc:importSettings", async () => {
+  const appData = app.getPath("appData");
+  const names = ["Личный чат", "personal-chat", "Personal Chat"];
+  try { for (const d of await fsp.readdir(appData)) if (!names.includes(d)) names.push(d); } catch { }
+  for (const n of names) {
+    const f = path.join(appData, n, "settings.json");
+    let s; try { s = JSON.parse(await fsp.readFile(f, "utf8")); } catch { continue; }
+    if (!s || !s.apiKey || !("proxyMode" in s || /polza/i.test(s.baseUrl || ""))) continue;
+    return { ok: true, source: n, apiKey: s.apiKey, baseUrl: s.baseUrl || "https://polza.ai/api/v1", model: s.model || "", proxyMode: s.proxyMode || "system", proxyUrl: s.proxyUrl || "", proxyUsername: s.proxyUsername || "", proxyPassword: s.proxyPassword || "" };
+  }
+  return { ok: false };
 });
 
 // ---------- PDF: страницы печатаются скрытым окном Chromium в файл ----------
@@ -337,7 +400,8 @@ if (!gotLock) {
     win.focus();
     openFileInWindow(win, fileFromArgs(argv));
   });
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    await applyProxySettings(loadNet());
     protocol.handle("vk", (req) => handleVk(req).catch((e) => new Response(String(e && e.message || e), { status: 502 })));
     // шрифты системы (Local Font Access API) — без лишних вопросов
     session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(["local-fonts", "clipboard-read", "clipboard-sanitized-write"].includes(permission)));

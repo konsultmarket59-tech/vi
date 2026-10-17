@@ -16,6 +16,20 @@ const Agent = {
     try { Object.assign(Agent.settings, JSON.parse(localStorage.getItem('vektor.agent') || '{}')); } catch (e) { }
   },
   saveSettings() { try { localStorage.setItem('vektor.agent', JSON.stringify(Agent.settings)); } catch (e) { } },
+  // первый запуск: ключ, модель и прокси — из «Личного чата», если он есть на компьютере
+  async autoImport() {
+    Agent.load();
+    if (Agent.settings.apiKey || !(window.vkHost && vkHost.importPersonalChat)) return;
+    try {
+      const r = await vkHost.importPersonalChat();
+      if (!r.ok) return;
+      Object.assign(Agent.settings, { baseUrl: r.baseUrl, apiKey: r.apiKey }, r.model ? { model: r.model } : {});
+      Agent.saveSettings();
+      await vkHost.netSet({ proxyMode: r.proxyMode, proxyUrl: r.proxyUrl, proxyUsername: r.proxyUsername, proxyPassword: r.proxyPassword });
+      Agent.renderMaterials && Agent.renderMaterials();
+      UI.toast('Подключение к Polza взято из «Личного чата»', true);
+    } catch (e) { console.warn(e); }
+  },
   roleName(r) { return (Agent.ROLES.find(x => x[0] === r) || [, r])[1]; },
 
   // ================= материалы =================
@@ -918,13 +932,40 @@ const Agent = {
     const temp = h('input', { type: 'number', value: s.temperature, step: 0.1, min: 0, max: 2 });
     const steps = h('input', { type: 'number', value: s.maxSteps, min: 5, max: 300 });
     const load = h('button', { class: 'pbt', onclick: async () => { load.textContent = 'Загружаю…'; const list = await Agent.listModels(); dl.innerHTML = list.map(m => `<option value="${Render.esc(m)}">`).join(''); load.textContent = `Моделей: ${list.length}`; } }, 'Загрузить список моделей');
+    // сеть — как в «Личном чате»: системный прокси/VPN, свой прокси с паролем или напрямую
+    const desk = !!(window.vkHost && vkHost.netGet);
+    const net = desk ? await vkHost.netGet() : {};
+    const pmode = UI.sel([['system', 'Как в системе (VPN, прокси Windows)'], ['manual', 'Свой прокси'], ['direct', 'Напрямую, без прокси']], net.proxyMode || 'system', () => { prow.style.display = pmode.value === 'manual' ? '' : 'none'; }, '', 300);
+    const purl = h('input', { type: 'text', class: 'wide', value: net.proxyUrl || '', placeholder: 'http://адрес:порт' });
+    const puser = h('input', { type: 'text', value: net.proxyUsername || '', placeholder: 'логин' });
+    const ppass = h('input', { type: 'password', value: '', placeholder: net.hasPassword ? 'сохранён — оставьте пустым' : 'пароль' });
+    const prow = h('div', { class: 'form', style: { display: pmode.value === 'manual' ? '' : 'none' } }, h('label', {}, 'Адрес прокси', purl), h('div', { class: 'row' }, puser, ppass));
+    const testOut = h('div', { class: 'muted' });
+    const saveNet = async () => { if (desk) await vkHost.netSet({ proxyMode: pmode.value, proxyUrl: purl.value.trim(), proxyUsername: puser.value.trim(), ...(ppass.value ? { proxyPassword: ppass.value } : {}) }); };
+    const test = h('button', { class: 'pbt', onclick: async () => {
+      testOut.textContent = 'Проверяю…';
+      await saveNet();
+      const r = desk ? await vkHost.netTest({ baseUrl: base.value.trim(), apiKey: key.value.trim() }) : await fetch(base.value.trim().replace(/\/+$/, '') + '/models').then(x => ({ ok: x.ok, ms: 0 })).catch(e => ({ ok: false, error: e.message }));
+      testOut.textContent = r.ok ? `✓ Подключение работает (${r.ms} мс${r.models ? ', моделей: ' + r.models : ''})` : '✕ ' + r.error;
+      testOut.style.color = r.ok ? 'var(--accent)' : '#c62828';
+    } }, 'Проверить подключение');
+    const fromPc = desk ? h('button', { class: 'pbt', onclick: async () => {
+      const r = await vkHost.importPersonalChat();
+      if (!r.ok) { testOut.textContent = '«Личный чат» на этом компьютере не найден или в нём нет ключа'; return; }
+      base.value = r.baseUrl; key.value = r.apiKey; if (r.model) model.value = r.model;
+      pmode.value = r.proxyMode; purl.value = r.proxyUrl; puser.value = r.proxyUsername; if (r.proxyPassword) ppass.value = r.proxyPassword;
+      prow.style.display = pmode.value === 'manual' ? '' : 'none';
+      testOut.textContent = 'Взято из «' + r.source + '»: ключ, адрес, модель и прокси. Нажмите «Сохранить».'; testOut.style.color = '';
+    } }, 'Взять из «Личного чата»') : '';
     UI.dialog('Подключение агента', h('div', { class: 'form' },
       h('p', { class: 'muted' }, 'Агент работает через Polza.ai (или другой OpenAI-совместимый сервис) по вашему ключу. Ключ хранится только на этом компьютере. Нужна модель с поддержкой инструментов и картинок (Claude, GPT, Gemini).'),
-      h('label', {}, 'Адрес API', base), h('label', {}, 'API-ключ', key), h('label', {}, 'Модель', model, dl), load,
+      fromPc, h('label', {}, 'Адрес API', base), h('label', {}, 'API-ключ', key), h('label', {}, 'Модель', model, dl), load,
+      ...(desk ? [h('label', {}, 'Подключение к интернету', pmode), prow] : []), test, testOut,
       h('label', {}, 'Температура (0 — точнее, 1 — творчески)', temp), h('label', {}, 'Максимум шагов на одну задачу', steps)),
     [{ label: 'Отмена' }, { label: 'Сохранить', primary: true, action: () => {
       Object.assign(s, { baseUrl: base.value.trim() || 'https://polza.ai/api/v1', apiKey: key.value.trim(), model: model.value.trim() || s.model, temperature: +temp.value || 0, maxSteps: +steps.value || 60 });
-      Agent.saveSettings(); Agent.renderMaterials();
+      Agent.saveSettings(); Agent.renderMaterials(); saveNet();
+      Polza._models = {};
     } }]);
   },
 };
