@@ -1,0 +1,1621 @@
+// Монтаж: таймлайн, чистка речи, клипы по смыслу и сборка ролика.
+//
+// Раздел устроен как CapCut: главная дорожка из кусков видео, дорожка текста,
+// дорожка звука и субтитры по словам. Отличие одно и главное — монтажёр здесь
+// ещё и агент: ему дают папку или файлы, он слушает, решает, что резать, и
+// раскладывает это по тем же дорожкам, которые человек потом правит руками.
+//
+// Всё, что делает агент, выражается В ТЕХ ЖЕ КУСКАХ ТАЙМЛАЙНА, что и ручная
+// работа. Вырезанное «э-э» — это не отдельный эффект поверх ролика, а просто
+// граница между двумя кусками. Поэтому любое решение агента видно на дорожке и
+// отменяется так же, как своё: растянуть кусок обратно.
+//
+// Логика нарезки по смыслу и проверки «клип понятен без контекста» перенесена
+// из конвейера clip-factory OpenMontage (AGPL-3.0, calesthio/OpenMontage), порог
+// и отступы тишины — из его silence_cutter.
+
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
+
+// ---------- холст, фильтры, переходы ----------
+
+const CANVAS_PRESETS = [
+  { id: "9:16", name: "9:16 — Reels, Shorts, TikTok, Клипы ВК", width: 1080, height: 1920 },
+  { id: "16:9", name: "16:9 — YouTube, презентация", width: 1920, height: 1080 },
+  { id: "1:1", name: "1:1 — квадрат для ленты", width: 1080, height: 1080 },
+  { id: "4:5", name: "4:5 — лента Instagram", width: 1080, height: 1350 },
+  { id: "4:3", name: "4:3 — классика", width: 1440, height: 1080 },
+];
+
+/**
+ * Как исходник встаёт в холст другой формы.
+ * «Заполнить» режет края — для говорящей головы это обычно и нужно, а точку
+ * кадрирования можно сдвинуть, чтобы лицо не уехало за край.
+ */
+const FIT_MODES = [
+  { id: "crop", name: "Заполнить (обрезать края)" },
+  { id: "blur", name: "Вписать на размытом фоне" },
+  { id: "fit", name: "Вписать с полями" },
+];
+
+/** Фильтры — именованные наборы цветокоррекции, как в CapCut. */
+const FILTERS = [
+  { id: "none", name: "Без фильтра", vf: "" },
+  { id: "vivid", name: "Сочный", vf: "eq=saturation=1.3:contrast=1.06" },
+  { id: "warm", name: "Тёплый", vf: "colorbalance=rs=0.07:gs=0.02:bs=-0.07:rm=0.04:bm=-0.04" },
+  { id: "cold", name: "Холодный", vf: "colorbalance=rs=-0.06:bs=0.08:rm=-0.03:bm=0.05" },
+  { id: "film", name: "Плёнка", vf: "curves=preset=vintage" },
+  { id: "contrast", name: "Контраст", vf: "curves=preset=medium_contrast" },
+  { id: "soft", name: "Мягкий", vf: "curves=preset=lighter,eq=saturation=0.9" },
+  { id: "bw", name: "Чёрно-белый", vf: "hue=s=0,eq=contrast=1.1" },
+  { id: "cinema", name: "Кино (бирюза и оранж)", vf: "colorbalance=rs=0.05:bs=-0.05:rh=-0.04:bh=0.06,eq=contrast=1.05:saturation=1.1" },
+];
+
+/** Переходы — имена фильтра xfade, подписанные по-человечески. */
+const TRANSITIONS = [
+  { id: "none", name: "Склейка (без перехода)" },
+  { id: "fade", name: "Растворение" },
+  { id: "fadeblack", name: "Через чёрный" },
+  { id: "fadewhite", name: "Через белый (вспышка)" },
+  { id: "slideleft", name: "Сдвиг влево" },
+  { id: "slideright", name: "Сдвиг вправо" },
+  { id: "slideup", name: "Сдвиг вверх" },
+  { id: "smoothleft", name: "Плавный сдвиг" },
+  { id: "zoomin", name: "Наезд" },
+  { id: "circleopen", name: "Круг" },
+  { id: "wipeleft", name: "Шторка" },
+  { id: "dissolve", name: "Зерно" },
+  { id: "radial", name: "Радар" },
+];
+
+/**
+ * Стили субтитров.
+ * Подсветка активного слова — то, ради чего субтитры по словам вообще делают:
+ * взгляд держится за подсвеченное слово и успевает за речью.
+ */
+const CAPTION_STYLES = [
+  { id: "karaoke", name: "Подсветка слова", hint: "Строка целиком, говорящееся слово — акцентом и чуть крупнее." },
+  { id: "bold", name: "Крупно, по 2–3 слова", hint: "ЗАГЛАВНЫМИ, толстая обводка, активное слово акцентом — как у блогеров." },
+  { id: "pop", name: "По одному слову", hint: "Одно слово в центре, выпрыгивает. Для динамичных роликов." },
+  { id: "box", name: "Плашка", hint: "Строка на подложке, активное слово акцентом. Читается на любом фоне." },
+  { id: "clean", name: "Простые", hint: "Белые с обводкой, без подсветки. Для интервью и обучающих." },
+];
+
+/** Стили надписей поверх ролика. */
+const TEXT_STYLES = [
+  { id: "hook", name: "Хук (плашка сверху)" },
+  { id: "title", name: "Заголовок по центру" },
+  { id: "lower", name: "Подпись снизу" },
+  { id: "label", name: "Метка" },
+  { id: "plain", name: "Простой текст" },
+];
+
+const TEXT_ANIMATIONS = [
+  { id: "pop", name: "Выпрыгивает" },
+  { id: "fade", name: "Проявляется" },
+  { id: "slide", name: "Выезжает снизу" },
+  { id: "type", name: "Печатается" },
+  { id: "none", name: "Без анимации" },
+];
+
+const VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mts", ".m2ts", ".ts", ".3gp", ".wmv", ".mxf", ".flv", ".mpg", ".mpeg"]);
+const AUDIO_EXT = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".wma", ".amr"]);
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
+
+function mediaKind(file) {
+  const ext = path.extname(String(file || "")).toLowerCase();
+  if (VIDEO_EXT.has(ext)) return "video";
+  if (AUDIO_EXT.has(ext)) return "audio";
+  if (IMAGE_EXT.has(ext)) return "image";
+  return "";
+}
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+const round3 = (v) => Math.round(v * 1000) / 1000;
+
+function uid(prefix = "id") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// ---------- слова и паразиты ----------
+
+/**
+ * Звуки-заполнители: «э-э», «м-м», «а-а». Их режем всегда — смысла в них нет.
+ *
+ * Одиночное «а» сюда не входит нарочно: «а потом», «а если» — союз, и вырезать
+ * его значит ломать фразу. Заполнителем считается только растянутое «аа».
+ */
+const SOUND_FILLER = /^(э+|ээ+м*|э+м+|а{2,}|а+м+|м{2,}|мм+|хм+|гм+|ам+|эх+|ой+-?ой|uh+|um+|erm+|hmm+|ah{2,})$/i;
+
+/**
+ * Слова-паразиты. В отличие от звуков, они бывают и нужными словами: «вот
+ * почему», «ну конечно», «как бы ты поступил». Поэтому механически режутся
+ * только безопасные (режим «safe»), а остальные решает агент по смыслу.
+ */
+const WORD_FILLERS_SAFE = ["типа", "короче", "как бы", "это самое", "так сказать", "в общем-то", "ну вот", "собственно говоря", "скажем так", "грубо говоря"];
+const WORD_FILLERS_MAYBE = ["ну", "вот", "значит", "в общем", "в принципе", "собственно", "кстати", "слушай", "смотри", "понимаешь", "знаешь", "реально", "прям", "просто", "блин"];
+
+/** Слово без пунктуации и в нижнем регистре — для сравнения, не для показа. */
+function normWord(w) {
+  return String(w || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^\p{L}\p{N}-]+/gu, "")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Текст куска в слова. Пунктуация остаётся при слове — она нужна субтитрам. */
+function splitWords(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => normWord(w) || /\d/.test(w));
+}
+
+/**
+ * Время слов внутри куска, когда распознавание дало время только куску.
+ *
+ * Слова раскладываются не по всему куску, а только по тем его участкам, где
+ * звучит речь: тишина внутри куска из расчёта выбрасывается. Иначе пауза в
+ * середине фразы размазалась бы по словам, и граница реза пришлась бы на
+ * середину слова. Длина слова — по числу букв плюс постоянная добавка: короткие
+ * слова произносятся не пропорционально короче.
+ */
+function layoutWords(words, from, to, silences = []) {
+  if (!words.length) return [];
+  const speech = [];
+  let cursor = from;
+  for (const s of silences) {
+    if (s.end <= from || s.start >= to) continue;
+    if (s.start > cursor) speech.push([cursor, Math.min(s.start, to)]);
+    cursor = Math.max(cursor, s.end);
+  }
+  if (cursor < to) speech.push([cursor, to]);
+  const speechTotal = speech.reduce((a, [s, e]) => a + (e - s), 0);
+  // Кусок целиком попал в «тишину» — значит, порог задан грубо; раскладываем по всему куску.
+  const spans = speechTotal > 0.05 ? speech : [[from, to]];
+  const total = spans.reduce((a, [s, e]) => a + (e - s), 0);
+  const weights = words.map((w) => normWord(w).length + 2);
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  // Позиция на «речевой» оси → настоящее время.
+  const toTime = (x) => {
+    let left = x;
+    for (const [s, e] of spans) {
+      const len = e - s;
+      if (left <= len + 1e-9) return s + left;
+      left -= len;
+    }
+    return spans[spans.length - 1][1];
+  };
+  const out = [];
+  let acc = 0;
+  for (let i = 0; i < words.length; i++) {
+    const a = (acc / sum) * total;
+    acc += weights[i];
+    const b = (acc / sum) * total;
+    out.push({ w: words[i], s: round3(toTime(a)), e: round3(toTime(b)) });
+  }
+  return out;
+}
+
+/**
+ * Слова, где у распознавания было время по словам: подрезаем хвосты, уходящие
+ * в тишину. Whisper часто растягивает последнее слово фразы на всю паузу после
+ * него, и рез «после слова» тогда оставлял бы паузу целиком.
+ */
+function trimIntoSilence(words, silences = []) {
+  return words.map((word) => {
+    let { s, e } = word;
+    for (const sil of silences) {
+      if (sil.start > s && sil.start < e && sil.end >= e - 0.02) e = sil.start;
+      if (sil.end > s && sil.end < e && sil.start <= s + 0.02) s = sil.end;
+    }
+    return { ...word, s: round3(s), e: round3(Math.max(e, s + 0.04)) };
+  });
+}
+
+/**
+ * Пометить заполнители и повторы.
+ *  - filler: "sound" — «э-э», режется всегда;
+ *  - filler: "word" — безопасный паразит («типа», «короче»);
+ *  - filler: "maybe" — возможно паразит, решает агент;
+ *  - repeat: true — запинка: то же слово сразу ещё раз («я я думаю»).
+ */
+function markFillers(words) {
+  const out = words.map((w) => ({ ...w, filler: undefined, repeat: undefined }));
+  const norms = out.map((w) => normWord(w.w));
+  for (let i = 0; i < out.length; i++) {
+    const n = norms[i];
+    if (!n) continue;
+    if (SOUND_FILLER.test(n.replace(/-/g, ""))) {
+      out[i].filler = "sound";
+      continue;
+    }
+    // Многословные паразиты сверяются по склеенным соседям.
+    for (const list of [WORD_FILLERS_SAFE, WORD_FILLERS_MAYBE]) {
+      for (const phrase of list) {
+        const parts = phrase.split(" ");
+        if (parts.every((p, k) => norms[i + k] === p)) {
+          const kind = list === WORD_FILLERS_SAFE ? "word" : "maybe";
+          for (let k = 0; k < parts.length; k++) if (!out[i + k].filler) out[i + k].filler = kind;
+        }
+      }
+    }
+    // Запинка: то же слово подряд и почти без паузы. Режем первое — второе обычно
+    // сказано уверенно и с правильной интонацией.
+    const next = norms[i + 1];
+    if (next && next === n && n.length <= 12 && out[i + 1].s - out[i].e < 0.6) out[i].repeat = true;
+  }
+  return out;
+}
+
+/**
+ * Слова записи из того, что вернуло распознавание.
+ * @param {{segments?: {from:number,to:number,text:string}[], words?: {w:string,s:number,e:number}[]}} asr
+ * @param {{start:number,end:number}[]} silences
+ */
+function buildWords(asr, silences = []) {
+  let words;
+  let wordLevel = false;
+  if (Array.isArray(asr.words) && asr.words.length) {
+    wordLevel = true;
+    words = trimIntoSilence(
+      asr.words
+        .map((w) => ({ w: String(w.w ?? w.word ?? w.text ?? "").trim(), s: num(w.s ?? w.start, 0), e: num(w.e ?? w.end, 0) }))
+        .filter((w) => w.w),
+      silences
+    );
+  } else {
+    words = [];
+    for (const seg of asr.segments || []) {
+      words.push(...layoutWords(splitWords(seg.text), num(seg.from, 0), num(seg.to, 0), silences));
+    }
+  }
+  words.sort((a, b) => a.s - b.s);
+  return { words: markFillers(words), wordLevel };
+}
+
+/** Разбор вывода silencedetect. */
+function parseSilences(stderr, total = Infinity) {
+  const out = [];
+  let start = null;
+  for (const line of String(stderr || "").split(/\r?\n/)) {
+    const a = line.match(/silence_start:\s*(-?[\d.]+)/);
+    if (a) start = Math.max(0, Number(a[1]));
+    const b = line.match(/silence_end:\s*([\d.]+)/);
+    if (b && start !== null) {
+      out.push({ start: round3(start), end: round3(Number(b[1])) });
+      start = null;
+    }
+  }
+  // Тишина до самого конца файла не закрывается строкой silence_end.
+  if (start !== null && Number.isFinite(total)) out.push({ start: round3(start), end: round3(total) });
+  return out;
+}
+
+// ---------- что оставить ----------
+
+const CLEANUP_DEFAULTS = {
+  // Отступы вокруг слова, чтобы не съесть первую и последнюю согласную.
+  padBefore: 0.06,
+  padAfter: 0.09,
+  // Пауза длиннее этой — режется, от неё остаётся keepPause.
+  maxPause: 0.35,
+  keepPause: 0.14,
+  removeSound: true,
+  removeWords: "safe", // safe | all | none
+  removeRepeats: true,
+  // Слишком короткий кусок между резами — скорее щелчок, чем речь.
+  minPiece: 0.25,
+};
+
+/**
+ * Режется ли слово при чистке.
+ * @param {Set<number>} cutSet — номера слов, которые вырезал человек или агент
+ */
+function isCut(word, index, cutSet, opts) {
+  if (cutSet && cutSet.has(index)) return true;
+  if (word.keep) return false;
+  if (opts.removeSound && word.filler === "sound") return true;
+  if (opts.removeWords !== "none" && word.filler === "word") return true;
+  if (opts.removeWords === "all" && word.filler === "maybe") return true;
+  if (opts.removeRepeats && word.repeat) return true;
+  return false;
+}
+
+/**
+ * Куски записи, которые остаются после чистки, — в секундах исходника.
+ *
+ * Работает по словам, а не по громкости: громкость не отличает «э-э» от слова,
+ * а по словам видно и паразита, и паузу между ними. Длинная пауза не
+ * выбрасывается целиком, от неё остаётся короткий вдох — без него речь
+ * склеивается в сплошной поток и звучит как ускоренная.
+ *
+ * @param {Array<{w:string,s:number,e:number}>} words
+ * @param {{from?:number,to?:number,cut?:Set<number>}} range
+ */
+function planKeeps(words, range = {}, options = {}) {
+  const opts = { ...CLEANUP_DEFAULTS, ...options };
+  const from = num(range.from, -Infinity);
+  const to = num(range.to, Infinity);
+  const kept = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w.e <= from || w.s >= to) continue;
+    if (isCut(w, i, range.cut, opts)) continue;
+    kept.push({ i, s: Math.max(w.s, from), e: Math.min(w.e, to) });
+  }
+  const pieces = [];
+  for (let k = 0; k < kept.length; k++) {
+    const w = kept[k];
+    const prev = kept[k - 1];
+    // Соседи по записи (без вырезанного между ними) и пауза короткая — один кусок.
+    const adjacent = prev && w.i === prev.i + 1;
+    const gap = prev ? w.s - prev.e : Infinity;
+    const last = pieces[pieces.length - 1];
+    if (last && adjacent && gap <= opts.maxPause) {
+      last.to = w.e + opts.padAfter;
+      last.lastWord = w.i;
+      continue;
+    }
+    if (last && adjacent && gap > opts.maxPause) {
+      // Длинная пауза между соседями: оставить короткий вдох, поделив его поровну.
+      const half = opts.keepPause / 2;
+      last.to = Math.min(prev.e + Math.max(opts.padAfter, half), w.s);
+      pieces.push({ from: Math.max(w.s - Math.max(opts.padBefore, half), last.to), to: w.e + opts.padAfter, firstWord: w.i, lastWord: w.i });
+      continue;
+    }
+    // Между кусками было вырезанное слово: рез ровно по краям слов, без пауз.
+    if (last) last.to = Math.min(last.to, prev.e + opts.padAfter, w.s);
+    pieces.push({ from: Math.max(w.s - opts.padBefore, last ? last.to : -Infinity, from === -Infinity ? 0 : from - opts.padBefore, 0), to: w.e + opts.padAfter, firstWord: w.i, lastWord: w.i });
+  }
+  // Отступ после последнего слова не должен залезать на следующее, которое вырезано.
+  for (const p of pieces) {
+    const after = words[p.lastWord + 1];
+    if (after && isCut(after, p.lastWord + 1, range.cut, opts)) p.to = Math.min(p.to, Math.max(after.s, words[p.lastWord].e));
+    const before = words[p.firstWord - 1];
+    if (before && isCut(before, p.firstWord - 1, range.cut, opts)) p.from = Math.max(p.from, Math.min(before.e, words[p.firstWord].s));
+    if (Number.isFinite(to)) p.to = Math.min(p.to, to + opts.padAfter);
+  }
+  return pieces
+    .map((p) => ({ ...p, from: round3(Math.max(0, p.from)), to: round3(p.to) }))
+    .filter((p) => p.to - p.from >= opts.minPiece);
+}
+
+/** Сколько секунд убирает чистка — показывается человеку до того, как он нажал. */
+function cleanupStats(words, range, options) {
+  const pieces = planKeeps(words, range, options);
+  const opts = { ...CLEANUP_DEFAULTS, ...options };
+  const start = Number.isFinite(range?.from) ? range.from : words.length ? words[0].s : 0;
+  const end = Number.isFinite(range?.to) ? range.to : words.length ? words[words.length - 1].e : 0;
+  let sound = 0;
+  let word = 0;
+  let repeats = 0;
+  words.forEach((w, i) => {
+    if (w.e <= start || w.s >= end || !isCut(w, i, range?.cut, opts)) return;
+    if (w.filler === "sound") sound++;
+    else if (w.filler) word++;
+    else if (w.repeat) repeats++;
+  });
+  const keptSeconds = pieces.reduce((a, p) => a + (p.to - p.from), 0);
+  return {
+    pieces: pieces.length,
+    before: round3(Math.max(0, end - start)),
+    after: round3(keptSeconds),
+    removedSounds: sound,
+    removedWords: word,
+    removedRepeats: repeats,
+  };
+}
+
+// ---------- таймлайн ----------
+
+const SPEED_MIN = 0.25;
+const SPEED_MAX = 4;
+
+function defaultCaptions() {
+  return {
+    enabled: false,
+    style: "karaoke",
+    font: "",
+    fontPath: "",
+    size: 72,
+    color: "#FFFFFF",
+    highlight: "#FFD400",
+    outline: "#000000",
+    position: "bottom", // bottom | center | top
+    upper: false,
+    wordsPerLine: 4,
+  };
+}
+
+function normalizeClip(raw = {}) {
+  const kind = raw.kind || mediaKind(raw.src) || "video";
+  const inn = Math.max(0, num(raw.in, 0));
+  const out = Math.max(inn + 0.05, num(raw.out, inn + (kind === "image" ? 3 : 1)));
+  const tr = raw.transition || {};
+  const adj = raw.adjust || {};
+  return {
+    id: raw.id || uid("clip"),
+    src: String(raw.src || ""),
+    kind,
+    in: round3(inn),
+    out: round3(out),
+    speed: clamp(num(raw.speed, 1), SPEED_MIN, SPEED_MAX),
+    volume: clamp(num(raw.volume, 1), 0, 4),
+    muted: !!raw.muted,
+    fadeIn: clamp(num(raw.fadeIn, 0), 0, 5),
+    fadeOut: clamp(num(raw.fadeOut, 0), 0, 5),
+    // Переход В этот кусок из предыдущего.
+    transition: { kind: TRANSITIONS.some((t) => t.id === tr.kind) ? tr.kind : "none", duration: clamp(num(tr.duration, 0.4), 0.1, 2) },
+    fit: FIT_MODES.some((f) => f.id === raw.fit) ? raw.fit : "",
+    focusX: clamp(num(raw.focusX, 0.5), 0, 1),
+    focusY: clamp(num(raw.focusY, 0.5), 0, 1),
+    zoom: clamp(num(raw.zoom, 1), 1, 3),
+    adjust: {
+      brightness: clamp(num(adj.brightness, 0), -0.5, 0.5),
+      contrast: clamp(num(adj.contrast, 1), 0.5, 2),
+      saturation: clamp(num(adj.saturation, 1), 0, 3),
+      filter: FILTERS.some((f) => f.id === adj.filter) ? adj.filter : "none",
+    },
+    label: String(raw.label || ""),
+  };
+}
+
+function normalizeText(raw = {}) {
+  const start = Math.max(0, num(raw.start, 0));
+  return {
+    id: raw.id || uid("text"),
+    text: String(raw.text ?? "Текст"),
+    start: round3(start),
+    end: round3(Math.max(start + 0.2, num(raw.end, start + 2.5))),
+    style: TEXT_STYLES.some((s) => s.id === raw.style) ? raw.style : "title",
+    animation: TEXT_ANIMATIONS.some((a) => a.id === raw.animation) ? raw.animation : "pop",
+    position: ["top", "center", "bottom"].includes(raw.position) ? raw.position : "",
+    size: clamp(num(raw.size, 0), 0, 400),
+    color: raw.color || "",
+    bg: raw.bg || "",
+    upper: raw.upper === undefined ? true : !!raw.upper,
+  };
+}
+
+function normalizeAudio(raw = {}) {
+  const inn = Math.max(0, num(raw.in, 0));
+  return {
+    id: raw.id || uid("audio"),
+    src: String(raw.src || ""),
+    start: round3(Math.max(0, num(raw.start, 0))),
+    in: round3(inn),
+    out: round3(Math.max(inn + 0.1, num(raw.out, inn + 30))),
+    volume: clamp(num(raw.volume, 0.25), 0, 4),
+    fadeIn: clamp(num(raw.fadeIn, 0.5), 0, 10),
+    fadeOut: clamp(num(raw.fadeOut, 1.5), 0, 10),
+    // Приглушать музыку, пока звучит голос.
+    duck: raw.duck === undefined ? true : !!raw.duck,
+    loop: !!raw.loop,
+  };
+}
+
+function normalizeProject(raw = {}) {
+  const preset = CANVAS_PRESETS.find((p) => p.id === raw?.canvas?.preset) || CANVAS_PRESETS[0];
+  const canvas = raw.canvas || {};
+  const even = (v, d) => Math.max(16, Math.round(num(v, d) / 2) * 2);
+  return {
+    id: raw.id || uid("prj"),
+    title: String(raw.title || "Новый проект"),
+    createdAt: num(raw.createdAt, Date.now()),
+    updatedAt: num(raw.updatedAt, Date.now()),
+    canvas: {
+      preset: preset.id,
+      width: even(canvas.width, preset.width),
+      height: even(canvas.height, preset.height),
+      fps: clamp(Math.round(num(canvas.fps, 30)), 12, 60),
+      fit: FIT_MODES.some((f) => f.id === canvas.fit) ? canvas.fit : "crop",
+      background: canvas.background || "#000000",
+    },
+    clips: (raw.clips || []).map(normalizeClip).filter((c) => c.src),
+    texts: (raw.texts || []).map(normalizeText),
+    audio: (raw.audio || []).map(normalizeAudio).filter((a) => a.src),
+    captions: { ...defaultCaptions(), ...(raw.captions || {}) },
+    logo: raw.logo && raw.logo.path
+      ? { path: String(raw.logo.path), corner: raw.logo.corner || "top-right", size: clamp(num(raw.logo.size, 0.14), 0.03, 0.5), opacity: clamp(num(raw.logo.opacity, 1), 0.1, 1) }
+      : null,
+    audioFx: {
+      denoise: !!raw.audioFx?.denoise,
+      loudnorm: raw.audioFx?.loudnorm === undefined ? true : !!raw.audioFx.loudnorm,
+    },
+    design: raw.design && raw.design.dir ? { dir: String(raw.design.dir) } : null,
+    // Откуда проект: клип агента помнит свой хук и описание для публикации.
+    meta: raw.meta && typeof raw.meta === "object" ? raw.meta : {},
+  };
+}
+
+/** Длительность куска на выходе — с учётом скорости. */
+function clipDuration(clip) {
+  return Math.max(0.04, (clip.out - clip.in) / (clip.speed || 1));
+}
+
+/**
+ * Где каждый кусок стоит на выходе. Переход съедает время: следующий кусок
+ * начинается раньше, чем кончился предыдущий, на длину перехода.
+ */
+function layout(clips) {
+  const out = [];
+  let t = 0;
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    const dur = clipDuration(c);
+    let overlap = 0;
+    if (i > 0 && c.transition && c.transition.kind !== "none") {
+      overlap = Math.min(c.transition.duration, dur / 2, clipDuration(clips[i - 1]) / 2);
+    }
+    const start = Math.max(0, t - overlap);
+    out.push({ id: c.id, start: round3(start), end: round3(start + dur), duration: dur, overlap });
+    t = start + dur;
+  }
+  return { items: out, duration: round3(t) };
+}
+
+function projectDuration(project) {
+  const main = layout(project.clips).duration;
+  const texts = project.texts.reduce((a, t) => Math.max(a, t.end), 0);
+  // Музыка ролик не удлиняет: дорожка звука под ролик, а не ролик под музыку.
+  return main || texts;
+}
+
+/** Время исходника → время на выходе. null — это место вырезано. */
+function sourceToOutput(clips, src, t) {
+  const { items } = layout(clips);
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    if (c.src !== src || t < c.in - 1e-6 || t > c.out + 1e-6) continue;
+    return items[i].start + (t - c.in) / c.speed;
+  }
+  return null;
+}
+
+/** Время на выходе → кусок и время в исходнике. Для предпросмотра. */
+function outputToSource(clips, t) {
+  const { items } = layout(clips);
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (t >= items[i].start - 1e-6) {
+      const c = clips[i];
+      const local = clamp(t - items[i].start, 0, items[i].duration);
+      return { index: i, clip: c, time: c.in + local * c.speed, local };
+    }
+  }
+  return null;
+}
+
+/** Разрезать кусок в точке выхода t. */
+function splitAt(clips, t) {
+  const hit = outputToSource(clips, t);
+  if (!hit) return clips;
+  const { index, clip, time } = hit;
+  if (time - clip.in < 0.05 || clip.out - time < 0.05) return clips;
+  const a = { ...clip, out: round3(time) };
+  const b = { ...clip, id: uid("clip"), in: round3(time), transition: { kind: "none", duration: clip.transition.duration } };
+  return [...clips.slice(0, index), a, b, ...clips.slice(index + 1)];
+}
+
+/**
+ * Вырезать слова из куска: кусок распадается на части между вырезанным.
+ * Так работает монтаж по тексту — удалили слова в расшифровке, и на дорожке
+ * появился рез ровно там.
+ */
+function cutWordsFromClip(clip, words, cutSet) {
+  // Края куска не трогаются: в нём может быть и кадр без речи, и пауза перед
+  // первым словом, которую человек оставил нарочно. Режется ровно вырезанное.
+  const holes = [];
+  words.forEach((w, i) => {
+    if (!cutSet.has(i)) return;
+    const mid = (w.s + w.e) / 2;
+    if (mid < clip.in || mid > clip.out) return;
+    const last = holes[holes.length - 1];
+    if (last && last.last === i - 1) {
+      last.to = w.e;
+      last.last = i;
+    } else holes.push({ from: w.s, to: w.e, last: i });
+  });
+  if (!holes.length) return [clip];
+  const pieces = [];
+  let cursor = clip.in;
+  for (const h of holes) {
+    if (h.from - cursor > 0.04) pieces.push({ from: cursor, to: h.from });
+    cursor = Math.max(cursor, h.to);
+  }
+  if (clip.out - cursor > 0.04) pieces.push({ from: cursor, to: clip.out });
+  return piecesToClips(clip, pieces.map((p) => ({ from: round3(p.from), to: round3(p.to) })));
+}
+
+/**
+ * Куски записи → куски таймлайна, с теми же настройками, что у исходного.
+ * Подряд идущие резы в говорящей голове видно как «прыжок» кадра; чтобы его
+ * спрятать, чередуется лёгкий наезд — тот же приём, что у монтажёров вручную.
+ */
+function piecesToClips(base, pieces, { punchIn = 0 } = {}) {
+  return pieces.map((p, k) => ({
+    ...base,
+    id: k === 0 && base.id ? base.id : uid("clip"),
+    in: p.from,
+    out: p.to,
+    zoom: punchIn && k % 2 === 1 ? round3(Math.max(base.zoom || 1, 1 + punchIn)) : base.zoom || 1,
+    transition: k === 0 ? base.transition || { kind: "none", duration: 0.4 } : { kind: "none", duration: 0.4 },
+    fadeIn: k === 0 ? base.fadeIn || 0 : 0,
+    fadeOut: k === pieces.length - 1 ? base.fadeOut || 0 : 0,
+  }));
+}
+
+/** Убрать паузы и паразиты в куске таймлайна. */
+function cleanClip(clip, words, options = {}) {
+  const pieces = planKeeps(words, { from: clip.in, to: clip.out }, options);
+  if (!pieces.length) return [];
+  return piecesToClips(clip, pieces, { punchIn: options.punchIn || 0 });
+}
+
+// ---------- субтитры (ASS) ----------
+
+/** #RRGGBB → &HAABBGGRR, как пишет цвета ASS. alpha: 0 — непрозрачно. */
+function assColor(hex, alpha = 0) {
+  const m = String(hex || "").trim().match(/^#?([0-9a-f]{6})$/i);
+  const h = m ? m[1] : "FFFFFF";
+  const a = clamp(Math.round(alpha * 255), 0, 255).toString(16).padStart(2, "0").toUpperCase();
+  return `&H${a}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
+}
+
+function assTime(t) {
+  const v = Math.max(0, t);
+  const h = Math.floor(v / 3600);
+  const m = Math.floor((v % 3600) / 60);
+  const s = Math.floor(v % 60);
+  const cs = Math.floor((v * 100) % 100 + 1e-6);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+function assEscape(text) {
+  return String(text || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\{/g, "(")
+    .replace(/\}/g, ")")
+    .replace(/\r?\n/g, "\\N");
+}
+
+/** Светлый ли цвет — чтобы буквы на подложке были читаемы. */
+function isLight(hex) {
+  const m = String(hex || "").match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return false;
+  const [r, g, b] = [m[1], m[2], m[3]].map((x) => parseInt(x, 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6;
+}
+
+/**
+ * Слова на выходе: из каждого куска таймлайна — слова его записи, со временем
+ * на выходе. Вырезанные слова сюда не попадают сами собой: они лежат между
+ * кусками.
+ */
+function outputWords(project, transcripts) {
+  const { items } = layout(project.clips);
+  const out = [];
+  project.clips.forEach((clip, i) => {
+    const tr = transcripts[clip.src];
+    if (!tr || !Array.isArray(tr.words)) return;
+    for (const w of tr.words) {
+      const mid = (w.s + w.e) / 2;
+      if (mid < clip.in || mid > clip.out) continue;
+      const s = items[i].start + (Math.max(w.s, clip.in) - clip.in) / clip.speed;
+      const e = items[i].start + (Math.min(w.e, clip.out) - clip.in) / clip.speed;
+      out.push({ w: w.w, s: round3(s), e: round3(Math.max(e, s + 0.05)) });
+    }
+  });
+  return out.sort((a, b) => a.s - b.s);
+}
+
+/**
+ * Слова → строки субтитров. Строка рвётся на точке, на паузе и по числу слов:
+ * фраза, разорванная посередине мысли, читается хуже, чем чуть более длинная.
+ */
+function captionLines(words, { wordsPerLine = 4, maxChars = 28 } = {}) {
+  const lines = [];
+  let cur = [];
+  const flush = () => {
+    if (cur.length) lines.push({ words: cur, start: cur[0].s, end: cur[cur.length - 1].e });
+    cur = [];
+  };
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const prev = cur[cur.length - 1];
+    if (prev && w.s - prev.e > 0.7) flush();
+    const chars = cur.reduce((a, x) => a + x.w.length + 1, 0) + w.w.length;
+    if (cur.length >= wordsPerLine || (cur.length && chars > maxChars)) flush();
+    cur.push(w);
+    if (/[.!?…]$/.test(w.w)) flush();
+  }
+  flush();
+  // Строка держится до следующей, а не гаснет на последней букве: мигание на
+  // каждой короткой паузе утомляет сильнее, чем лишние полсекунды текста.
+  for (let i = 0; i < lines.length; i++) {
+    const next = lines[i + 1];
+    const hold = next ? Math.min(next.start, lines[i].end + 0.6) : lines[i].end + 0.4;
+    lines[i].end = Math.max(lines[i].end, hold);
+  }
+  return lines;
+}
+
+function captionText(word, upper) {
+  const t = upper ? word.toUpperCase() : word;
+  return assEscape(t);
+}
+
+/**
+ * Файл субтитров и надписей.
+ * @param {object} project
+ * @param {object[]} words — слова на выходе (outputWords)
+ * @param {{family?:string, textFamily?:string}} fonts — семейства, найденные в файлах шрифтов
+ */
+function buildAss(project, words, fonts = {}) {
+  const { width: W, height: H } = project.canvas;
+  const cap = { ...defaultCaptions(), ...project.captions };
+  const family = (fonts.family || cap.font || "Arial").replace(/,/g, " ");
+  const textFamily = (fonts.textFamily || family).replace(/,/g, " ");
+  const scale = Math.min(W, H) / 1080;
+  const capSize = Math.round(num(cap.size, 72) * scale);
+  const style = cap.style;
+  const posAlign = cap.position === "top" ? 8 : cap.position === "center" ? 5 : 2;
+  const marginV = cap.position === "center" ? 0 : Math.round(H * (cap.position === "top" ? 0.12 : 0.16));
+  const outline = style === "bold" ? Math.round(7 * scale) : style === "box" ? Math.round(14 * scale) : Math.round(4 * scale);
+  const borderStyle = style === "box" ? 3 : 1;
+  const boxColor = style === "box" ? assColor("#000000", 0.35) : assColor(cap.outline || "#000000");
+  const accent = cap.highlight || "#FFD400";
+
+  const styles = [
+    `Style: Caption,${family},${capSize},${assColor(cap.color)},${assColor(accent)},${boxColor},${style === "box" ? boxColor : assColor("#000000", 0.6)},1,0,0,0,100,100,0,0,${borderStyle},${outline},${style === "box" ? 0 : Math.round(2 * scale)},${posAlign},${Math.round(W * 0.07)},${Math.round(W * 0.07)},${marginV},1`,
+  ];
+  const textStyles = {
+    hook: { size: 76, align: 8, marginV: 0.1, box: true },
+    title: { size: 104, align: 5, marginV: 0, box: false },
+    lower: { size: 56, align: 1, marginV: 0.2, box: true },
+    label: { size: 46, align: 7, marginV: 0.06, box: true },
+    plain: { size: 64, align: 2, marginV: 0.3, box: false },
+  };
+  for (const [id, s] of Object.entries(textStyles)) {
+    const bg = id === "hook" || id === "label" ? accent : "#000000";
+    const fg = isLight(bg) && s.box ? "#0A0A0A" : "#FFFFFF";
+    styles.push(
+      `Style: T_${id},${textFamily},${Math.round(s.size * scale)},${assColor(fg)},${assColor(accent)},${s.box ? assColor(bg) : assColor("#000000")},${s.box ? assColor(bg) : assColor("#000000", 0.5)},1,0,0,0,100,100,0,0,${s.box ? 3 : 1},${s.box ? Math.round(18 * scale) : Math.round(5 * scale)},0,${s.align},${Math.round(W * 0.07)},${Math.round(W * 0.07)},${Math.round(H * s.marginV)},1`
+    );
+  }
+
+  const events = [];
+  const ev = (layer, start, end, styleName, text) =>
+    events.push(`Dialogue: ${layer},${assTime(start)},${assTime(end)},${styleName},,0,0,0,,${text}`);
+
+  if (cap.enabled && words.length) {
+    const upper = !!cap.upper || style === "bold";
+    const accentTag = `{\\c${assColor(accent)}}`;
+    const reset = "{\\r}";
+    if (style === "pop") {
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        const next = words[i + 1];
+        const end = next ? Math.min(next.s, w.e + 0.5) : w.e + 0.4;
+        ev(1, w.s, Math.max(end, w.s + 0.12), "Caption", `{\\an5\\fscx70\\fscy70\\t(0,90,\\fscx108\\fscy108)\\t(90,160,\\fscx100\\fscy100)}${captionText(w.w, upper)}`);
+      }
+    } else {
+      const per = style === "bold" ? Math.min(3, cap.wordsPerLine || 3) : cap.wordsPerLine || 4;
+      for (const line of captionLines(words, { wordsPerLine: per, maxChars: style === "bold" ? 20 : 30 })) {
+        if (style === "clean") {
+          ev(1, line.start, line.end, "Caption", line.words.map((w) => captionText(w.w, upper)).join(" "));
+          continue;
+        }
+        // По событию на каждое слово: строка та же, подсвечено говорящееся.
+        line.words.forEach((w, k) => {
+          const start = k === 0 ? line.start : w.s;
+          const end = k === line.words.length - 1 ? line.end : line.words[k + 1].s;
+          if (end - start < 0.01) return;
+          const pop = style === "bold" || style === "karaoke" ? "\\fscx112\\fscy112" : "";
+          const text = line.words
+            .map((x, j) => (j === k ? `${accentTag}{${pop}}${captionText(x.w, upper)}${reset}` : captionText(x.w, upper)))
+            .join(" ")
+            .replace(/\}\{/g, "");
+          ev(1, start, end, "Caption", text);
+        });
+      }
+    }
+  }
+
+  for (const t of project.texts) {
+    const tags = [];
+    if (t.position) tags.push(`\\an${t.position === "top" ? 8 : t.position === "center" ? 5 : 2}`);
+    if (t.size) tags.push(`\\fs${Math.round(t.size * scale)}`);
+    if (t.color) tags.push(`\\c${assColor(t.color)}`);
+    if (t.bg) tags.push(`\\3c${assColor(t.bg)}\\4c${assColor(t.bg)}`);
+    const dur = Math.max(0.2, t.end - t.start);
+    const ms = (v) => Math.round(Math.min(v, dur / 3) * 1000);
+    if (t.animation === "pop") tags.push(`\\fscx60\\fscy60\\t(0,${ms(0.12)},\\fscx110\\fscy110)\\t(${ms(0.12)},${ms(0.22)},\\fscx100\\fscy100)\\fad(60,${ms(0.2)})`);
+    else if (t.animation === "fade") tags.push(`\\fad(${ms(0.35)},${ms(0.3)})`);
+    else if (t.animation === "slide") tags.push(`\\fad(80,${ms(0.25)})\\frx50\\t(0,${ms(0.3)},\\frx0)`);
+    const raw = t.upper ? t.text.toUpperCase() : t.text;
+    const body = assEscape(raw);
+    if (t.animation === "type") {
+      // Печатается: по событию на каждую добавленную букву, последнее держится.
+      // Режется исходный текст, а экранируется каждый кусок: иначе срез мог бы
+      // прийтись посреди «\N» и оставить в кадре обратную косую черту.
+      const chars = Array.from(raw);
+      const step = Math.min(0.06, (dur * 0.5) / Math.max(1, chars.length));
+      for (let i = 1; i <= chars.length; i++) {
+        const st = t.start + (i - 1) * step;
+        const en = i === chars.length ? t.end : t.start + i * step;
+        ev(2, st, en, `T_${t.style}`, (tags.length ? `{${tags.join("")}}` : "") + assEscape(chars.slice(0, i).join("")));
+      }
+      continue;
+    }
+    ev(2, t.start, t.end, `T_${t.style}`, (tags.length ? `{${tags.join("")}}` : "") + body);
+  }
+
+  return [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${W}`,
+    `PlayResY: ${H}`,
+    "WrapStyle: 0",
+    "ScaledBorderAndShadow: yes",
+    "YCbCr Matrix: TV.709",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    ...styles,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ...events,
+    "",
+  ].join("\n");
+}
+
+// ---------- сборка через ffmpeg ----------
+
+/** atempo принимает 0.5–2; скорость вне этого — цепочкой. */
+function atempoChain(speed) {
+  const parts = [];
+  let s = speed;
+  while (s > 2) {
+    parts.push("atempo=2");
+    s /= 2;
+  }
+  while (s < 0.5) {
+    parts.push("atempo=0.5");
+    s /= 0.5;
+  }
+  if (Math.abs(s - 1) > 1e-3) parts.push(`atempo=${round3(s)}`);
+  return parts;
+}
+
+/** Цепочка видео для куска: кадрирование под холст, цвет, скорость. */
+function clipVideoFilter(clip, canvas) {
+  const { width: W, height: H, fps } = canvas;
+  const fit = clip.fit || canvas.fit || "crop";
+  const z = clip.zoom || 1;
+  const zw = Math.round((W * z) / 2) * 2;
+  const zh = Math.round((H * z) / 2) * 2;
+  const color = [];
+  const a = clip.adjust || {};
+  if (a.brightness || a.contrast !== 1 || a.saturation !== 1) {
+    color.push(`eq=brightness=${round3(a.brightness || 0)}:contrast=${round3(a.contrast ?? 1)}:saturation=${round3(a.saturation ?? 1)}`);
+  }
+  const preset = FILTERS.find((f) => f.id === a.filter);
+  if (preset && preset.vf) color.push(preset.vf);
+  const head = [`setpts=(PTS-STARTPTS)/${clip.speed || 1}`, `fps=${fps}`];
+  const crop = `crop=${W}:${H}:(iw-${W})*${round3(clip.focusX ?? 0.5)}:(ih-${H})*${round3(clip.focusY ?? 0.5)}`;
+  let graph;
+  if (fit === "fit") {
+    graph = [...head, `scale=${zw}:${zh}:force_original_aspect_ratio=decrease`, `pad=${Math.max(W, zw)}:${Math.max(H, zh)}:(ow-iw)/2:(oh-ih)/2:color=${canvas.background || "black"}`, crop, ...color].join(",");
+  } else if (fit === "blur") {
+    graph =
+      `${head.join(",")},split=2[bgsrc][fgsrc];` +
+      `[bgsrc]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:6,eq=brightness=-0.08[bg];` +
+      `[fgsrc]scale=${zw}:${zh}:force_original_aspect_ratio=decrease,crop='min(iw,${W})':'min(ih,${H})'[fg];` +
+      `[bg][fg]overlay=(W-w)/2:(H-h)/2${color.length ? "," + color.join(",") : ""}`;
+  } else {
+    graph = [...head, `scale=${zw}:${zh}:force_original_aspect_ratio=increase`, crop, ...color].join(",");
+  }
+  const dur = clipDuration(clip);
+  const tail = ["setsar=1", "format=yuv420p"];
+  if (clip.fadeIn > 0) tail.push(`fade=t=in:st=0:d=${round3(Math.min(clip.fadeIn, dur / 2))}`);
+  if (clip.fadeOut > 0) tail.push(`fade=t=out:st=${round3(Math.max(0, dur - clip.fadeOut))}:d=${round3(Math.min(clip.fadeOut, dur / 2))}`);
+  // Видео дотягивается последним кадром: длина куска считается по кадрам, и
+  // недостающий кадр в конце дал бы рассинхрон, растущий с каждым резом.
+  tail.push("tpad=stop_mode=clone:stop_duration=1");
+  return `${graph},${tail.join(",")}`;
+}
+
+function clipAudioFilter(clip, { denoise = false } = {}) {
+  const dur = clipDuration(clip);
+  const parts = ["asetpts=PTS-STARTPTS", ...atempoChain(clip.speed || 1)];
+  parts.push(`volume=${clip.muted ? 0 : round3(clip.volume ?? 1)}`);
+  if (denoise) parts.push("afftdn=nf=-25");
+  // Микро-затухание на каждом краю: рез посреди волны звучит щелчком.
+  const edge = 0.012;
+  parts.push(`afade=t=in:st=0:d=${Math.max(edge, round3(Math.min(clip.fadeIn || 0, dur / 2)))}`);
+  parts.push(`afade=t=out:st=${round3(Math.max(0, dur - Math.max(edge, clip.fadeOut || 0)))}:d=${Math.max(edge, round3(Math.min(clip.fadeOut || 0, dur / 2)))}`);
+  parts.push("aresample=48000", "aformat=sample_fmts=s16:channel_layouts=stereo", "apad");
+  return parts.join(",");
+}
+
+/** Длительность, округлённая до целых кадров. */
+function frameDuration(seconds, fps) {
+  return Math.max(1, Math.round(seconds * fps)) / fps;
+}
+
+/**
+ * Аргументы ffmpeg для одного куска.
+ *
+ * Каждый кусок сначала собирается в отдельный файл одинакового вида — размер
+ * холста, частота кадров, звук без сжатия. Почему не одним графом: кусков
+ * после чистки бывает под сотню, и граф на сто входов держит в памяти сто
+ * декодеров одновременно. Отдельные куски держат один, а склеиваются потом
+ * без перекодирования. Звук внутри кусков — PCM: у AAC на каждом стыке
+ * добавляется своя задержка, и на сотне резов голос уезжал бы от губ.
+ */
+function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false } = {}) {
+  const dur = frameDuration(clipDuration(clip), canvas.fps);
+  const srcDur = round3(dur * (clip.speed || 1) + 0.1);
+  const args = ["-y", "-hide_banner", "-loglevel", "error"];
+  if (clip.kind === "image") {
+    args.push("-loop", "1", "-framerate", String(canvas.fps), "-t", String(round3(dur + 0.1)), "-i", clip.src);
+  } else {
+    args.push("-ss", String(clip.in), "-t", String(srcDur), "-i", clip.src);
+  }
+  const silent = clip.kind === "image" || !hasAudio;
+  if (silent) args.push("-f", "lavfi", "-t", String(round3(dur + 0.1)), "-i", "anullsrc=r=48000:cl=stereo");
+  const vf = clipVideoFilter(clip, canvas);
+  const af = clipAudioFilter(clip, { denoise });
+  args.push(
+    "-filter_complex",
+    `[0:v]${vf}[v];[${silent ? 1 : 0}:a]${af}[a]`,
+    "-map", "[v]", "-map", "[a]",
+    "-t", String(round3(dur)),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p",
+    "-r", String(canvas.fps),
+    "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
+    outPath
+  );
+  return { args, duration: dur };
+}
+
+/**
+ * Куски группами: внутри группы — простые склейки (без перекодирования),
+ * между группами — переходы.
+ */
+function groupByTransitions(clips) {
+  const groups = [];
+  clips.forEach((c, i) => {
+    if (i === 0 || c.transition.kind !== "none") groups.push({ transition: i === 0 ? null : c.transition, indices: [i] });
+    else groups[groups.length - 1].indices.push(i);
+  });
+  return groups;
+}
+
+function concatList(files) {
+  // Путь в списке concat — в одинарных кавычках, кавычка внутри экранируется.
+  return files.map((f) => `file '${String(f).replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n") + "\n";
+}
+
+/**
+ * Итоговый граф: переходы между группами, субтитры, логотип, музыка, громкость.
+ * @param {{groups:{file:string,duration:number,transition:any}[], project:object, assFile?:string, fontsDir?:string, music:{src:string}[]}} plan
+ */
+function buildFinalArgs({ groups, project, assFile, fontsDir, outPath }) {
+  const { canvas } = project;
+  const args = ["-y", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-nostats"];
+  groups.forEach((g) => args.push("-i", g.file));
+  const filters = [];
+  let v = "[0:v]";
+  let a = "[0:a]";
+  let total = groups[0].duration;
+  if (groups.length > 1) {
+    // xfade требует одинаковой шкалы времени у входов, а склейка без
+    // перекодирования её не выравнивает.
+    groups.forEach((_g, i) => filters.push(`[${i}:v]settb=AVTB,fps=${canvas.fps}[g${i}]`));
+    v = "[g0]";
+  }
+  for (let i = 1; i < groups.length; i++) {
+    const g = groups[i];
+    const td = round3(Math.min(g.transition.duration, total / 2, g.duration / 2));
+    const off = round3(Math.max(0, total - td));
+    filters.push(`${v}[g${i}]xfade=transition=${g.transition.kind}:duration=${td}:offset=${off}[vx${i}]`);
+    filters.push(`${a}[${i}:a]acrossfade=d=${td}:c1=tri:c2=tri[ax${i}]`);
+    v = `[vx${i}]`;
+    a = `[ax${i}]`;
+    total = total + g.duration - td;
+  }
+
+  let inputIndex = groups.length;
+  if (project.logo && project.logo.path) {
+    args.push("-loop", "1", "-i", project.logo.path);
+    const lw = Math.round(canvas.width * project.logo.size);
+    const m = Math.round(Math.min(canvas.width, canvas.height) * 0.045);
+    const corner = project.logo.corner || "top-right";
+    const x = corner.endsWith("left") ? `${m}` : `W-w-${m}`;
+    const y = corner.startsWith("top") ? `${m}` : `H-h-${m}`;
+    filters.push(`[${inputIndex}:v]scale=${lw}:-1,format=rgba,colorchannelmixer=aa=${project.logo.opacity}[logo]`);
+    filters.push(`${v}[logo]overlay=${x}:${y}:shortest=1[vlogo]`);
+    v = "[vlogo]";
+    inputIndex++;
+  }
+
+  if (assFile) {
+    // Пути относительные: сборка идёт из рабочей папки. Путь Windows с
+    // двоеточием внутри фильтра ffmpeg пришлось бы экранировать в три слоя.
+    filters.push(`${v}ass=${assFile}${fontsDir ? `:fontsdir=${fontsDir}` : ""}[vsub]`);
+    v = "[vsub]";
+  }
+
+  const music = project.audio || [];
+  if (music.length) {
+    const labels = [];
+    music.forEach((m, k) => {
+      if (m.loop) args.push("-stream_loop", "-1");
+      args.push("-i", m.src);
+      const len = round3(Math.min(m.out - m.in, Math.max(0.1, total - m.start)));
+      const delay = Math.round(m.start * 1000);
+      filters.push(
+        `[${inputIndex}:a]atrim=start=${m.in}:duration=${len},asetpts=PTS-STARTPTS,volume=${m.volume},` +
+          `afade=t=in:st=0:d=${Math.min(m.fadeIn, len / 2)},afade=t=out:st=${round3(Math.max(0, len - m.fadeOut))}:d=${Math.min(m.fadeOut, len / 2)},` +
+          `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=${delay}|${delay}[m${k}]`
+      );
+      labels.push({ label: `[m${k}]`, duck: m.duck });
+      inputIndex++;
+    });
+    const ducked = labels.filter((l) => l.duck);
+    const plain = labels.filter((l) => !l.duck);
+    const voiceParts = [];
+    if (ducked.length) {
+      // Музыка приседает, пока звучит голос: голос — управляющий сигнал компрессора.
+      filters.push(`${a}asplit=2[voice][sc]`);
+      a = "[voice]";
+      const mixIn = ducked.map((l) => l.label).join("");
+      filters.push(`${mixIn}amix=inputs=${ducked.length}:normalize=0[musicd]`);
+      filters.push(`[musicd][sc]sidechaincompress=threshold=0.04:ratio=10:attack=15:release=350[ducked]`);
+      voiceParts.push("[ducked]");
+    }
+    voiceParts.push(...plain.map((l) => l.label));
+    filters.push(`${a}${voiceParts.join("")}amix=inputs=${1 + voiceParts.length}:normalize=0:duration=first[amix]`);
+    a = "[amix]";
+  }
+  if (project.audioFx && project.audioFx.loudnorm) {
+    // Громкость под соцсети: −14 LUFS, как у YouTube и Reels.
+    filters.push(`${a}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[anorm]`);
+    a = "[anorm]";
+  }
+  filters.push(`${v}format=yuv420p[vout]`);
+  args.push(
+    "-filter_complex_script", "graph.txt",
+    // Звук без обработки — это поток входа, а не выход графа: в скобках ffmpeg
+    // искал бы его среди меток графа и не нашёл.
+    "-map", "[vout]", "-map", /^\[\d+:a\]$/.test(a) ? a.slice(1, -1) : a,
+    "-t", String(round3(total)),
+    "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(canvas.fps),
+    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+    "-movflags", "+faststart",
+    outPath
+  );
+  return { args, graph: filters.join(";\n"), duration: round3(total) };
+}
+
+function runFfmpeg(bin, args, { cwd, onProgress, total, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { cwd, windowsHide: true });
+    let err = "";
+    let out = "";
+    const abort = () => child.kill("SIGKILL");
+    if (signal) signal.addEventListener("abort", abort, { once: true });
+    child.stdout.on("data", (d) => {
+      out += d.toString();
+      const lines = out.split(/\r?\n/);
+      out = lines.pop();
+      for (const line of lines) {
+        const m = line.match(/^out_time_(?:us|ms)=(\d+)/);
+        if (m && onProgress && total) onProgress(clamp(Number(m[1]) / 1e6 / total, 0, 1));
+      }
+    });
+    child.stderr.on("data", (d) => {
+      err += d.toString();
+      if (err.length > 20000) err = err.slice(-20000);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (signal) signal.removeEventListener("abort", abort);
+      if (signal && signal.aborted) return reject(new Error("Сборка остановлена."));
+      if (code === 0) resolve(err);
+      else reject(new Error(`ffmpeg завершился с ошибкой (${code}): ${err.trim().split("\n").slice(-6).join("\n")}`));
+    });
+  });
+}
+
+/** Тишина в записи — тем же ffmpeg, порог и минимальная длина из silence_cutter. */
+async function detectSilences(bin, file, { thresholdDb = -35, minDuration = 0.3, total } = {}) {
+  const stderr = await new Promise((resolve, reject) => {
+    const child = spawn(bin, ["-hide_banner", "-nostats", "-i", file, "-vn", "-af", `silencedetect=noise=${thresholdDb}dB:d=${minDuration}`, "-f", "null", "-"], { windowsHide: true });
+    let err = "";
+    child.stderr.on("data", (d) => (err += d.toString()));
+    child.on("error", reject);
+    child.on("close", () => resolve(err));
+  });
+  return parseSilences(stderr, total);
+}
+
+/** Есть ли в файле звук — без звука кусок получает тишину. */
+async function probeMedia(bin, file) {
+  const stderr = await new Promise((resolve) => {
+    const child = spawn(bin, ["-hide_banner", "-i", file], { windowsHide: true });
+    let err = "";
+    child.stderr.on("data", (d) => (err += d.toString()));
+    child.on("error", () => resolve(""));
+    child.on("close", () => resolve(err));
+  });
+  const d = stderr.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+  const v = stderr.match(/Stream #[^\n]*Video:[^\n]*?(\d{2,5})x(\d{2,5})/);
+  const fps = stderr.match(/(\d+(?:\.\d+)?) fps/);
+  const rot = stderr.match(/rotation of (-?[\d.]+)/) || stderr.match(/rotate\s*:\s*(-?\d+)/);
+  let width = v ? Number(v[1]) : 0;
+  let height = v ? Number(v[2]) : 0;
+  // Телефонное видео пишется лёжа с пометкой о повороте; ffmpeg поворачивает
+  // его сам, поэтому и размеры надо считать уже повёрнутые.
+  if (rot && Math.abs(Math.abs(Number(rot[1])) - 90) < 1) [width, height] = [height, width];
+  return {
+    duration: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0,
+    hasVideo: !!v && !/Video: (png|mjpeg)[^\n]*attached pic/.test(stderr),
+    hasAudio: /Stream #[^\n]*Audio:/.test(stderr),
+    width,
+    height,
+    fps: fps ? Number(fps[1]) : 0,
+  };
+}
+
+/**
+ * Собрать проект в mp4.
+ *
+ * Три шага: каждый кусок — в одинаковый промежуточный файл; куски без
+ * переходов — склейкой без перекодирования; группы — переходами, сверху
+ * субтитры, надписи, логотип и музыка. Рабочая папка стирается в любом случае.
+ */
+async function renderProject({ bin, project: raw, transcripts = {}, outPath, workDir, fontFiles = [], onProgress, signal }) {
+  const project = normalizeProject(raw);
+  const problems = validateProject(project);
+  if (problems.length) throw new Error(problems.join("\n"));
+  const report = (stage, progress, extra = {}) => onProgress && onProgress({ stage, progress, ...extra });
+  await fs.mkdir(workDir, { recursive: true });
+
+  const probes = new Map();
+  for (const c of project.clips) {
+    if (c.kind === "image" || probes.has(c.src)) continue;
+    probes.set(c.src, await probeMedia(bin, c.src));
+  }
+
+  // 1. Куски.
+  const segFiles = [];
+  for (let i = 0; i < project.clips.length; i++) {
+    if (signal && signal.aborted) throw new Error("Сборка остановлена.");
+    const clip = project.clips[i];
+    const info = probes.get(clip.src);
+    if (clip.kind !== "image" && info && !info.hasVideo) throw new Error(`«${path.basename(clip.src)}» — это звук, а не видео. Звук кладётся на звуковую дорожку.`);
+    const file = path.join(workDir, `seg-${String(i).padStart(4, "0")}.mkv`);
+    const { args, duration } = buildClipArgs(clip, project.canvas, file, { hasAudio: clip.kind === "image" ? false : !!(info && info.hasAudio), denoise: project.audioFx.denoise });
+    report("pieces", i / project.clips.length, { index: i, total: project.clips.length });
+    await runFfmpeg(bin, args, { signal });
+    segFiles.push({ file, duration });
+  }
+
+  // 2. Группы без переходов — склейкой.
+  const groups = [];
+  for (const [gi, g] of groupByTransitions(project.clips).entries()) {
+    const files = g.indices.map((i) => segFiles[i]);
+    const duration = files.reduce((a, f) => a + f.duration, 0);
+    let file = files[0].file;
+    if (files.length > 1) {
+      const list = path.join(workDir, `group-${gi}.txt`);
+      await fs.writeFile(list, concatList(files.map((f) => path.basename(f.file))), "utf-8");
+      file = path.join(workDir, `group-${gi}.mkv`);
+      await runFfmpeg(bin, ["-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", path.basename(list), "-c", "copy", path.basename(file)], { cwd: workDir, signal });
+    }
+    groups.push({ file: path.basename(file), duration, transition: g.transition });
+  }
+  report("join", 1);
+
+  // 3. Субтитры и надписи.
+  let assFile = "";
+  let fontsDir = "";
+  const words = project.captions.enabled ? outputWords(project, transcripts) : [];
+  if (words.length || project.texts.length) {
+    const fonts = {};
+    const usable = fontFiles.filter((f) => f && f.path);
+    if (usable.length) {
+      fontsDir = "fonts";
+      await fs.mkdir(path.join(workDir, fontsDir), { recursive: true });
+      const { familyFromFontFile } = require("./videostories.cjs");
+      for (const [k, f] of usable.entries()) {
+        try {
+          const buf = await fs.readFile(f.path);
+          await fs.writeFile(path.join(workDir, fontsDir, `font-${k}${path.extname(f.path).toLowerCase()}`), buf);
+          // ASS ищет шрифт по семейству, записанному внутри файла, а не по имени файла.
+          const family = familyFromFontFile(buf) || f.family;
+          if (f.role === "text") fonts.textFamily = family;
+          else if (!fonts.family) fonts.family = family;
+        } catch {
+          // нечитаемый шрифт — субтитры уйдут запасным, это видно по предупреждению
+        }
+      }
+    }
+    assFile = "captions.ass";
+    await fs.writeFile(path.join(workDir, assFile), buildAss(project, words, fonts), "utf-8");
+  }
+
+  const final = buildFinalArgs({ groups, project, assFile, fontsDir, outPath: path.resolve(outPath) });
+  await fs.writeFile(path.join(workDir, "graph.txt"), final.graph, "utf-8");
+  await runFfmpeg(bin, final.args, { cwd: workDir, total: final.duration, onProgress: (p) => report("encode", p), signal });
+  report("done", 1);
+  return { path: outPath, duration: final.duration, captions: words.length };
+}
+
+// ---------- ИИ-монтажёр ----------
+
+function stamp(t) {
+  const v = Math.max(0, t);
+  const m = Math.floor(v / 60);
+  const s = v - m * 60;
+  return `${String(m).padStart(2, "0")}:${s.toFixed(1).padStart(4, "0")}`;
+}
+
+/**
+ * Расшифровка для агента: фразы с номерами слов.
+ *
+ * Агент режет по номерам слов, а не по секундам. Секунды модель путает и
+ * выдумывает, а номер слова либо есть в тексте, либо нет — промах видно сразу.
+ * Паразиты помечены прямо в тексте, чтобы агент решал по смыслу, а не искал их.
+ */
+function transcriptForAgent(files, { maxWordsPerFile = 14000 } = {}) {
+  const lines = [];
+  files.forEach((f, fi) => {
+    const words = (f.words || []).slice(0, maxWordsPerFile);
+    const dur = f.duration ? ` · длительность ${stamp(f.duration)}` : "";
+    lines.push(`\n### Файл F${fi + 1}: ${f.name}${dur}${f.wordLevel ? "" : " · время слов приблизительное"}`);
+    let phrase = [];
+    const flush = () => {
+      if (!phrase.length) return;
+      const a = phrase[0];
+      const b = phrase[phrase.length - 1];
+      const text = phrase
+        .map(({ w }) => {
+          if (w.filler === "sound") return `[${w.w}]`;
+          if (w.filler) return `‹${w.w}›`;
+          if (w.repeat) return `${w.w}⁺`;
+          return w.w;
+        })
+        .join(" ");
+      lines.push(`F${fi + 1}:w${a.i}–w${b.i} [${stamp(a.w.s)}–${stamp(b.w.e)}] ${text}`);
+      phrase = [];
+    };
+    words.forEach((w, i) => {
+      const prev = phrase[phrase.length - 1];
+      if (prev && (w.s - prev.w.e > 0.8 || phrase.length >= 28)) flush();
+      phrase.push({ w, i });
+      if (/[.!?…]$/.test(w.w) && phrase.length >= 6) flush();
+    });
+    flush();
+    if ((f.words || []).length > maxWordsPerFile) lines.push(`(дальше файл обрезан: показаны первые ${maxWordsPerFile} слов)`);
+  });
+  return lines.join("\n");
+}
+
+/**
+ * Задание ИИ-монтажёру.
+ * @param {{files:object[], design?:string, canvas?:object, captionStyles?:object[]}} input
+ */
+function buildAgentPrompt({ files, design = "", canvas = CANVAS_PRESETS[0] }) {
+  return `Ты — ИИ-монтажёр в видеоредакторе. Тебе дана расшифровка записей с номерами слов. Человек говорит, что сделать
+(например «сделай 3 клипа по 30–60 секунд для рилс»), а ты решаешь, ЧТО вырезать и КАК подать.
+
+КАК ЧИТАТЬ РАСШИФРОВКУ
+- Строка: \`F1:w120–w148 [02:10.4–02:19.0] текст\` — файл, номера первого и последнего слова, время, текст.
+- [э-э] — звук-заполнитель, его приложение вырежет само.
+- ‹ну›, ‹вот›, ‹типа› — возможный паразит. Реши по смыслу: «вот почему» — нужное слово, «ну вот, значит» — мусор.
+- слово⁺ — запинка, слово сказано дважды подряд; первое приложение уберёт само.
+- Паузы приложение сокращает само до короткого вдоха. Тебе их искать не нужно.
+
+КАК ВЫБИРАТЬ КЛИПЫ (критерии из clip-factory)
+1. Хук в первые 2–3 секунды: клип начинается с самой сильной фразы, а не с разгона («итак», «сегодня я расскажу»).
+   Если сильная фраза в середине мысли — можно вынести её в начало отдельным куском (порядок кусков задаёшь ты).
+2. Клип понятен без контекста: никаких «как я уже говорил», «это», «он» без того, к чему они относятся.
+   Если без контекста непонятно — расширь границы или откажись от фрагмента.
+3. Клип заканчивается на развязке, а не обрывается перед ней.
+4. Лучшие — не первые попавшиеся: смотри весь материал, бери разные темы и разные места записи.
+5. Режь внутри клипа всё, что не работает на мысль: отступления, повторы мысли, оговорки, переформулировки
+   («то есть, вернее, я хотел сказать»), неудачные дубли — если фраза сказана дважды, оставь лучший дубль.
+
+НАДПИСИ ПО СМЫСЛУ
+- hook: короткий хук сверху на первые 2–4 секунды (3–7 слов, цепляет, не пересказывает).
+- title / label / lower: 1–3 надписи на ключевых мыслях — цифра, вывод, термин. Не дублируй субтитры дословно.
+- Привязывай надпись к слову (at: "F1:w130"), длительность в секундах.
+
+ФОРМАТ ОТВЕТА
+Сначала коротко человеческим языком — какие клипы и почему. Затем ровно один блок:
+
+===МОНТАЖ===
+{"clips":[
+  {"name":"Короткое название","hook":"Текст хука","description":"Подпись для публикации, 1–2 предложения + 3–5 хэштегов",
+   "pieces":[{"from":"F1:w120","to":"F1:w148"},{"from":"F1:w160","to":"F1:w201"}],
+   "cut":["F1:w133","F1:w140–w142"],
+   "texts":[{"at":"F1:w120","text":"Хук на экран","style":"hook","duration":3},{"at":"F1:w170","text":"3 ошибки","style":"title","duration":2}],
+   "captions":"karaoke",
+   "transition":"none"}
+]}
+===КОНЕЦ===
+
+- pieces — куски в порядке показа; from/to — номера слов ВКЛЮЧИТЕЛЬНО. Куски могут быть из разных файлов.
+- cut — слова внутри кусков, которые надо вырезать (паразиты по смыслу, оговорки, лишнее).
+- captions — стиль субтитров: karaoke | bold | pop | box | clean | none.
+- transition — переход между кусками: none (обычная склейка, по умолчанию для говорящей головы) | fade | fadeblack | zoomin | slideleft.
+- Номера слов бери ТОЛЬКО из расшифровки. Не выдумывай время и номера.
+- Если просят не клипы, а один ролик (смонтировать запись целиком, сделать короче) — это один элемент в clips.
+- Холст: ${canvas.width}×${canvas.height}.${design ? `\n\nДИЗАЙН-СИСТЕМА (тексты пиши в её тоне; цвета и шрифт приложение возьмёт из неё само):\n${design}` : ""}
+
+РАСШИФРОВКА
+${transcriptForAgent(files)}`;
+}
+
+/** «F2:w140» или «F2:w140–w142» → {file, from, to}. */
+function parseWordRef(ref) {
+  const m = String(ref || "").trim().match(/^F(\d+)\s*:\s*w(\d+)(?:\s*[-–—]\s*(?:F\d+\s*:\s*)?w?(\d+))?$/i);
+  if (!m) return null;
+  const from = Number(m[2]);
+  return { file: Number(m[1]) - 1, from, to: m[3] !== undefined ? Number(m[3]) : from };
+}
+
+/** Блок ===МОНТАЖ=== из ответа агента. Терпим к потерянной закрывающей метке. */
+function parsePlan(text) {
+  const src = String(text || "");
+  const at = src.indexOf("===МОНТАЖ===");
+  if (at < 0) return null;
+  let body = src.slice(at + "===МОНТАЖ===".length);
+  const end = body.indexOf("===КОНЕЦ===");
+  if (end >= 0) body = body.slice(0, end);
+  body = body.replace(/```(?:json)?/g, "").trim();
+  const first = body.indexOf("{");
+  const last = body.lastIndexOf("}");
+  if (first < 0 || last < first) return null;
+  let data;
+  try {
+    data = JSON.parse(body.slice(first, last + 1));
+  } catch {
+    return null;
+  }
+  const clips = Array.isArray(data) ? data : Array.isArray(data.clips) ? data.clips : [];
+  return {
+    clips: clips
+      .map((c, i) => ({
+        name: String(c.name || `Клип ${i + 1}`),
+        hook: String(c.hook || ""),
+        description: String(c.description || ""),
+        pieces: (c.pieces || []).map((p) => ({ from: String(p.from || ""), to: String(p.to || p.from || "") })),
+        cut: (c.cut || []).map(String),
+        texts: (c.texts || []).map((t) => ({
+          at: String(t.at || ""),
+          text: String(t.text || ""),
+          style: String(t.style || "title"),
+          duration: num(t.duration, 2.5),
+        })),
+        captions: String(c.captions || "karaoke"),
+        transition: String(c.transition || "none"),
+      }))
+      .filter((c) => c.pieces.length),
+  };
+}
+
+/**
+ * План агента → проект на таймлайне.
+ *
+ * Каждый кусок плана проходит обычную чистку (паузы, звуки, безопасные
+ * паразиты, запинки) плюс вырезанное агентом по смыслу. Надписи из «слова»
+ * переводятся во время на выходе после всех резов — поэтому надпись встаёт на
+ * то самое слово, а не туда, где оно было в исходнике.
+ *
+ * @param {object} planClip — элемент plan.clips
+ * @param {{path:string,name:string,words:object[]}[]} files — в том же порядке, что F1, F2…
+ */
+function planToProject(planClip, files, { canvas, captions, cleanup = {}, punchIn = 0.08, design } = {}) {
+  const problems = [];
+  const cutByFile = new Map();
+  for (const ref of planClip.cut) {
+    const r = parseWordRef(ref);
+    if (!r || !files[r.file]) {
+      problems.push(`Не понял, что вырезать: «${ref}».`);
+      continue;
+    }
+    if (!cutByFile.has(r.file)) cutByFile.set(r.file, new Set());
+    for (let i = Math.min(r.from, r.to); i <= Math.max(r.from, r.to); i++) cutByFile.get(r.file).add(i);
+  }
+  const clips = [];
+  const transition = TRANSITIONS.some((t) => t.id === planClip.transition) ? planClip.transition : "none";
+  planClip.pieces.forEach((piece, pi) => {
+    const a = parseWordRef(piece.from);
+    const b = parseWordRef(piece.to);
+    if (!a || !b || a.file !== b.file || !files[a.file]) {
+      problems.push(`Кусок ${pi + 1}: непонятные границы «${piece.from} – ${piece.to}».`);
+      return;
+    }
+    const f = files[a.file];
+    const words = f.words || [];
+    const i0 = Math.max(0, Math.min(a.from, b.to));
+    const i1 = Math.min(words.length - 1, Math.max(a.from, b.to));
+    if (!words[i0] || !words[i1]) {
+      problems.push(`Кусок ${pi + 1}: таких слов в «${f.name}» нет (w${a.from}–w${b.to}).`);
+      return;
+    }
+    // Граница куска — по краям слов, с тем же отступом, что и у чистки.
+    const range = { from: words[i0].s - 0.001, to: words[i1].e + 0.001, cut: cutByFile.get(a.file) };
+    const pieces = planKeeps(words, range, cleanup);
+    const base = normalizeClip({ src: f.path, kind: mediaKind(f.path) || "video", in: 0, out: 1, transition: { kind: pi === 0 ? "none" : transition, duration: 0.35 } });
+    clips.push(...piecesToClips(base, pieces, { punchIn }));
+  });
+
+  const project = normalizeProject({
+    title: planClip.name,
+    canvas,
+    clips,
+    captions: {
+      ...defaultCaptions(),
+      ...(captions || {}),
+      enabled: planClip.captions !== "none",
+      style: CAPTION_STYLES.some((s) => s.id === planClip.captions) ? planClip.captions : (captions && captions.style) || "karaoke",
+    },
+    design,
+    meta: { hook: planClip.hook, description: planClip.description, source: "agent" },
+  });
+
+  // Надписи: слово → время на выходе.
+  for (const t of planClip.texts) {
+    const r = parseWordRef(t.at);
+    const f = r && files[r.file];
+    const w = f && f.words[r.from];
+    if (!w) {
+      problems.push(`Надпись «${t.text}»: нет слова ${t.at}.`);
+      continue;
+    }
+    let start = sourceToOutput(project.clips, f.path, w.s);
+    // Слово вырезали — ставим надпись на ближайшее оставшееся после него.
+    for (let k = r.from + 1; start === null && k < Math.min(f.words.length, r.from + 40); k++) {
+      start = sourceToOutput(project.clips, f.path, f.words[k].s);
+    }
+    if (start === null) {
+      problems.push(`Надпись «${t.text}»: слово ${t.at} не попало в клип.`);
+      continue;
+    }
+    project.texts.push(normalizeText({ text: t.text, start, end: start + clamp(t.duration, 0.8, 8), style: t.style, animation: t.style === "hook" ? "pop" : "slide" }));
+  }
+  // Хук, о котором агент написал, но который не поставил надписью, — ставим сами.
+  if (planClip.hook && !project.texts.some((t) => t.style === "hook")) {
+    project.texts.unshift(normalizeText({ text: planClip.hook, start: 0, end: Math.min(3.5, projectDuration(project)), style: "hook", animation: "pop" }));
+  }
+  return { project, problems };
+}
+
+/** Проверка проекта перед сборкой — то, что видно заранее, а не через пять минут рендера. */
+function validateProject(project) {
+  const problems = [];
+  if (!project.clips.length) problems.push("На главной дорожке нет ни одного куска — собирать нечего.");
+  const total = projectDuration(project);
+  for (const t of project.texts) {
+    if (t.start >= total) problems.push(`Надпись «${t.text.slice(0, 30)}» начинается после конца ролика.`);
+    if (!t.text.trim()) problems.push("Есть пустая надпись.");
+  }
+  project.clips.forEach((c, i) => {
+    if (c.out - c.in < 0.05) problems.push(`Кусок ${i + 1} короче кадра.`);
+  });
+  for (const a of project.audio) {
+    if (a.start >= total) problems.push(`Звук «${path.basename(a.src)}» начинается после конца ролика.`);
+  }
+  return problems;
+}
+
+// ---------- хранение проектов ----------
+
+async function listProjects(dir) {
+  const entries = await fs.readdir(dir).catch(() => []);
+  const out = [];
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const p = normalizeProject(JSON.parse(await fs.readFile(path.join(dir, name), "utf-8")));
+      out.push({ id: p.id, title: p.title, updatedAt: p.updatedAt, duration: projectDuration(p), clips: p.clips.length, preset: p.canvas.preset, meta: p.meta });
+    } catch {
+      // битый файл не должен прятать остальные проекты
+    }
+  }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function safeId(id) {
+  return String(id || "").replace(/[^\w.-]+/g, "_").slice(0, 80);
+}
+
+async function readProject(dir, id) {
+  return normalizeProject(JSON.parse(await fs.readFile(path.join(dir, `${safeId(id)}.json`), "utf-8")));
+}
+
+async function writeProject(dir, raw) {
+  const project = normalizeProject({ ...raw, updatedAt: Date.now() });
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${safeId(project.id)}.json`), JSON.stringify(project, null, 1), "utf-8");
+  return project;
+}
+
+async function deleteProject(dir, id) {
+  await fs.rm(path.join(dir, `${safeId(id)}.json`), { force: true });
+}
+
+module.exports = {
+  CANVAS_PRESETS,
+  FIT_MODES,
+  FILTERS,
+  TRANSITIONS,
+  CAPTION_STYLES,
+  TEXT_STYLES,
+  TEXT_ANIMATIONS,
+  CLEANUP_DEFAULTS,
+  SOUND_FILLER,
+  mediaKind,
+  normWord,
+  splitWords,
+  layoutWords,
+  trimIntoSilence,
+  markFillers,
+  buildWords,
+  parseSilences,
+  planKeeps,
+  cleanupStats,
+  defaultCaptions,
+  normalizeClip,
+  normalizeText,
+  normalizeAudio,
+  normalizeProject,
+  clipDuration,
+  layout,
+  projectDuration,
+  sourceToOutput,
+  outputToSource,
+  splitAt,
+  cutWordsFromClip,
+  piecesToClips,
+  cleanClip,
+  assColor,
+  assTime,
+  outputWords,
+  captionLines,
+  buildAss,
+  atempoChain,
+  clipVideoFilter,
+  clipAudioFilter,
+  frameDuration,
+  buildClipArgs,
+  groupByTransitions,
+  concatList,
+  buildFinalArgs,
+  runFfmpeg,
+  probeMedia,
+  renderProject,
+  detectSilences,
+  transcriptForAgent,
+  buildAgentPrompt,
+  parseWordRef,
+  parsePlan,
+  planToProject,
+  validateProject,
+  listProjects,
+  readProject,
+  writeProject,
+  deleteProject,
+  uid,
+};

@@ -1,10 +1,15 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, session, nativeImage, protocol } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const crypto = require("node:crypto");
 const os = require("node:os");
 const { proxyAwareFetch, setProxyCredentials } = require("./netFetch.cjs");
+const montageIpc = require("./montageIpc.cjs");
+
+// Схема для показа локальных видео в плеере «Монтажа» объявляется до
+// готовности приложения — позже Electron её уже не примет.
+montageIpc.registerScheme(protocol);
 
 // Route every outbound request in this process (Polza, GitHub, Telegram/VK/MAX, web
 // search) through Electron's network stack instead of Node's built-in fetch, which
@@ -1671,6 +1676,7 @@ app.whenReady().then(async () => {
   // Разрешение на микрофон ставится до окна: без него Chromium отказывает
   // молча, и кнопка записи просто ничего не делает.
   allowMicrophone();
+  montageIpc.handleProtocol(protocol);
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -4409,6 +4415,22 @@ async function readDesignFolder(dir) {
 }
 
 ipcMain.handle("stories:readDesign", (_e, dir) => readDesignFolder(dir));
+
+// ---------- монтаж ----------
+// Обработчики раздела живут в montageIpc.cjs; отсюда им отдаётся то, что у
+// приложения одно на всех: ffmpeg, папка данных, настройки, дизайн-система.
+montageIpc.register({
+  ipcMain,
+  dialog,
+  BrowserWindow,
+  shell,
+  app,
+  ffmpegPath,
+  getRootPath,
+  loadSettings,
+  readDesignFolder,
+  speechCacheDir,
+});
 
 ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));
 

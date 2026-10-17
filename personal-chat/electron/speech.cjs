@@ -264,6 +264,90 @@ async function transcribeFile({
   return mergeSegments(collected);
 }
 
+/**
+ * Ответ модели с временем по словам — в наши слова.
+ * Пробел в начале «слова» — признак того, что это новое слово; без пробела
+ * кусок приклеивается к предыдущему (так модель отдаёт части длинных слов).
+ */
+function toWords(result, { offsetSeconds = 0 } = {}) {
+  const chunks = Array.isArray(result && result.chunks) ? result.chunks : [];
+  const words = [];
+  for (const chunk of chunks) {
+    const raw = String((chunk && chunk.text) || "");
+    if (!raw.trim()) continue;
+    const stamp = Array.isArray(chunk.timestamp) ? chunk.timestamp : [null, null];
+    const s = Number.isFinite(stamp[0]) ? stamp[0] : null;
+    const e = Number.isFinite(stamp[1]) ? stamp[1] : s;
+    const last = words[words.length - 1];
+    if (last && !/^\s/.test(raw)) {
+      last.w += raw.trim();
+      if (e !== null) last.e = offsetSeconds + e;
+      continue;
+    }
+    if (s === null) continue;
+    words.push({ w: raw.trim(), s: offsetSeconds + s, e: offsetSeconds + Math.max(e ?? s, s) });
+  }
+  return words;
+}
+
+/**
+ * Расшифровка с временем КАЖДОГО слова — для монтажа.
+ *
+ * Монтажу мало времени фразы: резать «э-э» посреди фразы можно, только зная,
+ * где оно. Время по словам умеют не все выгрузки модели (нужна выгрузка с
+ * вниманием, «_timestamped»). Если модель не умеет — не падаем, а отдаём
+ * время фраз: монтаж разложит слова по фразе сам, по речи и паузам.
+ */
+async function transcribeWords({
+  wavPath,
+  modelId = DEFAULT_MODEL,
+  cacheDir,
+  language = "russian",
+  windowSeconds = 600,
+  onProgress,
+  shouldStop,
+} = {}) {
+  const buffer = await fs.readFile(wavPath);
+  const info = wavInfo(buffer);
+  const recognizer = await loadRecognizer({ modelId, cacheDir, onProgress });
+  const windows = planWindows(info.totalSamples, info.rate, { windowSeconds });
+  const words = [];
+  const segments = [];
+  let wordLevel = true;
+  for (let i = 0; i < windows.length; i++) {
+    if (shouldStop && shouldStop()) break;
+    const w = windows[i];
+    const { audio } = wavToFloat32(buffer, { from: w.from, count: w.count });
+    const base = { language, task: "transcribe", chunk_length_s: 30, stride_length_s: 5 };
+    if (wordLevel) {
+      try {
+        const result = await recognizer(audio, { ...base, return_timestamps: "word" });
+        // Перехлёст окон: слова до конца прошлого окна уже есть.
+        const lastEnd = words.length ? words[words.length - 1].e : -1;
+        words.push(...toWords(result, { offsetSeconds: w.offsetSeconds }).filter((x) => x.s >= lastEnd - 0.05));
+      } catch {
+        // Модель без времени по словам — переходим на фразы до конца записи.
+        wordLevel = false;
+        words.length = 0;
+        i = -1;
+        continue;
+      }
+    } else {
+      const result = await recognizer(audio, { ...base, return_timestamps: true });
+      segments.push(...toSegments(result, { offsetSeconds: w.offsetSeconds, windowSeconds: w.count / info.rate }));
+    }
+    if (onProgress) {
+      onProgress({
+        stage: "transcribe",
+        progress: (i + 1) / windows.length,
+        seconds: Math.round(((i + 1) * w.count) / info.rate),
+        total: Math.round(info.seconds),
+      });
+    }
+  }
+  return wordLevel ? { words, wordLevel: true, seconds: info.seconds } : { segments: mergeSegments(segments), wordLevel: false, seconds: info.seconds };
+}
+
 /** Скачаны ли уже веса: по наличию папки модели в хранилище. */
 function isModelReady(cacheDir, modelId) {
   if (!cacheDir || !modelId) return false;
@@ -314,6 +398,8 @@ module.exports = {
   loadRecognizer,
   unload,
   transcribeFile,
+  transcribeWords,
+  toWords,
   isModelReady,
   cacheSize,
 };

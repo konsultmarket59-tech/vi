@@ -1,0 +1,781 @@
+// Раздел «Монтаж»: обработчики окна, хранение, расшифровка по словам, сборка
+// и аватар. Вынесено из main.cjs отдельным модулем: раздел большой, а главный
+// файл и так на шесть тысяч строк. Всё, что раздел берёт у приложения (путь к
+// ffmpeg, папку данных, настройки модели, разбор дизайн-системы), приходит
+// параметрами — двух разных представлений об одном не появляется.
+
+const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
+const path = require("node:path");
+const { Readable } = require("node:stream");
+const montage = require("./montage.cjs");
+const avatar = require("./avatar.cjs");
+const library = require("./library.cjs");
+const speech = require("./speech.cjs");
+
+const SCHEME = "montage-media";
+
+/**
+ * Модели распознавания для монтажа.
+ *
+ * Монтажу нужно время КАЖДОГО слова: резать «э-э» посреди фразы можно, только
+ * зная, где оно. Это умеют выгрузки «_timestamped». Обычная модель «Видеотеки»
+ * тоже подойдёт — тогда слова раскладываются по фразе расчётом, и рез бывает
+ * неточен на долю секунды.
+ */
+const MONTAGE_SPEECH_MODELS = [
+  { id: "onnx-community/whisper-base_timestamped", name: "Для монтажа — время каждого слова", size: "~80 МБ", hint: "Рекомендуется: резы ложатся точно между словами." },
+  { id: "onnx-community/whisper-small_timestamped", name: "Для монтажа — точная", size: "~250 МБ", hint: "Слышит лучше, работает втрое дольше." },
+  { id: "onnx-community/whisper-tiny_timestamped", name: "Для монтажа — быстрая", size: "~45 МБ", hint: "Быстро, но путает слова." },
+  ...speech.SPEECH_MODELS.map((m) => ({ ...m, name: `${m.name} (как в «Видеотеке», время по фразам)` })),
+];
+
+/** Схема для показа локальных файлов в плеере — до готовности приложения. */
+function registerScheme(protocol) {
+  try {
+    protocol.registerSchemesAsPrivileged([
+      { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true, corsEnabled: true } },
+    ]);
+  } catch {
+    // Главный модуль загружен уже после готовности приложения — так делают
+    // проверки других разделов. Плеер «Монтажа» им не нужен, а падать всему
+    // приложению из-за этого нельзя.
+  }
+}
+
+const MIME = {
+  ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",
+  ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".flac": "audio/flac",
+  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+  ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".mts": "video/mp2t", ".m2ts": "video/mp2t", ".3gp": "video/3gpp",
+};
+
+// Шрифты отдаются тоже: субтитры в предпросмотре набираются тем же файлом, что и в сборке.
+const FONT_MIME = { ".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff", ".woff2": "font/woff2", ".ttc": "font/collection" };
+
+/**
+ * Отдача локального файла плееру — с поддержкой запроса по кусочкам.
+ *
+ * Без ответа на Range видео не перематывается: плеер просит «с байта N», а
+ * получает файл с начала. Отдаются только медиафайлы: окно приложения не
+ * должно читать через эту схему что попало с диска.
+ */
+function handleProtocol(protocol) {
+  protocol.handle(SCHEME, async (request) => {
+    try {
+      const url = new URL(request.url);
+      const filePath = decodeURIComponent(url.pathname.replace(/^\//, ""));
+      const ext = path.extname(filePath).toLowerCase();
+      if (!MIME[ext] && !FONT_MIME[ext]) return new Response("Не медиафайл", { status: 403, headers: { "Access-Control-Allow-Origin": "*" } });
+      const stat = await fs.stat(filePath);
+      const size = stat.size;
+      const range = request.headers.get("range");
+      // Разрешение для окна приложения: шрифт субтитров в предпросмотре грузится
+      // по правилам CORS, и без этого заголовка браузер его молча отбрасывает.
+      const headers = { "Content-Type": MIME[ext] || FONT_MIME[ext], "Accept-Ranges": "bytes", "Access-Control-Allow-Origin": "*" };
+      if (range) {
+        const m = range.match(/bytes=(\d*)-(\d*)/);
+        let start = m && m[1] ? Number(m[1]) : 0;
+        let end = m && m[2] ? Number(m[2]) : size - 1;
+        if (m && !m[1] && m[2]) {
+          start = Math.max(0, size - Number(m[2]));
+          end = size - 1;
+        }
+        end = Math.min(end, size - 1);
+        if (start > end || start >= size) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, "Access-Control-Allow-Origin": "*" } });
+        const stream = fsSync.createReadStream(filePath, { start, end });
+        return new Response(Readable.toWeb(stream), {
+          status: 206,
+          headers: { ...headers, "Content-Length": String(end - start + 1), "Content-Range": `bytes ${start}-${end}/${size}` },
+        });
+      }
+      return new Response(Readable.toWeb(fsSync.createReadStream(filePath)), { status: 200, headers: { ...headers, "Content-Length": String(size) } });
+    } catch {
+      return new Response("Файл не найден", { status: 404 });
+    }
+  });
+}
+
+function slug(name) {
+  return (
+    Array.from(String(name || "ролик"))
+      // Управляющие символы в имени файла Windows не принимает.
+      .filter((ch) => ch.charCodeAt(0) >= 32)
+      .join("")
+      .replace(/[<>:"/\\|?*]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80) || "ролик"
+  );
+}
+
+async function freeName(dir, base, ext) {
+  for (let i = 1; i < 1000; i++) {
+    const candidate = path.join(dir, `${base}${i === 1 ? "" : `-${i}`}${ext}`);
+    if (!fsSync.existsSync(candidate)) return candidate;
+  }
+  return path.join(dir, `${base}-${Date.now()}${ext}`);
+}
+
+/**
+ * @param {object} ctx
+ * @param {import("electron").IpcMain} ctx.ipcMain
+ */
+function register(ctx) {
+  const { ipcMain, dialog, BrowserWindow, shell, app, ffmpegPath, getRootPath, loadSettings, readDesignFolder, speechCacheDir } = ctx;
+
+  const montageRoot = async () => path.join(await getRootPath(), "montage");
+  const projectsDir = async () => path.join(await montageRoot(), "projects");
+  const transcriptsDir = async () => path.join(await montageRoot(), "transcripts");
+  const configFile = async () => path.join(await montageRoot(), "config.json");
+  // Ключи сервисов — в системной папке приложения, а не в папке данных: папку
+  // данных люди синхронизируют с облаком и показывают коллегам.
+  const keysFile = () => path.join(app.getPath("userData"), "montage-keys.json");
+
+  const defaultConfig = () => ({
+    sources: [],
+    outputDir: "",
+    designDir: "",
+    engine: "builtin",
+    speechModel: MONTAGE_SPEECH_MODELS[0].id,
+    remoteModel: "whisper-1",
+    language: "ru",
+    preset: "9:16",
+    cleanup: { ...montage.CLEANUP_DEFAULTS, punchIn: 0.08 },
+    captions: montage.defaultCaptions(),
+  });
+
+  async function readConfig() {
+    try {
+      const saved = JSON.parse(await fs.readFile(await configFile(), "utf-8"));
+      const d = defaultConfig();
+      return { ...d, ...saved, cleanup: { ...d.cleanup, ...(saved.cleanup || {}) }, captions: { ...d.captions, ...(saved.captions || {}) } };
+    } catch {
+      return defaultConfig();
+    }
+  }
+
+  async function saveConfig(patch) {
+    const merged = { ...(await readConfig()), ...(patch || {}) };
+    await fs.mkdir(await montageRoot(), { recursive: true });
+    await fs.writeFile(await configFile(), JSON.stringify(merged, null, 2), "utf-8");
+    return merged;
+  }
+
+  async function readKeys() {
+    try {
+      return JSON.parse(await fs.readFile(keysFile(), "utf-8"));
+    } catch {
+      return { eleven: "", fal: "", heygen: "", voices: {} };
+    }
+  }
+
+  const win = () => BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  const pick = async (options) => {
+    const r = await dialog.showOpenDialog(win(), options);
+    return r.canceled ? [] : r.filePaths;
+  };
+
+  // ---------- расшифровки ----------
+
+  /** Отпечаток → расшифровка. Узнаётся по содержимому: переименование не сбивает. */
+  const fpCache = new Map();
+  async function fingerprintOf(filePath) {
+    const stat = await fs.stat(filePath);
+    const key = `${filePath}|${stat.size}|${stat.mtimeMs}`;
+    if (fpCache.has(key)) return fpCache.get(key);
+    const fp = await library.fingerprint(filePath);
+    fpCache.set(key, fp);
+    return fp;
+  }
+
+  async function readTranscript(filePath) {
+    try {
+      const fp = await fingerprintOf(filePath);
+      const t = JSON.parse(await fs.readFile(path.join(await transcriptsDir(), `${fp}.json`), "utf-8"));
+      return { ...t, path: filePath, name: path.basename(filePath) };
+    } catch {
+      return null;
+    }
+  }
+
+  async function transcriptsFor(paths) {
+    const out = {};
+    for (const p of new Set(paths)) {
+      const t = await readTranscript(p);
+      if (t) out[p] = t;
+    }
+    return out;
+  }
+
+  /** Платная расшифровка с временем слов — через ключ из общих настроек. */
+  async function transcribeRemoteWords({ settings, model, audioPath, language }) {
+    if (!settings.apiKey) throw new Error("Для расшифровки через сервис нужен API-ключ в настройках.");
+    const data = await fs.readFile(audioPath);
+    const form = new FormData();
+    form.append("file", new Blob([data]), path.basename(audioPath));
+    form.append("model", model || "whisper-1");
+    form.append("language", language || "ru");
+    form.append("response_format", "verbose_json");
+    form.append("timestamp_granularities[]", "word");
+    form.append("timestamp_granularities[]", "segment");
+    const res = await fetch(`${String(settings.baseUrl || "").replace(/\/$/, "")}/audio/transcriptions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      body: form,
+    });
+    if (!res.ok) throw new Error(`Сервис расшифровки ответил ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+    const body = await res.json();
+    const words = (body.words || []).map((w) => ({ w: w.word, s: w.start, e: w.end }));
+    if (words.length) return { words, wordLevel: true };
+    return { segments: (body.segments || []).map((s) => ({ from: s.start, to: s.end, text: s.text })), wordLevel: false };
+  }
+
+  let queue = null;
+
+  // ---------- обработчики ----------
+
+  ipcMain.handle("montage:options", () => ({
+    presets: montage.CANVAS_PRESETS,
+    fits: montage.FIT_MODES,
+    filters: montage.FILTERS.map(({ id, name }) => ({ id, name })),
+    transitions: montage.TRANSITIONS,
+    captionStyles: montage.CAPTION_STYLES,
+    textStyles: montage.TEXT_STYLES,
+    textAnimations: montage.TEXT_ANIMATIONS,
+    cleanup: montage.CLEANUP_DEFAULTS,
+    speechModels: MONTAGE_SPEECH_MODELS,
+    lipsyncModels: avatar.LIPSYNC_MODELS,
+    scheme: SCHEME,
+  }));
+
+  ipcMain.handle("montage:config", () => readConfig());
+  ipcMain.handle("montage:saveConfig", (_e, patch) => saveConfig(patch));
+
+  ipcMain.handle("montage:pickMedia", () =>
+    pick({
+      title: "Видео, звук и картинки для монтажа",
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "Медиа", extensions: ["mp4", "mov", "m4v", "mkv", "webm", "avi", "mts", "m2ts", "ts", "3gp", "wmv", "mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "png", "jpg", "jpeg", "webp", "gif"] },
+        { name: "Все файлы", extensions: ["*"] },
+      ],
+    })
+  );
+  ipcMain.handle("montage:pickFolder", async (_e, title) => (await pick({ title: title || "Папка", properties: ["openDirectory", "createDirectory"] }))[0] || null);
+  ipcMain.handle("montage:pickFile", async (_e, kind) => {
+    const filters = {
+      font: [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2", "ttc"] }],
+      image: [{ name: "Картинки", extensions: ["png", "jpg", "jpeg", "webp", "svg"] }],
+      audio: [{ name: "Звук", extensions: ["mp3", "wav", "m4a", "aac", "ogg", "flac", "opus"] }],
+      video: [{ name: "Видео", extensions: ["mp4", "mov", "m4v", "mkv", "webm", "avi"] }],
+    }[kind] || [{ name: "Все файлы", extensions: ["*"] }];
+    return (await pick({ properties: ["openFile"], filters }))[0] || null;
+  });
+
+  /** Что лежит в папках и файлах: видео, звук и картинки. */
+  ipcMain.handle("montage:scan", async (_e, sources) => {
+    const list = (sources || []).filter(Boolean);
+    const scan = await library.scanSources(list);
+    const files = scan.files.map((f) => ({ path: f.path, name: f.name, kind: montage.mediaKind(f.path) || f.kind, bytes: f.bytes, folder: f.folder }));
+    // Картинки «Видеотека» не считает медиа, а монтажу они нужны.
+    for (const src of list) {
+      let st;
+      try {
+        st = await fs.stat(src);
+      } catch {
+        continue;
+      }
+      const add = (p, bytes) => {
+        if (montage.mediaKind(p) === "image" && !files.some((f) => f.path === p)) files.push({ path: p, name: path.basename(p), kind: "image", bytes, folder: "." });
+      };
+      if (st.isDirectory()) {
+        const entries = await fs.readdir(src, { withFileTypes: true }).catch(() => []);
+        for (const e of entries) if (e.isFile()) add(path.join(src, e.name), 0);
+      } else add(src, st.size);
+    }
+    const transcribed = await transcriptsFor(files.filter((f) => f.kind !== "image").map((f) => f.path));
+    return {
+      files: files.map((f) => ({ ...f, transcribed: !!transcribed[f.path], wordLevel: !!transcribed[f.path]?.wordLevel, duration: transcribed[f.path]?.duration || 0 })),
+      missing: scan.missing,
+      seen: scan.seen,
+    };
+  });
+
+  ipcMain.handle("montage:probe", (_e, file) => montage.probeMedia(ffmpegPath(), file));
+
+  /** Полоска кадров для куска на дорожке — одной картинкой. */
+  const thumbCache = new Map();
+  ipcMain.handle("montage:thumbs", async (_e, file, { count = 8, height = 56, from = 0, to = 0 } = {}) => {
+    const key = `${file}|${count}|${height}|${from}|${to}`;
+    if (thumbCache.has(key)) return thumbCache.get(key);
+    const kind = montage.mediaKind(file);
+    const dest = path.join(app.getPath("temp"), `montage-thumb-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+    try {
+      if (kind === "image") {
+        await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-i", file, "-vf", `scale=-2:${height}`, "-frames:v", "1", dest]);
+      } else {
+        const span = Math.max(0.5, to > from ? to - from : (await montage.probeMedia(ffmpegPath(), file)).duration || 10);
+        const step = span / count;
+        await montage.runFfmpeg(ffmpegPath(), [
+          "-y", "-hide_banner", "-loglevel", "error",
+          "-ss", String(from), "-t", String(span), "-i", file,
+          "-vf", `fps=1/${step.toFixed(3)},scale=-2:${height},tile=${count}x1`,
+          "-frames:v", "1", "-q:v", "6", dest,
+        ]);
+      }
+      const uri = `data:image/jpeg;base64,${(await fs.readFile(dest)).toString("base64")}`;
+      thumbCache.set(key, uri);
+      if (thumbCache.size > 300) thumbCache.delete(thumbCache.keys().next().value);
+      return uri;
+    } catch {
+      return "";
+    } finally {
+      await fs.rm(dest, { force: true }).catch(() => {});
+    }
+  });
+
+  /** Волна звука для дорожки. */
+  ipcMain.handle("montage:waveform", async (_e, file, { width = 600, height = 48, from = 0, to = 0, color = "#7debff" } = {}) => {
+    const dest = path.join(app.getPath("temp"), `montage-wave-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+    try {
+      const args = ["-y", "-hide_banner", "-loglevel", "error"];
+      if (to > from) args.push("-ss", String(from), "-t", String(to - from));
+      args.push("-i", file, "-filter_complex", `aformat=channel_layouts=mono,showwavespic=s=${Math.max(50, Math.round(width))}x${Math.round(height)}:colors=${color}:scale=sqrt`, "-frames:v", "1", dest);
+      await montage.runFfmpeg(ffmpegPath(), args);
+      return `data:image/png;base64,${(await fs.readFile(dest)).toString("base64")}`;
+    } catch {
+      return "";
+    } finally {
+      await fs.rm(dest, { force: true }).catch(() => {});
+    }
+  });
+
+  ipcMain.handle("montage:transcript", (_e, file) => readTranscript(file));
+  ipcMain.handle("montage:transcripts", (_e, paths) => transcriptsFor(paths || []));
+
+  /**
+   * Расшифровать записи по словам. Уже расшифрованное не читается заново —
+   * узнаётся по содержимому, как в «Видеотеке».
+   */
+  ipcMain.handle("montage:transcribe", async (event, paths, options = {}) => {
+    if (queue) throw new Error("Расшифровка уже идёт.");
+    const config = await readConfig();
+    const settings = await loadSettings();
+    const send = (payload) => {
+      try {
+        event.sender.send("montage-progress", payload);
+      } catch {
+        // окно закрыли посреди работы
+      }
+    };
+    const bin = ffmpegPath();
+    const dir = await transcriptsDir();
+    await fs.mkdir(dir, { recursive: true });
+    const work = await fs.mkdtemp(path.join(app.getPath("temp"), "montage-asr-"));
+    const q = { stopped: false };
+    queue = q;
+    const done = [];
+    const failed = [];
+    try {
+      for (let i = 0; i < paths.length; i++) {
+        if (q.stopped) break;
+        const filePath = paths[i];
+        const name = path.basename(filePath);
+        try {
+          if (montage.mediaKind(filePath) === "image") continue;
+          if (!options.force && (await readTranscript(filePath))) {
+            send({ stage: "reused", index: i, total: paths.length, name });
+            done.push(filePath);
+            continue;
+          }
+          send({ stage: "audio", index: i, total: paths.length, name });
+          const wav = path.join(work, "audio.wav");
+          await library.extractAudio(bin, filePath, wav);
+          const info = await montage.probeMedia(bin, filePath);
+          send({ stage: "silence", index: i, total: paths.length, name });
+          const silences = await montage.detectSilences(bin, wav, { total: info.duration });
+          let asr;
+          if (config.engine === "remote") {
+            send({ stage: "remote", index: i, total: paths.length, name });
+            const ogg = path.join(work, "audio.ogg");
+            await library.extractAudioCompressed(bin, filePath, ogg);
+            asr = await transcribeRemoteWords({ settings, model: config.remoteModel, audioPath: ogg, language: config.language });
+          } else {
+            const modelId = config.speechModel || MONTAGE_SPEECH_MODELS[0].id;
+            try {
+              asr = await speech.transcribeWords({
+                wavPath: wav,
+                modelId,
+                cacheDir: await speechCacheDir(),
+                language: config.language === "en" ? "english" : "russian",
+                shouldStop: () => q.stopped,
+                onProgress: (p) => send({ ...p, stage: p.stage === "download" ? "model" : p.stage, index: i, total: paths.length, name, modelId }),
+              });
+            } catch (e) {
+              const reason = e instanceof Error ? e.message : String(e);
+              throw new Error(
+                `Модель распознавания «${modelId}» не загрузилась: ${reason}\n` +
+                  "Если нет доступа к huggingface.co, выберите модель, уже скачанную в «Видеотеке», или расшифровку через сервис."
+              );
+            }
+          }
+          const { words, wordLevel } = montage.buildWords(asr, silences);
+          const fp = await fingerprintOf(filePath);
+          const doc = { fingerprint: fp, path: filePath, name, duration: info.duration || asr.seconds || 0, words, wordLevel, silences, engine: config.engine, at: Date.now() };
+          await fs.writeFile(path.join(dir, `${fp}.json`), JSON.stringify(doc), "utf-8");
+          done.push(filePath);
+          send({ stage: "file-done", index: i, total: paths.length, name, words: words.length, wordLevel });
+        } catch (e) {
+          failed.push({ path: filePath, error: e instanceof Error ? e.message : String(e) });
+          send({ stage: "file-failed", index: i, total: paths.length, name, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    } finally {
+      queue = null;
+      await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+    }
+    send({ stage: "done" });
+    return { done, failed, stopped: q.stopped };
+  });
+
+  ipcMain.handle("montage:stop", () => {
+    if (queue) queue.stopped = true;
+    if (renderAbort) renderAbort.abort();
+    return true;
+  });
+
+  /** Задание агенту: расшифровки выбранных записей + дизайн-система. */
+  ipcMain.handle("montage:prepareAgent", async (_e, request = {}) => {
+    const paths = (request.paths || []).filter((p) => montage.mediaKind(p) !== "image");
+    const files = [];
+    const missing = [];
+    for (const p of paths) {
+      const t = await readTranscript(p);
+      if (t) files.push(t);
+      else missing.push(path.basename(p));
+    }
+    let designText = "";
+    if (request.designDir) {
+      try {
+        designText = (await readDesignFolder(request.designDir)).description || "";
+      } catch {
+        designText = "";
+      }
+    }
+    const preset = montage.CANVAS_PRESETS.find((p) => p.id === request.preset) || montage.CANVAS_PRESETS[0];
+    return {
+      prompt: files.length ? montage.buildAgentPrompt({ files, design: designText, canvas: preset }) : "",
+      files: files.map((f) => ({ path: f.path, name: f.name, words: f.words.length, duration: f.duration, wordLevel: f.wordLevel })),
+      missing,
+    };
+  });
+
+  ipcMain.handle("montage:parsePlan", (_e, text) => montage.parsePlan(text));
+
+  /** План агента → проекты на таймлайне, по проекту на клип. */
+  ipcMain.handle("montage:applyPlan", async (_e, request = {}) => {
+    const { plan, paths = [], preset, designDir } = request;
+    if (!plan || !plan.clips || !plan.clips.length) throw new Error("В ответе агента нет ни одного клипа.");
+    const config = await readConfig();
+    const files = [];
+    for (const p of paths.filter((x) => montage.mediaKind(x) !== "image")) {
+      const t = await readTranscript(p);
+      if (t) files.push(t);
+    }
+    const presetObj = montage.CANVAS_PRESETS.find((p) => p.id === (preset || config.preset)) || montage.CANVAS_PRESETS[0];
+    const captions = { ...config.captions };
+    let logo = null;
+    if (designDir) {
+      const design = await readDesignFolder(designDir).catch(() => null);
+      if (design) {
+        if (design.fontFiles && design.fontFiles[0] && !captions.fontPath) {
+          captions.fontPath = design.fontFiles[0].path;
+          captions.font = design.fontFiles[0].family;
+        }
+        // Акцент субтитров — первый цвет системы, который не белый и не чёрный.
+        const accent = (design.colours || []).find((c) => /^#[0-9a-f]{6}$/i.test(c) && !/^#(f{6}|0{6})$/i.test(c));
+        if (accent) captions.highlight = accent;
+        if (design.logoFiles && design.logoFiles[0]) logo = { path: design.logoFiles[0].path, corner: "top-right", size: 0.14 };
+      }
+    }
+    const created = [];
+    const dir = await projectsDir();
+    for (const clip of plan.clips) {
+      const { project, problems } = montage.planToProject(clip, files, {
+        canvas: { preset: presetObj.id, width: presetObj.width, height: presetObj.height, fps: 30, fit: "crop" },
+        captions,
+        cleanup: config.cleanup,
+        punchIn: config.cleanup.punchIn ?? 0.08,
+        design: designDir ? { dir: designDir } : null,
+      });
+      if (logo && request.logo !== false) project.logo = logo;
+      // Записи, из которых нарезан клип, — сразу в медиатеку проекта: добавить
+      // соседний кусок той же записи руками должно быть можно без поиска файла.
+      project.meta.bin = [...new Set(project.clips.map((c) => c.src))].map((src) => {
+        const f = files.find((x) => x.path === src);
+        return { path: src, kind: montage.mediaKind(src) || "video", duration: (f && f.duration) || 0 };
+      });
+      if (!project.clips.length) {
+        created.push({ id: "", title: clip.name, problems: [...problems, "Ни одного куска не осталось — клип не создан."] });
+        continue;
+      }
+      const saved = await montage.writeProject(dir, project);
+      created.push({ id: saved.id, title: saved.title, duration: montage.projectDuration(saved), problems });
+    }
+    return created;
+  });
+
+  ipcMain.handle("montage:list", async () => montage.listProjects(await projectsDir()));
+  ipcMain.handle("montage:read", async (_e, id) => montage.readProject(await projectsDir(), id));
+  ipcMain.handle("montage:save", async (_e, project) => montage.writeProject(await projectsDir(), project));
+  ipcMain.handle("montage:delete", async (_e, id) => {
+    await montage.deleteProject(await projectsDir(), id);
+    return true;
+  });
+  ipcMain.handle("montage:normalize", (_e, project) => montage.normalizeProject(project));
+  ipcMain.handle("montage:validate", (_e, project) => montage.validateProject(montage.normalizeProject(project)));
+
+  /** Убрать паузы и паразиты в кусках (все, если ids не заданы). */
+  ipcMain.handle("montage:clean", async (_e, { clips, ids, options } = {}) => {
+    const config = await readConfig();
+    const opts = { ...config.cleanup, ...(options || {}) };
+    const transcripts = await transcriptsFor(clips.map((c) => c.src));
+    const out = [];
+    let touched = 0;
+    for (const raw of clips) {
+      const clip = montage.normalizeClip(raw);
+      const tr = transcripts[clip.src];
+      if ((ids && !ids.includes(clip.id)) || !tr || clip.kind !== "video") {
+        out.push(clip);
+        continue;
+      }
+      const pieces = montage.cleanClip(clip, tr.words, opts);
+      // Кусок без речи (перебивка, проход) чистка не трогает: резать в нём нечего.
+      const hasWords = tr.words.some((w) => w.s >= clip.in && w.e <= clip.out);
+      if (!hasWords) {
+        out.push(clip);
+        continue;
+      }
+      touched++;
+      out.push(...pieces);
+    }
+    return { clips: out, touched };
+  });
+
+  ipcMain.handle("montage:cleanupStats", async (_e, { clips, options } = {}) => {
+    const config = await readConfig();
+    const opts = { ...config.cleanup, ...(options || {}) };
+    const transcripts = await transcriptsFor(clips.map((c) => c.src));
+    const sum = { before: 0, after: 0, removedSounds: 0, removedWords: 0, removedRepeats: 0, pieces: 0, untranscribed: 0 };
+    for (const raw of clips) {
+      const clip = montage.normalizeClip(raw);
+      const tr = transcripts[clip.src];
+      if (!tr) {
+        if (clip.kind === "video") sum.untranscribed++;
+        continue;
+      }
+      const s = montage.cleanupStats(tr.words, { from: clip.in, to: clip.out }, opts);
+      for (const k of ["before", "after", "removedSounds", "removedWords", "removedRepeats", "pieces"]) sum[k] += s[k];
+    }
+    return sum;
+  });
+
+  ipcMain.handle("montage:cutWords", async (_e, { clip, indices }) => {
+    const tr = await readTranscript(clip.src);
+    if (!tr) throw new Error("У этого куска нет расшифровки — сначала расшифруйте запись.");
+    return montage.cutWordsFromClip(montage.normalizeClip(clip), tr.words, new Set(indices || []));
+  });
+
+  ipcMain.handle("montage:readDesign", (_e, dir) => readDesignFolder(dir));
+  ipcMain.handle("montage:showItem", (_e, p) => shell.showItemInFolder(p));
+  ipcMain.handle("montage:openPath", (_e, p) => shell.openPath(p));
+
+  // ---------- сборка ----------
+
+  let renderAbort = null;
+
+  async function outputDirFor(config) {
+    if (config.outputDir) return config.outputDir;
+    const dir = path.join(await montageRoot(), "готовые");
+    await fs.mkdir(dir, { recursive: true });
+    return dir;
+  }
+
+  async function fontFilesFor(project) {
+    const fonts = [];
+    if (project.captions && project.captions.fontPath) fonts.push({ path: project.captions.fontPath, family: project.captions.font, role: "caption" });
+    if (project.design && project.design.dir) {
+      const design = await readDesignFolder(project.design.dir).catch(() => null);
+      const files = (design && design.fontFiles) || [];
+      if (files[0] && !fonts.length) fonts.push({ path: files[0].path, family: files[0].family, role: "caption" });
+      // Второй шрифт системы (обычно заголовочный) — для надписей.
+      const headline = files.find((f) => /bold|black|heavy|display|head|title|extra/i.test(f.family)) || files[1];
+      if (headline) fonts.push({ path: headline.path, family: headline.family, role: "text" });
+    }
+    return fonts;
+  }
+
+  async function renderOne(event, raw, { outDir, index = 0, total = 1 } = {}) {
+    const project = montage.normalizeProject(raw);
+    const send = (p) => {
+      try {
+        event.sender.send("montage-render", { ...p, index, total, title: project.title });
+      } catch {
+        // окно закрыли
+      }
+    };
+    const outPath = await freeName(outDir, slug(project.title), ".mp4");
+    const work = await fs.mkdtemp(path.join(app.getPath("temp"), "montage-render-"));
+    renderAbort = new AbortController();
+    try {
+      const result = await montage.renderProject({
+        bin: ffmpegPath(),
+        project,
+        transcripts: await transcriptsFor(project.clips.map((c) => c.src)),
+        outPath,
+        workDir: work,
+        fontFiles: await fontFilesFor(project),
+        onProgress: send,
+        signal: renderAbort.signal,
+      });
+      // Описание для публикации — рядом с роликом, чтобы не искать его в приложении.
+      if (project.meta && (project.meta.description || project.meta.hook)) {
+        await fs.writeFile(outPath.replace(/\.mp4$/, ".txt"), [project.meta.hook, project.meta.description].filter(Boolean).join("\n\n") + "\n", "utf-8").catch(() => {});
+      }
+      return result;
+    } finally {
+      renderAbort = null;
+      await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  ipcMain.handle("montage:render", async (event, project) => {
+    const config = await readConfig();
+    return renderOne(event, project, { outDir: await outputDirFor(config) });
+  });
+
+  ipcMain.handle("montage:renderMany", async (event, ids) => {
+    const config = await readConfig();
+    const outDir = await outputDirFor(config);
+    const dir = await projectsDir();
+    const results = [];
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const project = await montage.readProject(dir, ids[i]);
+        results.push({ id: ids[i], ...(await renderOne(event, project, { outDir, index: i, total: ids.length })) });
+      } catch (e) {
+        results.push({ id: ids[i], error: e instanceof Error ? e.message : String(e) });
+        if (/остановлена/.test(String(e && e.message))) break;
+      }
+    }
+    return results;
+  });
+
+  // ---------- аватар ----------
+
+  ipcMain.handle("montage:avatarKeys", async () => {
+    const k = await readKeys();
+    // Окну отдаются не ключи, а то, что они заданы.
+    return { eleven: !!k.eleven, fal: !!k.fal, heygen: !!k.heygen, voices: Object.keys(k.voices || {}).length };
+  });
+  ipcMain.handle("montage:saveAvatarKeys", async (_e, patch = {}) => {
+    const k = await readKeys();
+    for (const key of ["eleven", "fal", "heygen"]) if (typeof patch[key] === "string" && patch[key].trim()) k[key] = patch[key].trim();
+    if (patch.forgetVoices) k.voices = {};
+    await fs.mkdir(path.dirname(keysFile()), { recursive: true });
+    await fs.writeFile(keysFile(), JSON.stringify(k, null, 2), "utf-8");
+    return { eleven: !!k.eleven, fal: !!k.fal, heygen: !!k.heygen, voices: Object.keys(k.voices || {}).length };
+  });
+
+  ipcMain.handle("montage:heygenList", async () => {
+    const k = await readKeys();
+    if (!k.heygen) throw new Error("Нужен ключ HeyGen.");
+    const [avatars, voices] = await Promise.all([avatar.heygenAvatars({ apiKey: k.heygen }), avatar.heygenVoices({ apiKey: k.heygen })]);
+    return { avatars, voices };
+  });
+
+  /**
+   * Сделать ролик аватара.
+   * mode "own": голос — клон по вашему видео, губы — синхронизация в нём же.
+   * mode "heygen": двойник и голос из кабинета HeyGen.
+   */
+  ipcMain.handle("montage:avatarRun", async (event, request = {}) => {
+    const k = await readKeys();
+    const config = await readConfig();
+    const outDir = await outputDirFor(config);
+    const send = (stage, extra = {}) => {
+      try {
+        event.sender.send("montage-avatar", { stage, ...extra });
+      } catch {
+        // окно закрыли
+      }
+    };
+    const text = String(request.text || "").trim();
+    if (!text) throw new Error("Вставьте текст, который должен сказать аватар.");
+    const base = slug(request.title || text.split(/\s+/).slice(0, 6).join(" "));
+
+    if (request.mode === "heygen") {
+      if (!k.heygen) throw new Error("Нужен ключ HeyGen.");
+      if (!request.avatarId || !request.voiceId) throw new Error("Выберите двойника и голос HeyGen.");
+      const preset = montage.CANVAS_PRESETS.find((p) => p.id === request.preset) || montage.CANVAS_PRESETS[0];
+      send("heygen");
+      const url = await avatar.heygenGenerate({
+        apiKey: k.heygen, avatarId: request.avatarId, photo: !!request.photo, voiceId: request.voiceId, text,
+        width: preset.width, height: preset.height, onStatus: (s) => send("heygen", { status: s }),
+      });
+      send("download");
+      const dest = await freeName(outDir, `${base}-аватар`, ".mp4");
+      await avatar.download(url, dest);
+      send("done", { path: dest });
+      return { path: dest };
+    }
+
+    const video = request.videoPath;
+    if (!video || !fsSync.existsSync(video)) throw new Error("Укажите своё видео — по нему делается и голос, и лицо.");
+    if (!k.eleven) throw new Error("Нужен ключ ElevenLabs — для клона голоса.");
+    if (!k.fal) throw new Error("Нужен ключ fal.ai — для синхронизации губ.");
+    const work = await fs.mkdtemp(path.join(app.getPath("temp"), "montage-avatar-"));
+    try {
+      // Голос клонируется один раз на запись: тот же ролик — тот же голос, без
+      // лишних клонов в кабинете ElevenLabs.
+      const voiceSource = request.voicePath || video;
+      const fp = await fingerprintOf(voiceSource);
+      k.voices = k.voices || {};
+      let voiceId = k.voices[fp];
+      if (!voiceId) {
+        send("sample");
+        const sample = path.join(work, "голос.mp3");
+        await montage.runFfmpeg(ffmpegPath(), avatar.voiceSampleArgs(voiceSource, sample));
+        send("clone");
+        voiceId = await avatar.cloneVoice({ apiKey: k.eleven, name: `Мой голос — ${path.basename(voiceSource)}`, samplePaths: [sample] });
+        k.voices[fp] = voiceId;
+        await fs.writeFile(keysFile(), JSON.stringify(k, null, 2), "utf-8");
+      }
+      send("speech");
+      const speechFile = path.join(work, "озвучка.mp3");
+      await avatar.synthesize({ apiKey: k.eleven, voiceId, text, dest: speechFile, speed: Number(request.speed) || 1 });
+      const audioOut = await freeName(outDir, `${base}-озвучка`, ".mp3");
+      await fs.copyFile(speechFile, audioOut);
+      // Видео для губ: не длиннее двух минут и в разумном размере — модель
+      // берёт деньги за секунды и мегабайты, а лишнее ей не нужно.
+      send("prepare");
+      const face = path.join(work, "лицо.mp4");
+      await montage.runFfmpeg(ffmpegPath(), [
+        "-y", "-hide_banner", "-loglevel", "error", "-ss", String(Number(request.from) || 0), "-t", "120", "-i", video,
+        "-vf", "scale='min(1080,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-an", face,
+      ]);
+      send("lipsync");
+      const url = await avatar.lipsync({ apiKey: k.fal, videoPath: face, audioPath: speechFile, model: request.model, onStatus: (s, q) => send("lipsync", { status: s, queue: q }) });
+      send("download");
+      const dest = await freeName(outDir, `${base}-аватар`, ".mp4");
+      await avatar.download(url, dest);
+      send("done", { path: dest, audio: audioOut });
+      return { path: dest, audio: audioOut };
+    } finally {
+      await fs.rm(work, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+}
+
+module.exports = { SCHEME, MONTAGE_SPEECH_MODELS, registerScheme, handleProtocol, register };

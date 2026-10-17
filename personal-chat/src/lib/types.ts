@@ -1920,6 +1920,264 @@ export interface ReportInfo {
   log: { total: number; errors: number; since: string };
 }
 
+// ---------- монтаж ----------
+
+/** Что «Монтаж» передаёт в «Видео-сторис» для моушн-дизайна. */
+export interface StoriesHandoff {
+  sourcePath: string;
+  text: string;
+  designDir?: string;
+  preset?: string;
+  title?: string;
+  nonce: number;
+}
+
+export interface MontageNamed {
+  id: string;
+  name: string;
+  hint?: string;
+}
+
+export interface MontagePreset {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface MontageCleanup {
+  padBefore: number;
+  padAfter: number;
+  maxPause: number;
+  keepPause: number;
+  removeSound: boolean;
+  removeWords: "safe" | "all" | "none";
+  removeRepeats: boolean;
+  minPiece: number;
+  /** Лёгкий наезд на каждом втором куске — прячет «прыжок» кадра на резе. */
+  punchIn?: number;
+}
+
+export interface MontageOptions {
+  presets: MontagePreset[];
+  fits: MontageNamed[];
+  filters: MontageNamed[];
+  transitions: MontageNamed[];
+  captionStyles: MontageNamed[];
+  textStyles: MontageNamed[];
+  textAnimations: MontageNamed[];
+  cleanup: MontageCleanup;
+  speechModels: { id: string; name: string; size: string; hint: string }[];
+  lipsyncModels: MontageNamed[];
+  scheme: string;
+}
+
+export interface MontageCaptions {
+  enabled: boolean;
+  style: string;
+  font: string;
+  fontPath: string;
+  size: number;
+  color: string;
+  highlight: string;
+  outline: string;
+  position: "bottom" | "center" | "top";
+  upper: boolean;
+  wordsPerLine: number;
+}
+
+export interface MontageConfig {
+  sources: string[];
+  outputDir: string;
+  designDir: string;
+  engine: "builtin" | "remote";
+  speechModel: string;
+  remoteModel: string;
+  language: string;
+  preset: string;
+  cleanup: MontageCleanup;
+  captions: MontageCaptions;
+}
+
+export interface MontageMediaFile {
+  path: string;
+  name: string;
+  kind: "video" | "audio" | "image" | string;
+  bytes: number;
+  folder: string;
+  transcribed: boolean;
+  wordLevel: boolean;
+  duration: number;
+}
+
+export interface MontageProbe {
+  duration: number;
+  hasVideo: boolean;
+  hasAudio: boolean;
+  width: number;
+  height: number;
+  fps: number;
+}
+
+export interface MontageWord {
+  w: string;
+  s: number;
+  e: number;
+  filler?: "sound" | "word" | "maybe";
+  repeat?: boolean;
+}
+
+export interface MontageTranscript {
+  path: string;
+  name: string;
+  duration: number;
+  words: MontageWord[];
+  wordLevel: boolean;
+  silences: { start: number; end: number }[];
+}
+
+export interface MontageClip {
+  id: string;
+  src: string;
+  kind: "video" | "image" | string;
+  in: number;
+  out: number;
+  speed: number;
+  volume: number;
+  muted: boolean;
+  fadeIn: number;
+  fadeOut: number;
+  transition: { kind: string; duration: number };
+  fit: string;
+  focusX: number;
+  focusY: number;
+  zoom: number;
+  adjust: { brightness: number; contrast: number; saturation: number; filter: string };
+  label: string;
+}
+
+export interface MontageText {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  style: string;
+  animation: string;
+  position: "" | "top" | "center" | "bottom";
+  size: number;
+  color: string;
+  bg: string;
+  upper: boolean;
+}
+
+export interface MontageAudio {
+  id: string;
+  src: string;
+  start: number;
+  in: number;
+  out: number;
+  volume: number;
+  fadeIn: number;
+  fadeOut: number;
+  duck: boolean;
+  loop: boolean;
+}
+
+export interface MontageProject {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  canvas: { preset: string; width: number; height: number; fps: number; fit: string; background: string };
+  clips: MontageClip[];
+  texts: MontageText[];
+  audio: MontageAudio[];
+  captions: MontageCaptions;
+  logo: { path: string; corner: string; size: number; opacity: number } | null;
+  audioFx: { denoise: boolean; loudnorm: boolean };
+  design: { dir: string } | null;
+  meta: { hook?: string; description?: string; source?: string };
+}
+
+export interface MontageProjectSummary {
+  id: string;
+  title: string;
+  updatedAt: number;
+  duration: number;
+  clips: number;
+  preset: string;
+  meta: { hook?: string; description?: string; source?: string };
+}
+
+export interface MontagePlanClip {
+  name: string;
+  hook: string;
+  description: string;
+  pieces: { from: string; to: string }[];
+  cut: string[];
+  texts: { at: string; text: string; style: string; duration: number }[];
+  captions: string;
+  transition: string;
+}
+
+export interface MontagePlan {
+  clips: MontagePlanClip[];
+}
+
+export interface MontageCleanupStats {
+  before: number;
+  after: number;
+  removedSounds: number;
+  removedWords: number;
+  removedRepeats: number;
+  pieces: number;
+  untranscribed: number;
+}
+
+export interface MontageProgress {
+  stage: string;
+  index?: number;
+  total?: number;
+  name?: string;
+  progress?: number;
+  error?: string;
+  words?: number;
+  wordLevel?: boolean;
+  file?: string;
+  loaded?: number;
+  modelId?: string;
+}
+
+export interface MontageRenderProgress {
+  stage: string;
+  progress?: number;
+  index: number;
+  total: number;
+  title: string;
+}
+
+export interface MontageAvatarKeys {
+  eleven: boolean;
+  fal: boolean;
+  heygen: boolean;
+  voices: number;
+}
+
+export interface MontageAvatarRequest {
+  mode: "own" | "heygen";
+  text: string;
+  title?: string;
+  videoPath?: string;
+  voicePath?: string;
+  from?: number;
+  model?: string;
+  speed?: number;
+  avatarId?: string;
+  voiceId?: string;
+  photo?: boolean;
+  preset?: string;
+}
+
 export interface ElectronAPI {
   getConfig(): Promise<AppConfig>;
   chooseRootPath(): Promise<string | null>;
@@ -2454,6 +2712,52 @@ export interface ElectronAPI {
     uploadTo?: string;
   }): Promise<string>;
   onStoriesProgress(cb: (data: StoryProgress) => void): () => void;
+
+  // монтаж
+  montageOptions(): Promise<MontageOptions>;
+  montageConfig(): Promise<MontageConfig>;
+  montageSaveConfig(patch: Partial<MontageConfig>): Promise<MontageConfig>;
+  montagePickMedia(): Promise<string[]>;
+  montagePickFolder(title?: string): Promise<string | null>;
+  montagePickFile(kind: "font" | "image" | "audio" | "video"): Promise<string | null>;
+  montageScan(sources: string[]): Promise<{ files: MontageMediaFile[]; missing: string[]; seen: number }>;
+  montageProbe(file: string): Promise<MontageProbe>;
+  montageThumbs(file: string, opts?: { count?: number; height?: number; from?: number; to?: number }): Promise<string>;
+  montageWaveform(file: string, opts?: { width?: number; height?: number; from?: number; to?: number; color?: string }): Promise<string>;
+  montageTranscript(file: string): Promise<MontageTranscript | null>;
+  montageTranscripts(paths: string[]): Promise<Record<string, MontageTranscript>>;
+  montageTranscribe(paths: string[], options?: { force?: boolean }): Promise<{ done: string[]; failed: { path: string; error: string }[]; stopped: boolean }>;
+  montageStop(): Promise<boolean>;
+  montagePrepareAgent(request: { paths: string[]; designDir?: string; preset?: string }): Promise<{
+    prompt: string;
+    files: { path: string; name: string; words: number; duration: number; wordLevel: boolean }[];
+    missing: string[];
+  }>;
+  montageParsePlan(text: string): Promise<MontagePlan | null>;
+  montageApplyPlan(request: { plan: MontagePlan; paths: string[]; preset?: string; designDir?: string; logo?: boolean }): Promise<
+    { id: string; title: string; duration?: number; problems: string[] }[]
+  >;
+  montageList(): Promise<MontageProjectSummary[]>;
+  montageRead(id: string): Promise<MontageProject>;
+  montageSave(project: MontageProject): Promise<MontageProject>;
+  montageDelete(id: string): Promise<boolean>;
+  montageNormalize(project: Partial<MontageProject>): Promise<MontageProject>;
+  montageValidate(project: MontageProject): Promise<string[]>;
+  montageClean(request: { clips: MontageClip[]; ids?: string[]; options?: Partial<MontageCleanup> }): Promise<{ clips: MontageClip[]; touched: number }>;
+  montageCleanupStats(request: { clips: MontageClip[]; options?: Partial<MontageCleanup> }): Promise<MontageCleanupStats>;
+  montageCutWords(request: { clip: MontageClip; indices: number[] }): Promise<MontageClip[]>;
+  montageReadDesign(dir: string): Promise<StoriesDesign>;
+  montageShowItem(p: string): Promise<void>;
+  montageOpenPath(p: string): Promise<string>;
+  montageRender(project: MontageProject): Promise<{ path: string; duration: number; captions: number }>;
+  montageRenderMany(ids: string[]): Promise<{ id: string; path?: string; error?: string }[]>;
+  montageAvatarKeys(): Promise<MontageAvatarKeys>;
+  montageSaveAvatarKeys(patch: { eleven?: string; fal?: string; heygen?: string; forgetVoices?: boolean }): Promise<MontageAvatarKeys>;
+  montageHeygenList(): Promise<{ avatars: { id: string; name: string; preview: string; photo?: boolean }[]; voices: { id: string; name: string; language: string }[] }>;
+  montageAvatarRun(request: MontageAvatarRequest): Promise<{ path: string; audio?: string }>;
+  onMontageProgress(cb: (data: MontageProgress) => void): () => void;
+  onMontageRender(cb: (data: MontageRenderProgress) => void): () => void;
+  onMontageAvatar(cb: (data: { stage: string; status?: string; queue?: number; path?: string }) => void): () => void;
 
   // клининг
   pickCleanupFolder(): Promise<string | null>;

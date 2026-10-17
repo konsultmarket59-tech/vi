@@ -134,6 +134,58 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("stories-progress", handler);
   },
 
+  // монтаж
+  montageOptions: () => ipcRenderer.invoke("montage:options"),
+  montageConfig: () => ipcRenderer.invoke("montage:config"),
+  montageSaveConfig: (patch) => ipcRenderer.invoke("montage:saveConfig", patch),
+  montagePickMedia: () => ipcRenderer.invoke("montage:pickMedia"),
+  montagePickFolder: (title) => ipcRenderer.invoke("montage:pickFolder", title),
+  montagePickFile: (kind) => ipcRenderer.invoke("montage:pickFile", kind),
+  montageScan: (sources) => ipcRenderer.invoke("montage:scan", sources),
+  montageProbe: (file) => ipcRenderer.invoke("montage:probe", file),
+  montageThumbs: (file, opts) => ipcRenderer.invoke("montage:thumbs", file, opts),
+  montageWaveform: (file, opts) => ipcRenderer.invoke("montage:waveform", file, opts),
+  montageTranscript: (file) => ipcRenderer.invoke("montage:transcript", file),
+  montageTranscripts: (paths) => ipcRenderer.invoke("montage:transcripts", paths),
+  montageTranscribe: (paths, options) => ipcRenderer.invoke("montage:transcribe", paths, options),
+  montageStop: () => ipcRenderer.invoke("montage:stop"),
+  montagePrepareAgent: (request) => ipcRenderer.invoke("montage:prepareAgent", request),
+  montageParsePlan: (text) => ipcRenderer.invoke("montage:parsePlan", text),
+  montageApplyPlan: (request) => ipcRenderer.invoke("montage:applyPlan", request),
+  montageList: () => ipcRenderer.invoke("montage:list"),
+  montageRead: (id) => ipcRenderer.invoke("montage:read", id),
+  montageSave: (project) => ipcRenderer.invoke("montage:save", project),
+  montageDelete: (id) => ipcRenderer.invoke("montage:delete", id),
+  montageNormalize: (project) => ipcRenderer.invoke("montage:normalize", project),
+  montageValidate: (project) => ipcRenderer.invoke("montage:validate", project),
+  montageClean: (request) => ipcRenderer.invoke("montage:clean", request),
+  montageCleanupStats: (request) => ipcRenderer.invoke("montage:cleanupStats", request),
+  montageCutWords: (request) => ipcRenderer.invoke("montage:cutWords", request),
+  montageReadDesign: (dir) => ipcRenderer.invoke("montage:readDesign", dir),
+  montageShowItem: (p) => ipcRenderer.invoke("montage:showItem", p),
+  montageOpenPath: (p) => ipcRenderer.invoke("montage:openPath", p),
+  montageRender: (project) => ipcRenderer.invoke("montage:render", project),
+  montageRenderMany: (ids) => ipcRenderer.invoke("montage:renderMany", ids),
+  montageAvatarKeys: () => ipcRenderer.invoke("montage:avatarKeys"),
+  montageSaveAvatarKeys: (patch) => ipcRenderer.invoke("montage:saveAvatarKeys", patch),
+  montageHeygenList: () => ipcRenderer.invoke("montage:heygenList"),
+  montageAvatarRun: (request) => ipcRenderer.invoke("montage:avatarRun", request),
+  onMontageProgress: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-progress", handler);
+    return () => ipcRenderer.removeListener("montage-progress", handler);
+  },
+  onMontageRender: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-render", handler);
+    return () => ipcRenderer.removeListener("montage-render", handler);
+  },
+  onMontageAvatar: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-avatar", handler);
+    return () => ipcRenderer.removeListener("montage-avatar", handler);
+  },
+
   // клининг
   pickCleanupFolder: () => ipcRenderer.invoke("cleanup:pickFolder"),
   prepareCleanup: (request) => ipcRenderer.invoke("cleanup:prepare", request),

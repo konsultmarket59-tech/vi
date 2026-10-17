@@ -17,6 +17,7 @@ import type {
   StorySeamDirection,
   StorySpec,
   StoryStockVideo,
+  StoriesHandoff,
 } from "../lib/types";
 import { uid } from "../lib/promptBuilder";
 import ChatView from "./ChatView";
@@ -26,6 +27,8 @@ interface Props {
   settings: Settings;
   skills: Skill[];
   onOpenSettings: () => void;
+  /** Клип из «Монтажа»: ролик, его текст и дизайн-система — сразу в работу. */
+  handoff?: StoriesHandoff | null;
 }
 
 const fileName = (p: string) => (p ? p.split(/[\\/]/).pop() || p : "");
@@ -34,7 +37,7 @@ const secs = (v: number) => `${v.toFixed(1)} с`;
 /** Ширина колонки предпросмотра. Холст 1080×1920 в неё не влезет никогда. */
 const PREVIEW_W = 300;
 
-export default function VideoStoriesView({ settings, skills, onOpenSettings }: Props) {
+export default function VideoStoriesView({ settings, skills, onOpenSettings, handoff }: Props) {
   const [presets, setPresets] = useState<StoryPreset[]>([]);
   const [appearKinds, setAppearKinds] = useState<StoryLayerKind[]>([]);
   const [layerKinds, setLayerKinds] = useState<StoryLayerKind[]>([]);
@@ -188,6 +191,33 @@ export default function VideoStoriesView({ settings, skills, onOpenSettings }: P
       /* сцена ещё не загрузилась — перерисуется сама */
     }
   }, [at, sceneHtml]);
+
+  // Клип из «Монтажа» приходит уже смонтированным: поверх него остаётся
+  // положить моушн-дизайн. Текст ролика — его же расшифровка, дизайн-система —
+  // та, что была подключена при монтаже; выбирать их второй раз незачем.
+  const appliedHandoff = useRef(0);
+  useEffect(() => {
+    if (!handoff || appliedHandoff.current === handoff.nonce) return;
+    appliedHandoff.current = handoff.nonce;
+    setSourceKind("file");
+    setSourcePath(handoff.sourcePath);
+    if (handoff.title) setTitle(handoff.title);
+    if (handoff.text) setScriptText(handoff.text);
+    if (handoff.preset) setPresetId(handoff.preset === "16:9" ? "wide" : handoff.preset === "1:1" ? "square" : "story");
+    window.api
+      .storiesProbe(handoff.sourcePath)
+      .then((info) => {
+        setProbe(info);
+        if (info?.duration) setDuration(String(Math.round(info.duration)));
+      })
+      .catch(() => {});
+    if (handoff.designDir) {
+      window.api
+        .readStoriesDesign(handoff.designDir)
+        .then(setDesign)
+        .catch(() => {});
+    }
+  }, [handoff]);
 
   async function pickSource() {
     const files = await window.api.pickFiles();

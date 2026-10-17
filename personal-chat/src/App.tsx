@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CrashEntry, LicenceStatus, PluginConfig, Project, Settings, Skill } from "./lib/types";
+import type { CrashEntry, LicenceStatus, PluginConfig, Project, Settings, Skill, StoriesHandoff } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import Sidebar, { type View } from "./components/Sidebar";
 import Splitter from "./components/Splitter";
@@ -12,6 +12,7 @@ import DataVizView from "./components/DataVizView";
 import FinModelView from "./components/FinModelView";
 import VideoStoriesView from "./components/VideoStoriesView";
 import LibraryView from "./components/LibraryView";
+import MontageView from "./components/MontageView";
 import CatalogView from "./components/CatalogView";
 import SitesView from "./components/SitesView";
 import CleanupView from "./components/CleanupView";
@@ -35,6 +36,9 @@ export default function App() {
   const [plugins, setPlugins] = useState<PluginConfig>({ productName: "Личный чат", modules: {}, source: "" });
   const [licence, setLicence] = useState<LicenceStatus | null>(null);
   const [view, setView] = useState<View>({ kind: "settings" });
+  // Готовый клип из «Монтажа» уезжает в «Видео-сторис» за моушн-дизайном: туда
+  // передаются сам ролик, его текст и дизайн-система, чтобы не выбирать заново.
+  const [storiesHandoff, setStoriesHandoff] = useState<StoriesHandoff | null>(null);
   // Скрыта ли боковая колонка. Запоминается между запусками: выбор раскладки
   // человек делает один раз, а не каждое утро.
   const [sidebarHidden, setSidebarHidden] = useState(() => {
@@ -247,7 +251,23 @@ export default function App() {
           <FinModelView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
         )}
         {activeView.kind === "stories" && (
-          <VideoStoriesView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
+          <VideoStoriesView
+            settings={settings}
+            skills={skills}
+            onOpenSettings={() => setView({ kind: "settings" })}
+            handoff={storiesHandoff}
+          />
+        )}
+        {activeView.kind === "montage" && (
+          <MontageView
+            settings={settings}
+            skills={skills}
+            onOpenSettings={() => setView({ kind: "settings" })}
+            onMotionDesign={(handoff) => {
+              setStoriesHandoff({ ...handoff, nonce: Date.now() });
+              setView({ kind: "stories" });
+            }}
+          />
         )}
         {activeView.kind === "library" && (
           <LibraryView settings={settings} skills={skills} onOpenSettings={() => setView({ kind: "settings" })} />
