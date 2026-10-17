@@ -929,11 +929,18 @@ const UI = {
       { label: 'Подключить шрифты системы', action: () => Fonts.loadLocal() },
     ], r.left, r.bottom);
   },
-  loadFontFiles() {
-    IO.pick('.ttf,.otf,.woff', async f => {
-      const fam = await Fonts.addFontFile(f.name, await f.arrayBuffer());
+  async loadFontFiles() {
+    for (const f of await Host.pickFiles('.ttf,.otf,.woff', true, 'Файлы шрифтов')) {
+      const fam = await Fonts.addFontFile(f.name, await f.read());
       if (fam) UI.toast('Шрифт добавлен: ' + fam);
-    }, true);
+    }
+  },
+  // индикатор долгой операции
+  busy(msg) {
+    let el = UI.$('#busy');
+    if (!msg) { if (el) el.remove(); return; }
+    if (!el) { el = h('div', { id: 'busy', class: 'busy' }); document.body.append(el); }
+    el.innerHTML = `<span class="spin"></span>${Render.esc(msg)}`;
   },
   setOrientation(land) {
     const p = App.pg();

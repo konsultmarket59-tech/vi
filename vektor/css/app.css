@@ -220,3 +220,7 @@ kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-wi
 .pbt.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .effbox { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 6px; margin: 4px 0; border: 1px solid var(--line); border-radius: 5px; }
 .effbox .sep { display: none; }
+
+.busy { position: fixed; left: 50%; top: 110px; transform: translateX(-50%); z-index: 3500; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 8px; padding: 10px 16px; display: flex; gap: 10px; align-items: center; }
+.spin { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

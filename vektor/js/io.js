@@ -1,28 +1,39 @@
-// Файлы: сохранение/открытие .vkt, импорт SVG и растра, экспорт SVG/PNG/JPG, печать.
+// Файлы: сохранение и открытие .vkt; открытие и импорт CDR (любой версии), PDF/AI, SVG, растра;
+// экспорт страниц в SVG, PNG, JPG, PDF и CDR нужной версии (через установленный CorelDRAW).
 'use strict';
 
+const CDR_VERSIONS = [
+  [26, 'CorelDRAW 2024'], [25, 'CorelDRAW 2023'], [24, 'CorelDRAW 2022'], [23, 'CorelDRAW 2021'], [22, 'CorelDRAW 2020'],
+  [21, 'CorelDRAW 2019'], [20, 'CorelDRAW 2018'], [19, 'CorelDRAW 2017'], [18, 'CorelDRAW X8'], [17, 'CorelDRAW X7'],
+  [16, 'CorelDRAW X6'], [15, 'CorelDRAW X5'], [14, 'CorelDRAW X4'], [13, 'CorelDRAW X3'], [12, 'CorelDRAW 12'], [11, 'CorelDRAW 11'],
+];
+
 const IO = {
-  handle: null, // дескриптор файла (File System Access API) — Ctrl+S пишет в тот же файл
+  handle: null, // файл браузера (File System Access API) — Ctrl+S пишет в тот же файл
+  path: null,   // путь файла в настольной версии
 
-  download(blob, name) {
-    const a = h('a', { href: URL.createObjectURL(blob), download: name });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  },
-  baseName() { return (App.fileName || App.doc.name || 'Без имени').replace(/\.vkt$/i, ''); },
+  baseName() { return (App.fileName || App.doc.name || 'Без имени').replace(/\.(vkt|cdr|svg|pdf|ai)$/i, ''); },
   json() { return JSON.stringify(App.doc); },
+  ext: name => Host.extOf(name),
+  download(blob, name) { return Host.saveFile(name, blob, blob.type); },
 
+  // ---------- сохранение ----------
   async save() {
-    if (IO.handle) {
-      try {
-        const w = await IO.handle.createWritable(); await w.write(IO.json()); await w.close();
-        App.dirty = false; UI.refresh({ panels: false }); UI.toast('Сохранено: ' + App.fileName); return;
-      } catch (e) { console.warn(e); }
-    }
-    IO.saveAs();
+    try {
+      if (Host.desktop && IO.path) { await vkHost.write(IO.path, IO.json()); return IO.saved(); }
+      if (IO.handle) { const w = await IO.handle.createWritable(); await w.write(IO.json()); await w.close(); return IO.saved(); }
+    } catch (e) { console.warn(e); }
+    return IO.saveAs();
   },
+  saved() { App.dirty = false; UI.refresh({ panels: false }); UI.toast('Сохранено: ' + App.fileName); },
   async saveAs() {
     const name = IO.baseName() + '.vkt';
+    if (Host.desktop) {
+      const p = await vkHost.saveDialog({ defaultPath: name, filters: [{ name: 'Документ Вектор', extensions: ['vkt'] }] });
+      if (!p) return;
+      IO.path = p; App.fileName = p.split(/[\\/]/).pop();
+      return IO.save();
+    }
     if (window.showSaveFilePicker) {
       try {
         IO.handle = await showSaveFilePicker({ suggestedName: name, types: [{ description: 'Документ Вектор', accept: { 'application/json': ['.vkt'] } }] });
@@ -30,32 +41,38 @@ const IO = {
         return IO.save();
       } catch (e) { if (e.name === 'AbortError') return; }
     }
-    IO.download(new Blob([IO.json()], { type: 'application/json' }), name);
+    await Host.saveFile(name, IO.json(), 'application/json');
     App.fileName = name; App.dirty = false; UI.refresh({ panels: false });
   },
+
+  // ---------- открытие ----------
+  OPEN_ACCEPT: '.vkt,.json,.cdr,.cdt,.svg,.pdf,.ai',
   async open() {
-    if (window.showOpenFilePicker) {
-      try {
-        const [hd] = await showOpenFilePicker({ types: [{ description: 'Документ Вектор или SVG', accept: { 'application/json': ['.vkt', '.json'], 'image/svg+xml': ['.svg'] } }] });
-        const f = await hd.getFile();
-        if (/\.svg$/i.test(f.name)) { IO.openSVGAsDoc(await f.text(), f.name); return; }
-        IO.loadText(await f.text(), f.name); IO.handle = hd; return;
-      } catch (e) { if (e.name === 'AbortError') return; }
-    }
-    IO.pick('.vkt,.json,.svg', async f => {
-      if (/\.svg$/i.test(f.name)) IO.openSVGAsDoc(await f.text(), f.name); else IO.loadText(await f.text(), f.name);
-    });
+    const [f] = await Host.pickFiles(IO.OPEN_ACCEPT, false, 'Открыть документ');
+    if (f) IO.openEntry(f);
   },
-  pick(accept, cb, multiple = false) {
-    const inp = h('input', { type: 'file', accept, multiple, style: { display: 'none' } });
-    inp.addEventListener('change', () => { for (const f of inp.files) cb(f); inp.remove(); });
-    document.body.append(inp); inp.click();
+  async openPath(p) {
+    const name = p.split(/[\\/]/).pop();
+    return IO.openEntry({ name, path: p, read: () => vkHost.read(p) });
+  },
+  async openEntry(f) {
+    const ext = IO.ext(f.name);
+    try {
+      UI.busy('Открываю ' + f.name + '…');
+      const buf = await f.read();
+      if (ext === 'vkt' || ext === 'json') { IO.loadText(new TextDecoder().decode(buf), f.name); if (f.path) IO.path = f.path; else if (f.handle) IO.handle = f.handle; }
+      else if (ext === 'svg') IO.openSVGAsDoc(new TextDecoder().decode(buf), f.name);
+      else if (ext === 'cdr' || ext === 'cdt') IO.docFromPages(await IO.readCDR(buf, f.path), f.name);
+      else if (ext === 'pdf' || ext === 'ai') IO.docFromPages((await PDFImport.open(buf)).pages, f.name);
+      else UI.toast('Этот тип файла не открывается: ' + f.name);
+    } catch (e) { console.error(e); UI.toast('Не удалось открыть: ' + (e.message || e)); }
+    finally { UI.busy(null); }
   },
   loadText(text, name) {
     let d;
     try { d = JSON.parse(text); if (!d.layers && !d.pages) throw new Error('нет слоёв'); } catch (e) { return UI.toast('Не удалось открыть файл: это не документ Вектора'); }
     App.doc = App.migrate(d); Model.syncSeq(App.doc); App.sel = [];
-    App.fileName = name; App.dirty = false; IO.handle = null;
+    App.fileName = name; App.dirty = false; IO.handle = null; IO.path = null;
     App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
     Text.cache.clear(); App.autosave(); App.zoomPage(); UI.refresh();
     UI.toast('Открыт: ' + name);
@@ -66,35 +83,99 @@ const IO = {
     const size = IO.importSVGText(text, null, true);
     if (size) { App.pg().w = G.round(size.w, 3); App.pg().h = G.round(size.h, 3); }
     App.doc.name = name.replace(/\.svg$/i, '');
-    App.fileName = null; IO.handle = null; App.sel = [];
+    App.fileName = null; IO.handle = null; IO.path = null; App.sel = [];
     App.commit('Открыт SVG'); App.zoomPage();
+  },
+  // страницы из CDR/PDF → новый документ
+  docFromPages(pages, name) {
+    if (!pages || !pages.length) return UI.toast('В файле нет страниц');
+    const d = Model.newDoc();
+    d.pages = pages.map((pg, i) => { const P = Model.newPage(G.round(pg.w, 3), G.round(pg.h, 3), i + 1); P.layers[0].objects = pg.objects; return P; });
+    d.name = name.replace(/\.\w+$/, '');
+    App.doc = d; Model.syncSeq(d); App.sel = [];
+    App.fileName = null; IO.handle = null; IO.path = null;
+    App.history = [JSON.stringify(App.doc)]; App.hpos = 0; App.dirty = true;
+    Text.cache.clear(); App.autosave(); App.zoomPage(); UI.refresh();
+    const n = pages.reduce((s, p) => s + p.objects.length, 0);
+    UI.toast(`Открыт ${name}: страниц ${pages.length}, объектов ${n}`);
+  },
+  // CDR: сначала собственный разборщик; если он не справился и есть CorelDRAW — Corel пересохраняет файл
+  async readCDR(buf, path) {
+    let res = null, err = null;
+    try { res = CDR.parse(buf); } catch (e) { err = e; }
+    const empty = !res || !res.pages.some(p => p.objects.length);
+    if ((empty || err) && Host.desktop && path) {
+      const r = await vkHost.corelNormalize(path);
+      if (r && r.ok) { res = CDR.parse(r.data); UI.toast('Файл прочитан через установленный CorelDRAW'); }
+      else if (!res) throw new Error((err && err.message) + (r && r.error ? '; CorelDRAW: ' + r.error : ''));
+    }
+    if (!res) throw err || new Error('Не удалось прочитать CDR');
+    if (res.version) UI.toast('Версия файла: ' + CDR.versionName(res.version));
+    return res.pages;
   },
 
   // ---------- импорт ----------
-  importDialog() { IO.pick('.svg,image/png,image/jpeg,image/webp,image/gif', f => IO.importFile(f), true); },
-  importFile(f, at) {
-    if (!f) return;
-    if (/\.vkt$|\.json$/i.test(f.name)) { f.text().then(t => IO.loadText(t, f.name)); return; }
-    if (f.type === 'image/svg+xml' || /\.svg$/i.test(f.name)) { f.text().then(t => IO.importSVGText(t, at)); return; }
-    if (!/^image\//.test(f.type)) return UI.toast('Этот тип файла не поддерживается: ' + f.name);
-    const r = new FileReader();
-    r.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        // растр: 96 точек на дюйм, но не больше страницы
-        let w = img.naturalWidth * 25.4 / 96, hh = img.naturalHeight * 25.4 / 96;
-        const p = App.pg(), k = Math.min(1, p.w * 0.9 / w, p.h * 0.9 / hh);
-        w *= k; hh *= k;
-        const o = Model.make('image', { w, h: hh, href: r.result, name: f.name || 'Изображение' });
-        o.stroke = Object.assign(structuredClone(App.defaults.stroke), { color: null });
-        const c = at || { x: p.w / 2, y: p.h / 2 };
-        o.m = Mx.translate(c.x - w / 2, c.y - hh / 2);
-        Actions.insert([o]); App.commit('Импорт изображения');
+  IMPORT_ACCEPT: '.cdr,.cdt,.svg,.pdf,.ai,.png,.jpg,.jpeg,.webp,.gif,.bmp,.vkt,.ttf,.otf',
+  async importDialog() {
+    const files = await Host.pickFiles(IO.IMPORT_ACCEPT, true, 'Импорт');
+    for (const f of files) await IO.importEntry(f);
+  },
+  importFile(file, at) { if (file) return IO.importEntry({ name: file.name || 'image.png', file, read: () => file.arrayBuffer(), type: file.type }, at); },
+  async importEntry(f, at) {
+    const ext = IO.ext(f.name);
+    try {
+      if (ext === 'vkt' || ext === 'json') return IO.openEntry(f);
+      if (ext === 'ttf' || ext === 'otf') { const fam = await Fonts.addFontFile(f.name, await f.read()); if (fam) UI.toast('Шрифт добавлен: ' + fam); return; }
+      if (ext === 'svg' || f.type === 'image/svg+xml') return IO.importSVGText(new TextDecoder().decode(await f.read()), at);
+      if (ext === 'cdr' || ext === 'cdt') { UI.busy('Читаю ' + f.name + '…'); return IO.placePages(await IO.readCDR(await f.read(), f.path), f.name, at); }
+      if (ext === 'pdf' || ext === 'ai') { UI.busy('Читаю ' + f.name + '…'); return IO.placePages((await PDFImport.open(await f.read())).pages, f.name, at); }
+      if (/^(png|jpe?g|webp|gif|bmp)$/.test(ext) || /^image\//.test(f.type || '')) {
+        const buf = await f.read();
+        return IO.importRaster(new Blob([buf], { type: f.type || 'image/' + (ext === 'jpg' ? 'jpeg' : ext) }), f.name, at);
+      }
+      UI.toast('Этот тип файла не поддерживается: ' + f.name);
+    } catch (e) { console.error(e); UI.toast('Не удалось импортировать ' + f.name + ': ' + (e.message || e)); }
+    finally { UI.busy(null); }
+  },
+  // первая страница — группой на текущую страницу, остальные — новыми страницами
+  placePages(pages, name, at) {
+    if (!pages.length) return UI.toast('Пусто');
+    const [first, ...rest] = pages;
+    if (first.objects.length) {
+      const g = first.objects.length > 1 ? Object.assign(Model.make('group', { children: first.objects }), { name: name.replace(/\.\w+$/, '') }) : first.objects[0];
+      if (at) { const b = Model.worldBox(g); Model.applyT(g, Mx.translate(at.x - (b.x1 + b.x2) / 2, at.y - (b.y1 + b.y2) / 2)); }
+      Actions.insert([g]);
+    }
+    for (const pg of rest) {
+      const P = Model.newPage(pg.w, pg.h, App.doc.pages.length + 1);
+      P.layers[0].objects = pg.objects; App.doc.pages.push(P);
+    }
+    App.commit('Импорт ' + name);
+    UI.toast(rest.length ? `Импортировано: ${name}, ещё ${rest.length} стр. добавлены в конец` : 'Импортировано: ' + name);
+  },
+  importRaster(blob, name, at, fit = 0.9) {
+    return new Promise(res => {
+      const r = new FileReader();
+      r.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          // растр: 96 точек на дюйм, но не больше страницы
+          let w = img.naturalWidth * 25.4 / 96, hh = img.naturalHeight * 25.4 / 96;
+          const p = App.pg(), k = Math.min(1, p.w * fit / w, p.h * fit / hh);
+          w *= k; hh *= k;
+          const o = Model.make('image', { w, h: hh, href: r.result, name: name || 'Изображение' });
+          o.stroke = Object.assign(structuredClone(App.defaults.stroke), { color: null });
+          o.fill = { type: 'none' };
+          const c = at || { x: p.w / 2, y: p.h / 2 };
+          o.m = Mx.translate(c.x - w / 2, c.y - hh / 2);
+          Actions.insert([o]); App.commit('Импорт изображения');
+          res(o);
+        };
+        img.onerror = () => { UI.toast('Не удалось прочитать изображение'); res(null); };
+        img.src = r.result;
       };
-      img.onerror = () => UI.toast('Не удалось прочитать изображение');
-      img.src = r.result;
-    };
-    r.readAsDataURL(f);
+      r.readAsDataURL(blob);
+    });
   },
   // разбор SVG в объекты редактора; возвращает размер в мм
   importSVGText(text, at, asDoc = false) {
@@ -254,81 +335,145 @@ const IO = {
 
   // ---------- экспорт ----------
   exportDialog() {
-    const fmt = UI.sel([['svg', 'SVG — вектор'], ['png', 'PNG — растр с прозрачностью'], ['jpg', 'JPG — растр'], ['vkt', 'VKT — документ Вектора']], IO.lastFmt || 'png', v => { IO.lastFmt = v; upd(); }, '', 240);
+    const fmt = UI.sel([['png', 'PNG — растр с прозрачностью'], ['jpg', 'JPG — растр'], ['svg', 'SVG — вектор'], ['pdf', 'PDF — через окно печати'],
+      ['cdr', 'CDR — CorelDRAW (нужен установленный Corel)'], ['vkt', 'VKT — документ Вектора']], IO.lastFmt || 'png', v => { IO.lastFmt = v; upd(); }, '', 300);
     const dpi = h('input', { type: 'number', value: IO.lastDpi || 300, min: 36, max: 1200 });
-    const area = UI.sel([['page', 'Страница'], ['sel', 'Только выделенное'], ['all', 'Все объекты']], App.sel.length ? 'sel' : 'page', () => upd(), '', 240);
+    const area = UI.sel([['page', 'Текущая страница'], ['pages', 'Все страницы'], ['sel', 'Только выделенное'], ['all', 'Все объекты страницы']], App.sel.length ? 'sel' : 'page', () => upd(), '', 300);
+    const ver = UI.sel(CDR_VERSIONS, IO.lastVer || 17, v => { IO.lastVer = +v; }, '', 300);
     const transp = h('input', { type: 'checkbox', checked: IO.lastTransp ?? false });
     const info = h('p', { class: 'muted' });
+    const verRow = h('label', {}, 'Версия CorelDRAW', ver);
     const upd = () => {
-      const b = IO.area(area.value);
+      const f = fmt.value;
+      verRow.style.display = f === 'cdr' ? '' : 'none';
+      const b = IO.area(area.value === 'pages' ? 'page' : area.value);
       const px = b ? `${Math.round((b.x2 - b.x1) / 25.4 * dpi.value)} × ${Math.round((b.y2 - b.y1) / 25.4 * dpi.value)} пикселей` : '—';
-      info.textContent = ['png', 'jpg'].includes(fmt.value) ? 'Размер: ' + px : fmt.value === 'svg' ? 'Размеры в мм, шрифты из набора программы встраиваются в файл.' : 'Полный документ со слоями.';
+      info.textContent = ['png', 'jpg'].includes(f) ? 'Размер: ' + px + (area.value === 'pages' && App.doc.pages.length > 1 ? '; страницы сложатся в ZIP' : '')
+        : f === 'svg' ? 'Размеры в мм, шрифты из набора программы встраиваются в файл.'
+          : f === 'cdr' ? (Host.desktop ? 'Страницы передаются в установленный CorelDRAW и сохраняются в выбранной версии.' : 'Сохранение в CDR работает в настольной версии «Вектора» на Windows с установленным CorelDRAW. В браузере сохраните PDF или SVG — Corel откроет их.')
+            : f === 'pdf' ? 'Откроется окно печати: выберите «Сохранить как PDF». Все страницы документа попадут в один PDF.' : 'Полный документ со страницами и слоями.';
     };
     dpi.addEventListener('input', upd);
     upd();
     UI.dialog('Экспорт', h('div', { class: 'form' },
-      h('label', {}, 'Формат', fmt), h('label', {}, 'Область', area), h('label', {}, 'Разрешение, точек на дюйм', dpi),
+      h('label', {}, 'Формат', fmt), h('label', {}, 'Что экспортировать', area), verRow, h('label', {}, 'Разрешение, точек на дюйм', dpi),
       h('label', { class: 'chk' }, transp, 'Прозрачный фон (PNG и SVG)'), info),
     [{ label: 'Отмена' }, { label: 'Экспорт', primary: true, action: () => {
       IO.lastDpi = +dpi.value; IO.lastTransp = transp.checked;
-      IO.exportAs(fmt.value, area.value, +dpi.value || 300, transp.checked);
+      IO.exportAs(fmt.value, area.value, +dpi.value || 300, transp.checked, +ver.value);
     } }]);
   },
-  area(kind) {
+  area(kind, page = App.pg()) {
     if (kind === 'sel') return Model.selBox();
     if (kind === 'all') {
-      let b = G.emptyBox(); Model.topLevel().forEach(({ o }) => { if (o.visible) b = G.unionBox(b, Model.worldBox(o)); });
+      let b = G.emptyBox(); Model.topLevel(page).forEach(({ o }) => { if (o.visible) b = G.unionBox(b, Model.worldBox(o)); });
       return G.boxValid(b) ? b : null;
     }
-    return { x1: 0, y1: 0, x2: App.pg().w, y2: App.pg().h };
+    return { x1: 0, y1: 0, x2: page.w, y2: page.h };
   },
-  svgFor(kind, transparent) {
-    const b = IO.area(kind);
+  // SVG страницы (или выделения) с нужной рамкой
+  svgFor(kind, transparent, page = App.pg()) {
+    const b = IO.area(kind, page);
     if (!b) return null;
-    let doc = App.pg();
-    if (kind === 'sel') {
-      doc = Object.assign({}, App.pg(), { layers: [{ id: 'x', name: 'x', visible: true, objects: App.selObjs() }] });
-    }
+    let src = page;
+    if (kind === 'sel') src = Object.assign({}, page, { layers: [{ id: 'x', name: 'x', visible: true, objects: App.selObjs() }] });
     const pad = kind === 'page' ? 0 : 0.5;
     const x = b.x1 - pad, y = b.y1 - pad, w = b.x2 - b.x1 + pad * 2, hh = b.y2 - b.y1 + pad * 2;
-    let svg = Render.exportSVG(doc, { background: !transparent && kind === 'page' });
+    let svg = Render.exportSVG(src, { background: !transparent && kind === 'page' });
     svg = svg.replace(/width="[^"]*mm" height="[^"]*mm" viewBox="[^"]*"/, `width="${G.round(w, 3)}mm" height="${G.round(hh, 3)}mm" viewBox="${G.round(x, 4)} ${G.round(y, 4)} ${G.round(w, 4)} ${G.round(hh, 4)}"`);
     return { svg, w, h: hh };
   },
-  async exportAs(fmt, kind, dpi, transparent) {
+  // SVG → PNG/JPG (Blob)
+  rasterize(svg, wmm, hmm, dpi, fmt = 'png', bg = null) {
+    const W = Math.max(1, Math.round(wmm / 25.4 * dpi)), H = Math.max(1, Math.round(hmm / 25.4 * dpi));
+    if (W > 16384 || H > 16384) return Promise.reject(new Error('Слишком большое изображение — уменьшите разрешение'));
+    const sized = svg.replace(/width="[^"]*mm" height="[^"]*mm"/, `width="${W}" height="${H}"`);
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const ctx = c.getContext('2d');
+        if (fmt === 'jpg' || bg) { ctx.fillStyle = bg || '#ffffff'; ctx.fillRect(0, 0, W, H); }
+        ctx.drawImage(img, 0, 0, W, H);
+        c.toBlob(b => b ? res({ blob: b, W, H }) : rej(new Error('Не удалось создать изображение')), fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.95);
+      };
+      img.onerror = () => rej(new Error('Ошибка при растеризации'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sized);
+    });
+  },
+  // картинка страницы для агента (data URL)
+  async pageImage(page = App.pg(), maxPx = 1200) {
+    const r = IO.svgFor('page', false, page);
+    const dpi = Math.min(150, maxPx / Math.max(page.w, page.h) * 25.4);
+    const { blob } = await IO.rasterize(r.svg, r.w, r.h, dpi, 'jpg', page.color || '#ffffff');
+    return new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+  },
+  async exportAs(fmt, kind, dpi, transparent, version = 17) {
     const base = IO.baseName();
-    if (fmt === 'vkt') return IO.download(new Blob([IO.json()], { type: 'application/json' }), base + '.vkt');
-    const r = IO.svgFor(kind, transparent);
-    if (!r) return UI.toast('Нечего экспортировать');
-    if (fmt === 'svg') return IO.download(new Blob([r.svg], { type: 'image/svg+xml' }), base + '.svg');
-    const W = Math.round(r.w / 25.4 * dpi), H = Math.round(r.h / 25.4 * dpi);
-    if (W * H > 16384 * 16384 || W > 16384 || H > 16384) return UI.toast('Слишком большое изображение — уменьшите разрешение');
-    const svg = r.svg.replace(/width="[^"]*mm" height="[^"]*mm"/, `width="${W}" height="${H}"`);
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas'); c.width = W; c.height = H;
-      const ctx = c.getContext('2d');
-      if (fmt === 'jpg' || !transparent && kind !== 'page') { ctx.fillStyle = fmt === 'jpg' ? (App.pg().color || '#ffffff') : 'transparent'; if (fmt === 'jpg') ctx.fillRect(0, 0, W, H); }
-      ctx.drawImage(img, 0, 0, W, H);
-      c.toBlob(b => {
-        if (!b) return UI.toast('Не удалось создать изображение (слишком большое?)');
-        IO.download(b, base + '.' + fmt); UI.toast(`Экспорт: ${W} × ${H} px`);
-      }, fmt === 'jpg' ? 'image/jpeg' : 'image/png', 0.95);
-    };
-    img.onerror = () => UI.toast('Ошибка при растеризации');
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    try {
+      if (fmt === 'vkt') return await Host.saveFile(base + '.vkt', IO.json(), 'application/json');
+      if (fmt === 'pdf') return IO.print();
+      if (fmt === 'cdr') return await IO.exportCDR(version);
+      const pages = kind === 'pages' ? App.doc.pages : [App.pg()];
+      const files = [];
+      for (let i = 0; i < pages.length; i++) {
+        const r = IO.svgFor(kind === 'pages' ? 'page' : kind, transparent, pages[i]);
+        if (!r) continue;
+        const suffix = pages.length > 1 ? '-' + String(i + 1).padStart(2, '0') : '';
+        if (fmt === 'svg') files.push({ name: base + suffix + '.svg', data: new TextEncoder().encode(r.svg) });
+        else {
+          const { blob, W, H } = await IO.rasterize(r.svg, r.w, r.h, dpi, fmt, fmt === 'jpg' ? (pages[i].color || '#ffffff') : null);
+          files.push({ name: base + suffix + '.' + fmt, data: new Uint8Array(await blob.arrayBuffer()), W, H });
+        }
+      }
+      if (!files.length) return UI.toast('Нечего экспортировать');
+      if (files.length === 1) {
+        const f = files[0];
+        await Host.saveFile(f.name, new Blob([f.data]), fmt === 'svg' ? 'image/svg+xml' : fmt === 'jpg' ? 'image/jpeg' : 'image/png');
+        UI.toast(f.W ? `Экспорт: ${f.W} × ${f.H} px` : 'Экспорт: ' + f.name);
+      } else {
+        const zip = fflate.zipSync(Object.fromEntries(files.map(f => [f.name, f.data])), { level: 0 });
+        await Host.saveFile(base + '.zip', new Blob([zip], { type: 'application/zip' }), 'application/zip');
+        UI.toast(`Экспорт: ${files.length} файлов в ZIP`);
+      }
+    } catch (e) { console.error(e); UI.toast('Экспорт не удался: ' + (e.message || e)); }
+  },
+  // CDR нужной версии: страницы → SVG → установленный CorelDRAW → «Сохранить как» с версией
+  async exportCDR(version) {
+    if (!Host.desktop) return UI.toast('Сохранение в CDR доступно в настольной версии на Windows с установленным CorelDRAW');
+    UI.busy('Проверяю CorelDRAW…');
+    const probe = await vkHost.corelProbe();
+    UI.busy(null);
+    if (!probe.ok) return UI.toast('CorelDRAW недоступен: ' + probe.error);
+    const out = await vkHost.saveDialog({ defaultPath: IO.baseName() + '.cdr', filters: [{ name: 'CorelDRAW', extensions: ['cdr'] }] });
+    if (!out) return;
+    const pages = App.doc.pages.map(P => {
+      let svg = Render.exportSVG(P, { background: false });
+      // невидимая рамка страницы — чтобы Corel поставил импорт точно на место; после импорта удаляется
+      svg = svg.replace('<defs>', `<rect id="vk-page-frame" width="${P.w}" height="${P.h}" fill="none" stroke="none"/>\n<defs>`);
+      return { w: P.w, h: P.h, svg };
+    });
+    UI.busy('CorelDRAW сохраняет файл…');
+    const r = await vkHost.corelBuild(pages, out, version);
+    UI.busy(null);
+    if (r.ok) { UI.toast('Сохранено для ' + (CDR_VERSIONS.find(v => v[0] === version) || [, ''])[1] + ': ' + out.split(/[\\/]/).pop()); vkHost.reveal(out); }
+    else UI.toast('CorelDRAW не сохранил файл: ' + r.error);
   },
   print() {
-    const r = IO.svgFor('page', false);
-    const { w, h: hh } = App.pg();
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${Render.esc(IO.baseName())}</title><style>@page{size:${w}mm ${hh}mm;margin:0}html,body{margin:0;padding:0}svg{display:block;width:${w}mm;height:${hh}mm}</style></head><body>${r.svg.replace(/^<\?xml[^>]*>/, '')}</body></html>`;
+    const pages = App.doc.pages;
+    const body = pages.map(P => {
+      const r = IO.svgFor('page', false, P);
+      return `<div class="pg" style="width:${P.w}mm;height:${P.h}mm">${r.svg.replace(/^<\?xml[^>]*>/, '')}</div>`;
+    }).join('');
+    const P0 = pages[0];
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${Render.esc(IO.baseName())}</title><style>@page{size:${P0.w}mm ${P0.h}mm;margin:0}html,body{margin:0;padding:0}.pg{page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}svg{display:block;width:100%;height:100%}</style></head><body>${body}</body></html>`;
     const fr = h('iframe', { style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(fr);
     fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
     setTimeout(() => {
       fr.contentWindow.focus(); fr.contentWindow.print();
       setTimeout(() => fr.remove(), 1500);
-    }, 400);
+    }, 500);
     UI.toast('Для PDF выберите «Сохранить как PDF» в окне печати');
   },
 };
