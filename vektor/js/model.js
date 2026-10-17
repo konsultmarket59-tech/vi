@@ -390,7 +390,7 @@ const Render = {
     const defs = [];
     let body = '';
     for (const L of page.layers) {
-      if (!L.visible || (opt.print && L.noPrint)) continue;
+      if (!L.visible || (opt.print && L.noPrint && !(opt.frames && L.frame))) continue;
       body += `<g${opt.ids ? ` data-layer="${L.id}"` : ''}>` + L.objects.map(o => Render.obj(o, defs, opt)).join('') + '</g>';
     }
     return { defs: defs.join(''), body };
@@ -398,7 +398,7 @@ const Render = {
   // самостоятельный SVG-файл страницы
   exportSVG(page, opt = {}) {
     const { w, h, color } = page;
-    const { defs, body } = Render.layers(page, { print: true });
+    const { defs, body } = Render.layers(page, { print: true, frames: opt.frames });
     const fonts = opt.embedFonts !== false ? Fonts.cssFor(page) : '';
     return `<?xml version="1.0" encoding="UTF-8"?>\n` +
       `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}">\n` +

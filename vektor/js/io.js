@@ -335,9 +335,13 @@ const IO = {
   },
 
   // ---------- экспорт ----------
-  exportDialog() {
-    const fmt = UI.sel([['png', 'PNG — растр с прозрачностью'], ['jpg', 'JPG — растр'], ['svg', 'SVG — вектор'], ['pdf', 'PDF — через окно печати'],
-      ['cdr', 'CDR — CorelDRAW (нужен установленный Corel)'], ['vkt', 'VKT — документ Вектора']], IO.lastFmt || 'png', v => { IO.lastFmt = v; upd(); }, '', 300);
+  exportDialog(preset) {
+    const fmt = UI.sel([['png', 'PNG — растр с прозрачностью'], ['jpg', 'JPG — растр'], ['svg', 'SVG — вектор'], ['pdfx', 'PDF для типографии — CMYK, вылеты, метки'], ['pdfv', 'PDF векторный (RGB)'], ['ai', 'AI — Adobe Illustrator (PDF-совместимый)'], ['pdf', 'PDF — через окно печати'],
+      ['cdr', 'CDR — CorelDRAW (нужен установленный Corel)'], ['vkt', 'VKT — документ Вектора'], ...(typeof Convert !== 'undefined' ? Convert.exportFormats() : [])], typeof preset === 'string' ? preset : (IO.lastFmt || 'png'), v => { IO.lastFmt = v; upd(); }, '', 300);
+    const pp = typeof Prepress !== 'undefined' ? Prepress.pp() : { bleed: 0 };
+    const cmykC = h('input', { type: 'checkbox', checked: true }), marksC = h('input', { type: 'checkbox', checked: (pp.bleed || 0) > 0 });
+    const bleedIn = h('input', { type: 'number', min: 0, step: 0.5, value: pp.bleed || 0 });
+    const pdfRow = h('div', { class: 'form' }, h('label', { class: 'chk' }, cmykC, ' Цвета в CMYK (точные значения документа, остальное — по профилю)'), h('label', {}, 'Вылеты, мм', bleedIn), h('label', { class: 'chk' }, marksC, ' Метки реза'));
     const dpi = h('input', { type: 'number', value: IO.lastDpi || 300, min: 36, max: 1200 });
     const area = UI.sel([['page', 'Текущая страница'], ['pages', 'Все страницы'], ['sel', 'Только выделенное'], ['all', 'Все объекты страницы']], App.sel.length ? 'sel' : 'page', () => upd(), '', 300);
     const ver = UI.sel(CDR_VERSIONS, IO.lastVer || 17, v => { IO.lastVer = +v; }, '', 300);
@@ -347,20 +351,25 @@ const IO = {
     const upd = () => {
       const f = fmt.value;
       verRow.style.display = f === 'cdr' ? '' : 'none';
+      pdfRow.style.display = ['pdfx', 'pdfv', 'ai', 'cdr'].includes(f) ? '' : 'none';
+      marksC.parentNode.style.display = bleedIn.parentNode.style.display = f === 'cdr' ? 'none' : '';
       const b = IO.area(area.value === 'pages' ? 'page' : area.value);
       const px = b ? `${Math.round((b.x2 - b.x1) / 25.4 * dpi.value)} × ${Math.round((b.y2 - b.y1) / 25.4 * dpi.value)} пикселей` : '—';
       info.textContent = ['png', 'jpg'].includes(f) ? 'Размер: ' + px + (area.value === 'pages' && App.doc.pages.length > 1 ? '; страницы сложатся в ZIP' : '')
         : f === 'svg' ? 'Размеры в мм, шрифты из набора программы встраиваются в файл.'
           : f === 'cdr' ? (Host.desktop ? 'Страницы передаются в установленный CorelDRAW и сохраняются в выбранной версии.' : 'Сохранение в CDR работает в настольной версии «Вектора» на Windows с установленным CorelDRAW. В браузере сохраните PDF или SVG — Corel откроет их.')
-            : f === 'pdf' ? 'Откроется окно печати: выберите «Сохранить как PDF». Все страницы документа попадут в один PDF.' : 'Полный документ со страницами и слоями.';
+            : f === 'pdf' ? 'Откроется окно печати: выберите «Сохранить как PDF». Все страницы документа попадут в один PDF.'
+              : f === 'pdfx' || f === 'pdfv' || f === 'ai' ? 'Все страницы, векторами; текст — кривыми. Обрезной формат (TrimBox) и вылеты (BleedBox) записываются в файл.'
+                : typeof Convert !== 'undefined' && Convert.describe(f) || 'Полный документ со страницами и слоями.';
     };
     dpi.addEventListener('input', upd);
     upd();
     UI.dialog('Экспорт', h('div', { class: 'form' },
-      h('label', {}, 'Формат', fmt), h('label', {}, 'Что экспортировать', area), verRow, h('label', {}, 'Разрешение, точек на дюйм', dpi),
+      h('label', {}, 'Формат', fmt), h('label', {}, 'Что экспортировать', area), verRow, pdfRow, h('label', {}, 'Разрешение, точек на дюйм', dpi),
       h('label', { class: 'chk' }, transp, 'Прозрачный фон (PNG и SVG)'), info),
     [{ label: 'Отмена' }, { label: 'Экспорт', primary: true, action: () => {
       IO.lastDpi = +dpi.value; IO.lastTransp = transp.checked;
+      IO.exportOpt = { cmyk: cmykC.checked, bleed: +bleedIn.value || 0, marks: marksC.checked };
       IO.exportAs(fmt.value, area.value, +dpi.value || 300, transp.checked, +ver.value);
     } }]);
   },
@@ -414,7 +423,16 @@ const IO = {
     try {
       if (fmt === 'vkt') return await Host.saveFile(base + '.vkt', IO.json(), 'application/json');
       if (fmt === 'pdf') return IO.print();
-      if (fmt === 'cdr') return await IO.exportCDR(version);
+      const eo = IO.exportOpt || {};
+      if (fmt === 'pdfx' || fmt === 'pdfv' || fmt === 'ai') {
+        const pages = kind === 'pages' || fmt !== 'pdfv' ? App.doc.pages : [App.pg()];
+        const bytes = await (async () => { UI.busy('Собираю PDF…'); try { return await PDFWriter.build(pages, { cmyk: fmt === 'pdfv' ? false : eo.cmyk !== false, bleed: fmt === 'pdfv' ? 0 : eo.bleed || 0, marks: fmt === 'pdfx' && eo.marks, title: App.doc.name, imageJpeg: true }); } finally { UI.busy(null); } })();
+        const ext = fmt === 'ai' ? 'ai' : 'pdf';
+        await Host.saveFile(base + (fmt === 'pdfx' && eo.cmyk !== false ? '-CMYK' : '') + '.' + ext, new Blob([bytes], { type: 'application/pdf' }), 'application/pdf', ext);
+        return UI.toast('Сохранено: ' + (bytes.length / 1048576).toFixed(1) + ' МБ');
+      }
+      if (fmt === 'cdr') return await IO.exportCDR(version, { cmyk: eo.cmyk !== false });
+      if (typeof Convert !== 'undefined' && Convert.handles(fmt)) return await Convert.exportDoc(fmt, kind);
       const pages = kind === 'pages' ? App.doc.pages : [App.pg()];
       const files = [];
       for (let i = 0; i < pages.length; i++) {
@@ -440,7 +458,7 @@ const IO = {
     } catch (e) { console.error(e); UI.toast('Экспорт не удался: ' + (e.message || e)); }
   },
   // CDR нужной версии: страницы → SVG → установленный CorelDRAW → «Сохранить как» с версией
-  async exportCDR(version) {
+  async exportCDR(version, opt = {}) {
     if (!Host.desktop) return UI.toast('Сохранение в CDR доступно в настольной версии на Windows с установленным CorelDRAW');
     UI.busy('Проверяю CorelDRAW…');
     const probe = await vkHost.corelProbe();
@@ -449,13 +467,23 @@ const IO = {
     const out = await vkHost.saveDialog({ defaultPath: IO.baseName() + '.cdr', filters: [{ name: 'CorelDRAW', extensions: ['cdr'] }] });
     if (!out) return;
     const pages = App.doc.pages.map(P => {
-      let svg = Render.exportSVG(P, { background: false });
+      let svg = Render.exportSVG(P, { background: false, frames: true });
+      // фон страницы с вылетами — отдельным объектом
+      const bl = typeof Prepress !== 'undefined' ? Prepress.pp(P).bleed || 0 : 0;
+      if (P.color && P.color.toLowerCase() !== '#ffffff') svg = svg.replace('<defs>', `<rect id="vk-page-bg" x="${-bl}" y="${-bl}" width="${P.w + bl * 2}" height="${P.h + bl * 2}" fill="${P.color}"/>\n<defs>`);
       // невидимая рамка страницы — чтобы Corel поставил импорт точно на место; после импорта удаляется
       svg = svg.replace('<defs>', `<rect id="vk-page-frame" width="${P.w}" height="${P.h}" fill="none" stroke="none"/>\n<defs>`);
       return { w: P.w, h: P.h, svg };
     });
     UI.busy('CorelDRAW сохраняет файл…');
-    const r = await vkHost.corelBuild(pages, out, version);
+    // точные CMYK цветов документа: Corel перекрасит импортированные RGB-цвета в эти значения
+    const cmyk = {};
+    if (opt.cmyk && typeof CMYK !== 'undefined') {
+      const add = hex => { if (hex) cmyk[hex.toLowerCase()] = CMYK.of(hex).map(v => Math.round(v)); };
+      Model.walkDoc(App.doc, o => CMYK.paints(o, (p, k) => add(p[k])));
+      App.doc.pages.forEach(P => add(P.color));
+    }
+    const r = await vkHost.corelBuild(pages, out, version, { cmyk: opt.cmyk ? cmyk : null, bitmapsCmyk: !!opt.cmyk });
     UI.busy(null);
     if (r.ok) { UI.toast('Сохранено для ' + (CDR_VERSIONS.find(v => v[0] === version) || [, ''])[1] + ': ' + out.split(/[\\/]/).pop()); vkHost.reveal(out); }
     else UI.toast('CorelDRAW не сохранил файл: ' + r.error);

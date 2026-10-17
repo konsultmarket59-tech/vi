@@ -156,6 +156,7 @@ const UI = {
       UI.$('#gridPath').setAttribute('d', `M${gs} 0H0V${gs}`);
       UI.$('#gridPath').setAttribute('stroke-width', 1 / App.zoom);
     }
+    if (typeof Prepress !== 'undefined') Prepress.renderMarks();
     if (doc) {
       const r = Render.layers(App.pg(), { ids: true });
       UI.$('#docDefs').innerHTML = r.defs;
@@ -299,6 +300,7 @@ const UI = {
     return [
       { label: 'Файл', items: [
         { label: 'Создать', key: 'Ctrl+N', action: A.newDoc },
+        { label: 'Создать из фрейма… (листовки, буклеты, сувенирка)', action: () => Frames.dialog() },
         { label: 'Открыть…', key: 'Ctrl+O', action: IO.open },
         '-',
         { label: 'Сохранить', key: 'Ctrl+S', action: IO.save },
@@ -308,6 +310,8 @@ const UI = {
         { label: 'Экспорт… (SVG, PNG, JPG)', key: 'Ctrl+E', action: IO.exportDialog },
         '-',
         { label: 'Печать / PDF…', key: 'Ctrl+P', action: IO.print },
+        { label: 'PDF для типографии (CMYK, вылеты, метки)…', action: () => IO.exportDialog('pdfx') },
+        { label: 'Подготовить файл для типографии…', action: () => Prepress.dialog() },
         '-',
         { label: 'Свойства документа…', action: UI.pageDialog },
       ] },
@@ -346,6 +350,11 @@ const UI = {
       ] },
       { label: 'Макет', items: [
         { label: 'Размер страницы…', action: UI.pageDialog },
+        { label: 'Фреймы: полиграфия и сувенирка…', action: () => Frames.dialog() },
+        { label: 'Параметры печати: вылеты, поля, CMYK…', action: () => Prepress.settingsDialog() },
+        { label: 'Подготовка к печати (проверка и исправление)…', action: () => Prepress.dialog() },
+        { label: 'Изменить размер макета (масштаб, расширение)…', action: () => Prepress.resizeDialog() },
+        { label: 'Сжать картинки…', action: () => Prepress.compressDialog() },
         { label: 'Книжная', action: () => UI.setOrientation(false) },
         { label: 'Альбомная', action: () => UI.setOrientation(true) },
         '-',

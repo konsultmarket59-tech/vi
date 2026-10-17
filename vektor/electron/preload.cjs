@@ -16,5 +16,5 @@ contextBridge.exposeInMainWorld("vkHost", {
   capture: (rect) => ipcRenderer.invoke("win:capture", rect),
   corelProbe: () => ipcRenderer.invoke("corel:probe"),
   corelNormalize: (p) => ipcRenderer.invoke("corel:normalize", p),
-  corelBuild: (pages, output, version) => ipcRenderer.invoke("corel:build", pages, output, version),
+  corelBuild: (pages, output, version, opts) => ipcRenderer.invoke("corel:build", pages, output, version, opts),
 });

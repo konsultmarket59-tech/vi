@@ -252,6 +252,29 @@ try {
       $doc.ActiveLayer.Import($job.pages[$i].svg)
       try { $f = $pg.Shapes.FindShape('vk-page-frame'); if ($f) { $f.Delete() } } catch { }
     }
+    # точные CMYK: импортированные RGB-цвета перекрашиваются в значения документа
+    if ($null -ne $job.cmyk) {
+      $map = @{}
+      foreach ($p in $job.cmyk.PSObject.Properties) { $map[$p.Name.ToLower()] = $p.Value }
+      $fix = {
+        param($col)
+        try {
+          $hex = ('#{0:x2}{1:x2}{2:x2}' -f [int]$col.RGBRed, [int]$col.RGBGreen, [int]$col.RGBBlue)
+          $v = $map[$hex]
+          if ($null -ne $v) { $col.CMYKAssign([int]$v[0], [int]$v[1], [int]$v[2], [int]$v[3]) } else { $col.ConvertToCMYK() }
+        } catch { }
+      }
+      foreach ($pg in $doc.Pages) {
+        foreach ($s in $pg.Shapes.FindShapes()) {
+          try {
+            if ($s.Fill.Type -eq 1) { & $fix $s.Fill.UniformColor }
+            if ($s.Fill.Type -eq 2) { foreach ($fc in $s.Fill.Fountain.Colors) { & $fix $fc.Color } ; & $fix $s.Fill.Fountain.StartColor; & $fix $s.Fill.Fountain.EndColor }
+            if ($s.Outline.Type -eq 1) { & $fix $s.Outline.Color }
+            if ($job.bitmapsCmyk -and $s.Type -eq 5) { $s.Bitmap.ConvertTo(5) }
+          } catch { }
+        }
+      }
+    }
     $opt = $app.CreateStructSaveAsOptions()
     $opt.Version = [int]$job.version
     $doc.SaveAs($job.output, $opt)
@@ -289,7 +312,7 @@ ipcMain.handle("corel:normalize", async (e, input) => {
   return { ok: true, data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
 });
 // собрать CDR нужной версии из страниц-SVG
-ipcMain.handle("corel:build", async (e, pages, output, version) => {
+ipcMain.handle("corel:build", async (e, pages, output, version, opts = {}) => {
   if (!isAllowed(output) && !isAllowed(path.dirname(output))) throw new Error("Нет доступа к папке");
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "vektor-svg-"));
   const list = [];
@@ -298,7 +321,7 @@ ipcMain.handle("corel:build", async (e, pages, output, version) => {
     await fsp.writeFile(f, pages[i].svg, "utf8");
     list.push({ w: pages[i].w, h: pages[i].h, svg: f });
   }
-  const r = await runCorel({ op: "build", pages: list, output, version });
+  const r = await runCorel({ op: "build", pages: list, output, version, cmyk: opts && opts.cmyk || null, bitmapsCmyk: !!(opts && opts.bitmapsCmyk) });
   fsp.rm(dir, { recursive: true, force: true }).catch(() => { });
   return r;
 });
