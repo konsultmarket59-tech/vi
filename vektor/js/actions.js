@@ -27,7 +27,7 @@ const Actions = {
   },
   selectAll() {
     const ids = [];
-    for (const L of App.doc.layers) if (L.visible && !L.locked) for (const o of L.objects) if (!o.locked && o.visible) ids.push(o.id);
+    for (const L of App.pg().layers) if (L.visible && !L.locked) for (const o of L.objects) if (!o.locked && o.visible) ids.push(o.id);
     App.setSel(ids);
   },
   cycle(dir) {
@@ -73,7 +73,7 @@ const Actions = {
   toSystemClipboard(e) {
     try {
       e.clipboardData.setData('application/x-vektor', App.clipboard);
-      const doc = { ...App.doc, layers: [{ id: 'c', name: 'c', visible: true, objects: JSON.parse(App.clipboard) }] };
+      const doc = { ...App.pg(), layers: [{ id: 'c', name: 'c', visible: true, objects: JSON.parse(App.clipboard) }] };
       const b = Model.selBox();
       let svg = Render.exportSVG(doc, { background: false });
       if (b) svg = svg.replace(/width="[^"]*mm" height="[^"]*mm" viewBox="[^"]*"/, `width="${(b.x2 - b.x1).toFixed(2)}mm" height="${(b.y2 - b.y1).toFixed(2)}mm" viewBox="${b.x1} ${b.y1} ${b.x2 - b.x1} ${b.y2 - b.y1}"`);
@@ -102,7 +102,7 @@ const Actions = {
       if (txt && !App.clipboard) {
         // обычный текст — создаём фигурный текст в центре страницы
         const o = Model.make('text', { text: txt.slice(0, 2000), font: 'Arial', size: 24, align: 'left', bold: false, italic: false, lh: 1.2 });
-        o.m = Mx.translate(App.doc.page.w / 4, App.doc.page.h / 4);
+        o.m = Mx.translate(App.pg().w / 4, App.pg().h / 4);
         Actions.insert([o]); App.commit('Вставка текста'); return;
       }
     }
@@ -141,7 +141,7 @@ const Actions = {
   },
   moveToLayer(layerId) {
     if (!Actions.need()) return;
-    const L = App.doc.layers.find(l => l.id === layerId);
+    const L = App.pg().layers.find(l => l.id === layerId);
     const objs = App.selObjs();
     Actions.removeIds(App.sel);
     L.objects.push(...objs);
@@ -191,15 +191,39 @@ const Actions = {
   },
 
   // ---- кривые ----
-  toCurves() {
+  // в кривые; для текста сначала подгружается файл шрифта (встроенный, системный или загруженный)
+  async toCurves() {
     if (!Actions.need()) return;
-    let n = 0, skipped = 0;
+    const objs = App.selObjs();
+    const texts = [];
+    for (const o of objs) for (const l of Model.leaves(o)) if (l.type === 'text') texts.push(l);
+    for (const t of texts) await Fonts.otf(t.font, t.bold, t.italic);
+    let n = 0;
+    const missing = new Set();
     for (const id of App.sel) {
-      const f = Model.find(id), c = Model.toCurves(f.obj);
-      if (c) { f.list[f.list.indexOf(f.obj)] = c; n++; } else if (f.obj.type !== 'path') skipped++;
+      const f = Model.find(id);
+      if (!f) continue;
+      const c = Model.toCurves(f.obj);
+      if (c) { f.list[f.list.indexOf(f.obj)] = c; n++; }
+      for (const l of Model.leaves(c || f.obj)) if (l.type === 'text') missing.add(l.font);
     }
-    if (skipped) UI.toast('Текст и изображения в кривые не переводятся: нужен исходный шрифт');
+    if (missing.size) UI.toast(`Нет файла шрифта: ${[...missing].join(', ')}. Загрузите его (Текст → Загрузить шрифт) или разрешите доступ к шрифтам системы.`);
     if (n) App.commit('Преобразовать в кривые');
+  },
+  // разъединить эффект (контур, выдавливание, перетекание) в обычные объекты
+  breakEffect() {
+    if (!Actions.need()) return;
+    let n = 0;
+    for (const id of App.sel) {
+      const f = Model.find(id), o = f.obj;
+      const g = o.type === 'blend' ? Model.breakBlend(o) : (o.contour || o.extrude) ? Model.breakEffects(o) : null;
+      if (g) { f.list[f.list.indexOf(o)] = g; n++; }
+    }
+    if (!n) return UI.toast('У выделенного нет живых эффектов');
+    App.commit('Разъединить эффект');
+  },
+  clearEffects(kind) {
+    Actions.setPaint(o => { if (!kind || kind === 'contour') delete o.contour; if (!kind || kind === 'extrude') delete o.extrude; if (!kind || kind === 'envelope') delete o.envelope; }, 'Убрать эффект');
   },
   combine() {
     if (!Actions.need(2, 'Выделите два объекта или больше')) return;
@@ -262,7 +286,7 @@ const Actions = {
     const objs = App.selObjs();
     let ref;
     if (!to) to = objs.length === 1 ? 'page' : 'last';
-    if (to === 'page') ref = { x1: 0, y1: 0, x2: App.doc.page.w, y2: App.doc.page.h };
+    if (to === 'page') ref = { x1: 0, y1: 0, x2: App.pg().w, y2: App.pg().h };
     else if (to === 'last') ref = Model.worldBox(objs[objs.length - 1]);
     else if (to === 'first') ref = Model.worldBox(objs[0]);
     else ref = Model.selBox();
@@ -282,7 +306,7 @@ const Actions = {
   centerPage() {
     if (!Actions.need()) return;
     const b = Model.selBox();
-    const T = Mx.translate(App.doc.page.w / 2 - (b.x1 + b.x2) / 2, App.doc.page.h / 2 - (b.y1 + b.y2) / 2);
+    const T = Mx.translate(App.pg().w / 2 - (b.x1 + b.x2) / 2, App.pg().h / 2 - (b.y1 + b.y2) / 2);
     App.selObjs().forEach(o => Model.applyT(o, T));
     App.commit('По центру страницы');
   },
@@ -408,75 +432,44 @@ const Actions = {
     App.sel = ids; App.commit('Извлечь содержимое');
   },
 
-  // ---- перетекание (blend) ----
+  // ---- живые эффекты ----
+  // перетекание: два объекта объединяются в живой объект, промежуточные шаги строятся заново при каждой правке
   blend(steps = 10) {
     if (App.sel.length !== 2) return UI.toast('Для перетекания выделите ровно два объекта');
     const [A, B] = Actions.zSorted();
-    const la = Model.leaves(A)[0], lb = Model.leaves(B)[0];
-    const sa = A.type === 'group' ? null : Model.worldSubs(A), sb = B.type === 'group' ? null : Model.worldSubs(B);
-    const same = sa && sb && sa.length === sb.length && sa.every((sp, i) => sp.nodes.length === sb[i].nodes.length && sp.closed === sb[i].closed);
-    const ra = !same && sa && sb ? Actions.resample(sa) : null, rb = ra ? Actions.resample(sb) : null;
-    const mixPaint = (t) => {
-      const f = structuredClone(la.fill || { type: 'none' }), s = structuredClone(la.stroke || {});
-      const fb = lb.fill || {}, sb2 = lb.stroke || {};
-      if (f.type === 'none' && fb.type && fb.type !== 'none') { Object.assign(f, structuredClone(fb)); }
-      if (f.color && fb.color) f.color = Color.mix(f.color, fb.color, t);
-      if (f.color2 && fb.color2) f.color2 = Color.mix(f.color2, fb.color2, t);
-      if (s.color && sb2.color) s.color = Color.mix(s.color, sb2.color, t);
-      if (s.width !== undefined && sb2.width !== undefined) s.width = G.lerp(s.width, sb2.width, t);
-      return { fill: f, stroke: s, opacity: G.lerp(la.opacity ?? 1, lb.opacity ?? 1, t) };
-    };
-    const items = [];
-    const ba = Model.worldBox(A), bb = Model.worldBox(B);
-    for (let i = 1; i <= steps; i++) {
-      const t = i / (steps + 1);
-      let o;
-      if (same || ra) {
-        const P = same ? [sa, sb] : [ra, rb];
-        const subs = P[0].map((sp, k) => ({
-          closed: sp.closed, nodes: sp.nodes.map((n, j) => {
-            const m = P[1][k].nodes[j];
-            const L = key => G.lerp(n[key], m[key], t);
-            return { x: L('x'), y: L('y'), ix: L('ix'), iy: L('iy'), ox: L('ox'), oy: L('oy'), t: n.t };
-          }),
-        }));
-        o = Model.make('path', Object.assign({ subs }, mixPaint(t)));
-      } else {
-        // разные по составу объекты: копия первого, плавно подогнанная под габарит второго
-        o = Model.clone(A);
-        const w1 = ba.x2 - ba.x1 || 1, h1 = ba.y2 - ba.y1 || 1;
-        const w = G.lerp(w1, bb.x2 - bb.x1, t), h = G.lerp(h1, bb.y2 - bb.y1, t);
-        const cx = G.lerp((ba.x1 + ba.x2) / 2, (bb.x1 + bb.x2) / 2, t), cy = G.lerp((ba.y1 + ba.y2) / 2, (bb.y1 + bb.y2) / 2, t);
-        let T = Mx.translate(-(ba.x1 + ba.x2) / 2, -(ba.y1 + ba.y2) / 2);
-        T = Mx.mul(Mx.scale(w / w1, h / h1), T);
-        T = Mx.mul(Mx.translate(cx, cy), T);
-        Model.applyT(o, T);
-        const paint = mixPaint(t);
-        for (const leaf of Model.leaves(o)) Object.assign(leaf, structuredClone(paint));
-      }
-      items.push(o);
-    }
-    const g = Model.make('group', { children: items, name: `Перетекание (${steps} шагов)` });
-    delete g.fill; delete g.stroke;
-    const f = Model.find(A.id);
-    f.list.splice(f.list.indexOf(A) + 1, 0, g);
-    App.sel = [g.id]; App.commit('Перетекание');
+    const fb = Model.find(B.id), list = fb.list;
+    const at = list.indexOf(B) - (list.includes(A) ? 1 : 0);
+    Actions.removeIds([A.id, B.id]);
+    const bl = Model.make('blend', { children: [A, B], steps });
+    list.splice(Math.max(0, at), 0, bl);
+    App.sel = [bl.id]; App.commit('Перетекание');
+    return bl;
   },
-  // перевыборка контура в N равномерных точек — для перетекания несовместимых кривых
-  resample(subs, N = 64) {
-    const fl = Path.flatten([subs[0]], null, 20)[0];
-    const pts = fl.pts.slice(); if (fl.closed) pts.push(pts[0]);
-    const len = []; let L = 0;
-    for (let i = 1; i < pts.length; i++) { L += G.dist(pts[i - 1], pts[i]); len.push(L); }
-    const out = [];
-    const cnt = fl.closed ? N : N + 1;
-    for (let k = 0; k < cnt; k++) {
-      const target = L * k / N;
-      let i = len.findIndex(v => v >= target); if (i < 0) i = len.length - 1;
-      const l0 = i ? len[i - 1] : 0, seg = len[i] - l0 || 1, u = (target - l0) / seg;
-      out.push({ x: G.lerp(pts[i].x, pts[i + 1].x, u), y: G.lerp(pts[i].y, pts[i + 1].y, u) });
+  setBlendSteps(n) {
+    const bl = App.selObjs().find(o => o.type === 'blend');
+    if (!bl) return;
+    bl.steps = G.clamp(Math.round(n), 1, 500); App.commit('Шаги перетекания');
+  },
+  // контур: dir 'outside' | 'inside' | 'center'
+  contour(params) {
+    if (!Actions.need()) return;
+    Actions.setPaint(o => { o.contour = Object.assign({ steps: 3, offset: 2, dir: 'outside', fill: '#ffffff', stroke: null, join: 'round' }, o.contour || {}, params); }, 'Контур');
+  },
+  extrude(params) {
+    if (!Actions.need()) return;
+    Actions.setPaint(o => { o.extrude = Object.assign({ depth: 10, angle: -45, persp: 0, color: null, shade: true }, o.extrude || {}, params); }, 'Выдавливание');
+  },
+  envelope(kind = 'reset', k = 0.25) {
+    if (!Actions.need()) return;
+    for (const o of App.selObjs()) for (const leaf of Model.leaves(o)) {
+      if (leaf.type === 'image') continue;
+      if (kind === 'none') { delete leaf.envelope; continue; }
+      const prev = leaf.envelope; delete leaf.envelope;
+      const b = Model.localBox(leaf);
+      leaf.envelope = kind === 'reset' ? Effects.defaultEnvelope(b) : Effects.envelopePreset(b, kind, k);
+      void prev;
     }
-    return [{ closed: fl.closed, nodes: G.smoothNodes(out, fl.closed) }];
+    App.commit('Оболочка');
   },
 
   // ---- стиль ----
@@ -516,19 +509,68 @@ const Actions = {
     }, 'Толщина абриса');
   },
 
+
+  // ---- страницы ----
+  addPage(after = App.doc.pageIndex, copyFrom = null) {
+    const cur = App.pg();
+    const P = copyFrom ? structuredClone(copyFrom) : Model.newPage(cur.w, cur.h, App.doc.pages.length + 1);
+    if (copyFrom) {
+      P.id = Model.newPage().id; P.name = copyFrom.name + ' (копия)';
+      for (const L of P.layers) L.objects = L.objects.map(o => Model.clone(o));
+    } else P.color = cur.color;
+    App.doc.pages.splice(after + 1, 0, P);
+    App.doc.pageIndex = after + 1; App.sel = [];
+    App.commit(copyFrom ? 'Копия страницы' : 'Новая страница');
+    return P;
+  },
+  duplicatePage() { Actions.addPage(App.doc.pageIndex, App.pg()); },
+  deletePage(i = App.doc.pageIndex) {
+    if (App.doc.pages.length < 2) return UI.toast('Последнюю страницу удалить нельзя');
+    const P = App.doc.pages[i];
+    const n = P.layers.reduce((s, l) => s + l.objects.length, 0);
+    const go = () => {
+      App.doc.pages.splice(i, 1);
+      App.doc.pageIndex = Math.min(App.doc.pageIndex, App.doc.pages.length - 1); App.sel = [];
+      App.commit('Удаление страницы');
+    };
+    n ? UI.confirm(`Удалить «${P.name}» вместе с ${n} объектами?`, go) : go();
+  },
+  movePage(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= App.doc.pages.length) return;
+    const ps = App.doc.pages;
+    [ps[i], ps[j]] = [ps[j], ps[i]];
+    App.doc.pageIndex = j; App.commit('Порядок страниц');
+  },
+  renamePage(i = App.doc.pageIndex) {
+    const P = App.doc.pages[i];
+    UI.prompt('Имя страницы', P.name, v => { if (v) { P.name = v; App.commit('Имя страницы'); } });
+  },
+  // перенести выделенное на другую страницу
+  moveToPage(i) {
+    if (!Actions.need()) return;
+    const objs = App.selObjs();
+    Actions.removeIds(App.sel);
+    const P = App.doc.pages[i];
+    const L = P.layers.find(l => l.id === P.activeLayer) || P.layers[0];
+    L.objects.push(...objs);
+    App.doc.pageIndex = i; App.sel = objs.map(o => o.id);
+    App.commit('На другую страницу');
+  },
+
   // ---- слои ----
   addLayer() {
     const id = 'L' + Date.now().toString(36);
-    App.doc.layers.push({ id, name: 'Слой ' + (App.doc.layers.length + 1), visible: true, locked: false, objects: [] });
-    App.doc.activeLayer = id;
+    App.pg().layers.push({ id, name: 'Слой ' + (App.pg().layers.length + 1), visible: true, locked: false, objects: [] });
+    App.pg().activeLayer = id;
     App.commit('Новый слой');
   },
   deleteLayer(id) {
-    if (App.doc.layers.length < 2) return UI.toast('Последний слой удалить нельзя');
-    const L = App.doc.layers.find(l => l.id === id);
+    if (App.pg().layers.length < 2) return UI.toast('Последний слой удалить нельзя');
+    const L = App.pg().layers.find(l => l.id === id);
     const go = () => {
-      App.doc.layers = App.doc.layers.filter(l => l !== L);
-      if (App.doc.activeLayer === id) App.doc.activeLayer = App.doc.layers[App.doc.layers.length - 1].id;
+      App.pg().layers = App.pg().layers.filter(l => l !== L);
+      if (App.pg().activeLayer === id) App.pg().activeLayer = App.pg().layers[App.pg().layers.length - 1].id;
       App.sel = App.sel.filter(i => Model.find(i));
       App.commit('Удаление слоя');
     };

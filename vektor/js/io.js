@@ -53,18 +53,18 @@ const IO = {
   },
   loadText(text, name) {
     let d;
-    try { d = JSON.parse(text); if (!d.layers) throw new Error('нет слоёв'); } catch (e) { return UI.toast('Не удалось открыть файл: это не документ Вектора'); }
+    try { d = JSON.parse(text); if (!d.layers && !d.pages) throw new Error('нет слоёв'); } catch (e) { return UI.toast('Не удалось открыть файл: это не документ Вектора'); }
     App.doc = App.migrate(d); Model.syncSeq(App.doc); App.sel = [];
     App.fileName = name; App.dirty = false; IO.handle = null;
     App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
-    Model._mcache.clear(); App.autosave(); App.zoomPage(); UI.refresh();
+    Text.cache.clear(); App.autosave(); App.zoomPage(); UI.refresh();
     UI.toast('Открыт: ' + name);
   },
   openSVGAsDoc(text, name) {
     App.doc = Model.newDoc(); App.sel = [];
     App.history = [JSON.stringify(App.doc)]; App.hpos = 0;
     const size = IO.importSVGText(text, null, true);
-    if (size) { App.doc.page.w = G.round(size.w, 3); App.doc.page.h = G.round(size.h, 3); }
+    if (size) { App.pg().w = G.round(size.w, 3); App.pg().h = G.round(size.h, 3); }
     App.doc.name = name.replace(/\.svg$/i, '');
     App.fileName = null; IO.handle = null; App.sel = [];
     App.commit('Открыт SVG'); App.zoomPage();
@@ -83,7 +83,7 @@ const IO = {
       img.onload = () => {
         // растр: 96 точек на дюйм, но не больше страницы
         let w = img.naturalWidth * 25.4 / 96, hh = img.naturalHeight * 25.4 / 96;
-        const p = App.doc.page, k = Math.min(1, p.w * 0.9 / w, p.h * 0.9 / hh);
+        const p = App.pg(), k = Math.min(1, p.w * 0.9 / w, p.h * 0.9 / hh);
         w *= k; hh *= k;
         const o = Model.make('image', { w, h: hh, href: r.result, name: f.name || 'Изображение' });
         o.stroke = Object.assign(structuredClone(App.defaults.stroke), { color: null });
@@ -244,7 +244,7 @@ const IO = {
     }
     // ставим импорт в точку бросания или в центр страницы
     const b = Model.worldBox(target[0]);
-    const c = at || { x: App.doc.page.w / 2, y: App.doc.page.h / 2 };
+    const c = at || { x: App.pg().w / 2, y: App.pg().h / 2 };
     if (G.boxValid(b)) Model.applyT(target[0], Mx.translate(c.x - (b.x1 + b.x2) / 2, c.y - (b.y1 + b.y2) / 2));
     Actions.insert(target);
     App.commit('Импорт SVG');
@@ -280,14 +280,14 @@ const IO = {
       let b = G.emptyBox(); Model.topLevel().forEach(({ o }) => { if (o.visible) b = G.unionBox(b, Model.worldBox(o)); });
       return G.boxValid(b) ? b : null;
     }
-    return { x1: 0, y1: 0, x2: App.doc.page.w, y2: App.doc.page.h };
+    return { x1: 0, y1: 0, x2: App.pg().w, y2: App.pg().h };
   },
   svgFor(kind, transparent) {
     const b = IO.area(kind);
     if (!b) return null;
-    let doc = App.doc;
+    let doc = App.pg();
     if (kind === 'sel') {
-      doc = Object.assign({}, App.doc, { layers: [{ id: 'x', name: 'x', visible: true, objects: App.selObjs() }] });
+      doc = Object.assign({}, App.pg(), { layers: [{ id: 'x', name: 'x', visible: true, objects: App.selObjs() }] });
     }
     const pad = kind === 'page' ? 0 : 0.5;
     const x = b.x1 - pad, y = b.y1 - pad, w = b.x2 - b.x1 + pad * 2, hh = b.y2 - b.y1 + pad * 2;
@@ -308,7 +308,7 @@ const IO = {
     img.onload = () => {
       const c = document.createElement('canvas'); c.width = W; c.height = H;
       const ctx = c.getContext('2d');
-      if (fmt === 'jpg' || !transparent && kind !== 'page') { ctx.fillStyle = fmt === 'jpg' ? (App.doc.page.color || '#ffffff') : 'transparent'; if (fmt === 'jpg') ctx.fillRect(0, 0, W, H); }
+      if (fmt === 'jpg' || !transparent && kind !== 'page') { ctx.fillStyle = fmt === 'jpg' ? (App.pg().color || '#ffffff') : 'transparent'; if (fmt === 'jpg') ctx.fillRect(0, 0, W, H); }
       ctx.drawImage(img, 0, 0, W, H);
       c.toBlob(b => {
         if (!b) return UI.toast('Не удалось создать изображение (слишком большое?)');
@@ -320,7 +320,7 @@ const IO = {
   },
   print() {
     const r = IO.svgFor('page', false);
-    const { w, h: hh } = App.doc.page;
+    const { w, h: hh } = App.pg();
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${Render.esc(IO.baseName())}</title><style>@page{size:${w}mm ${hh}mm;margin:0}html,body{margin:0;padding:0}svg{display:block;width:${w}mm;height:${hh}mm}</style></head><body>${r.svg.replace(/^<\?xml[^>]*>/, '')}</body></html>`;
     const fr = h('iframe', { style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(fr);

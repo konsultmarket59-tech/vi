@@ -57,6 +57,8 @@ const ICONS = {
   alignL: '<path d="M4 5h16M4 9h10M4 13h16M4 17h10"/>',
   alignC: '<path d="M4 5h16M7 9h10M4 13h16M7 17h10"/>',
   alignR: '<path d="M4 5h16M10 9h10M4 13h16M10 17h10"/>',
+  alignJ: '<path d="M4 5h16M4 9h16M4 13h16M4 17h10"/>',
+  fontAdd: '<path d="M4 19L9 5h1l5 14M6 14h7M18 8v8M14 12h8"/>',
   group: '<rect x="3" y="3" width="10" height="10"/><circle cx="15" cy="15" r="6"/><path d="M1 1h4M1 1v4M23 23h-4M23 23v-4"/>',
   ungroup: '<rect x="3" y="3" width="9" height="9"/><circle cx="16" cy="16" r="5"/>',
   ellFull: '<ellipse cx="12" cy="12" rx="8" ry="7"/>',
@@ -74,6 +76,10 @@ const ICONS = {
   close: '<path d="M6 18C2 10 8 4 14 5s8 8 4 13z"/><rect x="4" y="16" width="4" height="4" fill="currentColor"/>',
   reverse: '<path d="M4 12a8 8 0 0114-5M20 12a8 8 0 01-14 5M18 3v4h-4M6 21v-4h4"/>',
   curves: '<path d="M4 18C6 8 10 6 12 12s6 4 8-6"/>',
+  blend: '<circle cx="5" cy="17" r="3"/><rect x="16" y="3" width="6" height="6"/><path d="M8 14l2-2M11 11l2-2M14 8l1-1" stroke-dasharray="1.5 1.5"/>',
+  contour: '<rect x="8" y="8" width="8" height="8"/><rect x="5" y="5" width="14" height="14" rx="2" opacity=".7"/><rect x="2" y="2" width="20" height="20" rx="4" opacity=".4"/>',
+  envelope: '<path d="M4 6Q12 1 20 6L19 18Q12 23 5 18Z"/><rect x="2.5" y="4.5" width="3" height="3" fill="currentColor"/><rect x="18.5" y="4.5" width="3" height="3" fill="currentColor"/>',
+  extrude: '<path d="M4 9h11v11H4zM4 9l5-5h11l-5 5M20 4v11l-5 5"/>',
 };
 const icon = (name, size = 20) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">${ICONS[name] || ''}</svg>`;
 
@@ -126,7 +132,7 @@ const UI = {
     UI.renderStage(doc);
     UI.renderOverlay();
     UI.drawRulers();
-    if (panels) { UI.renderPropbar(); UI.renderDocker(); UI.renderDocPalette(); }
+    if (panels) { UI.renderPropbar(); UI.renderDocker(); UI.renderDocPalette(); UI.renderPagebar(); }
     UI.renderStatus();
     UI.updateToolbox();
     if (Tools.text.editing && Tools.text.place) Tools.text.place();
@@ -135,7 +141,7 @@ const UI = {
   renderStage(doc) {
     const vp = UI.$('#viewport');
     vp.setAttribute('transform', `translate(${App.panX} ${App.panY}) scale(${App.zoom})`);
-    const { w, h, color } = App.doc.page;
+    const { w, h, color } = App.pg();
     for (const id of ['#page', '#pageShadow']) { UI.$(id).setAttribute('width', w); UI.$(id).setAttribute('height', h); }
     UI.$('#page').setAttribute('fill', color || '#ffffff');
     UI.$('#pageShadow').setAttribute('x', 1.2 / App.zoom * 2); UI.$('#pageShadow').setAttribute('y', 1.2 / App.zoom * 2);
@@ -151,10 +157,12 @@ const UI = {
       UI.$('#gridPath').setAttribute('stroke-width', 1 / App.zoom);
     }
     if (doc) {
-      const r = Render.layers(App.doc, { ids: true });
+      const r = Render.layers(App.pg(), { ids: true });
       UI.$('#docDefs').innerHTML = r.defs;
       UI.$('#docG').innerHTML = r.body;
       UI.$('#docG').classList.toggle('wire', !!App.view.wire);
+      // редактируемый текст показывает поле ввода, а не SVG
+      if (Tools.text.editing) { const el = UI.$(`#docG [data-id="${Tools.text.editing.id}"]`); if (el) el.style.visibility = 'hidden'; }
     }
   },
   preview(markup, defs) {
@@ -177,6 +185,30 @@ const UI = {
     if (t.overlay) t.overlay(out); else Overlay.selection(out, true);
     UI.$('#overlay').innerHTML = out.join('');
     UI.$('#stage').dataset.tool = App.tool;
+  },
+
+  // ================== Страницы ==================
+  renderPagebar() {
+    const el = UI.$('#pagebar'), d = App.doc, n = d.pages.length, i = d.pageIndex;
+    el.innerHTML = '';
+    const B = (t, title, fn) => h('button', { class: 'pnav', title, onclick: fn }, t);
+    el.append(B('⏮', 'Первая страница', () => App.goPage(0)), B('◀', 'Предыдущая (PgUp)', () => App.goPage(i - 1)),
+      h('span', { class: 'pinfo' }, `${i + 1} из ${n}`), B('▶', 'Следующая (PgDn)', () => App.goPage(i + 1)), B('⏭', 'Последняя', () => App.goPage(n - 1)),
+      B('+', 'Добавить страницу после текущей', () => Actions.addPage()));
+    d.pages.forEach((P, k) => {
+      const t = h('span', { class: 'ptab' + (k === i ? ' on' : ''), title: `${P.name}: ${G.round(P.w, 1)} × ${G.round(P.h, 1)} мм. Двойной щелчок — переименовать, правая кнопка — меню`,
+        onclick: () => App.goPage(k), ondblclick: () => Actions.renamePage(k),
+        oncontextmenu: e => {
+          e.preventDefault(); App.goPage(k);
+          UI.showMenuList([
+            { label: 'Вставить страницу до', action: () => Actions.addPage(k - 1) }, { label: 'Вставить страницу после', action: () => Actions.addPage(k) },
+            { label: 'Дублировать страницу', action: Actions.duplicatePage }, { label: 'Переименовать…', action: () => Actions.renamePage(k) },
+            '-', { label: 'Сдвинуть влево', action: () => Actions.movePage(k, -1), disabled: () => k === 0 }, { label: 'Сдвинуть вправо', action: () => Actions.movePage(k, 1), disabled: () => k === n - 1 },
+            '-', { label: 'Размер страницы…', action: UI.pageDialog }, { label: 'Удалить страницу', action: () => Actions.deletePage(k), disabled: () => n < 2 },
+          ], e.clientX, e.clientY - 10);
+        } }, P.name);
+      el.append(t);
+    });
   },
 
   // ================== Линейки ==================
@@ -317,6 +349,12 @@ const UI = {
         { label: 'Книжная', action: () => UI.setOrientation(false) },
         { label: 'Альбомная', action: () => UI.setOrientation(true) },
         '-',
+        { label: 'Вставить страницу', key: '', action: () => A.addPage() },
+        { label: 'Дублировать страницу', action: A.duplicatePage },
+        { label: 'Переименовать страницу…', action: () => A.renamePage() },
+        { label: 'Удалить страницу', action: () => A.deletePage(), disabled: () => App.doc.pages.length < 2 },
+        { label: 'Перенести выделенное на страницу', sub: App.doc.pages.map((P, k) => ({ label: `${k + 1}. ${P.name}`, action: () => A.moveToPage(k), disabled: () => !sel() || k === App.doc.pageIndex })) },
+        '-',
         { label: 'Новый слой', action: A.addLayer },
         { label: 'Диспетчер объектов', key: 'Ctrl+Shift+O', action: () => UI.docker('objects') },
       ] },
@@ -373,6 +411,12 @@ const UI = {
       ] },
       { label: 'Эффекты', items: [
         { label: 'Перетекание…', action: UI.blendDialog, disabled: () => App.sel.length !== 2 },
+        { label: 'Контур', action: () => { App.setTool('contour'); if (App.sel.length) Actions.contour({}); } },
+        { label: 'Оболочка', action: () => App.setTool('envelope') },
+        { label: 'Выдавливание', action: () => { App.setTool('extrude'); if (App.sel.length) Actions.extrude({}); } },
+        { label: 'Разъединить эффект', action: Actions.breakEffect, disabled: () => !sel() },
+        { label: 'Убрать контур, оболочку и выдавливание', action: () => Actions.clearEffects(), disabled: () => !sel() },
+        '-',
         { label: 'Тень', action: () => { Actions.setPaint(o => { o.shadow = o.shadow ? null : { dx: 1.5, dy: 1.5, blur: 1.2, color: '#000000', opacity: 0.45 }; }, 'Тень'); }, disabled: () => !sel() },
         { label: 'Прозрачность 50%', action: () => Actions.setPaint(o => { o.opacity = 0.5; }, 'Прозрачность'), disabled: () => !sel() },
         { label: 'Сбросить эффекты', action: () => Actions.setPaint(o => { o.opacity = 1; o.shadow = null; }, 'Сброс эффектов'), disabled: () => !sel() },
@@ -381,6 +425,10 @@ const UI = {
         { label: 'Инструмент «Текст»', key: 'F8', action: () => App.setTool('text') },
         { label: 'Редактировать текст', action: () => { const o = App.selObjs()[0]; if (o && o.type === 'text') Tools.text.edit(o); else UI.toast('Выделите текстовый объект'); } },
         { label: 'Свойства текста', action: () => UI.docker('props') },
+        '-',
+        { label: 'Загрузить шрифт из файла…', action: UI.loadFontFiles },
+        { label: 'Подключить шрифты системы', action: () => Fonts.loadLocal() },
+        { label: 'Преобразовать текст в кривые', key: 'Ctrl+Q', action: A.toCurves, disabled: () => !sel() },
       ] },
       { label: 'Окно', items: [
         { label: 'Свойства объекта', check: () => UI.dockOpen && UI.dockTab === 'props', action: () => UI.docker('props') },
@@ -547,7 +595,9 @@ const UI = {
     ['freehand', 'Свободная форма (F5): тяните — кривая, два щелчка — прямая'], ['bezier', 'Кривая Безье (N): щелчок — угол, тяните — гладкий узел, Enter — конец'], '-',
     ['rect', 'Прямоугольник (F6): Ctrl — квадрат, Shift — от центра'], ['ellipse', 'Эллипс (F7): Ctrl — круг, Shift — от центра'],
     ['polygon', 'Многоугольник (Y)'], ['star', 'Звезда (S)'], ['spiral', 'Спираль (A)'], '-',
-    ['text', 'Текст (F8)'], '-',
+    ['text', 'Текст (F8): щелчок — фигурный, рамка — абзацный'], '-',
+    ['blend', 'Перетекание: от первого объекта ко второму'], ['contour', 'Контур: тяните от края наружу или внутрь'],
+    ['envelope', 'Оболочка: тяните узлы рамки, чтобы изогнуть объект'], ['extrude', 'Выдавливание: тяните от объекта'], '-',
     ['eyedropper', 'Пипетка атрибутов (I): взять стиль и применить к другим'], ['ifill', 'Интерактивная заливка (G): протяните градиент по объекту'],
   ],
   buildToolbox() {
@@ -691,6 +741,14 @@ const UI = {
     const objs = App.selObjs();
     const T = App.tool;
 
+    if (['blend', 'contour', 'envelope', 'extrude'].includes(T)) {
+      UI.effectControls(add, T);
+      return;
+    }
+    if (objs.length === 1 && objs[0].type === 'blend' && T === 'pick') {
+      UI.effectControls(add, 'blend'); add(sep());
+    }
+
     if (T === 'shape' && objs.length === 1) {
       const S = Tools.shape, o = objs[0];
       if (o.type === 'path') {
@@ -724,7 +782,7 @@ const UI = {
 
     if (!objs.length) {
       // свойства страницы
-      const p = App.doc.page;
+      const p = App.pg();
       const cur = PAGE_SIZES.find(s => (Math.abs(s[1] - p.w) < 0.1 && Math.abs(s[2] - p.h) < 0.1) || (Math.abs(s[2] - p.w) < 0.1 && Math.abs(s[1] - p.h) < 0.1));
       add(UI.sel([['', 'Свой размер'], ...PAGE_SIZES.map(s => [s[0], s[0]])], cur ? cur[0] : '', v => {
         const s = PAGE_SIZES.find(x => x[0] === v); if (!s) return;
@@ -782,6 +840,54 @@ const UI = {
     const sw = leaf && leaf.stroke && leaf.stroke.color ? leaf.stroke.width : 0;
     add(h('span', { class: 'pl' }, 'Абрис'), UI.strokeWidthSelect(sw, v => Actions.setStrokeWidth(v)));
   },
+  colorBtn(val, set, title) {
+    const c = h('input', { type: 'color', class: 'cbtn', value: val || '#000000', title });
+    c.addEventListener('change', () => set(c.value));
+    return c;
+  },
+  // параметры живых эффектов (панель свойств и докер)
+  effectControls(add, kind) {
+    const objs = App.selObjs(), o = objs[0];
+    const leaf = o && Model.leaves(o)[0];
+    const sep = () => h('span', { class: 'sep' });
+    const A = Actions;
+    if (kind === 'blend') {
+      const bl = objs.find(x => x.type === 'blend');
+      if (!bl) { add(UI.num('Шагов', UI.opts.blendSteps || 10, v => { UI.opts.blendSteps = G.clamp(Math.round(v), 1, 500); UI.saveOpts(); }, { w: 44 }), h('span', { class: 'pl muted' }, 'Нажмите на первом объекте и отпустите на втором. Ctrl+щелчок — правка исходных объектов, перетекание перестроится само')); return; }
+      add(h('span', { class: 'pl' }, 'Перетекание'), UI.num('Шагов', bl.steps, v => A.setBlendSteps(v), { w: 44 }),
+        h('button', { class: 'pbt', onclick: A.breakEffect, title: 'Превратить в обычную группу объектов' }, 'Разъединить'));
+      return;
+    }
+    if (!leaf || ['image'].includes(leaf.type)) { add(h('span', { class: 'pl muted' }, 'Выделите фигуру, кривую или текст')); return; }
+    if (kind === 'contour') {
+      const c = leaf.contour || {};
+      const dirB = (d, l) => h('button', { class: 'pbt' + (c.dir === d ? ' on' : ''), onclick: () => A.contour({ dir: d }) }, l);
+      add(h('span', { class: 'pl' }, 'Контур'), dirB('outside', 'Наружу'), dirB('inside', 'Внутрь'), dirB('center', 'К центру'),
+        UI.num('Шагов', c.steps || 3, v => A.contour({ steps: G.clamp(Math.round(v), 1, 200) }), { w: 40 }),
+        UI.num('Смещение', c.offset || 2, v => A.contour({ offset: Math.max(0.05, v) }), { unit: 'мм', w: 44 }),
+        h('span', { class: 'pl' }, 'Заливка до'), UI.colorBtn(c.fill || '#ffffff', v => A.contour({ fill: v }), 'Цвет последнего шага'),
+        h('span', { class: 'pl' }, 'Абрис до'), UI.colorBtn(c.stroke || (leaf.stroke && leaf.stroke.color) || '#000000', v => A.contour({ stroke: v }), 'Цвет абриса последнего шага'),
+        sep(), h('button', { class: 'pbt', onclick: () => A.clearEffects('contour') }, 'Убрать'), h('button', { class: 'pbt', onclick: A.breakEffect }, 'Разъединить'));
+    }
+    if (kind === 'extrude') {
+      const x = leaf.extrude || {};
+      add(h('span', { class: 'pl' }, 'Выдавливание'),
+        UI.num('Глубина', x.depth || 10, v => A.extrude({ depth: Math.max(0.1, v) }), { unit: 'мм', w: 44 }),
+        UI.num('Угол', x.angle ?? -45, v => A.extrude({ angle: v }), { unit: '°', w: 40, dec: 1 }),
+        UI.num('Перспектива', Math.round((x.persp || 0) * 100), v => A.extrude({ persp: G.clamp(v / 100, 0, 0.95) }), { unit: '%', w: 36 }),
+        h('span', { class: 'pl' }, 'Боковины'), UI.colorBtn(x.color || Color.mix((leaf.fill && leaf.fill.color) || '#777777', '#000000', 0.35), v => A.extrude({ color: v }), 'Цвет боковых граней'),
+        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: x.shade !== false, onchange: e => A.extrude({ shade: e.target.checked }) }), 'Свет'),
+        sep(), h('button', { class: 'pbt', onclick: () => A.clearEffects('extrude') }, 'Убрать'), h('button', { class: 'pbt', onclick: A.breakEffect }, 'Разъединить'));
+    }
+    if (kind === 'envelope') {
+      const P = (k, l) => h('button', { class: 'pbt', onclick: () => A.envelope(k) }, l);
+      add(h('span', { class: 'pl' }, 'Оболочка'), P('arcUp', 'Дуга ⌒'), P('arcDown', 'Дуга ⌣'), P('bulge', 'Выпуклость'), P('pinch', 'Сжатие'),
+        P('flagUp', 'Флаг'), P('perspective', 'Перспектива'), P('trapezoid', 'Трапеция'), sep(),
+        h('label', { class: 'chk', title: 'Прямые стороны: середины следуют за углами' }, h('input', { type: 'checkbox', checked: leaf.envelope && leaf.envelope.mode === 'straight', onchange: e => { Actions.setPaint(l => { if (!l.envelope) l.envelope = Effects.defaultEnvelope(Model.localBox(l)); l.envelope.mode = e.target.checked ? 'straight' : 'curve'; }, 'Режим оболочки'); } }), 'Прямые'),
+        P('reset', 'Сбросить'), h('button', { class: 'pbt', onclick: () => A.envelope('none') }, 'Убрать'),
+        h('span', { class: 'pl muted' }, 'Тяните узлы рамки; Ctrl — середина только поперёк стороны'));
+    }
+  },
   strokeWidthSelect(val, set) {
     const list = [[0, 'Нет'], [0.1, '0.1 мм'], [0.2, '0.2 мм'], [0.25, '0.25 мм'], [0.35, '0.35 мм'], [0.5, '0.5 мм'], [0.75, '0.75 мм'], [1, '1 мм'], [1.5, '1.5 мм'], [2, '2 мм'], [3, '3 мм'], [5, '5 мм']];
     if (!list.find(x => Math.abs(x[0] - val) < 1e-6)) list.push([val, (+val.toFixed(3)) + ' мм']);
@@ -795,17 +901,42 @@ const UI = {
     const font = o ? o.font : UI.opts.font, size = o ? o.size : UI.opts.fontSize;
     const fonts = Fonts.all();
     if (!fonts.includes(font)) fonts.unshift(font);
-    add(UI.sel(fonts.map(f => [f, f]), font, v => set('font', v), 'Шрифт', 150),
+    const fsel = UI.sel(fonts.map(f => [f, f]), font, v => set('font', v), 'Шрифт', 160);
+    fsel.querySelectorAll('option').forEach(op => { op.style.fontFamily = `"${op.value}"`; });
+    add(fsel,
+      UI.btn('fontAdd', 'Шрифты: загрузить файл или подключить системные', e => UI.fontMenu(e)),
       UI.num('', size, v => set('size', Math.max(1, v)), { unit: 'пт', w: 44, title: 'Кегль' }),
       UI.btn('bold', 'Полужирный', () => set('bold', !src.bold), !!src.bold),
       UI.btn('italic', 'Курсив', () => set('italic', !src.italic), !!src.italic),
       UI.btn('alignL', 'Влево', () => set('align', 'left'), (src.align || 'left') === 'left'),
       UI.btn('alignC', 'По центру', () => set('align', 'center'), src.align === 'center'),
-      UI.btn('alignR', 'Вправо', () => set('align', 'right'), src.align === 'right'));
-    if (o) add(UI.num('Интерв.', (o.lh || 1.2) * 100, v => set('lh', Math.max(0.5, v / 100)), { unit: '%', w: 40, title: 'Межстрочный интервал' }));
+      UI.btn('alignR', 'Вправо', () => set('align', 'right'), src.align === 'right'),
+      UI.btn('alignJ', 'По ширине (для абзацного текста)', () => set('align', 'justify'), src.align === 'justify'));
+    if (o) {
+      add(UI.num('Интерв.', (o.lh || 1.2) * 100, v => set('lh', Math.max(0.5, v / 100)), { unit: '%', w: 40, title: 'Межстрочный интервал' }),
+        UI.num('Трекинг', o.ls || 0, v => set('ls', v), { unit: '%', w: 36, title: 'Межсимвольный интервал, % кегля' }),
+        h('button', { class: 'pbt', title: 'Фигурный ↔ абзацный текст', onclick: () => {
+          if (o.frame) o.frame = null;
+          else { const b = Text.layout(o).box; o.frame = { w: Math.max(10, b.x2 - b.x1 + 2), h: Math.max(5, b.y2 - b.y1) }; if (o.align === 'center' || o.align === 'right') { const m = o.m; o.m = Mx.mul(m, Mx.translate(b.x1, 0)); } }
+          App.commit('Тип текста');
+        } }, o.frame ? '→ фигурный' : '→ абзацный'));
+    }
+  },
+  fontMenu(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    UI.showMenuList([
+      { label: 'Загрузить файл шрифта (.ttf, .otf)…', action: UI.loadFontFiles },
+      { label: 'Подключить шрифты системы', action: () => Fonts.loadLocal() },
+    ], r.left, r.bottom);
+  },
+  loadFontFiles() {
+    IO.pick('.ttf,.otf,.woff', async f => {
+      const fam = await Fonts.addFontFile(f.name, await f.arrayBuffer());
+      if (fam) UI.toast('Шрифт добавлен: ' + fam);
+    }, true);
   },
   setOrientation(land) {
-    const p = App.doc.page;
+    const p = App.pg();
     if ((p.w > p.h) !== land) { [p.w, p.h] = [p.h, p.w]; App.commit('Ориентация'); App.zoomPage(); }
   },
 
@@ -922,6 +1053,23 @@ const UI = {
     }
     body.append(shsec);
 
+    // живые эффекты
+    const esec = UI.section('Эффекты');
+    const has = { contour: !!L.contour, extrude: !!L.extrude, envelope: !!L.envelope };
+    for (const k of ['contour', 'extrude', 'envelope']) {
+      if (!has[k]) continue;
+      const box = h('div', { class: 'effbox' });
+      UI.effectControls((...els) => box.append(...els), k);
+      esec.append(box);
+    }
+    esec.append(UI.row(
+      !has.contour ? h('button', { class: 'pbt', onclick: () => Actions.contour({}) }, '+ Контур') : null,
+      !has.extrude ? h('button', { class: 'pbt', onclick: () => Actions.extrude({}) }, '+ Выдавливание') : null,
+      !has.envelope ? h('button', { class: 'pbt', onclick: () => { Actions.envelope('arcUp'); App.setTool('envelope'); } }, '+ Оболочка') : null));
+    if (objs.length === 2) esec.append(UI.row(h('button', { class: 'pbt', onclick: () => Actions.blend(UI.opts.blendSteps || 10) }, 'Перетекание между выделенными')));
+    if (objs.some(o => o.type === 'blend')) { const box = h('div', { class: 'effbox' }); UI.effectControls((...els) => box.append(...els), 'blend'); esec.append(box); }
+    body.append(esec);
+
     if (objs.length === 1) {
       const o = objs[0];
       const nm = h('input', { type: 'text', class: 'wide', value: o.name || '', placeholder: Model.typeName(o) });
@@ -935,14 +1083,14 @@ const UI = {
       h('button', { class: 'pbt', onclick: Actions.addLayer }, '+ Слой'),
       App.sel.length ? h('button', { class: 'pbt', onclick: e => {
         const r = e.currentTarget.getBoundingClientRect();
-        UI.showMenuList(App.doc.layers.map(L => ({ label: L.name, action: () => Actions.moveToLayer(L.id) })), r.left, r.bottom);
+        UI.showMenuList(App.pg().layers.map(L => ({ label: L.name, action: () => Actions.moveToLayer(L.id) })), r.left, r.bottom);
       } }, 'Перенести на слой ▾') : null);
     body.append(tools);
     const list = h('div', { class: 'otree' });
-    const layers = App.doc.layers.slice().reverse();
+    const layers = App.pg().layers.slice().reverse();
     for (const L of layers) {
-      const active = L.id === App.doc.activeLayer;
-      const lrow = h('div', { class: 'orow layer' + (active ? ' active' : ''), onclick: () => { App.doc.activeLayer = L.id; UI.refresh(); } },
+      const active = L.id === App.pg().activeLayer;
+      const lrow = h('div', { class: 'orow layer' + (active ? ' active' : ''), onclick: () => { App.pg().activeLayer = L.id; UI.refresh(); } },
         h('button', { class: 'ib', title: 'Показать/скрыть', html: icon(L.visible ? 'eye' : 'eyeOff', 15), onclick: e => { e.stopPropagation(); L.visible = !L.visible; App.commit('Видимость слоя'); } }),
         h('button', { class: 'ib', title: 'Блокировать', html: icon(L.locked ? 'lock' : 'unlock', 15), onclick: e => { e.stopPropagation(); L.locked = !L.locked; App.commit('Блокировка слоя'); } }),
         h('span', { class: 'oname', ondblclick: e => { e.stopPropagation(); UI.prompt('Имя слоя', L.name, v => { L.name = v || L.name; App.commit('Имя слоя'); }); } }, L.name),
@@ -1095,16 +1243,19 @@ const UI = {
     UI.dialog(title, inp, [{ label: 'Отмена' }, { label: 'OK', primary: true, action: () => ok(inp.value.trim()) }]);
   },
   pageDialog() {
-    const p = App.doc.page;
+    const p = App.pg();
     const w = h('input', { type: 'number', value: p.w, step: 'any' }), hh = h('input', { type: 'number', value: p.h, step: 'any' });
     const col = h('input', { type: 'color', value: p.color || '#ffffff' });
     const name = h('input', { type: 'text', class: 'wide', value: App.doc.name });
+    const all = h('input', { type: 'checkbox', checked: App.doc.pages.length === 1 });
     const preset = UI.sel([['', '— шаблон —'], ...PAGE_SIZES.map(s => [s[0], `${s[0]} (${s[1]}×${s[2]} мм)`])], '', v => { const s = PAGE_SIZES.find(x => x[0] === v); if (s) { w.value = s[1]; hh.value = s[2]; } }, '', 260);
     UI.dialog('Свойства документа', h('div', { class: 'form' },
       h('label', {}, 'Название', name), h('label', {}, 'Шаблон', preset),
-      h('label', {}, 'Ширина, мм', w), h('label', {}, 'Высота, мм', hh), h('label', {}, 'Цвет фона страницы', col)),
+      h('label', {}, 'Ширина, мм', w), h('label', {}, 'Высота, мм', hh), h('label', {}, 'Цвет фона страницы', col),
+      h('label', { class: 'chk' }, all, 'Применить ко всем страницам')),
     [{ label: 'Отмена' }, { label: 'Применить', primary: true, action: () => {
-      p.w = Math.max(1, +w.value || p.w); p.h = Math.max(1, +hh.value || p.h); p.color = col.value; App.doc.name = name.value || App.doc.name;
+      for (const P of all.checked ? App.doc.pages : [p]) { P.w = Math.max(1, +w.value || P.w); P.h = Math.max(1, +hh.value || P.h); P.color = col.value; }
+      App.doc.name = name.value || App.doc.name;
       App.commit('Свойства документа'); App.zoomPage();
     } }]);
   },

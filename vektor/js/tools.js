@@ -795,19 +795,33 @@ Tools.bezier = {
 Tools.text = {
   cursor: 'text',
   editing: null,
+  // щелчок — фигурный текст, протяжка рамкой — абзацный (как в CorelDRAW)
   down(e, p) {
     const id = App.hitTest(e.clientX, e.clientY, true);
     const o = id && Model.get(id);
     if (o && o.type === 'text') { App.sel = [App.topIdOf(id)]; Tools.text.edit(o); return; }
-    const q = App.snapPoint(p);
+    Tools.text.st = { start: App.snapPoint(p), cur: p, sx: e.clientX, sy: e.clientY };
+  },
+  move(e, p, d) {
+    const st = Tools.text.st;
+    if (d && st) { st.cur = App.snapPoint(p); UI.refresh({ panels: false, doc: false }); }
+  },
+  up(e, p) {
+    const st = Tools.text.st; Tools.text.st = null;
+    if (!st) return;
     const t = Model.make('text', Object.assign({ text: '' }, Tools.text.style()));
-    t.m = Mx.translate(q.x, q.y);
+    const dragged = Math.hypot(e.clientX - st.sx, e.clientY - st.sy) > 6;
+    if (dragged) {
+      const x = Math.min(st.start.x, st.cur.x), y = Math.min(st.start.y, st.cur.y);
+      t.frame = { w: Math.max(5, Math.abs(st.cur.x - st.start.x)), h: Math.max(5, Math.abs(st.cur.y - st.start.y)) };
+      t.m = Mx.translate(x, y);
+    } else t.m = Mx.translate(st.start.x, st.start.y);
     Actions.insert([t]);
     UI.refresh();
     Tools.text.edit(t, true);
   },
   style() {
-    return { font: UI.opts.font || 'Arial', size: UI.opts.fontSize || 24, bold: !!UI.opts.bold, italic: !!UI.opts.italic, align: UI.opts.align || 'left', lh: 1.2 };
+    return { font: UI.opts.font || 'Arial', size: UI.opts.fontSize || 24, bold: !!UI.opts.bold, italic: !!UI.opts.italic, align: UI.opts.align || 'left', lh: 1.2, ls: 0 };
   },
   edit(o, isNew = false) {
     const ta = UI.$('#textEditor');
@@ -815,18 +829,35 @@ Tools.text = {
     const place = () => {
       const obj = Model.get(o.id); if (!obj) return;
       const m = obj.m, s = App.toScreen(m[4], m[5]);
+      // поле лежит в контейнере холста, а координаты — относительно самого холста (сдвиг на линейки)
+      const sr = App.stageRect(), wr = UI.$('#canvasWrap').getBoundingClientRect();
+      s.x += sr.left - wr.left; s.y += sr.top - wr.top;
       const sc = Math.hypot(m[0], m[1]) * App.zoom;
-      const fs = obj.size * PT_MM * sc;
+      const fs = obj.size * PT_MM * sc, L = (obj.lh || 1.2) * fs;
+      const otf = Fonts.otfSync(obj.font, obj.bold, obj.italic);
+      const asc = otf ? otf.ascender / otf.unitsPerEm : 0.905, desc = otf ? -otf.descender / otf.unitsPerEm : 0.212;
+      const shiftY = fs * 0.85 - ((L - (asc + desc) * fs) / 2 + asc * fs);
+      const para = !!obj.frame;
+      const fill = obj.fill && obj.fill.type !== 'none' ? obj.fill.color : '#000';
       Object.assign(ta.style, {
         display: 'block', left: s.x + 'px', top: s.y + 'px', fontFamily: `"${obj.font}"`, fontSize: fs + 'px',
-        lineHeight: (obj.lh || 1.2) * fs + 'px', fontWeight: obj.bold ? 'bold' : 'normal', fontStyle: obj.italic ? 'italic' : 'normal',
-        textAlign: obj.align || 'left', color: obj.fill && obj.fill.color || '#000',
-        transform: `rotate(${Mx.angle(m)}deg) translateX(${obj.align === 'center' ? '-50%' : obj.align === 'right' ? '-100%' : '0'})`,
-        transformOrigin: '0 0', paddingTop: (fs * 0.85 - fs * 0.8 - (((obj.lh || 1.2) - 1) * fs) / 2) + 'px',
+        lineHeight: L + 'px', fontWeight: obj.bold ? 'bold' : 'normal', fontStyle: obj.italic ? 'italic' : 'normal',
+        letterSpacing: (obj.ls || 0) / 100 * fs + 'px', textAlign: obj.align || 'left', color: fill,
+        whiteSpace: para ? 'pre-wrap' : 'pre', overflowWrap: para ? 'break-word' : 'normal',
+        transform: `rotate(${Mx.angle(m)}deg) translate(${!para && obj.align === 'center' ? '-50%' : !para && obj.align === 'right' ? '-100%' : '0'}, ${shiftY}px)`,
+        transformOrigin: '0 0', paddingTop: '0',
       });
-      const lines = ta.value.split('\n');
-      ta.style.width = Math.max(30, Math.max(...lines.map(l => l.length)) * fs * 0.62 + fs) + 'px';
-      ta.style.height = lines.length * (obj.lh || 1.2) * fs + fs * 0.3 + 'px';
+      ta.wrap = para ? 'soft' : 'off';
+      if (para) {
+        ta.style.width = obj.frame.w * sc + 'px';
+        ta.style.height = '0px';
+        ta.style.height = Math.max(obj.frame.h * sc, ta.scrollHeight) + 'px';
+      } else {
+        const lines = ta.value.split('\n');
+        const w = Math.max(...lines.map(l => Text.measure(obj, l))) * sc;
+        ta.style.width = Math.max(30, w + fs) + 'px';
+        ta.style.height = lines.length * L + fs * 0.3 + 'px';
+      }
     };
     ta.value = o.text;
     place();
@@ -840,7 +871,6 @@ Tools.text = {
     };
     ta.onblur = () => Tools.text.commit();
     Tools.text.place = place;
-    UI.$('#docG').classList.add('editing-' + o.id);
     ta.focus(); ta.select();
     UI.refresh();
   },
@@ -859,7 +889,14 @@ Tools.text = {
     UI.refresh();
   },
   context(e) { Tools.pick.context(e); },
-  overlay(out) { Overlay.selection(out, true); },
+  overlay(out) {
+    const st = Tools.text.st;
+    if (st) {
+      const a = App.toScreen(st.start.x, st.start.y), b = App.toScreen(st.cur.x, st.cur.y);
+      out.push(`<rect class="marquee" x="${Math.min(a.x, b.x)}" y="${Math.min(a.y, b.y)}" width="${Math.abs(a.x - b.x)}" height="${Math.abs(a.y - b.y)}"/>`);
+    }
+    Overlay.selection(out, true);
+  },
 };
 
 // ======================= Масштаб и панорама =======================
@@ -988,4 +1025,175 @@ const Overlay = {
       if (l.y !== undefined) { const y = App.toScreen(0, l.y).y; out.push(`<line class="snapline" x1="0" y1="${y}" x2="${r.width}" y2="${y}"/>`); }
     }
   },
+};
+
+// ======================= Живые эффекты =======================
+// объект, к которому применяется эффект: один выделенный «лист» (не группа)
+function effectTarget() {
+  const o = App.sel.length === 1 ? Model.get(App.sel[0]) : null;
+  return o && !['group', 'blend', 'powerclip'].includes(o.type) ? o : null;
+}
+function pickOnDown(e) {
+  const id = App.hitTest(e.clientX, e.clientY, e.ctrlKey);
+  if (id) { const top = e.ctrlKey ? id : App.topIdOf(id); if (!App.sel.includes(top)) { App.sel = [top]; UI.refresh(); } return top; }
+  return null;
+}
+
+// Оболочка: 4 угла и 4 середины сторон; середины изгибают стороны дугой
+Tools.envelope = {
+  cursor: 'default',
+  KEYS: ['tl', 't', 'tr', 'r', 'br', 'b', 'bl', 'l'],
+  env(o) { return o.envelope || Effects.defaultEnvelope(Model.localBox(o)); },
+  handles() {
+    const o = effectTarget();
+    if (!o || o.type === 'image') return [];
+    const e = Tools.envelope.env(o);
+    return Tools.envelope.KEYS.map(k => { const w = Mx.apply(o.m, e[k].x, e[k].y); return { k, ...App.toScreen(w.x, w.y) }; });
+  },
+  down(e, p) {
+    const T = Tools.envelope, r = App.stageRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const hnd = T.handles().find(q => Math.abs(q.x - x) < 7 && Math.abs(q.y - y) < 7);
+    if (hnd) {
+      const o = effectTarget();
+      Drag.begin([o.id]);
+      T.st = { k: hnd.k, moved: false };
+      return;
+    }
+    T.st = null;
+    pickOnDown(e) || App.setSel([]);
+  },
+  move(e, p, d) {
+    const T = Tools.envelope;
+    if (!d || !T.st) return;
+    const [o] = Drag.reset();
+    const env = structuredClone(T.env(o));
+    const q = Mx.apply(Mx.inv(o.m), p.x, p.y);
+    const k = T.st.k;
+    if (e.ctrlKey && k.length === 1) {
+      // Ctrl — середины двигаются только поперёк стороны
+      if (k === 't' || k === 'b') q.x = env[k].x; else q.y = env[k].y;
+    }
+    env[k] = { x: q.x, y: q.y };
+    if (env.mode === 'straight' && k.length === 2) {
+      const mid = (a, b) => ({ x: (env[a].x + env[b].x) / 2, y: (env[a].y + env[b].y) / 2 });
+      env.t = mid('tl', 'tr'); env.b = mid('bl', 'br'); env.l = mid('tl', 'bl'); env.r = mid('tr', 'br');
+    }
+    o.envelope = env;
+    T.st.moved = true;
+    UI.refresh({ panels: false });
+  },
+  up() {
+    const T = Tools.envelope, st = T.st; T.st = null; Drag.end();
+    if (st && st.moved) App.commit('Оболочка');
+  },
+  overlay(out) {
+    const o = effectTarget();
+    if (!o) return Overlay.selection(out, true);
+    const e = Tools.envelope.env(o);
+    // контур оболочки
+    const pts = [];
+    for (let i = 0; i <= 40; i++) pts.push(Effects.envPoint(e, i / 40, 0));
+    for (let i = 0; i <= 40; i++) pts.push(Effects.envPoint(e, 1, i / 40));
+    for (let i = 40; i >= 0; i--) pts.push(Effects.envPoint(e, i / 40, 1));
+    for (let i = 40; i >= 0; i--) pts.push(Effects.envPoint(e, 0, i / 40));
+    const scr = pts.map(q => { const w = Mx.apply(o.m, q.x, q.y); const s = App.toScreen(w.x, w.y); return s.x.toFixed(1) + ',' + s.y.toFixed(1); });
+    out.push(`<polygon class="envline" points="${scr.join(' ')}"/>`);
+    for (const hd of Tools.envelope.handles()) out.push(hd.k.length === 2 ? `<rect class="node" x="${hd.x - 4}" y="${hd.y - 4}" width="8" height="8"/>` : `<circle class="node sel" cx="${hd.x}" cy="${hd.y}" r="4"/>`);
+  },
+  context(e) { Tools.pick.context(e); },
+};
+
+// Выдавливание: тяните от объекта — направление и глубина
+Tools.extrude = {
+  cursor: 'crosshair',
+  down(e, p) {
+    let o = effectTarget();
+    const id = pickOnDown(e);
+    if (id) o = effectTarget();
+    if (!o) return UI.toast('Выделите фигуру или текст и протяните от неё');
+    const b = Model.worldBox(Object.assign({}, o, { extrude: null, contour: null }));
+    Drag.begin([o.id]);
+    Tools.extrude.st = { c: { x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 }, start: p, moved: false };
+  },
+  move(e, p, d) {
+    const st = Tools.extrude.st;
+    if (!d || !st) return;
+    const [o] = Drag.reset();
+    const dx = p.x - st.c.x, dy = p.y - st.c.y;
+    let ang = Math.atan2(-dy, dx) * 180 / Math.PI;
+    if (e.ctrlKey) ang = Math.round(ang / 15) * 15;
+    o.extrude = Object.assign({ depth: 10, angle: -45, persp: 0, color: null, shade: true }, o.extrude || {}, { depth: G.round(Math.hypot(dx, dy) * 0.5, 2), angle: G.round(ang, 1) });
+    st.moved = true; st.cur = p;
+    UI.status(`Выдавливание: глубина ${o.extrude.depth} мм, угол ${o.extrude.angle}°`);
+    UI.refresh({ panels: false });
+  },
+  up() { const st = Tools.extrude.st; Tools.extrude.st = null; Drag.end(); if (st && st.moved) App.commit('Выдавливание'); else UI.refresh(); },
+  overlay(out) {
+    const st = Tools.extrude.st;
+    if (st && st.cur) { const a = App.toScreen(st.c.x, st.c.y), b = App.toScreen(st.cur.x, st.cur.y); out.push(`<line class="gradline" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><rect class="node sel" x="${b.x - 4}" y="${b.y - 4}" width="8" height="8"/>`); }
+    Overlay.selection(out, true);
+  },
+  context(e) { Tools.pick.context(e); },
+};
+
+// Контур: тяните наружу — внешний, внутрь — внутренний; расстояние задаёт общую ширину
+Tools.contour = {
+  cursor: 'crosshair',
+  down(e, p) {
+    let o = effectTarget();
+    const id = pickOnDown(e);
+    if (id) o = effectTarget();
+    if (!o) return UI.toast('Выделите фигуру и протяните от её края');
+    const b = Model.worldBox(Object.assign({}, o, { extrude: null, contour: null }));
+    Drag.begin([o.id]);
+    Tools.contour.st = { c: { x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 }, start: p, moved: false };
+  },
+  move(e, p, d) {
+    const st = Tools.contour.st;
+    if (!d || !st) return;
+    const [o] = Drag.reset();
+    const r0 = G.dist(st.start, st.c), r1 = G.dist(p, st.c);
+    const dist = Math.abs(r1 - r0);
+    const steps = (o.contour && o.contour.steps) || 3;
+    o.contour = Object.assign({ steps, fill: '#ffffff', stroke: null, join: 'round' }, o.contour || {}, { dir: r1 >= r0 ? 'outside' : 'inside', offset: G.round(Math.max(0.1, dist / steps), 2) });
+    st.moved = true; st.cur = p;
+    UI.status(`Контур: ${o.contour.dir === 'outside' ? 'наружу' : 'внутрь'}, ${steps} шаг(ов) по ${o.contour.offset} мм`);
+    UI.refresh({ panels: false });
+  },
+  up() { const st = Tools.contour.st; Tools.contour.st = null; Drag.end(); if (st && st.moved) App.commit('Контур'); else UI.refresh(); },
+  overlay(out) {
+    const st = Tools.contour.st;
+    if (st && st.cur) { const a = App.toScreen(st.start.x, st.start.y), b = App.toScreen(st.cur.x, st.cur.y); out.push(`<line class="gradline" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`); }
+    Overlay.selection(out, true);
+  },
+  context(e) { Tools.pick.context(e); },
+};
+
+// Перетекание: нажмите на первом объекте и отпустите на втором
+Tools.blend = {
+  cursor: 'crosshair',
+  down(e, p) {
+    const id = App.hitTest(e.clientX, e.clientY);
+    const top = id && App.topIdOf(id);
+    const o = top && Model.get(top);
+    if (o && o.type === 'blend') { App.sel = [top]; UI.refresh(); Tools.blend.st = null; return; }
+    Tools.blend.st = top ? { a: top, start: p, cur: p } : null;
+    if (!top) UI.toast('Нажмите на первом объекте и протяните ко второму');
+  },
+  move(e, p, d) { const st = Tools.blend.st; if (d && st) { st.cur = p; UI.refresh({ panels: false, doc: false }); } },
+  up(e) {
+    const st = Tools.blend.st; Tools.blend.st = null;
+    if (!st) return;
+    const id = App.hitTest(e.clientX, e.clientY);
+    const b = id && App.topIdOf(id);
+    if (!b || b === st.a) { UI.refresh(); return; }
+    App.sel = [st.a, b];
+    Actions.blend(UI.opts.blendSteps || 10);
+  },
+  overlay(out) {
+    const st = Tools.blend.st;
+    if (st) { const a = App.toScreen(st.start.x, st.start.y), b = App.toScreen(st.cur.x, st.cur.y); out.push(`<line class="gradline" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`); }
+    Overlay.selection(out, true);
+  },
+  context(e) { Tools.pick.context(e); },
 };

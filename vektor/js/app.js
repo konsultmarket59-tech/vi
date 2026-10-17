@@ -35,17 +35,29 @@ const App = {
     if (restored && App.countObjects() > 0) UI.toast('Восстановлен последний документ (автосохранение)');
   },
   migrate(doc) {
-    const d = Object.assign(Model.newDoc(), doc);
+    const d = Object.assign(Model.newDoc(), Model.upgrade(doc));
     if (!d.guides) d.guides = { h: [], v: [] };
     if (!d.grid) d.grid = { size: 5 };
-    if (!d.layers.length) d.layers = Model.newDoc().layers;
-    if (!d.layers.find(l => l.id === d.activeLayer)) d.activeLayer = d.layers[0].id;
+    if (!d.pages || !d.pages.length) d.pages = Model.newDoc().pages;
+    for (const P of d.pages) {
+      if (!P.layers || !P.layers.length) P.layers = Model.newPage().layers;
+      if (!P.layers.find(l => l.id === P.activeLayer)) P.activeLayer = P.layers[0].id;
+    }
+    d.pageIndex = G.clamp(d.pageIndex || 0, 0, d.pages.length - 1);
     return d;
   },
-  countObjects() { return App.doc.layers.reduce((s, l) => s + l.objects.length, 0); },
+  // текущая страница
+  pg() { return App.doc.pages[App.doc.pageIndex] || App.doc.pages[0]; },
+  goPage(i) {
+    if (Tools.text.editing) Tools.text.commit();
+    App.doc.pageIndex = G.clamp(i, 0, App.doc.pages.length - 1);
+    App.sel = []; App.rotateMode = false;
+    UI.refresh();
+  },
+  countObjects() { return App.doc.pages.reduce((n, P) => n + P.layers.reduce((s, l) => s + l.objects.length, 0), 0); },
   activeLayer() {
-    let L = App.doc.layers.find(l => l.id === App.doc.activeLayer);
-    if (!L || L.locked) L = App.doc.layers.find(l => !l.locked && l.visible) || App.doc.layers[0];
+    let L = App.pg().layers.find(l => l.id === App.pg().activeLayer);
+    if (!L || L.locked) L = App.pg().layers.find(l => !l.locked && l.visible) || App.pg().layers[0];
     return L;
   },
 
@@ -70,7 +82,7 @@ const App = {
   restore() {
     App.doc = JSON.parse(App.history[App.hpos]);
     App.sel = App.sel.filter(id => Model.find(id));
-    Model._mcache.clear();
+    Text.cache.clear();
     App.autosave(); UI.refresh();
   },
   _saveTimer: 0,
@@ -116,7 +128,7 @@ const App = {
     App.panY = r.height / 2 - (b.y1 + h / 2) * App.zoom;
     UI.refresh({ panels: false }); UI.updateZoomBox();
   },
-  zoomPage() { App.zoomBox({ x1: 0, y1: 0, x2: App.doc.page.w, y2: App.doc.page.h }); },
+  zoomPage() { App.zoomBox({ x1: 0, y1: 0, x2: App.pg().w, y2: App.pg().h }); },
   zoomAll() {
     let b = G.emptyBox();
     Model.topLevel().forEach(({ o }) => { if (o.visible) b = G.unionBox(b, Model.worldBox(o)); });
@@ -165,7 +177,7 @@ const App = {
     const d = App.doc;
     if (App.view.snapGuides) { d.guides.v.forEach(x => xs.push(x)); d.guides.h.forEach(y => ys.push(y)); }
     if (App.view.snapPage) {
-      xs.push(0, d.page.w / 2, d.page.w); ys.push(0, d.page.h / 2, d.page.h);
+      xs.push(0, App.pg().w / 2, App.pg().w); ys.push(0, App.pg().h / 2, App.pg().h);
     }
     if (App.view.snapObjects) {
       const ex = new Set(excludeIds);
@@ -375,6 +387,7 @@ const Shortcuts = {
     S('F4', App.zoomAll); S('Shift+F4', App.zoomPage); S('Shift+F2', App.zoomSel); S('F3', () => App.setZoom(App.zoom / 2)); S('F2', () => App.setTool('zoom'));
     S('Ctrl+S', IO.save); S('Ctrl+Shift+S', IO.saveAs); S('Ctrl+O', IO.open); S('Ctrl+I', IO.importDialog); S('Ctrl+E', IO.exportDialog); S('Ctrl+P', IO.print);
     S('Ctrl+N', A.newDoc); S('Ctrl+Alt+N', A.newDoc);
+    S('PageUp', () => App.goPage(App.doc.pageIndex - 1)); S('PageDown', () => App.goPage(App.doc.pageIndex + 1));
     S('Tab', () => A.cycle(1)); S('Shift+Tab', () => A.cycle(-1));
     S('+', A.duplicateInPlace); S('Shift++', A.duplicateInPlace);
     S('F5', () => App.setTool('freehand')); S('F6', () => App.setTool('rect')); S('F7', () => App.setTool('ellipse'));
