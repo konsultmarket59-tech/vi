@@ -34,16 +34,22 @@ const Model = {
     };
   },
 
+  // копия небольшого простого объекта (стиль заливки/абриса) — во много раз быстрее structuredClone
+  dup(v) {
+    if (Array.isArray(v)) return v.map(Model.dup);
+    if (v && typeof v === 'object') { const o = {}; for (const k in v) o[k] = Model.dup(v[k]); return o; }
+    return v;
+  },
   make(type, props = {}) {
     const d = App.defaults;
     const o = Object.assign({
       id: Model.newId(), type, name: '', visible: true, locked: false,
       m: Mx.id(), opacity: 1, shadow: null,
-      fill: structuredClone(d.fill), stroke: structuredClone(d.stroke),
+      fill: props.fill ? null : Model.dup(d.fill), stroke: props.stroke ? null : Model.dup(d.stroke),
     }, props);
     if (type === 'text') {
       if (!props.fill) o.fill = { type: 'solid', color: '#000000', color2: '#ffffff', angle: 0 };
-      if (!props.stroke) o.stroke = Object.assign(structuredClone(d.stroke), { color: null });
+      if (!props.stroke) o.stroke = Object.assign(Model.dup(d.stroke), { color: null });
       for (const [k, v] of Object.entries({ font: 'Arial', size: 24, bold: false, italic: false, align: 'left', lh: 1.2, ls: 0, frame: null })) if (o[k] === undefined) o[k] = v;
     }
     if (type === 'group' || type === 'blend' || type === 'powerclip') { delete o.fill; delete o.stroke; }

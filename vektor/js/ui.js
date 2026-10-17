@@ -129,6 +129,7 @@ const UI = {
   // ================== Отрисовка ==================
   refresh(o = {}) {
     const panels = o.panels !== false, doc = o.doc !== false;
+    if (!o.keepHash) Snap._tick = null;
     UI.renderStage(doc, !panels);
     UI.renderOverlay();
     UI.drawRulers();
@@ -197,7 +198,7 @@ const UI = {
     if (tsize < UI._tsize) UI._memo = new WeakMap(); // кэш шрифтов сброшен — тексты перерисовываются заново
     UI._tsize = tsize;
     const one = o => {
-      const hh = Snap.hash(o), c = UI._memo.get(o);
+      const hh = Snap.hashT(o), c = UI._memo.get(o);
       if (c && c.h === hh) { if (c.defs.length) defs.push(...c.defs); return c.str; }
       const d = [];
       let str;

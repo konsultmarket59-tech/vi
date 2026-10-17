@@ -17,20 +17,26 @@ const CDR = (() => {
   class EOS extends Error { }
 
   // ---------- поток байтов ----------
+  const DVS = new WeakMap();
   class Reader {
-    constructor(u8) { this.u8 = u8; this.dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); this.pos = 0; }
+    // один DataView на весь буфер — вложенные записи читаются без создания новых представлений
+    constructor(u8) {
+      this.u8 = u8; this.pos = 0; this.b = u8.byteOffset;
+      let dv = DVS.get(u8.buffer); if (!dv) { dv = new DataView(u8.buffer); DVS.set(u8.buffer, dv); }
+      this.dv = dv;
+    }
     get length() { return this.u8.length; }
     isEnd() { return this.pos >= this.u8.length; }
     remaining() { return Math.max(0, this.u8.length - this.pos); }
     need(n) { if (this.pos + n > this.u8.length) throw new EOS('end of stream'); }
     seek(n, whence = 'cur') { this.pos = whence === 'set' ? n : this.pos + n; if (this.pos < 0) this.pos = 0; }
     u8r() { this.need(1); return this.u8[this.pos++]; }
-    u16() { this.need(2); const v = this.dv.getUint16(this.pos, true); this.pos += 2; return v; }
-    s16() { this.need(2); const v = this.dv.getInt16(this.pos, true); this.pos += 2; return v; }
-    u32() { this.need(4); const v = this.dv.getUint32(this.pos, true); this.pos += 4; return v; }
-    s32() { this.need(4); const v = this.dv.getInt32(this.pos, true); this.pos += 4; return v; }
-    u64lo() { this.need(8); const v = this.dv.getUint32(this.pos, true); this.pos += 8; return v; }
-    f64() { this.need(8); const v = this.dv.getFloat64(this.pos, true); this.pos += 8; return v; }
+    u16() { this.need(2); const v = this.dv.getUint16(this.b + this.pos, true); this.pos += 2; return v; }
+    s16() { this.need(2); const v = this.dv.getInt16(this.b + this.pos, true); this.pos += 2; return v; }
+    u32() { this.need(4); const v = this.dv.getUint32(this.b + this.pos, true); this.pos += 4; return v; }
+    s32() { this.need(4); const v = this.dv.getInt32(this.b + this.pos, true); this.pos += 4; return v; }
+    u64lo() { this.need(8); const v = this.dv.getUint32(this.b + this.pos, true); this.pos += 8; return v; }
+    f64() { this.need(8); const v = this.dv.getFloat64(this.b + this.pos, true); this.pos += 8; return v; }
     fixed() { const fr = this.u16(), i = this.s16(); return i + fr / 65536; }
     bytes(n) { n = Math.min(n, this.remaining()); const b = this.u8.subarray(this.pos, this.pos + n); this.pos += n; return b; }
     sub(n) { return new Reader(this.bytes(n)); }
@@ -70,7 +76,7 @@ const CDR = (() => {
     Q(qx, qy, x, y) { this.ensure(); const l = this.last(); this.C(l.x + 2 / 3 * (qx - l.x), l.y + 2 / 3 * (qy - l.y), x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y), x, y); }
     A(rx, ry, rot, large, sweep, x, y) { this.ensure(); const l = this.last(); for (const c of Path.arcToCubics(l.x, l.y, rx, ry, rot, large ? 1 : 0, sweep ? 1 : 0, x, y)) this.C(...c); }
     Z() { if (this.cur) { this.cur.closed = true; this.closedAny = true; this.cur = null; } }
-    append(other) { for (const sp of other.subs) this.subs.push(structuredClone(sp)); this.cur = null; this.closedAny = this.closedAny || other.closedAny; }
+    append(other) { for (const sp of other.subs) this.subs.push({ closed: sp.closed, nodes: sp.nodes.map(n => Object.assign({}, n)) }); this.cur = null; this.closedAny = this.closedAny || other.closedAny; }
     transform(m) { Path.transform(this.subs, m); }
     // B-сплайн 3-й степени → кривые Безье (алгоритм DecomposeCurve, Пигл и Тиллер)
     spline(pts) {
@@ -149,7 +155,8 @@ const CDR = (() => {
           else if ((listType & 0xffffff) === 0x524443 || (listType & 0xffffff) === 0x726463) {
             this.version = versionFromChar((listType >>> 24) & 0xff);
             this.prec = this.version < 600 ? 16 : 32;
-          } else if (listType === F.vect || listType === F.clpt) this.col.vect(level);
+          } else if (listType === F.clpt) (this.col.clipList || this.col.vect)(level);
+          else if (listType === F.vect) this.col.vect(level);
           if (listType !== F.cmpr) {
             if (!this.parseRecords(r.sub(cmprsize), blocks, level + 1)) return false;
           } else {
@@ -395,8 +402,10 @@ const CDR = (() => {
           else if (t === 0xc8) { const id = this.uns(r); if (id) this.col.styleId(id); }
           else if (t === 0x2af8) this.readPolygonTransform(r);
           else if (t === 0x1f40) { r.seek(v < 1300 ? 10 : 14); this.col.opacity(r.u16() / 1000); }
+          // PowerClip: номер содержимого в списке clpt документа
+          else if (t === 0x1f45) { const id = r.u32() >>> 0; if (id && this.col.powerclip) this.col.powerclip(id); }
           else if (t === 0x4aba) { const w = this.coord(r), h = this.coord(r); this.col.pageSize(w, h, -w / 2, -h / 2); }
-          else if (t === 0x3e8 && v >= 1300 && !types.includes(0x9c72) && chunkType === 0) {
+          else if (t === 0x3e8 && v >= 1300 && chunkType === 0 && !types.includes(0x9c72) && !types.includes(0x9c44) && !types.includes(0x64)) {
             // имя страницы (UTF-16) — в той же записи, что и её размер
             let name = ''; for (let k = 0; k < 200 && r.remaining() >= 2; k++) { const c = r.u16(); if (!c) break; name += String.fromCharCode(c); }
             if (name && this.col.pageName) this.col.pageName(name.trim());
@@ -825,7 +834,7 @@ const CDR = (() => {
     let page = { w: 8.5, h: 11, ox: -4.25, oy: -5.5 };
     const noop = () => { };
     return {
-      level: noop, otherList: noop, object: noop, group: noop, vect: noop, flags: noop, bbox: noop, spnd: noop, transform: noop,
+      level: noop, otherList: noop, object: noop, group: noop, vect: noop, clipList: noop, powerclip: noop, flags: noop, bbox: noop, spnd: noop, transform: noop,
       fillId: noop, lineId: noop, styleId: noop, path: noop, polygon: noop, polygonTransform: noop, spline: noop, ppdt: noop,
       artisticText: noop, paragraphText: noop, bitmap: noop, opacity: noop, font: noop,
       pageSize(w, h, ox, oy) { const last = ps.pages[ps.pages.length - 1], p = { w, h, ox, oy, name: last && last.name }; if (!ps.pages.length) page = p; else ps.pages[ps.pages.length - 1] = p; },
@@ -876,6 +885,9 @@ const CDR = (() => {
     let trafos = [], groupLevels = [], groupTrafos = [], listStack = [];
     let polygon = null, inPolygon = false, inSpline = false, spline = null, fillOpacity = 1, spnd = 0;
     let curPage = null;
+    // содержимое PowerClip (список clpt в начале документа): номер → группа объектов
+    const clips = {};
+    let clipLevel = 0, clipGroup = null, clipRef = 0;
     const startPage = () => {
       if (ignorePage || pageStarted) return;
       curPage = { w: page.w * 25.4, h: page.h * 25.4, objects: [] };
@@ -894,9 +906,28 @@ const CDR = (() => {
       if (groupTrafos.length && groupTrafos[groupTrafos.length - 1]) for (const t of groupTrafos[groupTrafos.length - 1]) m = Mx.mul(t, m);
       return Mx.mul(pageM(), m);
     };
-    const add = (o) => { if (!pageStarted || vectLevel) return; list().unshift(o); }; // в CDR первый объект — верхний
+    const active = () => (pageStarted || clipLevel) && !vectLevel;
+    const add = (o) => {
+      if (!active()) return;
+      // рамка PowerClip: объект становится контейнером, внутрь — сохранённое содержимое
+      if (clipRef && clips[clipRef] && o.type !== 'image') {
+        const c = clips[clipRef];
+        let kids = c.g.children.map(x => structuredClone(x));
+        const corr = Mx.mul(pageM(), Mx.inv(c.pm));
+        if (!Mx.isId(corr)) kids.forEach(k => Model.applyT(k, corr));
+        if (kids.length) {
+          const re = x => { x.id = Model.newId(); (x.children || []).forEach(re); if (x.container) re(x.container); };
+          kids.forEach(re);
+          const pc = Model.make('powerclip', { container: o, children: kids });
+          delete pc.fill; delete pc.stroke;
+          o = pc;
+        }
+        clipRef = 0;
+      }
+      list().unshift(o);
+    }; // в CDR первый объект — верхний
     const flush = () => {
-      if (!pageStarted && !vectLevel) { path = new PathB(); image = null; text = null; return; }
+      if (!pageStarted && !vectLevel && !clipLevel) { path = new PathB(); image = null; text = null; return; }
       const st = resolveStyle();
       if (!path.empty || (spline && inSpline)) {
         if (polygon && inPolygon) CDR.polygonCreate(polygon, path);
@@ -1012,21 +1043,25 @@ const CDR = (() => {
           }
         }
         if (level <= vectLevel) { vectLevel = 0; page = ps.pages[pageIndex ? pageIndex - 1 : 0] || page; }
+        if (clipLevel && level <= clipLevel) { clipLevel = 0; clipGroup = null; listStack = []; }
         if (level <= pageLevel) { endPage(); pageLevel = 0; }
       },
       otherList() { },
       page(level) { pageProps = true; ignorePage = false; pageLevel = level; page = ps.pages[pageIndex++] || page; },
 
-      object(level) { if (!pageStarted && !vectLevel && !ignorePage) startPage(); objLevel = level; fill = null; line = null; styleId = 0; bbox = null; },
+      object(level) { if (!pageStarted && !vectLevel && !ignorePage && !clipLevel) startPage(); objLevel = level; fill = null; line = null; styleId = 0; bbox = null; clipRef = 0; },
       group(level) {
-        if (!pageStarted && !vectLevel && !ignorePage) startPage();
+        if (!pageStarted && !vectLevel && !ignorePage && !clipLevel) startPage();
         groupLevels.push(level); groupTrafos.push(null);
-        if (pageStarted && !vectLevel) {
+        if (active()) {
           const g = Model.make('group', { children: [] });
           list().unshift(g); listStack.push(g.children);
+          if (clipLevel && level === clipLevel + 1) clipGroup = g; // номер придёт следующей записью spnd
         } else listStack.push([]);
       },
       vect(level) { vectLevel = level; },
+      clipList(level) { clipLevel = level; listStack = [[]]; },
+      powerclip(id) { clipRef = id; },
       flags(fl, consider) {
         if (pageProps && !(fl & 0x00ff0000)) { if (!pageStarted) startPage(); }
         else if (pageProps && consider) ignorePage = true;
@@ -1043,7 +1078,7 @@ const CDR = (() => {
       ppdt(pts, knots) { spline = { pts, knots }; },
       opacity(o) { fillOpacity = o; },
       bbox(x0, y0, x1, y1) { bbox = { x0, y0, x1, y1 }; },
-      spnd(v) { spnd = v; },
+      spnd(v) { spnd = v; if (clipGroup && clipLevel) { clips[v] = { g: clipGroup, pm: pageM() }; clipGroup = null; } },
       bitmap(id, x1, x2, y1, y2) {
         const b = ps.bmps[id], data = b ? CDR.bitmapURL(b, ps) : null;
         if (data) image = { data, x1, x2, y1, y2 };
@@ -1266,13 +1301,45 @@ const CDR = (() => {
 
     // ---------- точка входа ----------
     // возвращает { version, pages: [{ w, h, objects }] }
-    parse(buffer) {
+    zipWanted: n => /^(content\/|META-INF\/(metadata|textinfo)\.xml$)/.test(n),
+    // распаковка контейнера X4+ встроенным в браузер распаковщиком (быстрее JS в разы)
+    async unzip(u8) {
+      if (typeof DecompressionStream === 'undefined') return null;
+      const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+      let eocd = -1;
+      for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+      if (eocd < 0) return null;
+      const n = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+      const out = {}, jobs = [];
+      for (let k = 0; k < n; k++) {
+        if (dv.getUint32(p, true) !== 0x02014b50) return null;
+        const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), loc = dv.getUint32(p + 42, true);
+        const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+        p += 46 + nlen + xlen + clen;
+        if (!CDR.zipWanted(name) || name.endsWith('/')) continue;
+        if (csize === 0xffffffff) return null; // ZIP64 — пусть разберёт fflate
+        const start = loc + 30 + dv.getUint16(loc + 26, true) + dv.getUint16(loc + 28, true);
+        const data = u8.subarray(start, start + csize);
+        if (method === 0) { out[name] = data; continue; }
+        if (method !== 8) return null;
+        jobs.push(new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer().then(b => { out[name] = new Uint8Array(b); }));
+      }
+      await Promise.all(jobs);
+      return out;
+    },
+    async parseAsync(buffer) {
+      const u8 = new Uint8Array(buffer);
+      let zip = null;
+      if (u8[0] === 0x50 && u8[1] === 0x4b) { try { zip = await CDR.unzip(u8); } catch (e) { zip = null; } }
+      return CDR.parse(buffer, zip ? { zip } : {});
+    },
+    parse(buffer, opts = {}) {
       let u8 = new Uint8Array(buffer);
       let ext = [], meta = null;
       const isRiff = u => u[0] === 0x52 && u[1] === 0x49 && u[2] === 0x46 && u[3] === 0x46;
       if (!isRiff(u8)) {
         if (u8[0] !== 0x50 || u8[1] !== 0x4b) throw new Error('Это не файл CorelDRAW');
-        const z = fflate.unzipSync(u8);
+        const z = opts.zip || fflate.unzipSync(u8, { filter: f => CDR.zipWanted(f.name) });
         const main = z['content/riffData.cdr'] || z['content/root.dat'];
         if (!main) throw new Error('В архиве нет содержимого CorelDRAW (content/riffData.cdr)');
         if (z['content/dataFileList.dat']) {

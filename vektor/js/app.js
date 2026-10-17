@@ -37,6 +37,16 @@ const Snap = {
     walk(o);
     return (h1 >>> 0).toString(36) + (h2 >>> 0).toString(36);
   },
+  // отпечаток, посчитанный в этой же задаче, не пересчитывается (запись в историю и перерисовка
+  // после правки используют один и тот же расчёт)
+  _tick: null,
+  hashT(o) {
+    let t = Snap._tick;
+    if (!t) { t = Snap._tick = new WeakMap(); setTimeout(() => { Snap._tick = null; }, 0); }
+    let h = t.get(o);
+    if (h === undefined) { h = Snap.hash(o); t.set(o, h); }
+    return h;
+  },
   ref(v) { let i = Snap.ids.get(v); if (i === undefined) { i = Snap.strs.length; Snap.strs.push(v); Snap.ids.set(v, i); } return '\u0001' + i; },
   raw(x) {
     const undo = [];
@@ -45,7 +55,7 @@ const Snap = {
     try { return JSON.stringify(x); } finally { for (let i = 0; i < undo.length; i += 3) undo[i][undo[i + 1]] = undo[i + 2]; }
   },
   obj(o, h) {
-    h = h || Snap.hash(o);
+    h = h || Snap.hashT(o);
     const c = Snap.cache.get(o);
     if (c && c.h === h) return c.json;
     const json = Snap.raw(o);
@@ -158,12 +168,13 @@ const App = {
   resetHistory() { App.history = [Snap.take(App.doc)]; App.hpos = 0; },
   commit(label) {
     App.history.length = App.hpos + 1;
+    Snap._tick = null; // отпечатки считаются заново по текущему состоянию…
     App.history.push(Snap.take(App.doc));
     if (App.history.length > 150) App.history.shift();
     App.hpos = App.history.length - 1;
     App.dirty = true;
     App.autosave();
-    UI.refresh();
+    UI.refresh({ keepHash: true }); // …и сразу же используются перерисовкой
   },
   undo() {
     if (App.hpos <= 0) return UI.toast('Нечего отменять');

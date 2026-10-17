@@ -156,7 +156,7 @@ const IO = {
       try { return await IO.readCDRviaCorel(path); } catch (e) { console.warn(e); UI.toast('CorelDRAW: ' + (e.message || e) + '. Открываю встроенным разборщиком'); }
     }
     let res = null, err = null;
-    try { res = CDR.parse(buf); } catch (e) { err = e; }
+    try { res = await CDR.parseAsync(buf); } catch (e) { err = e; }
     const empty = !res || !res.pages.some(p => p.objects.length);
     if (!viaCorel && Host.desktop && path && (empty || err || (res && res.missingImages)) && await IO.corelAvailable()) {
       try { return await IO.readCDRviaCorel(path); } catch (e) { console.warn(e); }
