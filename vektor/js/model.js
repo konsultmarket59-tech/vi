@@ -153,7 +153,7 @@ const Model = {
         return { x1: 0, y1: 0, x2: o.w, y2: o.h };
       case 'path': return Path.bbox(Model.toSubs(o));
       case 'text': {
-        if (o.envelope) { const s = Model.toSubs(o); if (s) return Path.bbox(s); }
+        if (o.envelope || o.tpath) { const s = Model.toSubs(o); if (s && s.length) return Path.bbox(s); }
         return Text.layout(o).box;
       }
       default: return G.emptyBox();

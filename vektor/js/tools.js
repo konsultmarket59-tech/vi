@@ -226,6 +226,8 @@ Tools.pick = {
     const id = App.hitTest(e.clientX, e.clientY, e.ctrlKey);
     if (!id) return;
     const o = Model.get(id);
+    const top = Model.get(App.topIdOf(id));
+    if (top && top.type === 'powerclip' && !e.ctrlKey) { PCEdit.enter(top); return; }
     if (o.type === 'text') { App.sel = [App.topIdOf(id) === id ? id : App.topIdOf(id)]; Tools.text.edit(o); }
     else if (['path', 'rect', 'ellipse', 'polygon'].includes(o.type) && App.topIdOf(id) === id) { App.sel = [id]; App.setTool('shape'); }
   },

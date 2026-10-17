@@ -286,6 +286,7 @@ const UI = {
       else { const sy = App.toScreen(0, g.pos).y; out.push(`<line class="guide new" x1="0" y1="${sy}" x2="${r.width}" y2="${sy}"/>`); }
     }
     const t = Tools[App.tool];
+    PCEdit.overlay(out);
     if (t.overlay) t.overlay(out); else Overlay.selection(out, true);
     UI.$('#overlay').innerHTML = out.join('');
     UI.$('#stage').dataset.tool = App.tool;
@@ -523,6 +524,14 @@ const UI = {
         { label: 'PowerClip', sub: [
           { label: 'Поместить во фрейм…', action: A.powerclipStart, disabled: () => !sel() },
           { label: 'Извлечь содержимое', action: A.powerclipExtract },
+          '-',
+          { label: 'Изменить содержимое PowerClip', action: () => PCEdit.enter(), disabled: () => !App.selObjs().some(o => o.type === 'powerclip') },
+          { label: 'Завершить изменение PowerClip', action: () => PCEdit.finish(), disabled: () => !PCEdit.cur },
+          '-',
+          { label: 'Вписать содержимое пропорционально', action: () => PCEdit.fit('fit') },
+          { label: 'Заполнить фрейм пропорционально', action: () => PCEdit.fit('fill') },
+          { label: 'Растянуть содержимое по фрейму', action: () => PCEdit.fit('stretch') },
+          { label: 'Содержимое по центру', action: () => PCEdit.fit('center') },
         ] },
         '-',
         { label: 'Зеркально по горизонтали', action: () => A.mirror(true), disabled: () => !sel() },
@@ -552,6 +561,10 @@ const UI = {
         { label: 'Инструмент «Текст»', key: 'F8', action: () => App.setTool('text') },
         { label: 'Редактировать текст', action: () => { const o = App.selObjs()[0]; if (o && o.type === 'text') Tools.text.edit(o); else UI.toast('Выделите текстовый объект'); } },
         { label: 'Свойства текста', action: () => UI.docker('props') },
+        '-',
+        { label: 'Текст вдоль пути', action: () => TextPath.fit(), disabled: () => App.sel.length < 2 },
+        { label: 'Параметры текста на пути…', action: () => TextPath.dialog(), disabled: () => !App.selObjs().some(o => o.tpath) },
+        { label: 'Выпрямить текст', action: () => TextPath.straighten(), disabled: () => !App.selObjs().some(o => o.tpath) },
         '-',
         { label: 'Загрузить шрифт из файла…', action: UI.loadFontFiles },
         { label: 'Подключить шрифты системы', action: () => Fonts.loadLocal() },
@@ -663,7 +676,11 @@ const UI = {
         App.sel.length > 1 ? { label: 'Объединить', key: 'Ctrl+L', action: A.combine } : null,
         o.type === 'path' && o.subs.length > 1 ? { label: 'Разъединить', key: 'Ctrl+K', action: A.breakApart } : null,
         ['rect', 'ellipse', 'polygon'].includes(o.type) ? { label: 'Преобразовать в кривые', key: 'Ctrl+Q', action: A.toCurves } : null,
+        o.type === 'powerclip' ? { label: 'Изменить содержимое PowerClip', action: () => PCEdit.enter(o) } : null,
         o.type === 'powerclip' ? { label: 'Извлечь содержимое', action: A.powerclipExtract } : { label: 'PowerClip: поместить во фрейм…', action: A.powerclipStart },
+        PCEdit.cur ? { label: 'Завершить изменение PowerClip', action: () => PCEdit.finish() } : null,
+        App.sel.length === 2 && App.selObjs().some(x => x.type === 'text') ? { label: 'Текст вдоль пути', action: () => TextPath.fit() } : null,
+        o.tpath ? { label: 'Параметры текста на пути…', action: () => TextPath.dialog() } : null,
         '-',
         { label: 'Заблокировать', action: () => UI.lockSel(true) },
         { label: 'Свойства', key: 'F11', action: () => UI.docker('props') },

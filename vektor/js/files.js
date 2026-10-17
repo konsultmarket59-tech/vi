@@ -195,3 +195,139 @@ const ObjOps = {
     Actions.insert([p]); App.commit('Граница');
   },
 };
+
+// ---------- Текст вдоль пути (как «Текст → Текст вдоль пути» в CorelDRAW) ----------
+const TextPath = {
+  // выделены текст и кривая (фигура): текст ложится на её контур; кривая остаётся отдельным объектом
+  fit() {
+    const objs = App.selObjs();
+    const t = objs.find(o => o.type === 'text');
+    const p = objs.find(o => o !== t && ['path', 'rect', 'ellipse', 'polygon'].includes(o.type));
+    if (!t || !p) return UI.toast('Выделите текст и кривую или фигуру (Shift+щелчок), затем «Текст вдоль пути»');
+    const subs = structuredClone(Model.toSubs(p) || []).filter(sp => sp.nodes.length > 1);
+    if (!subs.length) return UI.toast('У кривой нет сегментов');
+    Path.transform(subs, p.m);
+    // текст становится «фигурным» без поворота: масштаб матрицы переходит в кегль
+    const k = Math.hypot(t.m[0], t.m[1]) || 1;
+    if (Math.abs(k - 1) > 1e-6) t.size = G.round(t.size * k, 2);
+    delete t.frame; delete t.envelope;
+    t.m = [1, 0, 0, 1, 0, 0];
+    t.tpath = { subs: subs.slice(0, 1), offset: p.type === 'ellipse' ? 75 : 0, dist: 0, flip: false };
+    if (p.type === 'ellipse') t.align = 'center';
+    App.sel = [t.id]; App.commit('Текст вдоль пути');
+    TextPath.dialog(t.id);
+  },
+  straighten() {
+    const ts = App.selObjs().filter(o => o.type === 'text' && o.tpath);
+    if (!ts.length) return UI.toast('Выделите текст на пути');
+    for (const t of ts) {
+      const P = Text.pathPoly(t), q = P ? Text.pathAt(P, (t.tpath.offset || 0) / 100 * P.len) : { x: 0, y: 0 };
+      delete t.tpath; t.align = 'left';
+      t.m = [1, 0, 0, 1, q.x, q.y - Text.fs(t) * 0.85];
+    }
+    App.commit('Выпрямить текст');
+  },
+  // параметры: смещение по пути, расстояние от пути, сторона
+  dialog(id) {
+    const t0 = Model.get(id || App.sel[0]);
+    if (!t0 || !t0.tpath) return UI.toast('Выделите текст на пути');
+    const tid = t0.id, tp0 = Object.assign({}, t0.tpath);
+    const cur = () => Model.get(tid);
+    const set = (k, v) => { const t = cur(); if (!t) return; t.tpath[k] = v; UI.refresh({ panels: false }); };
+    const off = h('input', { type: 'range', min: 0, max: 100, step: 0.5, value: tp0.offset || 0, oninput: e => { offN.textContent = e.target.value + ' %'; set('offset', +e.target.value); } });
+    const offN = h('b', {}, (tp0.offset || 0) + ' %');
+    const dist = h('input', { type: 'number', step: 0.5, value: tp0.dist || 0, style: { width: '80px' }, oninput: e => set('dist', +e.target.value || 0) });
+    const flip = h('input', { type: 'checkbox', checked: !!tp0.flip, onchange: e => set('flip', e.target.checked) });
+    const align = h('select', { onchange: e => { const t = cur(); if (t) { t.align = e.target.value; UI.refresh({ panels: false }); } } },
+      ...[['left', 'От начала'], ['center', 'По центру'], ['right', 'К концу']].map(([v, l]) => h('option', { value: v, selected: (t0.align || 'left') === v }, l)));
+    let ok = false;
+    UI.dialog('Текст вдоль пути', h('div', { class: 'form' },
+      h('label', {}, 'Положение на пути: ', offN, off),
+      h('label', {}, 'Выключка ', align),
+      h('label', {}, 'Расстояние от пути, мм ', dist),
+      h('label', { class: 'row' }, flip, ' по другую сторону (отразить)'),
+      h('p', { class: 'muted small' }, 'Текст и кривая — разные объекты: кривую можно скрыть (абрис «нет») или удалить. Изменить текст — двойной щелчок по нему.')),
+    [{ label: 'Отмена' }, { label: 'Готово', primary: true, action: () => { ok = true; App.commit('Текст вдоль пути'); } }],
+    { onClose: () => { if (ok) return; const t = cur(); if (t) { t.tpath = tp0; t.align = t0.align; UI.refresh(); } } });
+  },
+};
+
+// ---------- Редактирование содержимого PowerClip (как «Изменить PowerClip» в CorelDRAW) ----------
+// Содержимое временно достаётся из фрейма: его можно двигать, масштабировать, добавлять и удалять объекты.
+// «Готово» собирает PowerClip обратно — в него входит всё, что лежит над фреймом в том же списке.
+const PCEdit = {
+  // состояние режима хранится на самом фрейме (cont.pcEdit) — поэтому отмена/повтор и вкладки документов его не ломают
+  get cur() {
+    if (!App.doc) return null;
+    for (const L of App.pg().layers) for (const o of L.objects) if (o.pcEdit) return o;
+    return null;
+  },
+  enter(pc) {
+    pc = pc || App.selObjs().find(o => o.type === 'powerclip');
+    if (!pc) return UI.toast('Выделите объект PowerClip');
+    if (PCEdit.cur) PCEdit.finish();
+    const f = Model.find(pc.id); if (!f) return;
+    const cont = pc.container;
+    cont.pcEdit = { pc: pc.id, name: pc.name || '', wasLocked: !!cont.locked, before: f.list.map(o => o.id), kids: pc.children.map(o => o.id) };
+    f.list.splice(f.list.indexOf(pc), 1, cont, ...pc.children);
+    cont.locked = true;
+    App.sel = pc.children.map(c => c.id);
+    App.commit('Изменить PowerClip');
+  },
+  finish() {
+    const cont = PCEdit.cur; if (!cont) return;
+    const c = cont.pcEdit, f = Model.find(cont.id);
+    delete cont.pcEdit; cont.locked = c.wasLocked;
+    const before = new Set(c.before), kidIds = new Set(c.kids);
+    const at = f.list.indexOf(cont);
+    const kids = f.list.slice(at + 1).filter(o => kidIds.has(o.id) || !before.has(o.id));
+    if (!kids.length) { App.sel = [cont.id]; App.commit('PowerClip: пустой фрейм'); return; }
+    for (const k of [cont, ...kids]) f.list.splice(f.list.indexOf(k), 1);
+    const pc = Model.make('powerclip', { container: cont, children: kids });
+    delete pc.fill; delete pc.stroke;
+    if (c.name) pc.name = c.name;
+    f.list.splice(Math.min(at, f.list.length), 0, pc);
+    App.sel = [pc.id]; App.commit('PowerClip: готово');
+  },
+  bar(on) {
+    let el = document.getElementById('pcbar');
+    if (!on) { if (el) el.remove(); return; }
+    if (!el) {
+      el = h('div', { id: 'pcbar', class: 'pcbar' }, h('span', {}, 'Изменение содержимого PowerClip — двигайте, масштабируйте, добавляйте объекты'),
+        h('button', { class: 'primary', onclick: () => PCEdit.finish() }, 'Готово'));
+      (document.querySelector('.canvaswrap') || document.body).append(el);
+    }
+  },
+  // контур фрейма поверх, пока идёт редактирование
+  overlay(out) {
+    const o = PCEdit.cur;
+    PCEdit.bar(!!o);
+    if (!o) return;
+    const subs = Model.toSubs(o);
+    if (subs) {
+      for (const f of Path.flatten(subs, o.m)) {
+        const pts = f.pts.map(p => App.toScreen(p.x, p.y)).map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+        out.push(`<${f.closed ? 'polygon' : 'polyline'} class="pc-frame" points="${pts}"/>`);
+      }
+    }
+  },
+  // содержимое: вписать (с сохранением пропорций), заполнить, по центру
+  fit(mode) {
+    const pcs = App.selObjs().filter(o => o.type === 'powerclip');
+    if (!pcs.length) return UI.toast('Выделите объект PowerClip');
+    for (const pc of pcs) {
+      const fb = Model.worldBox(pc.container);
+      let cb = G.emptyBox(); for (const ch of pc.children) cb = G.unionBox(cb, Model.worldBox(ch));
+      if (!G.boxValid(cb) || !G.boxValid(fb)) continue;
+      const fw = fb.x2 - fb.x1, fh = fb.y2 - fb.y1, cw = cb.x2 - cb.x1, ch2 = cb.y2 - cb.y1;
+      let sx = 1, sy = 1;
+      if (mode === 'fit') sx = sy = Math.min(fw / cw, fh / ch2);
+      else if (mode === 'fill') sx = sy = Math.max(fw / cw, fh / ch2);
+      else if (mode === 'stretch') { sx = fw / cw; sy = fh / ch2; }
+      const ccx = (cb.x1 + cb.x2) / 2, ccy = (cb.y1 + cb.y2) / 2, fcx = (fb.x1 + fb.x2) / 2, fcy = (fb.y1 + fb.y2) / 2;
+      const T = Mx.mul([1, 0, 0, 1, fcx, fcy], Mx.mul([sx, 0, 0, sy, 0, 0], [1, 0, 0, 1, -ccx, -ccy]));
+      for (const ch of pc.children) Model.applyT(ch, T);
+    }
+    App.commit({ fit: 'Вписать содержимое', fill: 'Заполнить фрейм', stretch: 'Растянуть содержимое', center: 'Содержимое по центру' }[mode]);
+  },
+};

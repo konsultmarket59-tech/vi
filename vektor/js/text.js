@@ -179,6 +179,7 @@ const Text = {
   },
   // строки с координатами: { lines: [{ text, x, y, w, words? }], box }
   layout(o) {
+    if (o.tpath) return Text.pathLayout(o);
     const fs = Text.fs(o), lh = (o.lh || 1.2) * fs;
     const paras = String(o.text || '').split('\n');
     const lines = [];
@@ -229,7 +230,70 @@ const Text = {
     if (frame) { G.addPt(box, 0, 0); G.addPt(box, frame.w, Math.max(frame.h || 0, box.y2)); }
     return { lines, box, fs, lh };
   },
+  // ---------- текст вдоль пути (Corel: «Текст → Текст вдоль пути») ----------
+  // o.tpath = { subs (кривая в локальных координатах текста), offset (% длины), dist (мм от кривой), flip (по другую сторону) }
+  str1(o) { return String(o.text || '').replace(/\s*\n\s*/g, ' '); },
+  pathSubs(o) {
+    const subs = structuredClone(o.tpath.subs).slice(0, 1);
+    if (o.tpath.flip && subs[0]) Path.reverse(subs[0]);
+    return subs;
+  },
+  pathPoly(o) {
+    const f = Path.flatten(Text.pathSubs(o), null, 24)[0];
+    if (!f || f.pts.length < 2) return null;
+    const pts = f.pts.slice(); if (f.closed) pts.push(pts[0]);
+    const acc = [0];
+    for (let i = 1; i < pts.length; i++) acc.push(acc[i - 1] + G.dist(pts[i - 1], pts[i]));
+    return { pts, acc, len: acc[acc.length - 1], closed: f.closed };
+  },
+  // точка и угол касательной на расстоянии s от начала
+  pathAt(P, s) {
+    if (P.closed) s = ((s % P.len) + P.len) % P.len; else s = G.clamp(s, 0, P.len);
+    let lo = 0, hi = P.acc.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (P.acc[m] <= s) lo = m; else hi = m; }
+    const a = P.pts[lo], b = P.pts[hi], seg = (P.acc[hi] - P.acc[lo]) || 1e-9, t = (s - P.acc[lo]) / seg;
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, ang: Math.atan2(b.y - a.y, b.x - a.x) };
+  },
+  pathStart(o, P, W) {
+    const s = (o.tpath.offset || 0) / 100 * P.len;
+    return o.align === 'center' ? s - W / 2 : o.align === 'right' ? s - W : s;
+  },
+  pathLayout(o) {
+    const fs = Text.fs(o), str = Text.str1(o), w = Text.measure(o, str);
+    const box = Path.bbox(Text.pathSubs(o));
+    const pad = fs + Math.abs(o.tpath.dist || 0);
+    const b = G.boxValid(box) ? { x1: box.x1 - pad, y1: box.y1 - pad, x2: box.x2 + pad, y2: box.y2 + pad } : { x1: 0, y1: 0, x2: w, y2: fs };
+    return { lines: [{ text: str, x: 0, y: 0, w }], box: b, fs, lh: fs * (o.lh || 1.2) };
+  },
+  pathMarkup(o, attrs) {
+    const fs = Text.fs(o), id = 'tp_' + o.id, tp = o.tpath;
+    const anchor = o.align === 'center' ? ' text-anchor="middle"' : o.align === 'right' ? ' text-anchor="end"' : '';
+    const dy = tp.dist ? ` dy="${+(-tp.dist).toFixed(4)}"` : '';
+    return `<defs><path id="${id}" d="${Path.toD(Text.pathSubs(o))}"/></defs>` +
+      `<text ${attrs} font-family="${Render.esc(o.font || 'Arial')}" font-size="${+fs.toFixed(4)}"` +
+      (o.bold ? ' font-weight="bold"' : '') + (o.italic ? ' font-style="italic"' : '') +
+      (o.ls ? ` letter-spacing="${+(o.ls / 100 * fs).toFixed(4)}"` : '') + `${anchor} xml:space="preserve">` +
+      `<textPath href="#${id}" startOffset="${+(tp.offset || 0).toFixed(3)}%"><tspan${dy}>${Render.esc(Text.str1(o)) || ' '}</tspan></textPath></text>`;
+  },
+  pathOutlines(o, otf) {
+    const P = Text.pathPoly(o); if (!P) return [];
+    const fs = Text.fs(o), str = Text.str1(o), opt = { kerning: false, letterSpacing: (o.ls || 0) / 100 };
+    const chars = [...str], adv = chars.map(ch => otf.getAdvanceWidth(ch, fs, opt));
+    let s = Text.pathStart(o, P, adv.reduce((a, b) => a + b, 0));
+    const out = [];
+    chars.forEach((ch, i) => {
+      const a = adv[i], mid = s + a / 2; s += a;
+      if (!/\S/.test(ch) || (!P.closed && (mid < 0 || mid > P.len))) return;
+      const q = Text.pathAt(P, mid);
+      const sub = Path.parse(otf.getPath(ch, -a / 2, -(o.tpath.dist || 0), fs, opt).toPathData(4));
+      const c = Math.cos(q.ang), sn = Math.sin(q.ang);
+      Path.transform(sub, [c, sn, -sn, c, q.x, q.y]);
+      out.push(...sub);
+    });
+    return out;
+  },
   markup(o, attrs) {
+    if (o.tpath) return Text.pathMarkup(o, attrs);
     const L = Text.layout(o);
     const fam = Render.esc(o.font || 'Arial');
     let s = `<text ${attrs} font-family="${fam}" font-size="${+L.fs.toFixed(4)}"` +
@@ -245,6 +309,7 @@ const Text = {
   outlines(o) {
     const otf = Fonts.otfSync(o.font, o.bold, o.italic);
     if (!otf) return null;
+    if (o.tpath) return Text.pathOutlines(o, otf);
     const L = Text.layout(o);
     const opt = { kerning: true, letterSpacing: (o.ls || 0) / 100 };
     let d = '';

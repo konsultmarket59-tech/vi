@@ -28,6 +28,7 @@ const IO = {
   },
   // запись документа в файл по расширению: .vkt — сам документ, .cdr — через CorelDRAW, .pdf — PDF для печати
   async writeTo(p) {
+    if (PCEdit.cur) PCEdit.finish();
     const ext = IO.ext(p);
     UI.busy('Сохраняю…');
     try {

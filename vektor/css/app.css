@@ -490,3 +490,5 @@ body.ws-other #app > :not(#menubar) { visibility: hidden; }
 .ds-sw span { width: 16px; height: 16px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); display: inline-block; }
 .ds-pre { white-space: pre-wrap; max-height: 60vh; overflow: auto; font-size: 12px; max-width: 70vw; }
 .ds-row > label.row { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+.pcbar { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); z-index: 20; background: var(--panel, #fff); border: 1px solid var(--accent, #2e8b38); border-radius: 6px; padding: 6px 10px; display: flex; gap: 10px; align-items: center; box-shadow: 0 4px 14px rgba(0,0,0,.15); font-size: 12px; }
+#overlay .pc-frame { fill: none; stroke: #e5007d; stroke-width: 1.2; stroke-dasharray: 5 3; pointer-events: none; }
