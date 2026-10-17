@@ -128,6 +128,25 @@ ipcMain.handle("net:fetch", async (e, req) => {
   return { status: res.status, ok: res.ok, statusText: res.statusText, body: text };
 });
 
+// ---------- PDF: страницы печатаются скрытым окном Chromium в файл ----------
+ipcMain.handle("print:pdf", async (e, html, out) => {
+  if (!isAllowed(out) && !isAllowed(path.dirname(out))) return { ok: false, error: "Нет доступа к папке" };
+  const tmp = path.join(os.tmpdir(), "vektor-print-" + Date.now() + ".html");
+  await fsp.writeFile(tmp, html, "utf8");
+  const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
+  try {
+    await w.loadFile(tmp);
+    const pdf = await w.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true, margins: { marginType: "none" } });
+    await fsp.writeFile(out, pdf);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    w.destroy();
+    fsp.rm(tmp, { force: true }).catch(() => { });
+  }
+});
+
 // ---------- CorelDRAW через COM (только Windows и только если Corel установлен) ----------
 const PS_SCRIPT = String.raw`
 param([string]$JobPath)

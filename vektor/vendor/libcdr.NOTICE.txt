@@ -1,0 +1,5 @@
+cdr-palettes.js и js/cdr.js основаны на libcdr (https://github.com/LibreOffice/libcdr),
+часть проекта LibreOffice. Распространяются на условиях Mozilla Public License 2.0:
+https://mozilla.org/MPL/2.0/
+Таблица CMYK → sRGB в js/cmyk-lut.js посчитана из профиля GenericCMYK (Argyll CMS, public domain),
+который входит в libcdr.

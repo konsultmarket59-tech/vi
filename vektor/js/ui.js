@@ -431,6 +431,7 @@ const UI = {
         { label: 'Преобразовать текст в кривые', key: 'Ctrl+Q', action: A.toCurves, disabled: () => !sel() },
       ] },
       { label: 'Окно', items: [
+        { label: 'ИИ-агент', check: () => UI.dockOpen && UI.dockTab === 'agent', action: () => UI.docker('agent') },
         { label: 'Свойства объекта', check: () => UI.dockOpen && UI.dockTab === 'props', action: () => UI.docker('props') },
         { label: 'Диспетчер объектов', check: () => UI.dockOpen && UI.dockTab === 'objects', action: () => UI.docker('objects') },
         { label: 'Выравнивание и распределение', check: () => UI.dockOpen && UI.dockTab === 'align', action: () => UI.docker('align') },
@@ -576,6 +577,7 @@ const UI = {
         UI.showMenuList([t('snapGrid', 'К сетке'), t('snapGuides', 'К направляющим'), t('snapObjects', 'К объектам'), t('snapPage', 'К странице')], r.left, r.bottom);
       } }),
       h('span', { class: 'grow' }),
+      h('button', { class: 'tb wide agent-btn', title: 'ИИ-агент: поручить задачу', onclick: () => UI.docker('agent'), html: '<span>✦ Агент</span>' }),
       h('span', { class: 'brand' }, 'Вектор'),
     );
     UI.updateZoomBox();
@@ -680,7 +682,9 @@ const UI = {
     const c = Color.toCmyk(hex);
     return `C${c.c} M${c.m} Y${c.y} K${c.k}`;
   },
-  toast(msg) {
+  toast(msg, force = false) {
+    // во время работы агента служебные сообщения не нужны — он сам пишет, что делает
+    if (typeof Agent !== 'undefined' && Agent.running && !force) return;
     const t = h('div', { class: 'toast' }, msg);
     UI.$('#toasts').append(t);
     setTimeout(() => t.classList.add('hide'), 2600);
@@ -957,9 +961,19 @@ const UI = {
   renderDocker() {
     const d = UI.$('#docker');
     if (!UI.dockOpen) return;
+    const tabs = [['agent', '✦ Агент'], ['props', 'Свойства'], ['objects', 'Объекты'], ['align', 'Выравн.'], ['transform', 'Преобр.']];
+    UI.$('#app').classList.toggle('wide-dock', UI.dockTab === 'agent');
+    if (UI.dockTab === 'agent') {
+      // панель агента строится один раз: переписка и поле ввода не должны сбрасываться при каждой перерисовке
+      if (d.dataset.tab === 'agent' && d.querySelector('#agentPanel')) return;
+      d.innerHTML = ''; d.dataset.tab = 'agent';
+      d.append(h('div', { class: 'dtabs' }, tabs.map(([k, l]) => h('div', { class: 'dtab' + (UI.dockTab === k ? ' on' : ''), onclick: () => UI.docker(k) }, l))));
+      d.append(Agent.el || Agent.build());
+      return;
+    }
+    d.dataset.tab = UI.dockTab;
     const ae = document.activeElement;
     if (d.contains(ae) && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') && ae.type !== 'checkbox' && ae.type !== 'range') return;
-    const tabs = [['props', 'Свойства'], ['objects', 'Объекты'], ['align', 'Выравнивание'], ['transform', 'Преобразования']];
     const scroll = UI.$('#dockBody') ? UI.$('#dockBody').scrollTop : 0;
     d.innerHTML = '';
     d.append(h('div', { class: 'dtabs' }, tabs.map(([k, l]) => h('div', { class: 'dtab' + (UI.dockTab === k ? ' on' : ''), onclick: () => UI.docker(k) }, l))));
@@ -1305,7 +1319,7 @@ const UI = {
       h('h3', {}, 'Вектор — векторный редактор'),
       h('p', {}, 'Аналог CorelDRAW, работающий в браузере и как настольное приложение. Устроен по тем же принципам: инструменты слева, панель свойств сверху, докеры справа, палитра (левая кнопка — заливка, правая — абрис), маркеры масштаба и второй щелчок для поворота.'),
       h('p', { class: 'muted' }, 'Формат документа — .vkt (JSON). Экспорт: SVG, PNG, JPG, печать в PDF. Импорт: SVG, PNG, JPG, WEBP.'),
-      h('p', { class: 'muted' }, 'Булевы операции — библиотека polygon-clipping (MIT).')));
+      h('p', { class: 'muted' }, 'Сторонние компоненты: libcdr (MPL 2.0) — чтение CDR; opentype.js, polygon-clipping, fflate (MIT); Clipper (Boost); SheetJS, pdf.js (Apache 2.0); mammoth (BSD); ImageTracer (Unlicense). Лицензии — в папке vendor.')));
   },
   toggleTheme() {
     const r = document.documentElement;

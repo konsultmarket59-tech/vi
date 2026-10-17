@@ -224,3 +224,47 @@ kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-wi
 .busy { position: fixed; left: 50%; top: 110px; transform: translateX(-50%); z-index: 3500; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 8px; padding: 10px 16px; display: flex; gap: 10px; align-items: center; }
 .spin { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ИИ-агент */
+#app.wide-dock { grid-template-columns: 46px minmax(0, 1fr) 430px 24px; }
+.agent-btn { border: 1px solid var(--accent) !important; color: var(--accent); font-weight: 600; margin-right: 8px; }
+.agent { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.ag-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.ag-model { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
+.ag-mats { padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+.ag-mats-t { font-weight: 600; margin-bottom: 6px; }
+.ag-chips { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; max-height: 150px; overflow-y: auto; }
+.ag-chip { display: flex; align-items: center; gap: 6px; background: var(--input); border: 1px solid var(--line); border-radius: 5px; padding: 2px 4px 2px 2px; font-size: 12px; }
+.ag-chip span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-chip-r { font-size: 10.5px; padding: 1px 6px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.ag-chip.role-brand .ag-chip-r { background: #fde7e9; color: #c62828; }
+.ag-chip.role-example .ag-chip-r { background: #e3f2fd; color: #1565c0; }
+.ag-chip.role-data .ag-chip-r { background: #fff8e1; color: #a66b00; }
+.ag-chip.role-output .ag-chip-r { background: #ede7f6; color: #5e35b1; }
+.ag-add { display: flex; gap: 4px; }
+.ag-add select { flex: 1; min-width: 0; }
+.ag-log { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; user-select: text; }
+.ag-empty { color: var(--text); padding: 8px; }
+.ag-msg { padding: 8px 10px; border-radius: 8px; line-height: 1.45; word-wrap: break-word; }
+.ag-msg.user { background: var(--accent-soft); align-self: flex-end; max-width: 92%; }
+.ag-msg.assistant { background: var(--panel2); }
+.ag-msg.error { background: #fdecea; color: #b71c1c; }
+.ag-msg.note { color: var(--muted); font-size: 11px; padding: 2px 4px; }
+.ag-msg li { margin-left: 14px; }
+.ag-tool { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-left: 4px; }
+.ag-tool.err { color: #c62828; }
+.ag-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); flex: none; }
+.ag-tool.run .ag-dot { background: #f9a825; animation: spin 1s linear infinite; }
+.ag-tool.ok .ag-dot { background: var(--accent); }
+.ag-tool.err .ag-dot { background: #c62828; }
+.ag-thumb { max-width: 140px; max-height: 100px; border: 1px solid var(--line); border-radius: 4px; cursor: zoom-in; display: block; margin: 2px 0 2px 13px; }
+.ag-quick { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px; }
+.ag-q { border: 1px dashed var(--line); background: none; border-radius: 12px; padding: 2px 9px; font-size: 11.5px; cursor: pointer; color: var(--muted); }
+.ag-q:hover { border-color: var(--accent); color: var(--accent); }
+.ag-status { padding: 3px 12px; font-size: 11.5px; color: var(--accent); }
+.ag-input { border-top: 1px solid var(--line); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.ag-input textarea { width: 100%; resize: vertical; min-height: 54px; }
+.ag-btns { display: flex; gap: 6px; align-items: center; }
+.small { font-size: 11.5px; }
+code { background: var(--panel2); padding: 0 4px; border-radius: 3px; }
+@media (max-width: 1100px) { #app.wide-dock { grid-template-columns: 46px minmax(0, 1fr) 340px 24px; } }

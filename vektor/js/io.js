@@ -94,8 +94,7 @@ const IO = {
     d.name = name.replace(/\.\w+$/, '');
     App.doc = d; Model.syncSeq(d); App.sel = [];
     App.fileName = null; IO.handle = null; IO.path = null;
-    App.history = [JSON.stringify(App.doc)]; App.hpos = 0; App.dirty = true;
-    Text.cache.clear(); App.autosave(); App.zoomPage(); UI.refresh();
+    Text.cache.clear(); App.commit('Открыт ' + name); App.zoomPage();
     const n = pages.reduce((s, p) => s + p.objects.length, 0);
     UI.toast(`Открыт ${name}: страниц ${pages.length}, объектов ${n}`);
   },
@@ -459,14 +458,26 @@ const IO = {
     if (r.ok) { UI.toast('Сохранено для ' + (CDR_VERSIONS.find(v => v[0] === version) || [, ''])[1] + ': ' + out.split(/[\\/]/).pop()); vkHost.reveal(out); }
     else UI.toast('CorelDRAW не сохранил файл: ' + r.error);
   },
-  print() {
-    const pages = App.doc.pages;
+  printHTML(pages = App.doc.pages) {
     const body = pages.map(P => {
       const r = IO.svgFor('page', false, P);
       return `<div class="pg" style="width:${P.w}mm;height:${P.h}mm">${r.svg.replace(/^<\?xml[^>]*>/, '')}</div>`;
     }).join('');
     const P0 = pages[0];
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${Render.esc(IO.baseName())}</title><style>@page{size:${P0.w}mm ${P0.h}mm;margin:0}html,body{margin:0;padding:0}.pg{page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}svg{display:block;width:100%;height:100%}</style></head><body>${body}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${Render.esc(IO.baseName())}</title><style>@page{size:${P0.w}mm ${P0.h}mm;margin:0}html,body{margin:0;padding:0}.pg{page-break-after:always;overflow:hidden}.pg:last-child{page-break-after:auto}svg{display:block;width:100%;height:100%}</style></head><body>${body}</body></html>`;
+  },
+  async print() {
+    // настольная версия сохраняет настоящий PDF-файл, браузер — через окно печати
+    if (Host.desktop && vkHost.printPDF) {
+      const p = await vkHost.saveDialog({ defaultPath: IO.baseName() + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+      if (!p) return;
+      UI.busy('Сохраняю PDF…');
+      const r = await vkHost.printPDF(IO.printHTML(), p);
+      UI.busy(null);
+      if (r.ok) { UI.toast('PDF сохранён: ' + p.split(/[\\/]/).pop()); vkHost.reveal(p); } else UI.toast('PDF не сохранён: ' + r.error);
+      return;
+    }
+    const html = IO.printHTML();
     const fr = h('iframe', { style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
     document.body.append(fr);
     fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
