@@ -33,7 +33,18 @@ const { execFile } = require("node:child_process");
 
 // Доступ к файлам — только внутри того, что пользователь сам выбрал в диалогах
 const allowedRoots = new Set();
-const allow = (p) => allowedRoots.add(path.resolve(p));
+// файлы, которые пользователь сам открывал или сохранял, — для списка «Недавние» после перезапуска
+const KNOWN = () => path.join(app.getPath("userData"), "known-files.json");
+let knownFiles = null;
+const known = () => { if (!knownFiles) { try { knownFiles = JSON.parse(fs.readFileSync(KNOWN(), "utf8")); } catch { knownFiles = []; } } return knownFiles; };
+const remember = (p) => {
+  try {
+    if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) return;
+    const list = known().filter(x => x !== p); list.unshift(p); knownFiles = list.slice(0, 200);
+    fs.writeFileSync(KNOWN(), JSON.stringify(knownFiles));
+  } catch { }
+};
+const allow = (p) => { allowedRoots.add(path.resolve(p)); remember(path.resolve(p)); };
 const isAllowed = (p) => {
   const r = path.resolve(p);
   for (const root of allowedRoots) if (r === root || r.startsWith(root + path.sep)) return true;
@@ -203,7 +214,14 @@ ipcMain.handle("fs:write", async (e, p, data) => {
   if (!isAllowed(p) && !isAllowed(path.dirname(p))) throw new Error("Нет доступа к папке: " + path.dirname(p));
   await fsp.mkdir(path.dirname(p), { recursive: true });
   await fsp.writeFile(p, typeof data === "string" ? data : Buffer.from(data));
+  if (/\.(vkt|cdr|pdf|svg|ai|psd|fig)$/i.test(p)) remember(path.resolve(p));
   return p;
+});
+ipcMain.handle("fs:openRecent", (e, p) => {
+  const r = path.resolve(String(p || ""));
+  if (!known().includes(r) || !fs.existsSync(r)) return false;
+  allowedRoots.add(r);
+  return true;
 });
 ipcMain.handle("fs:reveal", (e, p) => { if (isAllowed(p)) shell.showItemInFolder(p); });
 

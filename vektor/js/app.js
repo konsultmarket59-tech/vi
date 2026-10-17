@@ -504,6 +504,8 @@ const Shortcuts = {
     S('F8', () => App.setTool('text')); S('F10', () => App.setTool('shape')); S('Y', () => App.setTool('polygon'));
     S('S', () => App.setTool('star')); S('A', () => App.setTool('spiral')); S('Z', () => App.setTool('zoom')); S('H', () => App.setTool('pan'));
     S('I', () => App.setTool('eyedropper')); S('G', () => App.setTool('ifill')); S('V', () => App.setTool('pick')); S('N', () => App.setTool('bezier'));
+    S('Ctrl+Shift+Q', () => ObjOps.outlineToObject());
+    S('X', () => App.setTool('eraser')); S('D', () => App.setTool('graph')); S('Shift+S', () => App.setTool('smartdraw'));
     S('F11', () => UI.docker('props')); S('F12', () => UI.docker('props'));
     S('Ctrl+F7', () => UI.docker('transform')); S('Ctrl+Shift+A', () => UI.docker('align'));
     S('Ctrl+Shift+O', () => UI.docker('objects'));

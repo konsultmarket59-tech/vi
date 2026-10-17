@@ -39,6 +39,7 @@ const IO = {
         await vkHost.write(p, bytes);
       } else await vkHost.write(p, IO.json());
       IO.path = p; App.fileName = p.split(/[\\/]/).pop();
+      FileOps.addRecent(p);
       IO.saved();
     } catch (e) { console.error(e); UI.toast('Не удалось сохранить: ' + (e.message || e), true); }
     finally { UI.busy(null); }
@@ -94,6 +95,7 @@ const IO = {
       else if (ext === 'pdf' || ext === 'ai') IO.docFromPages((await PDFImport.open(buf)).pages, f.name);
       else UI.toast('Этот тип файла не открывается: ' + f.name);
       if (tab && f.path && Docs.active()) Docs.active().src = f.path;
+      if (f.path) FileOps.addRecent(f.path, f.name);
     } catch (e) { console.error(e); Docs.cancel(tab); UI.toast('Не удалось открыть: ' + (e.message || e)); }
     finally { UI.busy(null); }
   },

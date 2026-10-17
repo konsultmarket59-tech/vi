@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("vkHost", {
   list: (dir) => ipcRenderer.invoke("fs:list", dir),
   read: (p) => ipcRenderer.invoke("fs:read", p),
   write: (p, data) => ipcRenderer.invoke("fs:write", p, data),
+  openRecent: (p) => ipcRenderer.invoke("fs:openRecent", p),
   reveal: (p) => ipcRenderer.invoke("fs:reveal", p),
   fetch: (req) => ipcRenderer.invoke("net:fetch", req),
   netGet: () => ipcRenderer.invoke("net:getSettings"),

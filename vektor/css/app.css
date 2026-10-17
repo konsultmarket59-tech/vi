@@ -465,3 +465,13 @@ body.ws-other #app > :not(#menubar) { visibility: hidden; }
 
 /* тонкие абрисы на холсте — не тоньше 1 пикселя на любом масштабе */
 #docG [data-hl] { vector-effect: non-scaling-stroke; stroke-width: max(1px, calc(var(--sw) * var(--z) * 1px)); }
+
+/* выпадающие группы инструментов */
+.tool.fly { position: relative; }
+.tool .flytri { position: absolute; right: 2px; bottom: 2px; width: 0; height: 0; border-left: 5px solid transparent; border-bottom: 5px solid currentColor; opacity: .55; cursor: pointer; }
+.menu.flyout { position: fixed; z-index: 3000; }
+.menu.flyout .mi { grid-template-columns: 22px 1fr auto; }
+.menu.flyout .mi .mk { opacity: .55; font-size: 11px; }
+.tpl-list { display: flex; flex-direction: column; gap: 6px; min-width: 460px; max-height: 60vh; overflow: auto; }
+.tpl-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.tpl-row .grow { flex: 1; }

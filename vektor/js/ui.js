@@ -18,6 +18,36 @@ const h = (tag, attrs = {}, ...kids) => {
 };
 
 const ICONS = {
+  lasso: '<path d="M5 9c0-3 4-5 8-5s7 2 7 5-4 5-8 5c-2 0-4-.3-5-1"/><path d="M7 13c-2 1-2 4 0 4s2 3 0 4"/>',
+  line2: '<path d="M4 20L20 4"/><rect x="2" y="18" width="4" height="4" fill="currentColor"/><rect x="18" y="2" width="4" height="4" fill="currentColor"/>',
+  polyline: '<path d="M3 19l5-9 5 6 4-11 4 7"/>',
+  curve3: '<path d="M3 19C6 5 18 5 21 19"/><circle cx="12" cy="8.5" r="1.7" fill="currentColor"/>',
+  bspline: '<path d="M3 18C6 6 10 6 12 12s6 6 9-6" /><path d="M3 18L7 5l10 14 4-13" stroke-dasharray="2 2" opacity=".6"/>',
+  pen: '<path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/>',
+  rect3: '<path d="M4 15l9-9 6 6-9 9z"/><circle cx="4" cy="15" r="1.5" fill="currentColor"/><circle cx="13" cy="6" r="1.5" fill="currentColor"/>',
+  ellipse3: '<ellipse cx="12" cy="12" rx="9" ry="5" transform="rotate(-35 12 12)"/><circle cx="5" cy="17" r="1.4" fill="currentColor"/>',
+  shapes: '<path d="M3 9h9V5l8 7-8 7v-4H3z"/>',
+  graph: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16M15 4v16M3 9.3h18M3 14.6h18"/>',
+  table: '<rect x="3" y="4" width="18" height="16"/><path d="M3 9h18M3 14.5h18M10 4v16"/><path d="M3 4h18v5H3z" fill="currentColor" opacity=".25"/>',
+  crop: '<path d="M6 2v16h16"/><path d="M2 6h16v16"/>',
+  knife: '<path d="M3 21L19 5c1.5 1.5 1.5 3.5 0 5L9 20z"/>',
+  eraser: '<path d="M8 20h12"/><path d="M4 16l9-9 6 6-6 6H8z"/><path d="M8.5 11.5l6 6"/>',
+  smoothB: '<path d="M3 16c4-8 6 4 9-2s5-6 9-2"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 2" opacity=".6"/>',
+  smudge: '<path d="M4 18c2-1 3-3 6-3s5 2 10-1"/><path d="M14 4l3 8"/><circle cx="17" cy="13" r="2"/>',
+  roughen: '<path d="M3 15l2-3 2 3 2-3 2 3 2-3 2 3 2-3 2 3 2-3"/>',
+  twirl: '<path d="M12 12m-2 0a2 2 0 104 0 4 4 0 10-8 0 6 6 0 1012 0 8 8 0 10-16 0"/>',
+  attract: '<circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M3 12h5M16 12h5M12 3v5M12 16v5M8 12l-2-2M8 12l-2 2M16 12l2-2M16 12l2 2"/>',
+  repel: '<circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M3 12h5M16 12h5M12 3v5M12 16v5M3 12l2-2M3 12l2 2M21 12l-2-2M21 12l-2 2"/>',
+  distort: '<path d="M4 6c3 3 3 9 0 12M20 6c-3 3-3 9 0 12M4 6c4 2 12 2 16 0M4 18c4-2 12-2 16 0"/>',
+  transp: '<rect x="3" y="5" width="18" height="14"/><path d="M3 5h4v14H3zM11 5h4v14h-4z" fill="currentColor" opacity=".35"/>',
+  shadowT: '<rect x="4" y="4" width="11" height="11" fill="none"/><rect x="8" y="8" width="12" height="12" fill="currentColor" opacity=".3" stroke="none"/>',
+  dimension: '<path d="M4 6v12M20 6v12M4 12h16M4 12l3-2M4 12l3 2M20 12l-3-2M20 12l-3 2"/>',
+  connector: '<rect x="2" y="3" width="7" height="6"/><rect x="15" y="15" width="7" height="6"/><path d="M9 6h4v12h2"/>',
+  colorpick: '<path d="M14 4l6 6-2 2-6-6zM12 8l-8 8v4h4l8-8"/><circle cx="6" cy="20" r="1" fill="currentColor"/>',
+  smartfill: '<circle cx="9" cy="10" r="6"/><circle cx="15" cy="14" r="6"/><path d="M12 9a6 6 0 013 5.2 6 6 0 01-3 .8 6 6 0 01-3-5.2 6 6 0 013-.8z" fill="currentColor"/>',
+  artistic: '<path d="M4 20c4 0 5-3 6-6s4-8 10-10c-2 6-6 9-9 10s-3 4-7 6z" fill="currentColor" opacity=".5"/>',
+  smartdraw: '<path d="M4 16c1-6 4-9 8-9s7 3 7 6"/><path d="M14 18l3 3 4-6"/>',
+  reset: '<path d="M4 12a8 8 0 108-8H8M8 4l-3 3 3 3"/>',
   pick: '<path d="M6 3l12 9-5.5 1 3 6-2.5 1.2-3-6L6 18z" fill="currentColor" stroke="none"/>',
   shape: '<path d="M5 19C8 9 14 5 19 5"/><rect x="3" y="17" width="4" height="4" fill="currentColor"/><rect x="17" y="3" width="4" height="4"/><path d="M8 9l3 1"/><circle cx="7" cy="8.5" r="1.6" fill="currentColor"/>',
   zoom: '<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20M7 10h6M10 7v6"/>',
@@ -376,12 +406,17 @@ const UI = {
         { label: 'Создать', key: 'Ctrl+N', action: A.newDoc },
         { label: 'Создать из фрейма… (листовки, буклеты, сувенирка)', action: () => Frames.dialog() },
         { label: 'Открыть…', key: 'Ctrl+O', action: IO.open },
+        { label: 'Открыть недавние', sub: FileOps.recentMenu() },
+        { label: 'Создать из шаблона…', action: () => FileOps.fromTemplate() },
         { label: 'Закрыть документ', key: 'Ctrl+W', action: () => Docs.close() },
+        { label: 'Закрыть все', action: () => FileOps.closeAll() },
         { label: 'Следующий документ', key: 'Ctrl+Tab', action: () => Docs.next(1), disabled: () => Docs.list.length < 2 },
         { label: 'CDR всегда открывать через CorelDRAW', check: () => IO.cdrMode() === 'corel', action: () => IO.setCdrMode(IO.cdrMode() === 'corel' ? 'auto' : 'corel') },
         '-',
         { label: 'Сохранить', key: 'Ctrl+S', action: IO.save },
         { label: 'Сохранить как…', key: 'Ctrl+Shift+S', action: IO.saveAs },
+        { label: 'Сохранить как шаблон…', action: () => FileOps.saveTemplate() },
+        { label: 'Вернуть к сохранённому', action: () => FileOps.revert(), disabled: () => !Host.desktop || !(IO.path || (Docs.active() && Docs.active().src)) },
         '-',
         { label: 'Импорт… (SVG, PNG, JPG)', key: 'Ctrl+I', action: IO.importDialog },
         { label: 'Экспорт… (SVG, PNG, JPG)', key: 'Ctrl+E', action: IO.exportDialog },
@@ -390,6 +425,7 @@ const UI = {
         { label: 'PDF для типографии (CMYK, вылеты, метки)…', action: () => IO.exportDialog('pdfx') },
         { label: 'Подготовить файл для типографии…', action: () => Prepress.dialog() },
         { label: 'Конвертер файлов (CDR, PDF, AI, SVG, FIG, PSD, PNG…)…', action: () => Convert.dialog() },
+        { label: 'Собрать для вывода (в типографию)…', action: () => FileOps.collect() },
         '-',
         { label: 'Свойства документа…', action: UI.pageDialog },
       ] },
@@ -472,6 +508,10 @@ const UI = {
         { label: 'Объединить', key: 'Ctrl+L', action: A.combine, disabled: () => App.sel.length < 2 },
         { label: 'Разъединить', key: 'Ctrl+K', action: A.breakApart },
         { label: 'Преобразовать в кривые', key: 'Ctrl+Q', action: A.toCurves, disabled: () => !sel() },
+        { label: 'Преобразовать абрис в объект', key: 'Ctrl+Shift+Q', action: () => ObjOps.outlineToObject(), disabled: () => !sel() },
+        { label: 'Соединить кривые', action: () => ObjOps.joinCurves(), disabled: () => !sel() },
+        { label: 'Упростить (убрать лишние узлы)', action: () => ObjOps.reduceNodes(), disabled: () => !sel() },
+        { label: 'Граница (контур вокруг выделенного)', action: () => ObjOps.boundary(), disabled: () => !sel() },
         '-',
         { label: 'Формирование', sub: [
           { label: 'Сварка', action: () => A.shaping('weld') },
@@ -680,27 +720,73 @@ const UI = {
 
   // ================== Панель инструментов ==================
   TOOLS: [
-    ['pick', 'Указатель (Пробел)'], ['shape', 'Форма — редактирование узлов (F10)'], '-',
-    ['zoom', 'Масштаб (Z): щелчок — ближе, Shift/правая — дальше, рамка — область'], ['pan', 'Панорама (H)'], '-',
-    ['freehand', 'Свободная форма (F5): тяните — кривая, два щелчка — прямая'], ['bezier', 'Кривая Безье (N): щелчок — угол, тяните — гладкий узел, Enter — конец'], '-',
-    ['rect', 'Прямоугольник (F6): Ctrl — квадрат, Shift — от центра'], ['ellipse', 'Эллипс (F7): Ctrl — круг, Shift — от центра'],
-    ['polygon', 'Многоугольник (Y)'], ['star', 'Звезда (S)'], ['spiral', 'Спираль (A)'], '-',
-    ['text', 'Текст (F8): щелчок — фигурный, рамка — абзацный'], '-',
-    ['blend', 'Перетекание: от первого объекта ко второму'], ['contour', 'Контур: тяните от края наружу или внутрь'],
-    ['envelope', 'Оболочка: тяните узлы рамки, чтобы изогнуть объект'], ['extrude', 'Выдавливание: тяните от объекта'], '-',
-    ['eyedropper', 'Пипетка атрибутов (I): взять стиль и применить к другим'], ['ifill', 'Интерактивная заливка (G): протяните градиент по объекту'],
+    ['pick', 'Указатель (Пробел)'], ['lasso', 'Свободное выделение — обвести объекты'],
+    ['shape', 'Форма — редактирование узлов (F10)'], ['smoothB', 'Сглаживание (кисть)'], ['smudge', 'Размазывание (кисть)'], ['roughen', 'Огрубление (кисть)'], ['twirl', 'Вихрь (кисть)'], ['attract', 'Притяжение (кисть)'], ['repel', 'Отталкивание (кисть)'],
+    ['crop', 'Кадрирование'], ['knife', 'Нож — разрезать фигуры'], ['eraser', 'Ластик (X)'],
+    ['zoom', 'Масштаб (Z): щелчок — ближе, Shift/правая — дальше, рамка — область'], ['pan', 'Панорама (H)'],
+    ['freehand', 'Свободная форма (F5): тяните — кривая, два щелчка — прямая'], ['line2', 'Линия по двум точкам'], ['bezier', 'Кривая Безье (N): щелчок — угол, тяните — гладкий узел, Enter — конец'], ['pen', 'Перо'],
+    ['bspline', 'B-сплайн'], ['polyline', 'Ломаная'], ['curve3', 'Кривая по трём точкам'], ['smartdraw', 'Умное рисование (Shift+S)'],
+    ['artistic', 'Художественное оформление (I): кисть, нажим, каллиграфия'],
+    ['rect', 'Прямоугольник (F6): Ctrl — квадрат, Shift — от центра'], ['rect3', 'Прямоугольник по трём точкам'],
+    ['ellipse', 'Эллипс (F7): Ctrl — круг, Shift — от центра'], ['ellipse3', 'Эллипс по трём точкам'],
+    ['polygon', 'Многоугольник (Y)'], ['star', 'Звезда (S)'], ['spiral', 'Спираль (A)'], ['graph', 'Миллиметровка (D)'], ['shapes', 'Стандартные фигуры: стрелки, выноски, ленты…'],
+    ['text', 'Текст (F8): щелчок — фигурный, рамка — абзацный'], ['table', 'Таблица'],
+    ['dimension', 'Размерные линии'], ['connector', 'Соединительная линия'],
+    ['blend', 'Перетекание: от первого объекта ко второму'], ['contour', 'Контур: тяните от края наружу или внутрь'], ['distort', 'Искажение: втягивание, зигзаг, скручивание'],
+    ['shadowT', 'Тень: протяните от объекта'], ['envelope', 'Оболочка: тяните узлы рамки, чтобы изогнуть объект'], ['extrude', 'Выдавливание: тяните от объекта'],
+    ['transp', 'Прозрачность: протяните по объекту'],
+    ['colorpick', 'Пипетка цвета'], ['eyedropper', 'Пипетка атрибутов: взять стиль и применить к другим'],
+    ['ifill', 'Интерактивная заливка (G): протяните градиент по объекту'], ['smartfill', 'Умная заливка: залить область пересечения фигур'],
   ],
+  // кнопки панели инструментов с выпадающими группами, как в CorelDRAW
+  TOOLGROUPS: [
+    ['pick', 'lasso'], ['shape', 'smoothB', 'smudge', 'roughen', 'twirl', 'attract', 'repel'], ['crop', 'knife', 'eraser'], ['zoom', 'pan'], '-',
+    ['freehand', 'line2', 'bezier', 'pen', 'bspline', 'polyline', 'curve3', 'smartdraw'], ['artistic'], '-',
+    ['rect', 'rect3'], ['ellipse', 'ellipse3'], ['polygon', 'star', 'spiral', 'graph', 'shapes'], '-',
+    ['text', 'table'], ['dimension', 'connector'], '-',
+    ['blend', 'contour', 'distort', 'shadowT', 'envelope', 'extrude'], ['transp'], '-',
+    ['colorpick', 'eyedropper'], ['ifill', 'smartfill'],
+  ],
+  toolTitle(k) { const t = UI.TOOLS.find(x => x[0] === k); return t ? t[1] : k; },
   buildToolbox() {
     const tb = UI.$('#toolbox');
-    for (const t of UI.TOOLS) {
-      if (t === '-') { tb.append(h('div', { class: 'tsep' })); continue; }
-      tb.append(h('button', { class: 'tool', 'data-tool': t[0], title: t[1], html: icon(t[0], 22), onclick: () => App.setTool(t[0]) }));
-    }
+    UI.opts.fly = UI.opts.fly || {};
+    UI.TOOLGROUPS.forEach((g, gi) => {
+      if (g === '-') { tb.append(h('div', { class: 'tsep' })); return; }
+      const cur = g.includes(UI.opts.fly[gi]) ? UI.opts.fly[gi] : g[0];
+      const btn = h('button', { class: 'tool' + (g.length > 1 ? ' fly' : ''), 'data-group': gi, 'data-tool': cur, title: UI.toolTitle(cur) + (g.length > 1 ? '\nПравая кнопка или удержание — другие инструменты группы' : ''), html: icon(cur, 22),
+        onclick: () => App.setTool(btn.dataset.tool) });
+      if (g.length > 1) {
+        let hold = 0;
+        const open = () => UI.openFlyout(btn, g, gi);
+        btn.addEventListener('contextmenu', e => { e.preventDefault(); open(); });
+        btn.addEventListener('pointerdown', () => { hold = setTimeout(open, 450); });
+        for (const ev of ['pointerup', 'pointerleave']) btn.addEventListener(ev, () => clearTimeout(hold));
+        btn.append(h('span', { class: 'flytri', onclick: e => { e.stopPropagation(); open(); } }));
+      }
+      tb.append(btn);
+    });
     // индикаторы цвета по умолчанию
     tb.append(h('div', { class: 'tsep' }), h('div', { class: 'defcolors', id: 'defColors', title: 'Заливка и абрис для новых фигур' }));
   },
+  openFlyout(btn, g, gi) {
+    UI.closeMenus();
+    const r = btn.getBoundingClientRect();
+    const m = h('div', { class: 'menu flyout', style: { left: r.right + 4 + 'px', top: r.top + 'px' } },
+      g.map(k => h('div', { class: 'mi' + (k === App.tool ? ' checked' : ''), onclick: () => { UI.closeMenus(); App.setTool(k); } },
+        h('span', { html: icon(k, 18) }), h('span', {}, UI.toolTitle(k).split(/[:(—]/)[0].trim()), h('span', { class: 'mk' }, (UI.toolTitle(k).match(/\(([^)]*)\)/) || [])[1] || ''))));
+    document.body.append(m);
+  },
   updateToolbox() {
-    document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === App.tool));
+    document.querySelectorAll('.tool[data-group]').forEach(b => {
+      const g = UI.TOOLGROUPS[+b.dataset.group];
+      if (g.includes(App.tool) && b.dataset.tool !== App.tool) {
+        // кнопка группы показывает последний выбранный в ней инструмент
+        b.dataset.tool = App.tool; b.querySelector('svg').outerHTML = icon(App.tool, 22); b.title = UI.toolTitle(App.tool);
+        UI.opts.fly[b.dataset.group] = App.tool; UI.saveOpts();
+      }
+      b.classList.toggle('active', g.includes(App.tool));
+    });
     for (const [id, k] of [['#tbRulers', 'rulers'], ['#tbGrid', 'grid'], ['#tbWire', 'wire']]) UI.$(id).classList.toggle('on', !!App.view[k]);
     const d = App.defaults, dc = UI.$('#defColors');
     dc.innerHTML = `<span class="dstroke" style="border-color:${d.stroke.color || 'transparent'}"></span><span class="dfill" style="background:${d.fill.type === 'none' ? 'transparent' : d.fill.color}"></span>`;
@@ -833,6 +919,7 @@ const UI = {
     const objs = App.selObjs();
     const T = App.tool;
 
+    if (Tools[T] && Tools[T].propbar) { Tools[T].propbar(add, sep); return; }
     if (['blend', 'contour', 'envelope', 'extrude'].includes(T)) {
       UI.effectControls(add, T);
       return;

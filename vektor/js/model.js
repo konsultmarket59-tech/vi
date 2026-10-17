@@ -203,6 +203,7 @@ const Model = {
     if (Math.abs(sx - 1) < 1e-9 && Math.abs(sy - 1) < 1e-9) return;
     o.m = [m[0] / sx, m[1] / sx, m[2] / sy, m[3] / sy, m[4], m[5]];
     const S = Mx.scale(sx, sy);
+    if (o.transp && o.transp.type === 'linear') { const t = o.transp; t.x1 *= sx; t.x2 *= sx; t.y1 *= sy; t.y2 *= sy; }
     if (o.type === 'path') Path.transform(o.subs, S);
     else if (o.type === 'text') { o.frame.w *= sx; o.frame.h *= sy; } // абзацный текст: меняется рамка, текст переливается
     else if (o.w !== undefined) {
@@ -328,6 +329,16 @@ const Render = {
   arrowDef(id, color, start) {
     return `<marker id="${id}" viewBox="0 0 10 10" refX="${start ? 2 : 8}" refY="5" markerWidth="5" markerHeight="5" orient="auto${start ? '-start-reverse' : ''}"><path d="M0 0L10 5L0 10z" fill="${color}"/></marker>`;
   },
+  // градиентная прозрачность (инструмент «Прозрачность»): маска в локальных координатах объекта
+  transpMask(o, defs) {
+    const t = o.transp;
+    if (!t || t.type !== 'linear') return '';
+    const id = 'tm_' + o.id, a = 1 - (t.from || 0) / 100, b = 1 - (t.to ?? 100) / 100;
+    const g = v => `rgb(${Math.round(v * 255)},${Math.round(v * 255)},${Math.round(v * 255)})`;
+    defs.push(`<linearGradient id="${id}_g" gradientUnits="userSpaceOnUse" x1="${t.x1}" y1="${t.y1}" x2="${t.x2}" y2="${t.y2}"><stop offset="0" stop-color="${g(a)}"/><stop offset="1" stop-color="${g(b)}"/></linearGradient>` +
+      `<mask id="${id}" maskUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"><rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#${id}_g)"/></mask>`);
+    return ` mask="url(#${id})"`;
+  },
   // разметка одного «листового» объекта без матрицы
   shape(o, defs, opt = {}) {
     const paint = Render.paintAttrs(o, defs, opt) + (opt.extra || '');
@@ -407,7 +418,7 @@ const Render = {
       }
     }
     const body = Render.shape(o, defs, { cls: 'shape' }) + (opt.ids ? Render.hit(o) : '');
-    return `<g${idA}${wrap}>${pre}<g${tr}>${body}</g>${post}</g>`;
+    return `<g${idA}${wrap}>${pre}<g${tr}${Render.transpMask(o, defs)}>${body}</g>${post}</g>`;
   },
   // page — страница или любой объект со слоями
   layers(page, opt = {}) {
