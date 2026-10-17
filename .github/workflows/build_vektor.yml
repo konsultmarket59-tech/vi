@@ -5,6 +5,12 @@ on:
   push:
     tags:
       - "vektor-build-*"
+    # рабочая ветка: каждое изменение программы сразу собирается в .exe
+    branches:
+      - "claude/wonderful-curie-doojvs"
+    paths:
+      - "vektor/**"
+      - ".github/workflows/build_vektor.yml"
 
 permissions:
   contents: write
@@ -57,9 +63,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: vektor-desktop
+          target_commitish: ${{ github.sha }}
           name: "Вектор — сборка для Windows"
           body: |
-            Автоматическая сборка векторного редактора «Вектор» из ветки ${{ github.ref_name }}.
+            Автоматическая сборка «Вектора» из ${{ github.ref_name }} (коммит ${{ github.sha }}).
             Скачайте `.exe` ниже: portable-версия запускается без установки,
             Setup-версия — обычный установщик (ассоциирует файлы .vkt, .fig, .vkm).
           prerelease: true
