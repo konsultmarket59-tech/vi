@@ -6,7 +6,7 @@ const WS = {
   current: 'vektor',
   LIST: [['vektor', 'Вектор', 'Векторная графика и вёрстка в духе CorelDRAW'], ['figma', 'Фигма', 'Интерфейсы, компоненты, автолейаут, файлы .fig, плагины'], ['photo', 'Фото', 'Растровый редактор как Photoshop, обработка как Lightroom, PSD'],
     ['motion', 'Моушн', 'Анимация кадров на фоне фото или видео, ИИ-агент, экспорт в MP4/WebM'], ['nodes', 'Ноды', 'Генерация картинок и видео цепочками моделей Polza'],
-    ['make', 'Make', 'Интерактивный прототип или страница по описанию']],
+    ['make', 'Make', 'Интерактивный прототип или страница по описанию'], ['fonts', 'Шрифты', 'Кириллица для латинского шрифта: отрисовка, правка букв, сборка TTF']],
   mods: {},
   init() {
     const bar = h('div', { id: 'wsTabs', class: 'wstabs' });
@@ -14,7 +14,7 @@ const WS = {
     document.body.append(bar);
     WS.host = h('div', { id: 'wsHost', class: 'wshost' });
     document.body.append(WS.host);
-    WS.mods = { figma: FigmaWS, photo: typeof PhotoWS !== 'undefined' ? PhotoWS : null, motion: typeof Motion !== 'undefined' ? Motion : null, nodes: typeof Nodes !== 'undefined' ? Nodes : null, make: typeof Make !== 'undefined' ? Make : null };
+    WS.mods = { figma: FigmaWS, photo: typeof PhotoWS !== 'undefined' ? PhotoWS : null, motion: typeof Motion !== 'undefined' ? Motion : null, nodes: typeof Nodes !== 'undefined' ? Nodes : null, make: typeof Make !== 'undefined' ? Make : null, fonts: typeof FontLab !== 'undefined' ? FontLab : null };
   },
   show(name) {
     if (Tools.text && Tools.text.editing) Tools.text.commit();
@@ -110,6 +110,7 @@ const FigmaWS = {
     const el = h('div', { class: 'figws' });
     const B = (label, title, fn) => h('button', { class: 'pbt', title, onclick: fn }, label);
     const bar = h('div', { class: 'wsbar' },
+      B('☰ Проект', 'Панель проекта: папка с файлами макетов на компьютере', () => FigProject.toggle()),
       B('Открыть .fig / .pen', 'Открыть файл Figma или Pencil с диска', () => FigmaWS.openDialog()),
       B('Из Figma по ссылке', 'Забрать кадры из Figma по ссылке и личному токену', () => FigmaWS.importByLink()),
       B('Плагины ▾', 'Плагины Figma: загрузить из папки и запустить', e => FigmaWS.pluginsMenu(e.currentTarget)),
@@ -135,7 +136,8 @@ const FigmaWS = {
       h('h3', {}, 'Редактор «Фигма» не собран'),
       h('p', {}, 'В настольной программе он уже внутри. Для запуска из исходников соберите его один раз: установите bun (bun.sh) и выполните в папке vektor:'),
       h('pre', {}, 'node tools/figma/build.mjs'));
-    el.append(bar, frame, missing);
+    el.append(bar, h('div', { class: 'fp-wrap' }, FigProject.build(), frame, missing));
+    FigProject.init();
     FigmaWS.frame = frame;
     fetch('figma/index.html', { method: 'HEAD' }).then(r => { if (!r.ok) throw 0; }).catch(() => { frame.style.display = 'none'; missing.style.display = ''; });
     FigmaWS.ready = new Promise(res => {
@@ -234,6 +236,8 @@ const FigmaWS = {
     const r = anchor.getBoundingClientRect();
     const list = await PluginStore.list();
     UI.showMenuList([
+      ...FigPlugins.menuItems(),
+      '-',
       { label: 'Загрузить плагин из папки…', action: () => FigmaWS.loadPlugin() },
       { label: 'Где взять плагины', action: () => FigmaWS.pluginHelp() },
       ...(list.length ? ['-'] : []),
@@ -436,7 +440,7 @@ const AIOps = {
   menu() {
     const img = () => App.selObjs().some(o => o.type === 'image');
     return { label: 'ИИ', items: [
-      { label: 'Дизайн-системы (папки на компьютере)…', action: () => DS.dialog() },
+      { label: 'Дизайн-системы и контекст проекта (компания, ЦА, прайс)…', action: () => DS.dialog() },
       '-',
       { label: 'Удалить фон', action: AIOps.removeBg, disabled: () => !img() },
       { label: 'Увеличить (апскейл)', action: AIOps.upscale, disabled: () => !img() },

@@ -11,7 +11,7 @@ import { executeWithDocumentUndo } from '@/app/automation/execution/editor'
 import { pastePoint, pasteSVGText } from '@/app/editor/clipboard/paste/content'
 import { openDesignFile } from '@/app/shell/menu/files'
 import { browserCredentialsRemembered, setBrowserCredentialPersistence } from '@/app/settings/credentials/app'
-import { createTab, getActiveStore } from '@/app/tabs'
+import { allTabs, closeTab, createTab, getActiveStore, getActiveTabId, switchTab } from '@/app/tabs'
 
 type AnyStore = any
 
@@ -331,6 +331,36 @@ const api = {
   async newDocument() {
     createTab()
     await new Promise((r) => setTimeout(r, 400))
+  },
+  // ---------- вкладки: для проектов «Вектора» (папка с файлами .fig на компьютере) ----------
+  tabs() {
+    return allTabs.value.map((t) => ({ id: t.id, name: t.name, dirty: t.isDirty, active: t.isActive, home: t.isHome }))
+  },
+  activeTab() {
+    return getActiveTabId()
+  },
+  switchTab(id: string) {
+    return switchTab(id)
+  },
+  async closeTab(id: string, unsaved: 'save' | 'discard' = 'discard') {
+    await closeTab(id, unsaved)
+  },
+  // открыть файл и вернуть id его вкладки
+  async openTab(bytes: ArrayBuffer, name: string) {
+    await openDesignFile(new File([bytes], name))
+    await new Promise((r) => setTimeout(r, 50))
+    return getActiveTabId()
+  },
+  isDirty() {
+    return !!store().hasUnsavedChanges?.()
+  },
+  markSaved() {
+    store().markDocumentSaved?.()
+  },
+  select(ids: string[]) {
+    const s = store()
+    s.select(ids)
+    s.requestRender?.()
   },
   async importSVG(svg: string, x = 0, y = 0) {
     const s = store()

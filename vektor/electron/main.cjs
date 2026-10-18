@@ -217,28 +217,26 @@ ipcMain.handle("fs:write", async (e, p, data) => {
   if (/\.(vkt|cdr|pdf|svg|ai|psd|fig)$/i.test(p)) remember(path.resolve(p));
   return p;
 });
-// папки дизайн-систем: пользователь выбирает один раз, доступ сохраняется между запусками
-const DS_FILE = () => path.join(app.getPath("userData"), "design-folders.json");
-const dsLoad = () => { try { return JSON.parse(fs.readFileSync(DS_FILE(), "utf8")); } catch { return []; } };
-ipcMain.handle("ds:folders", () => {
-  const list = dsLoad().filter(p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } });
-  for (const p of list) allowedRoots.add(path.resolve(p));
-  return list;
-});
-ipcMain.handle("ds:add", async (e, title) => {
-  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: title || "Папка дизайн-системы", properties: ["openDirectory"] });
-  if (r.canceled || !r.filePaths[0]) return null;
-  const p = path.resolve(r.filePaths[0]);
-  allowedRoots.add(p);
-  const list = dsLoad().filter(x => x !== p); list.push(p);
-  try { fs.writeFileSync(DS_FILE(), JSON.stringify(list)); } catch { }
-  return p;
-});
-ipcMain.handle("ds:remove", (e, p) => {
-  const list = dsLoad().filter(x => x !== path.resolve(String(p || "")));
-  try { fs.writeFileSync(DS_FILE(), JSON.stringify(list)); } catch { }
-  return true;
-});
+// папки, выбранные один раз и доступные между запусками: дизайн-системы (ds) и проекты «Фигмы» (proj)
+for (const [kind, file] of [["ds", "design-folders.json"], ["proj", "project-folders.json"]]) {
+  const F = () => path.join(app.getPath("userData"), file);
+  const load = () => { try { return JSON.parse(fs.readFileSync(F(), "utf8")); } catch { return []; } };
+  const save = (list) => { try { fs.writeFileSync(F(), JSON.stringify(list)); } catch { } };
+  ipcMain.handle(kind + ":folders", () => {
+    const list = load().filter(p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } });
+    for (const p of list) allowedRoots.add(path.resolve(p));
+    return list;
+  });
+  ipcMain.handle(kind + ":add", async (e, title) => {
+    const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { title: title || "Выберите папку", properties: ["openDirectory", "createDirectory"] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const p = path.resolve(r.filePaths[0]);
+    allowedRoots.add(p);
+    save(load().filter(x => x !== p).concat([p]));
+    return p;
+  });
+  ipcMain.handle(kind + ":remove", (e, p) => { save(load().filter(x => x !== path.resolve(String(p || "")))); return true; });
+}
 ipcMain.handle("fs:openRecent", (e, p) => {
   const r = path.resolve(String(p || ""));
   if (!known().includes(r) || !fs.existsSync(r)) return false;
