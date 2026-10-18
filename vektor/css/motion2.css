@@ -1,0 +1,34 @@
+/* «Моушн»: траектория по точкам, оформление фигур и текста, библиотека иконок */
+.mo-sec { border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); padding: 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.mo-sec[open] { padding-bottom: 8px; }
+.mo-sec > summary { cursor: pointer; font-weight: 600; padding: 6px 0; list-style: none; user-select: none; }
+.mo-sec > summary::-webkit-details-marker { display: none; }
+.mo-sec > summary::before { content: '▸'; display: inline-block; width: 14px; color: var(--muted); transition: transform .15s; }
+.mo-sec[open] > summary::before { transform: rotate(90deg); }
+.mo-sec .mo-pr { flex-wrap: wrap; }
+.mo-sec .num { width: 58px; }
+.mo-chk { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: 12px; }
+.mo-pr input[type="color"] { width: 30px; height: 24px; padding: 1px; flex: none; }
+.mo-pts { display: flex; flex-direction: column; gap: 6px; }
+.mo-ptc { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 5px 6px; display: flex; flex-direction: column; gap: 4px; }
+.mo-ptc.cur { border-color: #f59e0b; box-shadow: 0 0 0 1px #f59e0b inset; }
+.mo-pth { display: flex; align-items: center; gap: 4px; }
+.mo-pth .num { width: 64px; }
+.mo-ptn { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; background: #2f8fff; color: #fff; font-weight: 700; font-size: 11px; cursor: pointer; padding: 0; flex: none; box-shadow: 0 0 0 1px #2f8fff; }
+.mo-ptc.cur .mo-ptn { background: #f59e0b; box-shadow: 0 0 0 1px #f59e0b; }
+.mo-ptg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.mo-pf { display: flex; flex-direction: column; font-size: 10px; color: var(--muted); min-width: 0; }
+.mo-pf .num { width: 100%; min-width: 0; box-sizing: border-box; }
+.mo-pre { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.mo-pre select { flex: 1; min-width: 0; }
+.mo-pth .ib[disabled] { opacity: .3; cursor: default; }
+.mo-icdlg { width: min(640px, 86vw); }
+.mo-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; max-height: 56vh; overflow-y: auto; padding: 2px; }
+.mo-icg { grid-column: 1 / -1; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.mo-ic { height: 46px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text); padding: 0; }
+.mo-ic:hover { border-color: var(--accent); color: var(--accent); }
+.mo-ic.on { border-color: var(--accent); background: var(--accent-soft); }
+.mo-props > * { flex-shrink: 0; }
+.mo-sec .mo-pr > .fl:first-child { width: 84px; }
+.mo-sec .mo-pr > .fl:first-child:empty { width: 0; margin-right: -5px; }
+.mo-sec .mo-pr > .fl:not(:first-child) { font-size: 11px; color: var(--muted); }

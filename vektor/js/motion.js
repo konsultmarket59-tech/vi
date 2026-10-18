@@ -6,15 +6,27 @@
 
 const Motion = {
   el: null, p: null, assets: {}, media: {}, sel: null, t: 0, playing: false, selKey: null,
-  PROPS: ['x', 'y', 'scale', 'rotation', 'opacity', 'blur', 'reveal', 'chars'],
-  PROP_NAMES: { x: 'X', y: 'Y', scale: 'Масштаб', rotation: 'Поворот', opacity: 'Непрозрачность', blur: 'Размытие', reveal: 'Проявление', chars: 'Печать текста' },
+  PROPS: ['x', 'y', 'scale', 'rotation', 'opacity', 'blur', 'reveal', 'chars', 'draw', 'glow'],
+  PROP_NAMES: { x: 'X', y: 'Y', scale: 'Масштаб', rotation: 'Поворот', opacity: 'Непрозрачность', blur: 'Размытие', reveal: 'Проявление', chars: 'Печать текста', draw: 'Обводка рисуется', glow: 'Свечение' },
+  DEF: { scale: 1, rotation: 0, opacity: 1, blur: 0, reveal: 1, chars: 1, draw: 1, glow: 0 },
+  PT_PROPS: ['x', 'y', 'scale', 'rotation', 'opacity'],
   SIZES: [['1080x1920', 'Stories / Reels 1080×1920'], ['1080x1080', 'Квадрат 1080×1080'], ['1080x1350', 'Пост 1080×1350'], ['1920x1080', 'Full HD 1920×1080'], ['1280x720', 'HD 1280×720'], ['3840x2160', '4K 3840×2160']],
   PRESETS: {
     fadeIn: 'Появление', fadeOut: 'Исчезание', slideIn: 'Въезд', slideOut: 'Выезд', zoomIn: 'Приближение', zoomOut: 'Отдаление', pop: 'Выскакивание',
     rotateIn: 'Влёт с поворотом', blurIn: 'Из размытия', wipe: 'Шторка', typewriter: 'Печать текста', kenBurns: 'Кен Бёрнс (медленный наезд)',
     float: 'Парение', pulse: 'Пульс', shake: 'Тряска', spin: 'Вращение', bounceIn: 'Падение с отскоком',
+    drawOn: 'Обводка рисуется', glowIn: 'Вспышка свечения',
   },
-  EASES: ['linear', 'easeIn', 'easeOut', 'easeInOut', 'backOut', 'backIn', 'elasticOut', 'bounceOut'],
+  EASES: ['smooth', 'linear', 'easeIn', 'easeOut', 'easeInOut', 'backOut', 'backIn', 'elasticOut', 'bounceOut'],
+  EASE_NAMES: { smooth: 'Плавно (сквозь точки)', linear: 'Линейно', easeIn: 'Разгон', easeOut: 'Торможение', easeInOut: 'Разгон и торможение', backOut: 'С перелётом', backIn: 'С замахом', elasticOut: 'Пружина', bounceOut: 'Отскок' },
+  SHAPES: {
+    rect: 'Прямоугольник', ellipse: 'Эллипс', triangle: 'Треугольник', polygon: 'Многоугольник', star: 'Звезда', heart: 'Сердце', bubble: 'Облачко реплики',
+    burst: 'Взрыв', badge: 'Печать / бейдж', ring: 'Кольцо', cross: 'Плюс', line: 'Линия', arrow: 'Стрелка', arrowTri: 'Стрелка с наконечником', arrow2: 'Двойная стрелка',
+    arrowCurved: 'Изогнутая стрелка', arrowDashed: 'Пунктирная стрелка', arrowDot: 'Стрелка от точки', arrowBlock: 'Толстая стрелка', chevron: 'Шеврон', icon: 'Иконка',
+  },
+  LINE_SHAPES: ['line', 'arrow', 'arrowTri', 'arrow2', 'arrowCurved', 'arrowDashed', 'arrowDot'],
+  BLENDS: [['source-over', 'Обычный'], ['multiply', 'Умножение'], ['screen', 'Экран'], ['overlay', 'Перекрытие'], ['lighter', 'Добавление (свет)'], ['darken', 'Замена тёмным'], ['lighten', 'Замена светлым'], ['color-dodge', 'Осветление основы'], ['color-burn', 'Затемнение основы'], ['soft-light', 'Мягкий свет'], ['hard-light', 'Жёсткий свет'], ['difference', 'Разница']],
+  autoKey: true, secOpen: { path: true, style: true },
 
   // ================= проект =================
   newProject(w = 1080, h = 1920) {
@@ -27,10 +39,10 @@ const Motion = {
     const L = Object.assign({
       id: Motion.uid(), type, name: { image: 'Картинка', video: 'Видео', text: 'Текст', shape: 'Фигура' }[type],
       x: P.w / 2, y: P.h / 2, w: P.w * 0.6, h: P.h * 0.3, scale: 1, rotation: 0, opacity: 1, blur: 0, reveal: 1, chars: 1,
-      start: 0, end: P.duration, keys: {}, visible: true,
+      start: 0, end: P.duration, keys: {}, visible: true, draw: 1, glow: 0,
     }, props);
     if (type === 'text') Object.assign(L, Object.assign({ text: 'Текст', font: 'Oswald', size: Math.round(P.w / 12), color: '#ffffff', weight: 700, align: 'center', lineHeight: 1.15, letterSpacing: 0, stroke: null, shadow: true, bgColor: null }, props));
-    if (type === 'shape') Object.assign(L, Object.assign({ shape: 'rect', fill: '#e30613', radius: 0 }, props));
+    if (type === 'shape') { Object.assign(L, { shape: 'rect', fill: '#e30613', radius: 0, fillOn: true, strokeOn: false, strokeColor: '#ffffff', strokeW: Math.max(2, Math.round(Math.min(P.w, P.h) / 160)), strokeDash: 0 }); Motion.shapeDefaults(L, props.shape || 'rect'); Object.assign(L, props); }
     if (type === 'image' || type === 'video') Object.assign(L, Object.assign({ fit: 'contain', radius: 0 }, props));
     return L;
   },
@@ -83,28 +95,133 @@ const Motion = {
       default: return k;
     }
   },
-  val(L, prop, t) {
+  // значение свойства на времени t. x/y с общими ключами — траектория по точкам (кривая);
+  // rotation + «ориентировать по пути». raw — без ориентации (для полей ввода).
+  val(L, prop, t, raw) {
+    if (prop === 'x' || prop === 'y') { const pa = Motion.pathAt(L, t); if (pa) return pa[prop]; }
+    let v = Motion.val1(L, prop, t);
+    if (prop === 'rotation' && L.orient && !raw) { const pa = Motion.pathAt(L, t); if (pa) v += pa.ang; }
+    return v;
+  },
+  val1(L, prop, t) {
     const ks = L.keys && L.keys[prop];
-    if (!ks || !ks.length) return L[prop];
+    if (!ks || !ks.length) { const v = L[prop]; return v === undefined || v === null ? Motion.DEF[prop] : v; }
     if (t <= ks[0].t) return ks[0].v;
-    const last = ks[ks.length - 1];
+    const n = ks.length, last = ks[n - 1];
     if (t >= last.t) return last.v;
-    for (let i = 0; i < ks.length - 1; i++) {
+    for (let i = 0; i < n - 1; i++) {
       const a = ks[i], b = ks[i + 1];
       if (t >= a.t && t <= b.t) {
-        const k = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1;
+        const dt = b.t - a.t, k = dt > 0 ? (t - a.t) / dt : 1;
+        if (b.ease === 'smooth') return Motion.herm(a.v, b.v, Motion.slope(ks, i) * dt, Motion.slope(ks, i + 1) * dt, k);
         return a.v + (b.v - a.v) * Motion.ease(b.ease || 'easeInOut', k);
       }
     }
     return last.v;
   },
+  herm(p0, p1, m0, m1, k) { const k2 = k * k, k3 = k2 * k; return (2 * k3 - 3 * k2 + 1) * p0 + (k3 - 2 * k2 + k) * m0 + (-2 * k3 + 3 * k2) * p1 + (k3 - k2) * m1; },
+  hermD(p0, p1, m0, m1, k) { const k2 = k * k; return (6 * k2 - 6 * k) * p0 + (3 * k2 - 4 * k + 1) * m0 + (-6 * k2 + 6 * k) * p1 + (3 * k2 - 2 * k) * m1; },
+  // «плавно»: скорость в ключе j — по соседям (без выбросов за значения ключей)
+  slope(ks, j) {
+    const n = ks.length; if (j <= 0 || j >= n - 1) return 0;
+    const a = ks[j - 1], b = ks[j], c = ks[j + 1];
+    if (b.ease !== 'smooth' || c.ease !== 'smooth') return 0;
+    const d0 = (b.v - a.v) / ((b.t - a.t) || 1e-6), d1 = (c.v - b.v) / ((c.t - b.t) || 1e-6);
+    if (d0 * d1 <= 0) return 0;
+    const m = (c.v - a.v) / ((c.t - a.t) || 1e-6), lim = 3 * Math.min(Math.abs(d0), Math.abs(d1));
+    return Math.sign(m) * Math.min(Math.abs(m), lim);
+  },
+  // ключи x и y на одних временах = точки траектории
+  pathKeys(L) {
+    const xs = L.keys && L.keys.x, ys = L.keys && L.keys.y;
+    if (!xs || !ys || xs.length < 2 || xs.length !== ys.length) return null;
+    for (let i = 0; i < xs.length; i++) if (Math.abs(xs[i].t - ys[i].t) > 1e-4) return null;
+    return [xs, ys];
+  },
+  // позиция на траектории: кубическая кривая Эрмита через точки (касательные — по соседним
+  // точкам и их времени, как «авто-безье»), на концах — плавный старт и остановка.
+  // Плавность сегмента: smooth — движение без остановок в точках; остальные — с замедлением в точке.
+  pathAt(L, t) {
+    const pk = Motion.pathKeys(L); if (!pk) return null;
+    const [xs, ys] = pk, n = xs.length;
+    let i = 0;
+    if (t <= xs[0].t) t = xs[0].t;
+    else if (t >= xs[n - 1].t) { i = n - 2; t = xs[n - 1].t; }
+    else while (i < n - 2 && t > xs[i + 1].t) i++;
+    const b = i + 1, dt = xs[b].t - xs[i].t, k = dt > 0 ? Math.max(0, Math.min(1, (t - xs[i].t) / dt)) : 1;
+    const e = xs[b].ease || 'easeInOut';
+    const x0 = xs[i].v, y0 = ys[i].v, x1 = xs[b].v, y1 = ys[b].v;
+    if (L.pathLinear) {
+      const q = Motion.ease(e === 'smooth' ? 'easeInOut' : e, k);
+      return { x: x0 + (x1 - x0) * q, y: y0 + (y1 - y0) * q, ang: Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI };
+    }
+    const near = (j, m) => Math.hypot(xs[j].v - xs[m].v, ys[j].v - ys[m].v) < 0.5;
+    const V = j => {
+      if (j <= 0 || j >= n - 1 || near(j, j - 1) || near(j, j + 1)) return [0, 0];
+      const d = (xs[j + 1].t - xs[j - 1].t) || 1e-6;
+      return [(xs[j + 1].v - xs[j - 1].v) / d, (ys[j + 1].v - ys[j - 1].v) / d];
+    };
+    const v0 = V(i), v1 = V(b);
+    let q;
+    if (e === 'smooth') {
+      // сквозь точку без остановки, если соседний сегмент тоже «плавно»
+      const flow = j => { const v = V(j); return (v[0] || v[1]) && xs[j].ease === 'smooth' && xs[j + 1].ease === 'smooth' ? 1 : 0; };
+      q = Motion.herm(0, 1, flow(i), flow(b), k);
+    } else q = Motion.ease(e, k);
+    const mx0 = v0[0] * dt, my0 = v0[1] * dt, mx1 = v1[0] * dt, my1 = v1[1] * dt;
+    const x = Motion.herm(x0, x1, mx0, mx1, q), y = Motion.herm(y0, y1, my0, my1, q);
+    const qq = Math.max(0.002, Math.min(0.998, q));
+    let dx = Motion.hermD(x0, x1, mx0, mx1, qq), dy = Motion.hermD(y0, y1, my0, my1, qq);
+    if (Math.hypot(dx, dy) < 1e-6) { dx = x1 - x0; dy = y1 - y0; }
+    return { x, y, ang: Math.atan2(dy, dx) * 180 / Math.PI };
+  },
   setKey(L, prop, t, v, ease = 'easeInOut') {
     t = Math.round(t * 1000) / 1000;
     const ks = (L.keys[prop] = L.keys[prop] || []);
     const ex = ks.find(k => Math.abs(k.t - t) < 0.0005);
-    if (ex) { ex.v = v; if (ease) ex.ease = ease; } else ks.push({ t, v, ease });
+    if (ex) { ex.v = v; if (ease) ex.ease = ease; } else ks.push({ t, v, ease: ease || 'easeInOut' });
     ks.sort((a, b) => a.t - b.t);
   },
+  // ---------- точки траектории ----------
+  pointTimes(L) {
+    const xs = (L.keys && L.keys.x) || [], ys = (L.keys && L.keys.y) || [];
+    const set = new Map();
+    for (const k of [...xs, ...ys]) set.set(k.t.toFixed(3), k.t);
+    return [...set.values()].sort((a, b) => a - b);
+  },
+  keyAt(L, p, t) { return (L.keys[p] || []).find(k => Math.abs(k.t - t) < 5e-4); },
+  // точка на времени t: ключи x, y, масштаба, поворота и непрозрачности с текущими значениями
+  addPoint(L, t, ease) {
+    t = Math.round(Math.max(0, t) * 1000) / 1000;
+    ease = ease || L.pathEase || 'smooth';
+    const vals = {}; for (const p of Motion.PT_PROPS) vals[p] = Motion.val(L, p, t, true);
+    for (const p of Motion.PT_PROPS) { if (Motion.keyAt(L, p, t)) Motion.setKey(L, p, t, vals[p], null); else Motion.setKey(L, p, t, vals[p], ease); }
+    return t;
+  },
+  removePoint(L, t) {
+    for (const p of Motion.PT_PROPS) if (L.keys[p]) {
+      const before = L.keys[p].length;
+      if (before === 1 && Motion.keyAt(L, p, t)) L[p] = L.keys[p][0].v;
+      L.keys[p] = L.keys[p].filter(k => Math.abs(k.t - t) >= 5e-4);
+      if (!L.keys[p].length) delete L.keys[p];
+    }
+  },
+  movePoint(L, t, nt) {
+    nt = Math.round(Math.max(0, nt) * 1000) / 1000;
+    if (Math.abs(nt - t) < 5e-4) return true;
+    if (Motion.PT_PROPS.some(p => Motion.keyAt(L, p, nt))) return false;
+    for (const p of Motion.PT_PROPS) { const k = Motion.keyAt(L, p, t); if (k) { k.t = nt; L.keys[p].sort((a, b) => a.t - b.t); } }
+    return true;
+  },
+  swapPoints(L, t1, t2) {
+    for (const p of Motion.PT_PROPS) {
+      const a = Motion.keyAt(L, p, t1), b = Motion.keyAt(L, p, t2);
+      if (a && b) [a.v, b.v] = [b.v, a.v];
+    }
+  },
+  // плавность сегмента «точка t → следующая»: хранится в ключах следующей точки
+  setSegEase(L, tNext, ease) { for (const p of Motion.PT_PROPS) { const k = Motion.keyAt(L, p, tNext); if (k) k.ease = ease; } },
+  hasPosKeys(L) { return !!((L.keys.x && L.keys.x.length) || (L.keys.y && L.keys.y.length)); },
   clearKeys(L, prop, t0, t1) { if (L.keys[prop]) L.keys[prop] = L.keys[prop].filter(k => k.t < t0 - 1e-4 || k.t > t1 + 1e-4); },
   // готовая анимация → ключевые кадры (значения «в покое» — текущие свойства слоя)
   applyPreset(L, name, t0, d, o = {}) {
@@ -143,6 +260,8 @@ const Motion = {
       case 'wipe': K('reveal', [[t0, 0], [t1, 1, ease || 'easeInOut']]); break;
       case 'typewriter': K('chars', [[t0, 0], [t1, 1, 'linear']]); break;
       case 'kenBurns': { const s = base('scale'); K('scale', [[t0, s], [t1, s * (1 + 0.12 * I), 'linear']]); const bx = base('x'); K('x', [[t0, bx], [t1, bx - P.w * 0.03 * I, 'linear']]); break; }
+      case 'drawOn': K('draw', [[t0, 0], [t1, 1, ease || 'easeInOut']]); break;
+      case 'glowIn': { const g0 = base('glow') || 0, R = 40 * I * Math.min(P.w, P.h) / 1080; K('glow', [[t0, g0], [t0 + d * 0.45, g0 + R, 'easeOut'], [t1, g0, 'easeInOut']]); break; }
       case 'spin': K('rotation', [[t0, base('rotation')], [t1, base('rotation') + 360 * I, ease || 'linear']]); break;
       case 'float': case 'pulse': case 'shake': {
         const period = name === 'shake' ? 0.08 : name === 'pulse' ? 0.8 : 2;
@@ -181,20 +300,204 @@ const Motion = {
     }
     return out;
   },
-  drawLayer(g, L, t) {
-    if (!L.visible || t < L.start || t > L.end) return;
-    const v = p => Motion.val(L, p, t);
-    const op = Math.max(0, Math.min(1, v('opacity')));
-    if (op <= 0.001) return;
+  clamp01(v) { return Math.max(0, Math.min(1, +v || 0)); },
+  rgba(hex, a) {
+    const m = String(hex || '#000').replace('#', ''), f = m.length === 3 ? m.split('').map(c => c + c).join('') : m.padEnd(6, '0');
+    return `rgba(${parseInt(f.slice(0, 2), 16)},${parseInt(f.slice(2, 4), 16)},${parseInt(f.slice(4, 6), 16)},${Motion.clamp01(a)})`;
+  },
+  devScale(g) { const m = g.getTransform(); return Math.sqrt(Math.abs(m.a * m.d - m.b * m.c)) || 1; },
+  isLine(L) { return L.type === 'shape' && Motion.LINE_SHAPES.includes(L.shape); },
+  // значения по умолчанию при выборе формы
+  shapeDefaults(L, shape) {
+    const P = Motion.p || { w: 1080, h: 1080 }, base = Math.min(P.w, P.h);
+    L.shape = shape;
+    if (shape === 'star') Object.assign(L, { points: 5, inner: 0.45 });
+    if (shape === 'burst') Object.assign(L, { points: 16, inner: 0.72 });
+    if (shape === 'badge') Object.assign(L, { points: 24, inner: 0.88 });
+    if (shape === 'ring') L.inner = 0.62;
+    if (shape === 'polygon' && !L.sides) L.sides = 6;
+    if (shape === 'arrowCurved' && L.bend === undefined) L.bend = 0.8;
+    if (Motion.LINE_SHAPES.includes(shape)) { L.fillOn = false; L.strokeOn = true; if (!L.strokeW || L.strokeW < 3) L.strokeW = Math.max(3, Math.round(base / 90)); if (!L.strokeColor) L.strokeColor = '#ffffff'; L.strokeDash = shape === 'arrowDashed' ? Math.round(L.strokeW * 2.2) : 0; }
+    else if (shape === 'icon') { L.fillOn = false; L.strokeOn = true; L.icon = L.icon || 'star'; }
+    else if (L.fillOn === false && !L.strokeOn) L.fillOn = true;
+    return L;
+  },
+  // контур фигуры: подконтуры (для «рисования» обводки по очереди), наконечники, рамка
+  shapeGeo(L) {
+    const icon = L.shape === 'icon';
+    const key = [L.shape, icon ? L.icon : Math.round(L.w * 10) / 10, icon ? '' : Math.round(L.h * 10) / 10, L.radius, L.sides, L.points, L.inner, L.bend, L.strokeW, L.head].join('|');
+    Motion._geo = Motion._geo || new Map();
+    let geo = Motion._geo.get(key);
+    if (geo) return geo;
+    const W = L.w / 2, H = L.h / 2, f = v => Math.round(v * 100) / 100;
+    const subs = [], heads = []; let rule = 'nonzero', box = { x0: -W, y0: -H, x1: W, y1: H };
+    const poly = (pts, close = true) => 'M' + pts.map(p => f(p[0]) + ' ' + f(p[1])).join('L') + (close ? 'Z' : '');
+    const ell = (rx, ry) => `M0 ${f(-ry)}A${f(rx)} ${f(ry)} 0 1 1 0 ${f(ry)}A${f(rx)} ${f(ry)} 0 1 1 0 ${f(-ry)}Z`;
+    const rrect = (x, y, w, hh, r) => { r = Math.max(0, Math.min(r || 0, w / 2, hh / 2)); return r ? `M${f(x + r)} ${f(y)}H${f(x + w - r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + w)} ${f(y + r)}V${f(y + hh - r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + w - r)} ${f(y + hh)}H${f(x + r)}A${f(r)} ${f(r)} 0 0 1 ${f(x)} ${f(y + hh - r)}V${f(y + r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + r)} ${f(y)}Z` : poly([[x, y], [x + w, y], [x + w, y + hh], [x, y + hh]]); };
+    const starPts = (n, inner) => { const pts = []; for (let i = 0; i < n * 2; i++) { const a = -Math.PI / 2 + i * Math.PI / n, r = i % 2 ? inner : 1; pts.push([Math.cos(a) * W * r, Math.sin(a) * H * r]); } return pts; };
+    const lw = L.strokeW || 6, hl = L.head || Math.max(lw * 3.2, 10), hw = hl * 0.62;
+    const openHead = (tx, ty, ang) => { const c = Math.cos(ang), s = Math.sin(ang), p = (u, v) => [tx + u * c - v * s, ty + u * s + v * c]; return poly([p(-hl, -hw), [tx, ty], p(-hl, hw)], false); };
+    const triHead = (tx, ty, ang) => { const c = Math.cos(ang), s = Math.sin(ang), p = (u, v) => [tx + u * c - v * s, ty + u * s + v * c]; return poly([[tx, ty], p(-hl * 1.25, -hw * 1.15), p(-hl * 1.25, hw * 1.15)]); };
+    const dot = (cx, cy, r) => `M${f(cx - r)} ${f(cy)}a${f(r)} ${f(r)} 0 1 0 ${f(2 * r)} 0a${f(r)} ${f(r)} 0 1 0 ${f(-2 * r)} 0Z`;
+    const S = (d, dash = true) => subs.push({ d, dash });
+    switch (L.shape) {
+      case 'ellipse': S(ell(W, H)); break;
+      case 'triangle': S(poly([[0, -H], [W, H], [-W, H]])); break;
+      case 'polygon': { const n = Math.max(3, Math.round(L.sides || 6)), pts = []; for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / n; pts.push([Math.cos(a) * W, Math.sin(a) * H]); } S(poly(pts)); break; }
+      case 'star': case 'burst': case 'badge': S(poly(starPts(Math.max(3, Math.round(L.points || 5)), Math.max(0.05, Math.min(0.99, L.inner || 0.45))))); break;
+      case 'heart': {
+        const X = v => f(v * W), Y = v => f(v * H);
+        S(`M${X(0)} ${Y(-0.5)}C${X(-0.18)} ${Y(-0.98)} ${X(-1)} ${Y(-1.02)} ${X(-1)} ${Y(-0.36)}C${X(-1)} ${Y(0.16)} ${X(-0.42)} ${Y(0.56)} ${X(0)} ${Y(1)}C${X(0.42)} ${Y(0.56)} ${X(1)} ${Y(0.16)} ${X(1)} ${Y(-0.36)}C${X(1)} ${Y(-1.02)} ${X(0.18)} ${Y(-0.98)} ${X(0)} ${Y(-0.5)}Z`);
+        break;
+      }
+      case 'bubble': {
+        const bh = L.h * 0.78, y1 = -H + bh, r = Math.min(L.radius || Math.min(L.w, bh) * 0.22, L.w / 2, bh / 2);
+        const tx1 = -W + L.w * 0.18, tx2 = -W + L.w * 0.36, tip = [-W + L.w * 0.12, H];
+        S(`M${f(-W + r)} ${f(-H)}H${f(W - r)}A${f(r)} ${f(r)} 0 0 1 ${f(W)} ${f(-H + r)}V${f(y1 - r)}A${f(r)} ${f(r)} 0 0 1 ${f(W - r)} ${f(y1)}H${f(tx2)}L${f(tip[0])} ${f(tip[1])}L${f(tx1)} ${f(y1)}H${f(-W + r)}A${f(r)} ${f(r)} 0 0 1 ${f(-W)} ${f(y1 - r)}V${f(-H + r)}A${f(r)} ${f(r)} 0 0 1 ${f(-W + r)} ${f(-H)}Z`);
+        break;
+      }
+      case 'ring': { const k = Math.max(0.05, Math.min(0.97, L.inner || 0.62)); S(ell(W, H)); S(ell(W * k, H * k)); rule = 'evenodd'; break; }
+      case 'cross': { const tx = Math.min(L.w, L.h) * 0.17; S(poly([[-tx, -H], [tx, -H], [tx, -tx], [W, -tx], [W, tx], [tx, tx], [tx, H], [-tx, H], [-tx, tx], [-W, tx], [-W, -tx], [-tx, -tx]])); break; }
+      case 'line': S(poly([[-W, 0], [W, 0]], false)); break;
+      case 'arrow': case 'arrowDashed': S(poly([[-W, 0], [W, 0]], false)); S(openHead(W, 0, 0), false); break;
+      case 'arrowTri': S(poly([[-W, 0], [W - hl * 0.9, 0]], false)); heads.push(triHead(W, 0, 0)); break;
+      case 'arrow2': S(poly([[-W, 0], [W, 0]], false)); S(openHead(W, 0, 0), false); S(openHead(-W, 0, Math.PI), false); break;
+      case 'arrowDot': { const r = Math.max(lw * 1.7, hl * 0.42); heads.push(dot(-W + r, 0, r)); S(poly([[-W + r, 0], [W, 0]], false)); S(openHead(W, 0, 0), false); break; }
+      case 'arrowCurved': {
+        const m = hw + lw, y0 = H - m, top = -H + lw, bend = L.bend === undefined ? 0.8 : +L.bend;
+        const peak = y0 - bend * (y0 - top), cy = (4 * peak - 2 * y0) / 2, x0 = -W + lw, x2 = W - lw;
+        S(`M${f(x0)} ${f(y0)}Q0 ${f(cy)} ${f(x2)} ${f(y0)}`);
+        S(openHead(x2, y0, Math.atan2(y0 - cy, x2)), false);
+        break;
+      }
+      case 'arrowBlock': { const sh = L.h * 0.46, xh = W - Math.min(L.w * 0.42, L.h * 0.95); S(poly([[-W, -sh / 2], [xh, -sh / 2], [xh, -H], [W, 0], [xh, H], [xh, sh / 2], [-W, sh / 2]])); break; }
+      case 'chevron': { const nn = Math.min(H, L.w * 0.3); S(poly([[-W, -H], [W - nn, -H], [W, 0], [W - nn, H], [-W, H], [-W + nn, 0]])); break; }
+      case 'icon': {
+        const ic = (typeof MOTION_ICONS !== 'undefined' && MOTION_ICONS[L.icon]) || { d: 'M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1Z' };
+        for (const d of ic.d.split(/(?=M)/)) if (d.trim()) S(d);
+        box = { x0: 0, y0: 0, x1: 24, y1: 24 };
+        break;
+      }
+      default: S(rrect(-W, -H, L.w, L.h, L.radius || 0));
+    }
+    const len = d => {
+      try { Motion._mp = Motion._mp || document.createElementNS('http://www.w3.org/2000/svg', 'path'); Motion._mp.setAttribute('d', d); return Motion._mp.getTotalLength() || 0; } catch (e) { return 0; }
+    };
+    const all = subs.map(x => x.d).join('');
+    geo = { icon, rule, box, line: Motion.LINE_SHAPES.includes(L.shape), all: new Path2D(all), fill: new Path2D(all), heads: heads.length ? new Path2D(heads.join('')) : null,
+      subs: subs.map(x => ({ p: new Path2D(x.d), len: len(x.d), dash: x.dash })), dashSubs: null };
+    const ds = subs.filter(x => x.dash).map(x => x.d).join('');
+    geo.dashP = ds ? new Path2D(ds) : null;
+    const nd = subs.filter(x => !x.dash).map(x => x.d).join('');
+    geo.solidP = nd ? new Path2D(nd) : null;
+    if (Motion._geo.size > 400) Motion._geo.clear();
+    Motion._geo.set(key, geo);
+    return geo;
+  },
+  // заливка цветом или градиентом в рамке box
+  paint(g, L, color, box) {
+    if (!L.gradOn) return color;
+    const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2, hw = (box.x1 - box.x0) / 2, hh = (box.y1 - box.y0) / 2;
+    let gr;
+    if (L.gradType === 'radial') gr = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(hw, hh) || 1);
+    else {
+      const a = (L.gradAngle ?? 90) * Math.PI / 180, dx = Math.sin(a), dy = -Math.cos(a), half = Math.abs(hw * dx) + Math.abs(hh * dy) || 1;
+      gr = g.createLinearGradient(cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half);
+    }
+    gr.addColorStop(0, color || '#000'); gr.addColorStop(1, L.fill2 || '#ffffff');
+    return gr;
+  },
+  drawShape(g, L, dr) {
+    const geo = Motion.shapeGeo(L);
     g.save();
-    g.globalAlpha = op;
-    const blur = v('blur'); if (blur > 0.1) g.filter = `blur(${blur}px)`;
-    g.translate(v('x'), v('y'));
-    g.rotate(v('rotation') * Math.PI / 180);
-    const s = v('scale'); g.scale(s, s);
+    let k = 1;
+    if (geo.icon) { k = Math.max(0.01, Math.min(L.w, L.h) / 24); g.scale(k, k); g.translate(-12, -12); }
+    const lw = (L.strokeW ?? 6) / k;
+    const fillOn = L.fillOn !== false && !geo.line, strokeOn = !!L.strokeOn || geo.line;
+    const a0 = g.globalAlpha;
+    if (fillOn) {
+      const fa = dr >= 1 ? 1 : strokeOn ? Motion.clamp01((dr - 0.6) / 0.4) : Motion.clamp01(dr);
+      if (fa > 0.001) { g.globalAlpha = a0 * fa; g.fillStyle = Motion.paint(g, L, L.fill || '#000', geo.box); g.fill(geo.fill, geo.rule); g.globalAlpha = a0; }
+    }
+    if (strokeOn && lw > 0) {
+      g.lineWidth = lw; g.lineJoin = 'round'; g.lineCap = geo.line || geo.icon ? 'round' : (L.cap || 'butt');
+      g.strokeStyle = L.strokeGradOn ? Motion.paint(g, Object.assign({}, L, { gradOn: true }), L.strokeColor || '#fff', geo.box) : (L.strokeColor || '#ffffff');
+      if (dr < 0.999) {
+        const total = geo.subs.reduce((n, x) => n + x.len, 0) || 1;
+        let rem = Motion.clamp01(dr) * total;
+        for (const sub of geo.subs) {
+          if (rem <= 0.01) break;
+          const part = Math.min(sub.len, rem);
+          g.setLineDash([part, sub.len + lw * 2 + 1]); g.lineDashOffset = 0; g.stroke(sub.p);
+          rem -= sub.len;
+        }
+        g.setLineDash([]);
+      } else if (L.strokeDash > 0) {
+        if (geo.dashP) { g.setLineDash([L.strokeDash / k, (L.strokeGap || L.strokeDash) / k]); g.stroke(geo.dashP); g.setLineDash([]); }
+        if (geo.solidP) g.stroke(geo.solidP);
+      } else g.stroke(geo.all);
+    }
+    if (geo.heads && strokeOn) {
+      const ha = dr >= 1 ? 1 : Motion.clamp01((dr - 0.85) / 0.15);
+      if (ha > 0.001) { g.globalAlpha = a0 * ha; g.fillStyle = L.strokeColor || '#ffffff'; g.fill(geo.heads); g.globalAlpha = a0; }
+    }
+    g.restore();
+  },
+  textSetup(g, L) {
+    g.font = `${L.italic ? 'italic ' : ''}${L.weight || 400} ${L.size}px "${L.font}", sans-serif`;
+    if ('letterSpacing' in g) g.letterSpacing = (L.letterSpacing || 0) + 'px';
+    g.textBaseline = 'middle';
+    g.textAlign = L.align || 'center';
+  },
+  // рамка текста (по строкам) и плашки
+  textBox(g, L) {
+    Motion.textSetup(g, L);
+    const lines = Motion.textLines(g, L, L.w), lh = L.size * (L.lineHeight || 1.15);
+    let mw = 0; for (const ln of lines) mw = Math.max(mw, g.measureText(ln).width);
+    const x0 = L.align === 'left' ? -L.w / 2 : L.align === 'right' ? L.w / 2 - mw : -mw / 2;
+    const th = lines.length * lh;
+    return { lines, lh, mw, box: { x0, y0: -th / 2, x1: x0 + mw, y1: th / 2 } };
+  },
+  drawText(g, L, v) {
+    const { lines, lh, mw, box } = Motion.textBox(g, L);
+    const total = lines.reduce((n, l) => n + l.length, 0);
+    let left = Math.round(total * Motion.clamp01(v('chars')));
+    const dr = Motion.clamp01(v('draw'));
+    const w = L.w, x0 = L.align === 'left' ? -w / 2 : L.align === 'right' ? w / 2 : 0;
+    let y = -((lines.length - 1) * lh) / 2;
+    if (L.bgColor) {
+      const pad = L.platePad ?? L.size * 0.35, bw = mw + pad * 2, bh = lines.length * lh + pad;
+      const bx = L.align === 'left' ? -w / 2 - pad : L.align === 'right' ? w / 2 - bw + pad : -bw / 2;
+      const a0 = g.globalAlpha; g.globalAlpha = a0 * (L.plateOp ?? 1);
+      g.fillStyle = L.bgColor; Motion.rr(g, bx, -bh / 2, bw, bh, L.plateR ?? L.size * 0.2); g.fill();
+      g.globalAlpha = a0;
+    }
+    if (L.shadow) { const k = Motion.devScale(g); g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = L.size * 0.15 * k; g.shadowOffsetY = L.size * 0.05 * k; }
+    const fillOn = L.fillOn !== false;
+    let st = L.stroke && L.stroke.width > 0 ? L.stroke : null;
+    if (!st && (dr < 0.999 || !fillOn)) st = { color: L.color || '#fff', width: Math.max(2, L.size / 26) };
+    const fa = dr >= 0.999 ? 1 : Motion.clamp01((dr - 0.6) / 0.4);
+    const a0 = g.globalAlpha;
+    const fillStyle = Motion.paint(g, L, L.color || '#fff', box);
+    for (const ln of lines) {
+      const part = ln.slice(0, Math.max(0, left)); left -= ln.length;
+      if (part) {
+        if (st) {
+          g.lineWidth = st.width || 4; g.strokeStyle = st.color || '#000'; g.lineJoin = 'round';
+          if (dr < 0.999) { g.setLineDash([Math.max(0.01, dr * L.size * 3.2), L.size * 40]); g.lineDashOffset = 0; }
+          g.strokeText(part, x0, y);
+          g.setLineDash([]);
+        }
+        if (fillOn && fa > 0.001) { g.globalAlpha = a0 * fa; g.fillStyle = fillStyle; g.fillText(part, x0, y); g.globalAlpha = a0; }
+      }
+      y += lh;
+    }
+  },
+  // содержимое слоя в его локальных координатах (центр — 0,0)
+  drawContent(g, L, v) {
     const w = L.w, hh = L.h;
-    const reveal = Math.max(0, Math.min(1, v('reveal')));
-    if (reveal < 1) { g.beginPath(); g.rect(-w / 2, -hh / 2, w * reveal, hh); g.clip(); }
+    const reveal = Motion.clamp01(v('reveal'));
+    if (reveal < 1) { g.beginPath(); g.rect(-w / 2, -hh / 2 - 1e4, w * reveal, hh + 2e4); g.clip(); }
     if (L.type === 'image' || L.type === 'video') {
       const el = Motion.mediaEl(L.asset);
       if (el) {
@@ -203,37 +506,114 @@ const Motion = {
         if (L.fit === 'cover') { g.beginPath(); g.rect(-w / 2, -hh / 2, w, hh); g.clip(); }
         Motion.drawFit(g, el, sw, sh, w, hh, L.fit || 'contain');
       }
-    } else if (L.type === 'shape') {
-      g.fillStyle = L.fill || '#000';
-      if (L.shape === 'ellipse') { g.beginPath(); g.ellipse(0, 0, w / 2, hh / 2, 0, 0, Math.PI * 2); } else Motion.rr(g, -w / 2, -hh / 2, w, hh, L.radius || 0);
-      g.fill();
-    } else if (L.type === 'text') {
-      g.font = `${L.italic ? 'italic ' : ''}${L.weight || 400} ${L.size}px "${L.font}", sans-serif`;
-      if ('letterSpacing' in g) g.letterSpacing = (L.letterSpacing || 0) + 'px';
-      g.textBaseline = 'middle';
-      g.textAlign = L.align || 'center';
-      const lines = Motion.textLines(g, L, w);
-      const lh = L.size * (L.lineHeight || 1.15);
-      const total = lines.reduce((n, l) => n + l.length, 0);
-      let left = Math.round(total * Math.max(0, Math.min(1, v('chars'))));
-      const x0 = L.align === 'left' ? -w / 2 : L.align === 'right' ? w / 2 : 0;
-      let y = -((lines.length - 1) * lh) / 2;
-      if (L.bgColor) {
-        let mw = 0; for (const ln of lines) mw = Math.max(mw, g.measureText(ln).width);
-        const pad = L.size * 0.35, bw = mw + pad * 2, bh = lines.length * lh + pad;
-        const bx = L.align === 'left' ? -w / 2 - pad : L.align === 'right' ? w / 2 - bw + pad : -bw / 2;
-        g.fillStyle = L.bgColor; Motion.rr(g, bx, -bh / 2, bw, bh, L.size * 0.2); g.fill();
-      }
-      if (L.shadow) { g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = L.size * 0.15; g.shadowOffsetY = L.size * 0.05; }
-      for (const ln of lines) {
-        const part = ln.slice(0, Math.max(0, left)); left -= ln.length;
-        if (part) {
-          if (L.stroke) { g.lineWidth = L.stroke.width || 4; g.strokeStyle = L.stroke.color || '#000'; g.lineJoin = 'round'; g.strokeText(part, x0, y); }
-          g.fillStyle = L.color || '#fff'; g.fillText(part, x0, y);
-        }
-        y += lh;
-      }
+    } else if (L.type === 'shape') Motion.drawShape(g, L, Motion.clamp01(v('draw')));
+    else if (L.type === 'text') Motion.drawText(g, L, v);
+  },
+  // рамка содержимого в локальных координатах (для эффектов и градиентной прозрачности)
+  contentBox(g, L) {
+    if (L.type === 'text') { g.save(); const b = Motion.textBox(g, L).box; g.restore(); return b; }
+    if (L.type === 'shape' && L.shape === 'icon') { const s = Math.min(L.w, L.h) / 2; return { x0: -s, y0: -s, x1: s, y1: s }; }
+    return { x0: -L.w / 2, y0: -L.h / 2, x1: L.w / 2, y1: L.h / 2 };
+  },
+  localBounds(g, L, cb) {
+    let pad = 2;
+    if (L.type === 'shape') { const lw = L.strokeOn || Motion.isLine(L) ? (L.strokeW || 6) : 0; pad += lw + (Motion.isLine(L) ? (L.head || lw * 3.2) * 1.3 + lw * 2 : 0); }
+    if (L.type === 'text') { pad += L.size * 0.6 + (L.stroke ? L.stroke.width || 0 : 0) + (L.bgColor ? (L.platePad ?? L.size * 0.35) : 0); }
+    const b = L.type === 'text' ? cb : { x0: Math.min(cb.x0, -L.w / 2), y0: Math.min(cb.y0, -L.h / 2), x1: Math.max(cb.x1, L.w / 2), y1: Math.max(cb.y1, L.h / 2) };
+    return { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad };
+  },
+  hasFx(L, glow) { return glow > 0.05 || !!L.dsOn || !!L.isOn || !!L.fadeOn; },
+  ocv(i, w, hh) {
+    Motion._ocs = Motion._ocs || [];
+    let c = Motion._ocs[i];
+    if (!c) c = Motion._ocs[i] = document.createElement('canvas');
+    if (c.width < w || c.height < hh) { c.width = Math.max(c.width, w); c.height = Math.max(c.height, hh); }
+    return c;
+  },
+  drawLayer(g, L, t) {
+    if (!L.visible || t < L.start || t > L.end) return;
+    const v = p => Motion.val(L, p, t);
+    const op = Motion.clamp01(v('opacity'));
+    if (op <= 0.001) return;
+    const blur = v('blur') || 0, glow = Math.max(0, v('glow') || 0), ds = Motion.devScale(g);
+    const x = v('x'), y = v('y'), rot = v('rotation'), s = v('scale');
+    if (!Motion.hasFx(L, glow)) {
+      g.save();
+      g.globalAlpha = op;
+      if (blur > 0.1) g.filter = `blur(${blur * ds}px)`;
+      if (L.blend && L.blend !== 'source-over') g.globalCompositeOperation = L.blend;
+      g.translate(x, y); g.rotate(rot * Math.PI / 180); g.scale(s, s);
+      Motion.drawContent(g, L, v);
+      g.restore();
+      return;
     }
+    // эффекты: слой рисуется в отдельный холст, затем — свечение, затемнение (тень) и сам слой
+    const M = g.getTransform().translate(x, y).rotate(rot).scale(s, s);
+    const es = ds * Math.abs(s || 1);
+    const cb = Motion.contentBox(g, L), lb = Motion.localBounds(g, L, cb);
+    const inPad = L.isOn ? ((L.isBlur ?? 12) * 2 + Math.abs(L.isX || 0) + Math.abs(L.isY ?? 6)) * es + 4 : 0;
+    let X0 = Infinity, Y0 = Infinity, X1 = -Infinity, Y1 = -Infinity;
+    for (const [px, py] of [[lb.x0, lb.y0], [lb.x1, lb.y0], [lb.x1, lb.y1], [lb.x0, lb.y1]]) {
+      const q = M.transformPoint(new DOMPoint(px, py));
+      X0 = Math.min(X0, q.x); Y0 = Math.min(Y0, q.y); X1 = Math.max(X1, q.x); Y1 = Math.max(Y1, q.y);
+    }
+    X0 -= inPad; Y0 -= inPad; X1 += inPad; Y1 += inPad;
+    const cw = g.canvas.width, chh = g.canvas.height;
+    const marg = (glow * 2 + (L.dsOn ? (L.dsBlur ?? 20) * 2 + Math.abs(L.dsX || 0) + Math.abs(L.dsY ?? 12) : 0)) * es + inPad + 4;
+    const bx = Math.floor(Math.max(X0, -marg)), by = Math.floor(Math.max(Y0, -marg));
+    const bw = Math.min(Math.ceil(Math.min(X1, cw + marg)) - bx, 8192), bh = Math.min(Math.ceil(Math.min(Y1, chh + marg)) - by, 8192);
+    if (bw <= 0 || bh <= 0) return;
+    const oc = Motion.ocv(0, bw, bh), og = oc.getContext('2d');
+    og.setTransform(1, 0, 0, 1, 0, 0); og.globalAlpha = 1; og.globalCompositeOperation = 'source-over'; og.filter = 'none';
+    og.clearRect(0, 0, bw, bh);
+    og.save();
+    og.setTransform(new DOMMatrix([1, 0, 0, 1, -bx, -by]).multiply(M));
+    Motion.drawContent(og, L, v);
+    og.restore();
+    if (L.isOn) {
+      // внутренняя тень: инвертированная маска слоя, размытая и сдвинутая, поверх слоя
+      const tc = Motion.ocv(1, bw, bh), tg = tc.getContext('2d');
+      tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = 'source-over'; tg.filter = 'none'; tg.globalAlpha = 1;
+      tg.clearRect(0, 0, tc.width, tc.height);
+      tg.fillStyle = L.isColor || '#000000'; tg.fillRect(0, 0, bw, bh);
+      tg.globalCompositeOperation = 'destination-out'; tg.drawImage(oc, 0, 0, bw, bh, 0, 0, bw, bh);
+      tg.globalCompositeOperation = 'source-over';
+      og.save(); og.globalCompositeOperation = 'source-atop'; og.globalAlpha = Motion.clamp01(L.isOp ?? 0.7);
+      const ib = (L.isBlur ?? 12) * es / 2; if (ib > 0.1) og.filter = `blur(${ib}px)`;
+      og.drawImage(tc, 0, 0, bw, bh, (L.isX || 0) * es, (L.isY ?? 6) * es, bw, bh);
+      og.restore();
+    }
+    if (L.fadeOn) {
+      // градиентная прозрачность: маска по направлению angle от fadeFrom до fadeTo
+      og.save();
+      og.setTransform(new DOMMatrix([1, 0, 0, 1, -bx, -by]).multiply(M));
+      og.globalCompositeOperation = 'destination-in';
+      const cx = (cb.x0 + cb.x1) / 2, cy = (cb.y0 + cb.y1) / 2, hw = (cb.x1 - cb.x0) / 2, hh2 = (cb.y1 - cb.y0) / 2;
+      const a = (L.fadeAngle ?? 180) * Math.PI / 180, dx = Math.sin(a), dy = -Math.cos(a), half = Math.abs(hw * dx) + Math.abs(hh2 * dy) || 1;
+      const gr = og.createLinearGradient(cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half);
+      const f0 = Motion.clamp01(L.fadeFrom ?? 0), f1 = Math.max(f0, Motion.clamp01(L.fadeTo ?? 1));
+      gr.addColorStop(f0, `rgba(0,0,0,${Motion.clamp01(L.fadeA0 ?? 1)})`); gr.addColorStop(f1, `rgba(0,0,0,${Motion.clamp01(L.fadeA1 ?? 0)})`);
+      og.fillStyle = gr; og.fillRect(lb.x0 - 1e4, lb.y0 - 1e4, lb.x1 - lb.x0 + 2e4, lb.y1 - lb.y0 + 2e4);
+      og.restore();
+    }
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = op;
+    if (L.blend && L.blend !== 'source-over') g.globalCompositeOperation = L.blend;
+    if (blur > 0.1) g.filter = `blur(${blur * ds}px)`;
+    const OFF = 20000;
+    if (L.dsOn) {
+      g.shadowColor = Motion.rgba(L.dsColor || '#000000', L.dsOp ?? 0.55); g.shadowBlur = (L.dsBlur ?? 20) * es;
+      g.shadowOffsetX = OFF + (L.dsX || 0) * es; g.shadowOffsetY = (L.dsY ?? 12) * es;
+      g.drawImage(oc, 0, 0, bw, bh, bx - OFF, by, bw, bh);
+    }
+    if (glow > 0.05) {
+      g.shadowColor = L.glowColor || '#ffffff'; g.shadowBlur = glow * es; g.shadowOffsetX = OFF; g.shadowOffsetY = 0;
+      const n = Math.max(1, Math.min(6, Math.round(L.glowI ?? 2)));
+      for (let i = 0; i < n; i++) g.drawImage(oc, 0, 0, bw, bh, bx - OFF, by, bw, bh);
+    }
+    g.shadowColor = 'rgba(0,0,0,0)'; g.shadowBlur = 0; g.shadowOffsetX = 0; g.shadowOffsetY = 0;
+    g.drawImage(oc, 0, 0, bw, bh, bx, by, bw, bh);
     g.restore();
   },
   drawFrame(g, t, { forExport = false } = {}) {
@@ -300,7 +680,11 @@ const Motion = {
       h('span', { class: 'sep' }),
       B('+ Картинки', 'Картинки и кадры с компьютера', () => Motion.addFiles('image')), B('+ Видео', 'Видео слоем', () => Motion.addFiles('video')),
       B('+ Текст', 'Текстовый слой', () => Motion.addLayer(Motion.mkLayer('text', { start: Motion.t, h: Motion.p.h * 0.12 }))),
-      B('+ Фигура', 'Прямоугольник или плашка', () => Motion.addLayer(Motion.mkLayer('shape', { start: Motion.t, w: Motion.p.w * 0.5, h: Motion.p.h * 0.08 }))),
+      B('+ Фигура ▾', 'Фигуры, линии и стрелки', e => Motion.shapeMenu(e.currentTarget)),
+      B('+ Иконка', 'Библиотека иконок', () => Motion.iconDialog()),
+      h('span', { class: 'sep' }),
+      B('+ Точка', 'Точка траектории на текущем времени: положение, масштаб, поворот и непрозрачность выделенного слоя', () => Motion.pointHere()),
+      Motion.akBtn = B('Автоключ', 'Перетаскивание слоя с траекторией ставит точку на текущем времени (Shift — сдвинуть весь путь)', () => { Motion.autoKey = !Motion.autoKey; Motion.akBtn.classList.toggle('on', Motion.autoKey); Motion.renderProps(); }, 'pbt' + (Motion.autoKey ? ' on' : '')),
       B('Фон…', 'Цвет, фото или видео на фоне', () => Motion.bgDialog()), B('Музыка…', 'Звуковая дорожка', () => Motion.audioDialog()),
       h('span', { class: 'sep' }), Motion.playBtn, Motion.timeLbl,
       h('span', { class: 'grow' }),
@@ -351,7 +735,7 @@ const Motion = {
   resize(w, hh) {
     const P = Motion.p, kx = w / P.w, ky = hh / P.h, k = Math.min(kx, ky);
     for (const L of P.layers) {
-      L.x *= kx; L.y *= ky; L.w *= k; L.h *= k; if (L.size) L.size *= k;
+      L.x *= kx; L.y *= ky; L.w *= k; L.h *= k; if (L.size) L.size *= k; if (L.strokeW) L.strokeW *= k;
       if (L.keys.x) L.keys.x.forEach(q => { q.v *= kx; }); if (L.keys.y) L.keys.y.forEach(q => { q.v *= ky; });
     }
     P.w = Math.round(w); P.h = Math.round(hh);
@@ -400,10 +784,45 @@ const Motion = {
       g.setLineDash([]); g.fillStyle = '#2f8fff';
       const hs = 9 / s / (Motion.viewK || 1); g.fillRect(L.w / 2 - hs / 2, L.h / 2 - hs / 2, hs, hs);
       g.restore();
+      Motion.drawPath(g, L);
     }
     const m = Math.floor(Motion.t / 60), sec = (Motion.t % 60).toFixed(1).padStart(4, '0');
     Motion.timeLbl.textContent = `${m}:${sec} / ${Motion.p.duration.toFixed(1)} с`;
     if (Motion.playhead) Motion.playhead.style.left = Motion.tx(Motion.t) + 'px';
+  },
+  // траектория выделенного слоя: пунктир кривой, отметки кадров и пронумерованные точки
+  drawPath(g, L) {
+    if (!Motion.hasPosKeys(L)) return;
+    const pts = Motion.pointTimes(L);
+    const px = 1 / (Motion.viewK || 1), t0 = pts[0], t1 = pts[pts.length - 1];
+    const P = (t) => [Motion.val(L, 'x', t), Motion.val(L, 'y', t)];
+    g.save();
+    if (t1 - t0 > 1e-3) {
+      const N = Math.min(800, Math.max(60, Math.round((t1 - t0) * 150)));
+      g.beginPath();
+      for (let i = 0; i <= N; i++) { const [x, y] = P(t0 + (t1 - t0) * i / N); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.lineWidth = 4 * px; g.strokeStyle = 'rgba(0,0,0,.35)'; g.stroke();
+      g.lineWidth = 2 * px; g.strokeStyle = '#2f8fff'; g.setLineDash([7 * px, 5 * px]); g.stroke(); g.setLineDash([]);
+      const fps = Motion.p.fps, nf = Math.round((t1 - t0) * fps);
+      if (nf <= 600) { g.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 1; i < nf; i++) { const [x, y] = P(t0 + i / fps); g.fillRect(x - 1.5 * px, y - 1.5 * px, 3 * px, 3 * px); } }
+    }
+    const r = 12 * px;
+    g.font = `bold ${Math.round(12 * px)}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    pts.forEach((t, i) => {
+      const [x, y] = P(t), cur = Math.abs(t - Motion.t) < 1e-3;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
+      g.fillStyle = cur ? '#f59e0b' : '#2f8fff'; g.fill(); g.lineWidth = 2 * px; g.strokeStyle = '#fff'; g.stroke();
+      g.fillStyle = '#fff'; g.fillText(String(i + 1), x, y + 0.5 * px);
+    });
+    g.restore();
+  },
+  // точка траектории под курсором
+  hitPoint(L, pt) {
+    if (!L || !Motion.hasPosKeys(L)) return null;
+    const tol = 14 / (Motion.viewK || 1);
+    let best = null, bd = tol;
+    for (const t of Motion.pointTimes(L)) { const d = Math.hypot(Motion.val(L, 'x', t) - pt.x, Motion.val(L, 'y', t) - pt.y); if (d <= bd) { bd = d; best = t; } }
+    return best;
   },
   // ---------- воспроизведение ----------
   toggle() { Motion.playing ? Motion.pause() : Motion.play(); },
@@ -466,22 +885,48 @@ const Motion = {
         const tol = 14 / s / Motion.viewK;
         if (Math.abs(lx - sel.w / 2) < tol && Math.abs(ly - sel.h / 2) < tol) { mode = 'resize'; L = sel; }
       }
+      // перетаскивание точки траектории
+      // (точка под самим слоем на другом времени не мешает перетаскивать слой — так ставится новая точка)
+      let pt0 = sel && mode === 'move' ? Motion.hitPoint(sel, pt) : null;
+      if (pt0 !== null && Math.abs(pt0 - Motion.t) > 1e-3) { const hl = Motion.hit(pt); if (hl && hl.L === sel) pt0 = null; }
+      if (pt0 !== null && pt0 !== undefined && sel) {
+        c.setPointerCapture(e.pointerId);
+        let moved = false;
+        const mv = ev => { const q = Motion.toCanvas(ev); moved = true; Motion.setKey(sel, 'x', pt0, q.x, null); Motion.setKey(sel, 'y', pt0, q.y, null); Motion.draw(); };
+        const up = () => { c.removeEventListener('pointermove', mv); c.removeEventListener('pointerup', up); if (moved) Motion.commit(); else Motion.seek(pt0); };
+        c.addEventListener('pointermove', mv); c.addEventListener('pointerup', up);
+        return;
+      }
       if (!L) { const hit = Motion.hit(pt); L = hit && hit.L; }
       Motion.sel = L ? L.id : null; Motion.selKey = null;
       Motion.renderTimeline(); Motion.renderProps(); Motion.draw();
       if (!L) return;
       c.setPointerCapture(e.pointerId);
-      const start = { x: pt.x, y: pt.y, lx: Motion.val(L, 'x', Motion.t), ly: Motion.val(L, 'y', Motion.t), w: L.w, h: L.h, size: L.size };
+      const start = { x: pt.x, y: pt.y, lx: Motion.val(L, 'x', Motion.t), ly: Motion.val(L, 'y', Motion.t), w: L.w, h: L.h, size: L.size, sw: L.strokeW };
       let moved = false;
       const mv = ev => {
         const q = Motion.toCanvas(ev); moved = true;
-        if (mode === 'move') Motion.moveLayer(L, start.lx + q.x - start.x - Motion.val(L, 'x', Motion.t), start.ly + q.y - start.y - Motion.val(L, 'y', Motion.t));
-        else {
+        const T = Math.round(Motion.t * 1000) / 1000;
+        if (mode === 'move') {
+          // «Автоключ»: у слоя с траекторией перетаскивание ставит/правит точку на текущем времени;
+          // Shift — сдвинуть всю траекторию целиком
+          if (Motion.autoKey && !ev.shiftKey && Motion.hasPosKeys(L)) {
+            if (!Motion.keyAt(L, 'x', T) || !Motion.keyAt(L, 'y', T)) Motion.addPoint(L, T);
+            Motion.setKey(L, 'x', T, start.lx + q.x - start.x, null); Motion.setKey(L, 'y', T, start.ly + q.y - start.y, null);
+          } else Motion.moveLayer(L, start.lx + q.x - start.x - Motion.val(L, 'x', Motion.t), start.ly + q.y - start.y - Motion.val(L, 'y', Motion.t));
+        } else {
           const v = p => Motion.val(L, p, Motion.t), s = v('scale');
           const dx = q.x - v('x'), dy = q.y - v('y'), a = -v('rotation') * Math.PI / 180;
-          const lx = (dx * Math.cos(a) - dy * Math.sin(a)) / s, ly = (dx * Math.sin(a) + dy * Math.cos(a)) / s;
+          const ux = dx * Math.cos(a) - dy * Math.sin(a), uy = dx * Math.sin(a) + dy * Math.cos(a);
+          if (Motion.autoKey && !ev.shiftKey && L.keys.scale && L.keys.scale.length) {
+            // у слоя с ключами масштаба — ключ масштаба на текущем времени
+            if (!Motion.keyAt(L, 'scale', T)) Motion.addPoint(L, T);
+            Motion.setKey(L, 'scale', T, Math.max(0.01, Math.max(Math.abs(ux) * 2 / L.w, Math.abs(uy) * 2 / L.h)), null);
+            Motion.draw(); return;
+          }
+          const lx = ux / s, ly = uy / s;
           const nw = Math.max(10, lx * 2), nh = Math.max(10, ly * 2);
-          if (ev.shiftKey || L.type === 'image' || L.type === 'video') { const k = Math.max(nw / start.w, nh / start.h); L.w = start.w * k; L.h = start.h * k; if (L.size) L.size = start.size * k; }
+          if (ev.shiftKey || L.type === 'image' || L.type === 'video' || L.shape === 'icon') { const k = Math.max(nw / start.w, nh / start.h); L.w = start.w * k; L.h = start.h * k; if (L.size) L.size = start.size * k; if (L.shape === 'icon' && start.sw) L.strokeW = start.sw * k; }
           else { L.w = nw; L.h = nh; }
         }
         Motion.draw();
@@ -627,6 +1072,63 @@ const Motion = {
     Motion.playhead = h('div', { class: 'mo-playhead', style: { left: Motion.tx(Motion.t) + 'px' } });
     tl.append(Motion.playhead);
   },
+  shapeMenu(anchor) {
+    const r = anchor.getBoundingClientRect();
+    const it = k => ({ label: Motion.SHAPES[k], action: () => Motion.addShape(k) });
+    UI.showMenuList([
+      ...['rect', 'ellipse', 'triangle', 'polygon', 'star', 'heart', 'bubble', 'burst', 'badge', 'ring', 'cross'].map(it), '-',
+      ...['line', 'arrow', 'arrowTri', 'arrow2', 'arrowCurved', 'arrowDashed', 'arrowDot', 'arrowBlock', 'chevron'].map(it), '-',
+      { label: 'Иконка…', action: () => Motion.iconDialog() },
+    ], r.left, r.bottom);
+  },
+  shapeSize(shape) {
+    const P = Motion.p, b = Math.min(P.w, P.h), line = Motion.LINE_SHAPES.includes(shape);
+    return shape === 'rect' ? { w: b * 0.5, h: b * 0.14 } : shape === 'arrowCurved' ? { w: b * 0.5, h: b * 0.22 } : line ? { w: b * 0.5, h: b * 0.09 }
+      : shape === 'arrowBlock' || shape === 'chevron' ? { w: b * 0.4, h: b * 0.2 } : shape === 'bubble' ? { w: b * 0.5, h: b * 0.32 } : shape === 'icon' ? { w: b * 0.22, h: b * 0.22 } : { w: b * 0.36, h: b * 0.36 };
+  },
+  addShape(shape, props = {}) {
+    const size = Motion.shapeSize(shape);
+    const L = Motion.mkLayer('shape', Object.assign({ shape, start: Motion.t, name: Motion.SHAPES[shape] || 'Фигура' }, size, props));
+    if (shape === 'icon') { L.strokeW = props.strokeW || Math.max(2, Math.round(size.w / 12)); L.name = (typeof MOTION_ICON_NAMES !== 'undefined' && MOTION_ICON_NAMES[L.icon]) || 'Иконка'; L.strokeColor = props.strokeColor || '#ffffff'; }
+    return Motion.addLayer(L);
+  },
+  iconSvg(name, size = 28) {
+    const ic = MOTION_ICONS[name]; if (!ic) return '';
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${ic.d}"/></svg>`;
+  },
+  // библиотека иконок; L — сменить иконку у этого слоя
+  iconDialog(L) {
+    const q = h('input', { type: 'text', class: 'wide', placeholder: 'Поиск: дом, телефон, стрелка…' });
+    const grid = h('div', { class: 'mo-icons' });
+    const render = () => {
+      grid.innerHTML = '';
+      const f = q.value.trim().toLowerCase();
+      let group = '';
+      for (const [k, ic] of Object.entries(MOTION_ICONS)) {
+        const nm = MOTION_ICON_NAMES[k] || k;
+        if (f && !nm.toLowerCase().includes(f) && !k.toLowerCase().includes(f)) continue;
+        if (ic.group !== group) { group = ic.group; grid.append(h('div', { class: 'mo-icg' }, group)); }
+        grid.append(h('button', { class: 'mo-ic' + (L && L.icon === k ? ' on' : ''), title: nm, html: Motion.iconSvg(k), onclick: () => {
+          UI.closeDialog();
+          if (L) { L.icon = k; L.name = nm; Motion.commit(); } else Motion.addShape('icon', { icon: k });
+        } }));
+      }
+    };
+    q.addEventListener('input', render);
+    render();
+    UI.dialog(L ? 'Сменить иконку' : 'Иконки', h('div', { class: 'form mo-icdlg' }, q, grid, h('p', { class: 'muted small' }, 'Иконка — слой-фигура: цвет и толщина обводки, заливка, «обводка рисуется», свечение и тень — в панели «Слой и анимация».')), [{ label: 'Закрыть' }]);
+  },
+  // «+ Точка»: ключи положения, масштаба, поворота и непрозрачности на текущем времени
+  pointHere() {
+    const L = Motion.sel && Motion.layer(Motion.sel);
+    if (!L) return UI.toast('Выделите слой — логотип, картинку, текст или фигуру');
+    const n0 = Motion.pointTimes(L).length;
+    const t = Motion.addPoint(L, Motion.t);
+    Motion.commit();
+    if (Motion.showSide) Motion.showSide('props');
+    const n = Motion.pointTimes(L).length;
+    UI.toast(n > n0 ? `Точка ${Motion.pointTimes(L).indexOf(t) + 1} на ${t.toFixed(2)} с. Передвиньте время и перетащите слой — появится следующая точка.` : 'Точка обновлена');
+  },
   reorder(id, dir) {
     const a = Motion.p.layers, i = a.findIndex(l => l.id === id), j = i + dir;
     if (i < 0 || j < 0 || j >= a.length) return;
@@ -647,13 +1149,21 @@ const Motion = {
     const box = Motion.propsBox; if (!box) return;
     const L = Motion.sel && Motion.layer(Motion.sel);
     if (onlyValues && box.dataset.layer === (L ? L.id : '') && box.dataset.t !== undefined) {
-      box.querySelectorAll('[data-prop]').forEach(i => { if (document.activeElement !== i) i.value = G.round(Motion.val(L, i.dataset.prop, Motion.t), 2); });
+      box.querySelectorAll('[data-prop]').forEach(i => { if (document.activeElement !== i) i.value = G.round(Motion.val(L, i.dataset.prop, Motion.t, true), 2); });
+      box.querySelectorAll('[data-pt]').forEach(c => c.classList.toggle('cur', Math.abs(+c.dataset.pt - Motion.t) < 1e-3));
+      const lbl = box.querySelector('.mo-tnow'); if (lbl) lbl.textContent = 'Свойства на ' + Motion.t.toFixed(2) + ' с';
       return;
     }
+    const scroll = box.scrollTop;
     box.innerHTML = ''; box.dataset.layer = L ? L.id : ''; box.dataset.t = '';
     if (!L) { box.append(h('p', { class: 'muted' }, 'Выберите слой на холсте или на таймлайне.')); return; }
     const row = (label, ...kids) => h('div', { class: 'mo-pr' }, h('span', { class: 'fl' }, label), ...kids);
     const num = (key, step = 1, onch) => h('input', { type: 'number', class: 'num', step, value: G.round(L[key], 2), onchange: e => { L[key] = +e.target.value; onch && onch(); Motion.commit(); } });
+    const numd = (key, def, step = 1, title, min) => h('input', { type: 'number', class: 'num', step, min, title, value: G.round(L[key] ?? def, 2), onchange: e => { L[key] = +e.target.value; Motion.commit(); } });
+    const col = (key, def, title) => h('input', { type: 'color', title, value: L[key] || def, onchange: e => { L[key] = e.target.value; Motion.commit(); } });
+    const chk = (key, label, onch, def) => h('label', { class: 'mo-chk' }, h('input', { type: 'checkbox', checked: L[key] === undefined ? !!def : !!L[key], onchange: e => { L[key] = e.target.checked; onch && onch(e.target.checked); Motion.commit(); } }), label);
+    const sec = (id, title, ...kids) => { const d = h('details', { class: 'mo-sec', open: !!Motion.secOpen[id] }, h('summary', {}, title), ...kids); d.addEventListener('toggle', () => { Motion.secOpen[id] = d.open; }); return d; };
+    const B = (label, title, fn, cls = 'pbt') => h('button', { class: cls, title, onclick: fn }, label);
     box.append(h('div', { class: 'mo-pt' }, L.name),
       row('Время, с', num('start', 0.1), h('span', { class: 'fl' }, '—'), num('end', 0.1)),
       row('Размер', num('w', 1), h('span', { class: 'fl' }, '×'), num('h', 1)));
@@ -664,32 +1174,55 @@ const Motion = {
       box.append(row('Текст'), ta,
         row('Шрифт', UI.sel(fonts, L.font, v => { L.font = v; Motion.commit(); }, '', 150), num('size', 1)),
         row('Цвет', h('input', { type: 'color', value: L.color, onchange: e => { L.color = e.target.value; Motion.commit(); } }),
-          UI.sel([['left', 'Влево'], ['center', 'По центру'], ['right', 'Вправо']], L.align, v => { L.align = v; Motion.commit(); }, '', 100)),
+          UI.sel([['left', 'Влево'], ['center', 'По центру'], ['right', 'Вправо']], L.align, v => { L.align = v; Motion.commit(); }, '', 100),
+          UI.sel([[300, 'Светлый'], [400, 'Обычный'], [500, 'Средний'], [700, 'Жирный'], [900, 'Чёрный']], L.weight || 400, v => { L.weight = +v; Motion.commit(); }, 'Насыщенность', 90)),
+        row('Интервалы', numd('letterSpacing', 0, 0.5, 'Межбуквенный, px'), numd('lineHeight', 1.15, 0.05, 'Межстрочный (× кегль)')),
         row('Плашка', h('input', { type: 'checkbox', checked: !!L.bgColor, onchange: e => { L.bgColor = e.target.checked ? '#e30613' : null; Motion.commit(); } }),
           h('input', { type: 'color', value: L.bgColor || '#e30613', onchange: e => { L.bgColor = e.target.value; Motion.commit(); } }),
-          h('label', { class: 'row' }, h('input', { type: 'checkbox', checked: !!L.shadow, onchange: e => { L.shadow = e.target.checked; Motion.commit(); } }), ' тень')));
+          numd('plateR', Math.round(L.size * 0.2), 1, 'Скругление плашки'), numd('platePad', Math.round(L.size * 0.35), 1, 'Поля плашки'),
+          h('label', { class: 'mo-chk' }, h('input', { type: 'checkbox', checked: !!L.shadow, onchange: e => { L.shadow = e.target.checked; Motion.commit(); } }), 'тень')));
     }
-    if (L.type === 'shape') box.append(row('Форма', UI.sel([['rect', 'Прямоугольник'], ['ellipse', 'Эллипс']], L.shape, v => { L.shape = v; Motion.commit(); }, '', 130), h('input', { type: 'color', value: L.fill, onchange: e => { L.fill = e.target.value; Motion.commit(); } })), row('Скругление', num('radius', 1)));
+    if (L.type === 'shape') {
+      box.append(row('Форма', UI.sel(Object.entries(Motion.SHAPES), L.shape, v => { Motion.shapeDefaults(L, v); if (v === 'icon') return Motion.iconDialog(L); Motion.commit(); }, '', 170),
+        L.shape === 'icon' ? B('Иконка…', 'Выбрать другую иконку', () => Motion.iconDialog(L)) : ''));
+      const extra = [];
+      if (['rect', 'bubble'].includes(L.shape)) extra.push(row('Скругление', num('radius', 1)));
+      if (L.shape === 'polygon') extra.push(row('Углов', numd('sides', 6, 1, 'Число сторон', 3)));
+      if (['star', 'burst', 'badge'].includes(L.shape)) extra.push(row('Лучей', numd('points', 5, 1, 'Лучей', 3), h('span', { class: 'fl' }, 'внутр.'), numd('inner', 0.45, 0.05, 'Внутренний радиус 0..1')));
+      if (L.shape === 'ring') extra.push(row('Толщина', numd('inner', 0.62, 0.05, 'Внутренний радиус 0..1')));
+      if (L.shape === 'arrowCurved') extra.push(row('Изгиб', numd('bend', 0.8, 0.1, 'Изгиб 0..1')));
+      if (Motion.isLine(L)) extra.push(row('Наконечник', numd('head', Math.round(Math.max((L.strokeW || 6) * 3.2, 10)), 1, 'Длина наконечника, px')));
+      box.append(...extra);
+    }
     if (L.type === 'image' || L.type === 'video') box.append(row('Вписать', UI.sel([['contain', 'Целиком'], ['cover', 'Заполнить'], ['stretch', 'Растянуть']], L.fit, v => { L.fit = v; Motion.commit(); }, '', 120), num('radius', 1)),
       row('', h('button', { class: 'pbt', onclick: () => Motion.aiLayer(L, 'bg') }, 'Удалить фон (ИИ)'), h('button', { class: 'pbt', onclick: () => Motion.aiLayer(L, 'upscale') }, 'Увеличить')));
+
+    // ---------- траектория по точкам ----------
+    box.append(Motion.pathSection(L, sec, row, chk, B));
+
     // свойства с ключами на текущем времени
-    box.append(h('div', { class: 'mo-pt' }, 'Свойства на ' + Motion.t.toFixed(2) + ' с'), h('p', { class: 'muted small' }, '◆ — поставить ключ на текущем времени. Без ключей значение действует весь слой.'));
-    for (const p of ['x', 'y', 'scale', 'rotation', 'opacity', 'blur', 'reveal', ...(L.type === 'text' ? ['chars'] : [])]) {
+    box.append(h('div', { class: 'mo-pt mo-tnow' }, 'Свойства на ' + Motion.t.toFixed(2) + ' с'), h('p', { class: 'muted small' }, '◆ — поставить ключ на текущем времени. Без ключей значение действует весь слой.'));
+    const props = ['x', 'y', 'scale', 'rotation', 'opacity', 'blur', 'reveal', ...(L.type === 'text' ? ['chars'] : []), ...(L.type === 'shape' || L.type === 'text' ? ['draw'] : []), 'glow'];
+    for (const p of props) {
       const has = L.keys[p] && L.keys[p].length;
-      const inp = h('input', { type: 'number', class: 'num', 'data-prop': p, step: ['scale', 'opacity', 'reveal', 'chars'].includes(p) ? 0.05 : 1, value: G.round(Motion.val(L, p, Motion.t), 2), onchange: e => {
+      const inp = h('input', { type: 'number', class: 'num', 'data-prop': p, step: ['scale', 'opacity', 'reveal', 'chars', 'draw'].includes(p) ? 0.05 : 1, value: G.round(Motion.val(L, p, Motion.t, true), 2), onchange: e => {
         const v = +e.target.value;
-        if (has) Motion.setKey(L, p, Motion.t, v); else L[p] = v;
+        if (has) Motion.setKey(L, p, Motion.t, v, null); else L[p] = v;
         Motion.commit();
       } });
       box.append(row(Motion.PROP_NAMES[p], inp,
-        h('button', { class: 'ib' + (has ? ' on' : ''), title: 'Ключ на текущем времени', onclick: () => { Motion.setKey(L, p, Motion.t, Motion.val(L, p, Motion.t)); Motion.commit(); } }, '◆'),
-        has ? h('button', { class: 'ib', title: 'Убрать все ключи этого свойства', onclick: () => { L[p] = Motion.val(L, p, Motion.t); delete L.keys[p]; Motion.commit(); } }, '×') : ''));
+        h('button', { class: 'ib' + (has ? ' on' : ''), title: 'Ключ на текущем времени', onclick: () => { Motion.setKey(L, p, Motion.t, Motion.val(L, p, Motion.t, true)); Motion.commit(); } }, '◆'),
+        has ? h('button', { class: 'ib', title: 'Убрать все ключи этого свойства', onclick: () => { L[p] = Motion.val(L, p, Motion.t, true); delete L.keys[p]; Motion.commit(); } }, '×') : ''));
     }
+
+    // ---------- оформление: заливка, обводка, эффекты ----------
+    box.append(...Motion.styleSection(L, sec, row, chk, col, numd, num));
+
     // готовые анимации
     const preset = UI.sel(Object.entries(Motion.PRESETS), 'fadeIn', () => { }, '', 170);
     const dur = h('input', { type: 'number', class: 'num', value: 0.8, step: 0.1, min: 0.05 });
     const dir = UI.sel([['left', 'слева'], ['right', 'справа'], ['up', 'сверху'], ['down', 'снизу']], 'left', () => { }, '', 90);
-    const ease = UI.sel([['', 'плавность'], ...Motion.EASES.map(e => [e, e])], '', () => { }, '', 100);
+    const ease = UI.sel([['', 'плавность'], ...Motion.EASES.filter(e => e !== 'smooth').map(e => [e, Motion.EASE_NAMES[e] || e])], '', () => { }, '', 100);
     box.append(h('div', { class: 'mo-pt' }, 'Анимация'), row('', preset), row('Длит., с', dur, dir), row('', ease,
       h('button', { class: 'pbt', onclick: () => { const t0 = preset.value.endsWith('Out') ? Math.max(L.start, Math.min(L.end, Motion.t)) : Math.max(L.start, Motion.t); Motion.applyPreset(L, preset.value, t0, +dur.value, { direction: dir.value, ease: ease.value || undefined }); Motion.commit(); } }, 'Применить с текущего времени')),
       h('button', { class: 'pbt', onclick: () => { L.keys = {}; Motion.commit(); } }, 'Убрать всю анимацию слоя'),
@@ -697,6 +1230,71 @@ const Motion = {
       h('button', { class: 'pbt danger', onclick: () => Motion.removeLayer(L.id) }, 'Удалить слой'));
     box.querySelectorAll('input,textarea').forEach(i => i.addEventListener('keydown', e => e.stopPropagation()));
     box.dataset.t = String(Motion.t);
+    box.scrollTop = scroll;
+  },
+  pathSection(L, sec, row, chk, B) {
+    const times = Motion.pointTimes(L);
+    const easeOpts = Motion.EASES.map(e => [e, Motion.EASE_NAMES[e] || e]);
+    const list = h('div', { class: 'mo-pts' });
+    const fmt = v => G.round(v, 2);
+    times.forEach((t, i) => {
+      const key = p => Motion.keyAt(L, p, t);
+      const fld = (p, label, step) => h('label', { class: 'mo-pf' }, h('span', {}, label), h('input', { type: 'number', class: 'num', step, value: fmt(key(p) ? key(p).v : Motion.val(L, p, t, true)), onchange: e => { Motion.setKey(L, p, t, +e.target.value, key(p) ? null : (L.pathEase || 'smooth')); Motion.commit(); } }));
+      const tin = h('input', { type: 'number', class: 'num', step: 0.1, min: 0, title: 'Время точки, с', value: fmt(t), onchange: e => { if (!Motion.movePoint(L, t, +e.target.value)) UI.toast('На этом времени уже есть точка', true); Motion.commit(); } });
+      const next = times[i + 1];
+      const segEase = next !== undefined ? ((Motion.keyAt(L, 'x', next) || Motion.keyAt(L, 'y', next) || {}).ease || 'easeInOut') : null;
+      const card = h('div', { class: 'mo-ptc' + (Math.abs(t - Motion.t) < 1e-3 ? ' cur' : ''), 'data-pt': t },
+        h('div', { class: 'mo-pth' },
+          h('button', { class: 'mo-ptn', title: 'Перейти к точке', onclick: () => Motion.seek(t) }, String(i + 1)),
+          h('span', { class: 'fl' }, 't'), tin, h('span', { class: 'fl' }, 'с'), h('span', { class: 'grow' }),
+          h('button', { class: 'ib', title: 'Поменять местами с предыдущей', disabled: i === 0 ? true : undefined, onclick: () => { Motion.swapPoints(L, t, times[i - 1]); Motion.commit(); } }, '↑'),
+          h('button', { class: 'ib', title: 'Поменять местами со следующей', disabled: next === undefined ? true : undefined, onclick: () => { Motion.swapPoints(L, t, next); Motion.commit(); } }, '↓'),
+          h('button', { class: 'ib', title: 'Удалить точку', onclick: () => { Motion.removePoint(L, t); Motion.commit(); } }, '×')),
+        h('div', { class: 'mo-ptg' }, fld('x', 'X', 1), fld('y', 'Y', 1), fld('scale', 'Масштаб', 0.05), fld('rotation', 'Поворот', 1), fld('opacity', 'Непрозр.', 0.05)),
+        next !== undefined ? h('div', { class: 'mo-pre' }, h('span', { class: 'fl' }, `→ к точке ${i + 2}:`), UI.sel(easeOpts, segEase, v => { Motion.setSegEase(L, next, v); Motion.commit(); }, 'Плавность движения к следующей точке', 170)) : '');
+      list.append(card);
+    });
+    const ak = h('label', { class: 'mo-chk' }, h('input', { type: 'checkbox', checked: Motion.autoKey, onchange: e => { Motion.autoKey = e.target.checked; if (Motion.akBtn) Motion.akBtn.classList.toggle('on', Motion.autoKey); } }), 'Автоключ');
+    return sec('path', 'Траектория по точкам' + (times.length ? ` (${times.length})` : ''),
+      h('p', { class: 'muted small' }, times.length ? 'Перетаскивайте точки на холсте. Время → перетащите слой: с «Автоключом» появится новая точка (Shift — сдвинуть весь путь).' : 'Поставьте точку 1, передвиньте время, перетащите слой (или «+ Точка») — слой полетит по плавной кривой через все точки.'),
+      row('', B('+ Точка', 'Точка на текущем времени (если точка здесь уже есть — обновить)', () => Motion.pointHere(), 'pbt primary'), ak),
+      row('Плавность', UI.sel(easeOpts, L.pathEase || 'smooth', v => { L.pathEase = v; Motion.commit(); }, 'Для новых точек', 150),
+        B('Ко всем', 'Применить ко всем отрезкам траектории', () => { Motion.pointTimes(L).slice(1).forEach(t => Motion.setSegEase(L, t, L.pathEase || 'smooth')); Motion.commit(); })),
+      row('', chk('pathLinear', 'по прямой'), chk('orient', 'ориентировать по пути')),
+      list,
+      times.length ? row('', B('Убрать траекторию', 'Удалить все точки', () => { for (const t of Motion.pointTimes(L)) Motion.removePoint(L, t); Motion.commit(); }, 'pbt danger')) : '');
+  },
+  styleSection(L, sec, row, chk, col, numd, num) {
+    const out = [];
+    const isShape = L.type === 'shape', isText = L.type === 'text', line = Motion.isLine(L);
+    if (isShape || isText) {
+      const fillKids = [];
+      if (!line) fillKids.push(row('Заливка', chk('fillOn', 'вкл.', null, true), isText ? h('input', { type: 'color', value: L.color || '#ffffff', onchange: e => { L.color = e.target.value; Motion.commit(); } }) : col('fill', '#e30613'),
+        chk('gradOn', 'градиент'), col('fill2', '#ffffff', 'Второй цвет градиента')));
+      if (L.gradOn && !line) fillKids.push(row('Градиент', UI.sel([['linear', 'Линейный'], ['radial', 'Радиальный']], L.gradType || 'linear', v => { L.gradType = v; Motion.commit(); }, '', 110), numd('gradAngle', 90, 15, 'Угол, °')));
+      if (isShape) {
+        fillKids.push(row('Обводка', line ? '' : chk('strokeOn', 'вкл.'), col('strokeColor', '#ffffff'), h('span', { class: 'fl' }, 'толщ.'), numd('strokeW', 6, 1, 'Толщина, px', 0)));
+        if (L.strokeOn || line) fillKids.push(row('', h('span', { class: 'fl' }, 'пунктир'), numd('strokeDash', 0, 1, 'Длина штриха, px (0 — сплошная)', 0), numd('strokeGap', L.strokeDash || 0, 1, 'Пробел, px', 0), chk('strokeGradOn', 'градиентом')));
+      } else {
+        const st = L.stroke || {};
+        fillKids.push(row('Обводка', h('input', { type: 'checkbox', checked: !!(L.stroke && L.stroke.width > 0), onchange: e => { L.stroke = e.target.checked ? { color: st.color || '#000000', width: st.width || Math.max(2, Math.round(L.size / 20)) } : null; Motion.commit(); } }),
+          h('input', { type: 'color', value: st.color || '#000000', onchange: e => { L.stroke = Object.assign({ width: Math.max(2, Math.round(L.size / 20)) }, L.stroke, { color: e.target.value }); Motion.commit(); } }),
+          h('input', { type: 'number', class: 'num', step: 1, min: 0, title: 'Толщина, px', value: st.width || 0, onchange: e => { L.stroke = Object.assign({ color: '#000000' }, L.stroke, { width: +e.target.value }); Motion.commit(); } })));
+      }
+      fillKids.push(h('p', { class: 'muted small' }, 'Без заливки — только контур. «Обводка рисуется» (◆ выше или анимация «Обводка рисуется») — 0…1.'));
+      out.push(sec('style', 'Заливка и обводка', ...fillKids));
+    }
+    const fx = [];
+    fx.push(row('Свечение', col('glowColor', '#ffffff', 'Цвет свечения'), h('span', { class: 'fl' }, 'сила'), numd('glowI', 2, 1, 'Интенсивность 1..6', 1), h('span', { class: 'muted small' }, 'радиус — «Свечение» выше')));
+    fx.push(row('Затемнение', chk('dsOn', 'тень'), col('dsColor', '#000000'), numd('dsOp', 0.55, 0.05, 'Непрозрачность 0..1', 0)));
+    if (L.dsOn) fx.push(row('', h('span', { class: 'fl' }, 'размытие'), numd('dsBlur', 20, 1, 'Размытие, px', 0), h('span', { class: 'fl' }, 'x'), numd('dsX', 0, 1, 'Сдвиг X'), h('span', { class: 'fl' }, 'y'), numd('dsY', 12, 1, 'Сдвиг Y')));
+    fx.push(row('Внутр. тень', chk('isOn', 'вкл.'), col('isColor', '#000000'), numd('isOp', 0.7, 0.05, 'Непрозрачность 0..1', 0)));
+    if (L.isOn) fx.push(row('', h('span', { class: 'fl' }, 'размытие'), numd('isBlur', 12, 1, 'Размытие, px', 0), h('span', { class: 'fl' }, 'x'), numd('isX', 0, 1, 'Сдвиг X'), h('span', { class: 'fl' }, 'y'), numd('isY', 6, 1, 'Сдвиг Y')));
+    fx.push(row('Град. прозр.', chk('fadeOn', 'вкл.'), h('span', { class: 'fl' }, 'угол'), numd('fadeAngle', 180, 15, 'Направление, ° (180 — сверху вниз, 90 — слева направо)')));
+    if (L.fadeOn) fx.push(row('', h('span', { class: 'fl' }, 'от'), numd('fadeFrom', 0, 0.05, 'Начало 0..1'), h('span', { class: 'fl' }, 'до'), numd('fadeTo', 1, 0.05, 'Конец 0..1'), h('span', { class: 'fl' }, 'α'), numd('fadeA0', 1, 0.1, 'Непрозрачность в начале'), numd('fadeA1', 0, 0.1, 'Непрозрачность в конце')));
+    fx.push(row('Наложение', UI.sel(Motion.BLENDS, L.blend || 'source-over', v => { L.blend = v; Motion.commit(); }, 'Режим наложения', 170)));
+    out.push(sec('fx', 'Эффекты: свечение, тень, прозрачность', ...fx));
+    return out;
   },
   // ---------- диалоги ----------
   bgDialog() {
@@ -1012,7 +1610,11 @@ const Motion = {
     const P = Motion.p;
     return `Ты — моушн-дизайнер и работаешь в редакторе «Моушн» программы «Вектор». Делаешь анимационные ролики из кадров, картинок и текста на фоне цвета, фото или видео с компьютера пользователя.
 Холст: ${P.w}×${P.h} пикселей, ${P.fps} к/с, длительность ${P.duration} с. Координаты слоя x,y — ЦЕНТР слоя в пикселях от левого верхнего угла; w,h — размер слоя при масштабе 1. Время — в секундах.
-Слои: image (картинка/кадр), video, text, shape. Анимация — ключевые кадры свойств x, y, scale, rotation (градусы), opacity (0..1), blur (px), reveal (0..1, шторка слева направо), chars (0..1, печать текста) или готовые анимации (animate): ${Object.entries(Motion.PRESETS).map(([k, v]) => k + ' — ' + v).join('; ')}. Плавности: ${Motion.EASES.join(', ')}.
+Слои: image (картинка/кадр), video, text, shape. Анимация — ключевые кадры свойств x, y, scale, rotation (градусы), opacity (0..1), blur (px), reveal (0..1, шторка слева направо), chars (0..1, печать текста), draw (0..1, обводка фигуры/текста «рисуется»), glow (радиус свечения, px) или готовые анимации (animate): ${Object.entries(Motion.PRESETS).map(([k, v]) => k + ' — ' + v).join('; ')}. Плавности: ${Motion.EASES.join(', ')} (smooth — плавно сквозь точки без остановок).
+ДВИЖЕНИЕ ПО ТОЧКАМ (path_points): слой летит по плавной кривой через точки [{t, x, y, scale, rotation, opacity, ease}] — например, точка 1: логотип в центре, точка 2: улетает вверх и уменьшается, точка 3: … Сколько угодно точек; ease точки — плавность движения К СЛЕДУЮЩЕЙ точке (по умолчанию smooth). linear:true — по прямым отрезкам, orient:true — поворачивать слой по направлению движения. Для сложного движения используй path_points, а не отдельные set_keyframes для x и y.
+ФИГУРЫ (shape): ${Object.entries(Motion.SHAPES).map(([k, v]) => k + ' — ' + v).join('; ')}. Линии и стрелки рисуются обводкой (stroke_color, stroke_width), ширина w — длина стрелки, поворот rotation — направление. Параметры: radius (скругление rect/bubble), sides (polygon), points и inner (star/burst/badge), inner (ring), bend (arrowCurved 0..1), head (длина наконечника, px).
+ИКОНКИ: shape:"icon", icon: одно из ${Object.keys(typeof MOTION_ICONS !== 'undefined' ? MOTION_ICONS : {}).join(', ')}. Иконка — линейная, цвет — stroke_color, толщина — stroke_width (≈ w/12); можно fill_on:true с fill.
+ОФОРМЛЕНИЕ (для фигур и текста, эффекты — для любых слоёв): fill_on (false — только контур), fill, gradient (true) + fill2 + gradient_angle + gradient_type (linear/radial), stroke_on, stroke_color, stroke_width, stroke_dash (пунктир, px); glow_color + glow (радиус, анимируется) + glow_intensity (1..6); drop_shadow «затемнение» + shadow_color, shadow_blur, shadow_x, shadow_y, shadow_opacity; inner_shadow + inner_color, inner_blur, inner_x, inner_y, inner_opacity; fade (градиентная прозрачность) + fade_angle (180 — сверху вниз, 90 — слева направо), fade_from, fade_to (0..1), fade_start_opacity, fade_end_opacity; blend (режим наложения). Текст: letter_spacing, line_height, bg_color (плашка) + plate_radius + plate_padding, stroke_color/stroke_width (обводка текста), fill_on:false — контурный текст. Обводка «рисуется»: animate preset drawOn или ключи draw 0→1.
 
 Порядок работы:
 0. ИСТОЧНИКИ: делай ролик из материалов, которые прикрепил пользователь (list_materials), и из его задачи. Если в проекте остались слои, фон или тексты от прошлой работы, а пользователь прикрепил новые материалы или просит новый ролик, — НЕ бери оттуда ничего (ни видео, ни тексты): сразу new_project. Дорабатывай текущий проект, только если пользователь прямо об этом просит («доработай», «поправь этот ролик»).
@@ -1030,7 +1632,17 @@ const Motion = {
     const layerP = { name: str('Имя слоя'), x: num('Центр X, px'), y: num('Центр Y, px'), w: num('Ширина, px'), h: num('Высота, px'), start: num('Появляется с секунды'), end: num('Исчезает на секунде'),
       scale: num('Масштаб'), rotation: num('Поворот, градусы'), opacity: num('Непрозрачность 0..1'), fit: { type: 'string', enum: ['contain', 'cover', 'stretch'] }, radius: num('Скругление углов, px'),
       text: str('Текст (\\n — перенос)'), font: str('Шрифт: Oswald, Bebas Neue, DINAMIKA, Arial или подключённый'), size: num('Кегль, px'), color: str('Цвет текста #rrggbb'), weight: num('Насыщенность 100..900'),
-      align: { type: 'string', enum: ['left', 'center', 'right'] }, bg_color: str('Плашка под текстом #rrggbb или none'), shadow: bool('Тень текста'), fill: str('Цвет фигуры #rrggbb'), shape: { type: 'string', enum: ['rect', 'ellipse'] } };
+      align: { type: 'string', enum: ['left', 'center', 'right'] }, bg_color: str('Плашка под текстом #rrggbb или none'), shadow: bool('Мягкая тень текста'), fill: str('Цвет заливки #rrggbb'),
+      shape: { type: 'string', enum: Object.keys(Motion.SHAPES) }, icon: { type: 'string', enum: Object.keys(typeof MOTION_ICONS !== 'undefined' ? MOTION_ICONS : {}), description: 'Иконка для shape=icon' },
+      sides: num('Углов многоугольника'), points: num('Лучей звезды/взрыва'), inner: num('Внутренний радиус 0..1 (звезда, кольцо)'), bend: num('Изгиб стрелки 0..1'), head: num('Длина наконечника стрелки, px'),
+      fill_on: bool('Заливка (false — только контур)'), gradient: bool('Градиентная заливка'), fill2: str('Второй цвет градиента'), gradient_angle: num('Угол градиента, °'), gradient_type: { type: 'string', enum: ['linear', 'radial'] },
+      stroke_on: bool('Обводка'), stroke_color: str('Цвет обводки'), stroke_width: num('Толщина обводки, px'), stroke_dash: num('Пунктир: длина штриха, px (0 — сплошная)'),
+      draw: num('Обводка нарисована 0..1'), glow: num('Радиус свечения, px (0 — нет)'), glow_color: str('Цвет свечения'), glow_intensity: num('Сила свечения 1..6'),
+      drop_shadow: bool('Тень «затемнение»'), shadow_color: str('Цвет тени'), shadow_blur: num('Размытие тени, px'), shadow_x: num('Сдвиг тени X'), shadow_y: num('Сдвиг тени Y'), shadow_opacity: num('Непрозрачность тени 0..1'),
+      inner_shadow: bool('Внутренняя тень'), inner_color: str('Цвет внутренней тени'), inner_blur: num('Размытие'), inner_x: num('Сдвиг X'), inner_y: num('Сдвиг Y'), inner_opacity: num('Непрозрачность 0..1'),
+      fade: bool('Градиентная прозрачность'), fade_angle: num('Направление, ° (180 — сверху вниз)'), fade_from: num('Начало 0..1'), fade_to: num('Конец 0..1'), fade_start_opacity: num('Непрозрачность в начале'), fade_end_opacity: num('Непрозрачность в конце'),
+      blend: { type: 'string', enum: Motion.BLENDS.map(b => b[0]) }, letter_spacing: num('Межбуквенный интервал, px'), line_height: num('Межстрочный, × кегль'), plate_radius: num('Скругление плашки'), plate_padding: num('Поля плашки'),
+      orient_path: bool('Поворачивать по направлению движения'), path_linear: bool('Траектория по прямым') };
     return [
       T('list_materials', 'Список прикреплённых материалов (папки и файлы с ролями).', { role: str('Роль') }),
       T('search_files', 'Поиск файлов в материалах по части имени или расширению.', { query: str('Часть имени или «.mp4»') }, ['query']),
@@ -1045,6 +1657,9 @@ const Motion = {
       T('update_layer', 'Изменить свойства слоя (значения «в покое»; если у свойства есть ключи — используй set_keyframes).', Object.assign({ id: str('id слоя'), visible: bool('Видимость') }, layerP), ['id']),
       T('animate', 'Готовая анимация слоя с времени start длительностью duration. Для *Out — start = когда начать уход.', { id: str('id слоя'), preset: { type: 'string', enum: Object.keys(Motion.PRESETS) }, start: num('Начало, с'), duration: num('Длительность, с'), direction: { type: 'string', enum: ['left', 'right', 'up', 'down'] }, distance: num('Расстояние, px'), intensity: num('Сила 0.3..3'), ease: { type: 'string', enum: Motion.EASES } }, ['id', 'preset', 'start']),
       T('set_keyframes', 'Ключевые кадры одного свойства (заменяют ключи этого свойства на отрезке их времён).', { id: str('id слоя'), prop: { type: 'string', enum: Motion.PROPS }, keys: { type: 'array', items: { type: 'object', properties: { t: num('Время, с'), v: num('Значение'), ease: { type: 'string', enum: Motion.EASES } }, required: ['t', 'v'] } }, replace_all: bool('Удалить все прежние ключи свойства') }, ['id', 'prop', 'keys']),
+      T('path_points', 'Движение слоя по точкам: плавная кривая через точки, в каждой — положение, масштаб, поворот, непрозрачность. Заменяет прежние ключи x/y (и тех свойств, что заданы в точках) на отрезке точек.', { id: str('id слоя'),
+        points: { type: 'array', items: { type: 'object', properties: { t: num('Время, с'), x: num('Центр X, px'), y: num('Центр Y, px'), scale: num('Масштаб'), rotation: num('Поворот, °'), opacity: num('Непрозрачность 0..1'), ease: { type: 'string', enum: Motion.EASES, description: 'Плавность движения к следующей точке' } }, required: ['t'] } },
+        ease: { type: 'string', enum: Motion.EASES, description: 'Плавность по умолчанию (smooth)' }, linear: bool('По прямым отрезкам'), orient: bool('Поворачивать по пути'), replace_all: bool('Удалить все прежние ключи x/y') }, ['id', 'points']),
       T('clear_animation', 'Убрать ключи слоя (всех или одного свойства).', { id: str('id слоя'), prop: str('Свойство (необязательно)') }, ['id']),
       T('remove_layer', 'Удалить слой.', { id: str('id слоя') }, ['id']),
       T('reorder_layer', 'Порядок: index 0 — самый нижний.', { id: str('id слоя'), index: num('Новый индекс') }, ['id', 'index']),
@@ -1059,7 +1674,7 @@ const Motion = {
   toolLabel(n, a) {
     return ({ list_materials: 'Смотрю материалы', search_files: 'Ищу файлы ' + (a.query || ''), view_file: 'Смотрю ' + (a.path || ''), read_file: 'Читаю ' + (a.path || ''), get_project: 'Изучаю проект',
       set_canvas: 'Настраиваю кадр', set_background: 'Фон' + (a.path ? ': ' + a.path : ''), set_music: 'Музыка', add_layer: 'Слой ' + (a.name || a.type), update_layer: 'Правлю слой', animate: 'Анимация ' + (Motion.PRESETS[a.preset] || a.preset) + ' с ' + a.start + ' с',
-      set_keyframes: 'Ключи ' + (Motion.PROP_NAMES[a.prop] || a.prop), clear_animation: 'Убираю анимацию', remove_layer: 'Удаляю слой', reorder_layer: 'Порядок слоёв', view_frames: 'Смотрю кадры ' + (a.times || []).join(', '),
+      set_keyframes: 'Ключи ' + (Motion.PROP_NAMES[a.prop] || a.prop), path_points: 'Траектория: точек ' + ((a.points || []).length), clear_animation: 'Убираю анимацию', remove_layer: 'Удаляю слой', reorder_layer: 'Порядок слоёв', view_frames: 'Смотрю кадры ' + (a.times || []).join(', '),
       remove_background: 'Вырезаю фон', generate_image: 'Генерирую картинку', generate_video: 'Генерирую видео (несколько минут)', render: 'Сохраняю ' + String(a.format || 'mp4').toUpperCase(), save_project: 'Сохраняю проект' })[n] || n;
   },
   describe() {
@@ -1073,7 +1688,11 @@ const Motion = {
         const o = { index: i, id: L.id, type: L.type, name: L.name, start: r(L.start), end: r(L.end), x: r(L.x), y: r(L.y), w: r(L.w), h: r(L.h), scale: r(L.scale), rotation: r(L.rotation), opacity: r(L.opacity) };
         if (L.asset) o.asset = (Motion.assets[L.asset] || {}).name;
         if (L.type === 'text') Object.assign(o, { text: L.text, font: L.font, size: r(L.size), color: L.color, bg_color: L.bgColor || undefined });
-        if (L.type === 'shape') Object.assign(o, { fill: L.fill, shape: L.shape });
+        if (L.type === 'shape') Object.assign(o, { shape: L.shape, icon: L.shape === 'icon' ? L.icon : undefined, fill: L.fillOn === false ? 'none' : L.fill, stroke: L.strokeOn || Motion.isLine(L) ? L.strokeColor + ' ' + L.strokeW + 'px' : undefined });
+        const fx = []; if (L.glow || (L.keys.glow && L.keys.glow.length)) fx.push('glow'); if (L.dsOn) fx.push('drop_shadow'); if (L.isOn) fx.push('inner_shadow'); if (L.fadeOn) fx.push('fade'); if (L.gradOn) fx.push('gradient'); if (L.blend && L.blend !== 'source-over') fx.push('blend ' + L.blend);
+        if (fx.length) o.effects = fx.join(', ');
+        const pts = Motion.pointTimes(L); if (pts.length > 1) o.path_points = pts.map(t => r(t));
+        if (L.orient) o.orient_path = true; if (L.pathLinear) o.path_linear = true;
         const keys = {}; for (const [p, ks] of Object.entries(L.keys || {})) if (ks.length) keys[p] = ks.map(k => [r(k.t), r(k.v)]);
         if (Object.keys(keys).length) o.keys = keys;
         return o;
@@ -1085,12 +1704,26 @@ const Motion = {
     if (!f) throw new Error('Нет такого файла в материалах: ' + path);
     return Motion.assetFromEntry(f.entry);
   },
+  PMAP: { bg_color: 'bgColor', fill_on: 'fillOn', gradient: 'gradOn', gradient_angle: 'gradAngle', gradient_type: 'gradType', stroke_on: 'strokeOn', stroke_color: 'strokeColor', stroke_width: 'strokeW', stroke_dash: 'strokeDash',
+    glow_color: 'glowColor', glow_intensity: 'glowI', drop_shadow: 'dsOn', shadow_color: 'dsColor', shadow_blur: 'dsBlur', shadow_x: 'dsX', shadow_y: 'dsY', shadow_opacity: 'dsOp',
+    inner_shadow: 'isOn', inner_color: 'isColor', inner_blur: 'isBlur', inner_x: 'isX', inner_y: 'isY', inner_opacity: 'isOp', fade: 'fadeOn', fade_angle: 'fadeAngle', fade_from: 'fadeFrom', fade_to: 'fadeTo',
+    fade_start_opacity: 'fadeA0', fade_end_opacity: 'fadeA1', letter_spacing: 'letterSpacing', line_height: 'lineHeight', plate_radius: 'plateR', plate_padding: 'platePad', orient_path: 'orient', path_linear: 'pathLinear' },
   setLayerProps(L, a) {
-    const map = { bg_color: 'bgColor' };
+    const map = Motion.PMAP;
+    if (L.type === 'shape' && a.shape && a.shape !== L.shape) Motion.shapeDefaults(L, a.shape);
+    if (L.type === 'shape' && a.icon && L.shape !== 'icon') Motion.shapeDefaults(L, 'icon');
     for (const [k, v] of Object.entries(a)) {
-      if (['id', 'type', 'path', 'asset_id'].includes(k) || v === undefined) continue;
+      if (['id', 'type', 'path', 'asset_id', 'shape'].includes(k) || v === undefined) continue;
       const key = map[k] || k;
       if (key === 'bgColor') { L.bgColor = v && v !== 'none' ? v : null; continue; }
+      if (key === 'fill' && v === 'none') { L.fillOn = false; continue; }
+      if (L.type === 'text' && (key === 'strokeColor' || key === 'strokeW' || key === 'strokeOn')) {
+        if (key === 'strokeOn' && !v) { L.stroke = null; continue; }
+        L.stroke = Object.assign({ color: '#000000', width: Math.max(2, Math.round(L.size / 20)) }, L.stroke || {});
+        if (key === 'strokeColor') L.stroke.color = v; if (key === 'strokeW') L.stroke.width = +v;
+        continue;
+      }
+      if (key === 'icon' && L.type === 'shape') { L.shape = 'icon'; L.icon = v; if (!a.name && typeof MOTION_ICON_NAMES !== 'undefined') L.name = MOTION_ICON_NAMES[v] || v; continue; }
       if (Motion.PROPS.includes(key) && L.keys[key] && L.keys[key].length) {
         // у свойства есть ключи: сдвигаем всю траекторию (x/y) или задаём значение «в покое»
         if (key === 'x' || key === 'y') { const d = +v - L[key]; L.keys[key].forEach(q => { q.v += d; }); }
@@ -1131,8 +1764,13 @@ const Motion = {
           else if (w && !hh) hh = w * sh / sw; else if (hh && !w) w = hh * sw / sh;
           props = { asset: as.id, name: as.name.replace(/\.\w+$/, ''), w, h: hh, loop: a.loop, audio: a.audio };
         }
+        if (a.type === 'shape') {
+          const sh = a.icon ? 'icon' : a.shape || 'rect', sz = Motion.shapeSize(sh);
+          props = { w: a.w || (a.h && sh === 'icon' ? a.h : sz.w), h: a.h || (a.w && sh === 'icon' ? a.w : sz.h), name: a.name || (sh === 'icon' && typeof MOTION_ICON_NAMES !== 'undefined' ? MOTION_ICON_NAMES[a.icon] : Motion.SHAPES[sh]) || 'Фигура' };
+        }
         const L = Motion.mkLayer(a.type, props);
         Motion.setLayerProps(L, Object.assign({}, a, { w: props.w || a.w, h: props.h || a.h }));
+        if (L.type === 'shape' && L.shape === 'icon' && a.stroke_width === undefined) L.strokeW = Math.max(2, Math.round(Math.min(L.w, L.h) / 12));
         if (L.end > P.duration) L.end = P.duration;
         Motion.addLayer(L, false);
         return { id: L.id, name: L.name, x: L.x, y: L.y, w: Math.round(L.w), h: Math.round(L.h), start: L.start, end: L.end };
@@ -1145,6 +1783,25 @@ const Motion = {
         if (a.replace_all) delete L.keys[a.prop]; else Motion.clearKeys(L, a.prop, ks[0].t, ks[ks.length - 1].t);
         for (const k of ks) Motion.setKey(L, a.prop, k.t, k.v, k.ease);
         Motion.commit(); return { id: L.id, prop: a.prop, count: L.keys[a.prop].length };
+      }
+      case 'path_points': {
+        const L = need(a.id);
+        const pts = (a.points || []).filter(q => q && isFinite(+q.t)).map(q => Object.assign({}, q, { t: Math.round(Math.max(0, +q.t) * 1000) / 1000 })).sort((x, y) => x.t - y.t);
+        if (!pts.length) throw new Error('Нет точек');
+        if (a.linear !== undefined) L.pathLinear = !!a.linear;
+        if (a.orient !== undefined) L.orient = !!a.orient;
+        const ease = a.ease || 'smooth'; L.pathEase = ease;
+        const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+        const used = Motion.PT_PROPS.filter(p => p === 'x' || p === 'y' || pts.some(q => q[p] !== undefined));
+        const startVals = {}; for (const p of used) startVals[p] = Motion.val(L, p, t0, true);
+        for (const p of used) { if (a.replace_all && (p === 'x' || p === 'y')) delete L.keys[p]; else Motion.clearKeys(L, p, t0, t1); }
+        const cur = Object.assign({}, startVals);
+        pts.forEach((q, i) => {
+          const e = i === 0 ? ease : (pts[i - 1].ease || ease);
+          for (const p of used) { if (q[p] !== undefined && isFinite(+q[p])) cur[p] = +q[p]; Motion.setKey(L, p, q.t, cur[p], e); }
+        });
+        Motion.commit();
+        return { id: L.id, points: pts.length, props: used, from: t0, to: t1 };
       }
       case 'clear_animation': { const L = need(a.id); if (a.prop) delete L.keys[a.prop]; else L.keys = {}; Motion.commit(); return { ok: true }; }
       case 'remove_layer': need(a.id); Motion.removeLayer(a.id); return { ok: true };
