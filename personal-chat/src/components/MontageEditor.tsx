@@ -3,14 +3,15 @@ import type { ReactNode } from "react";
 import type { MontageAudio, MontageCaptions, MontageClip, MontageConfig, MontageOptions, MontageProject, MontageTransform, MontageTranscript, StoriesDesign, StoriesHandoff } from "../lib/types";
 import { fileName, fmtTime, layerDuration, layout, newAudio, newClip, newLayer, outputToSource, outputWords, projectDuration, round3, setTransformAt, splitAt, uid } from "../lib/montage";
 import MontagePreview from "./MontagePreview";
-import MontageTimeline, { type Selection } from "./MontageTimeline";
+import MontageTimeline, { type DropTarget, type Selection } from "./MontageTimeline";
 import MontageExport from "./MontageExport";
 import { AudioInspector, ClipInspector, LayerInspector, TextInspector } from "./MontageInspector";
 import { AIPanel, AudioPanel, CaptionsPanel, DesignPanel, EffectsPanel, FiltersPanel, MediaPanel, StockPanel, TextPanel, TransitionsPanel } from "./MontagePanels";
 import type { BinItem, EditorCtx } from "./MontageControls";
 import { MotionInspector, MotionPanel, TitlesPanel } from "./MontageMotion";
+import { LayoutPanel } from "./MontageLayouts";
 import { createPlayhead, usePlayhead, usePlayheadSelect, type Playhead } from "../lib/playhead";
-import type { OutputWord } from "../lib/montage";
+import type { DragPayload, OutputWord } from "../lib/montage";
 
 interface Props {
   options: MontageOptions;
@@ -27,13 +28,14 @@ interface Props {
   onMotionDesign?: (handoff: Omit<StoriesHandoff, "nonce">) => void;
 }
 
-type LeftTab = "media" | "motion" | "titles" | "stock" | "audio" | "text" | "captions" | "effects" | "filters" | "transitions" | "design" | "agent" | "avatar" | "ai";
+type LeftTab = "media" | "motion" | "titles" | "layout" | "stock" | "audio" | "text" | "captions" | "effects" | "filters" | "transitions" | "design" | "agent" | "avatar" | "ai";
 
 /** Колонка инструментов слева — как верхняя панель CapCut, только вертикально. */
 const LEFT_TABS: { id: LeftTab; icon: string; label: string }[] = [
   { id: "media", icon: "🎞", label: "Медиа" },
   { id: "motion", icon: "✨", label: "Моушн" },
   { id: "titles", icon: "🏷", label: "Титры" },
+  { id: "layout", icon: "🧩", label: "Коллаж" },
   { id: "text", icon: "T", label: "Текст" },
   { id: "captions", icon: "CC", label: "Субтитры" },
   { id: "stock", icon: "🌐", label: "Сток" },
@@ -140,6 +142,19 @@ export default function MontageEditor({ options, config, initial, onSaved, onCon
   const [exporting, setExporting] = useState(false);
 
   const scheme = options.scheme;
+
+  // Короткий журнал действий: если окно зависнет, по нему видно, на чём.
+  const crumb = (t: string) => {
+    try {
+      window.api.montageCrumb(t);
+    } catch {
+      // журнал — не условие работы
+    }
+  };
+  useEffect(() => crumb(`вкладка ${tab}`), [tab]);
+  useEffect(() => crumb(playing ? "воспроизведение" : "пауза"), [playing]);
+  useEffect(() => crumb(`выбрано ${selection ? selection.kind : "ничего"}`), [selection]);
+  useEffect(() => crumb(`проект: кусков ${hist.present.clips.length}, слоёв ${hist.present.layers.length}, надписей ${hist.present.texts.length}`), [hist.present.clips.length, hist.present.layers.length, hist.present.texts.length]);
   const bin: BinItem[] = useMemo(() => ((project.meta as { bin?: BinItem[] }).bin || []), [project.meta]);
 
   // ---------- история правок ----------
@@ -532,6 +547,73 @@ export default function MontageEditor({ options, config, initial, onSaved, onCon
   const selText = selection?.kind === "text" ? project.texts.find((t) => t.id === selection.id) : undefined;
   const selAudio = selection?.kind === "audio" ? project.audio.find((a) => a.id === selection.id) : undefined;
   const selLayer = selection?.kind === "layer" ? project.layers.find((l) => l.id === selection.id) : undefined;
+  /**
+   * Брошено из панели. Эффект — добавляется к куску/слою, фильтр — заменяет
+   * фильтр, переход — встаёт на стык перед куском; файл — ложится на ту
+   * дорожку и в тот момент, куда его бросили (как в CapCut).
+   */
+  const onDropItem = useCallback(
+    (data: DragPayload, at: DropTarget) => {
+      if (data.type === "media") {
+        if (!("lane" in at)) return;
+        const item: BinItem = { path: data.path, kind: data.kind, duration: data.duration };
+        if (!bin.some((b) => b.path === item.path)) addToBin([item]);
+        crumb(`брошен файл на ${at.lane}`);
+        if (at.lane === "music" || at.lane === "sfx") {
+          if (item.kind !== "audio" && item.kind !== "video") return;
+          const a = newAudio(item.path, at.lane, at.time, item.duration || (at.lane === "music" ? 30 : 1));
+          commit((p) => ({ ...p, audio: [...p.audio, a] }));
+          setSelection({ kind: "audio", id: a.id });
+          return;
+        }
+        if (item.kind === "audio") {
+          setNotice("Звук — на дорожку музыки или звуков внизу.");
+          return;
+        }
+        if (at.lane === "layer") {
+          const l = { ...newLayer(item.path, item.kind, item.duration, at.time), track: at.track || 1 };
+          commit((p) => ({ ...p, layers: [...p.layers, l] }));
+          setSelection({ kind: "layer", id: l.id });
+          setNotice("Видео легло поверх главного. Размер и место — мышью в кадре или справа; раскладки экрана — справа, в «Раскладка».");
+          return;
+        }
+        const c = newClip(item.path, item.kind, item.duration);
+        commit((p) => {
+          const { items } = layout(p.clips);
+          const i = items.findIndex((it) => at.time < it.start + it.duration / 2);
+          const idx = i < 0 ? p.clips.length : i;
+          return { ...p, clips: [...p.clips.slice(0, idx), c, ...p.clips.slice(idx)] };
+        });
+        setSelection({ kind: "clip", id: c.id });
+        return;
+      }
+      if (!("kind" in at)) return;
+      crumb(`брошен ${data.type} ${data.id}`);
+      if (data.type === "transition") {
+        const i = project.clips.findIndex((c) => c.id === at.id);
+        if (i <= 0) {
+          setNotice("Переход ставится на стык: бросьте его на второй и следующие куски.");
+          return;
+        }
+        commit((p) => ({ ...p, clips: p.clips.map((c) => (c.id === at.id ? { ...c, transition: { kind: data.id, duration: c.transition.duration || 0.4 } } : c)) }));
+        setNotice(`Переход «${data.name || data.id}» — на стык перед куском ${i + 1}.`);
+        return;
+      }
+      const patchItem = <T extends { effects: MontageClip["effects"]; adjust: MontageClip["adjust"] }>(x: T): T =>
+        data.type === "effect" ? { ...x, effects: [...x.effects, { id: uid("fx"), kind: data.id, amount: 0.5 }] } : { ...x, adjust: { ...x.adjust, filter: data.id, filterAmount: x.adjust.filterAmount || 1 } };
+      commit((p) =>
+        at.kind === "clip"
+          ? { ...p, clips: p.clips.map((c) => (c.id === at.id ? patchItem(c) : c)) }
+          : { ...p, layers: p.layers.map((l) => (l.id === at.id ? patchItem(l) : l)) }
+      );
+      setSelection({ kind: at.kind, id: at.id });
+      setNotice(`${data.type === "effect" ? "Эффект" : "Фильтр"} «${data.name || data.id}» применён. Сила — справа.`);
+    },
+    // crumb — простая функция без состояния.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bin, addToBin, commit, project.clips]
+  );
+
   const onSeek = useCallback(
     (t: number) => {
       setPlaying(false);
@@ -602,6 +684,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onCon
             {tab === "media" && <MediaPanel ctx={ctx} />}
             {tab === "motion" && <MotionPanel ctx={ctx} config={config} onConfig={onConfig} />}
             {tab === "titles" && <TitlesPanel ctx={ctx} config={config} />}
+            {tab === "layout" && <LayoutPanel ctx={ctx} />}
             {tab === "agent" && (agentPanel || <p className="mt-hint">ИИ-монтажёр доступен в программе «Монтаж».</p>)}
             {tab === "avatar" && (avatarPanel || <p className="mt-hint">Аватар доступен в программе «Монтаж».</p>)}
             {tab === "stock" && <StockPanel ctx={ctx} />}
@@ -632,6 +715,18 @@ export default function MontageEditor({ options, config, initial, onSaved, onCon
               onSelect={setSelection}
               onLayerTransform={onLayerTransform}
               onTextMove={onTextMove}
+              onDropItem={(data) => {
+                // В кадр: эффект — на выбранный слой или кусок под бегунком; файл — слоем поверх.
+                if (data.type === "media") {
+                  let track = 1;
+                  while (track < 8 && project.layers.some((l) => l.track === track && l.start <= time && l.start + layerDuration(l) > time)) track++;
+                  onDropItem(data, { lane: "layer", time, track });
+                  return;
+                }
+                if (selection?.kind === "layer" && data.type !== "transition") return onDropItem(data, { kind: "layer", id: selection.id });
+                const hit = outputToSource(project.clips, time);
+                if (hit) onDropItem(data, { kind: "clip", id: hit.clip.id });
+              }}
             />
           </div>
           <div className="mt-transport">
@@ -701,6 +796,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onCon
         onSelect={setSelection}
         onLive={onLive}
         onCommit={onCommit}
+        onDropItem={onDropItem}
       />
 
       {exporting && <MontageExport options={options} project={project} onClose={() => setExporting(false)} onDone={() => setNotice("Экспорт готов — файлы в папке готовых роликов.")} />}

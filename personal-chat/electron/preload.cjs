@@ -189,6 +189,11 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("montage-render", handler);
     return () => ipcRenderer.removeListener("montage-render", handler);
   },
+  montageCrumb: (text) => ipcRenderer.send("montage:crumb", text),
+  montageSafeStart: () => ipcRenderer.invoke("montage:safeStart"),
+  montageFlags: () => ipcRenderer.invoke("montage:flags"),
+  montageSetFlags: (patch) => ipcRenderer.invoke("montage:setFlags", patch),
+  montageOpenLog: () => ipcRenderer.invoke("montage:openLog"),
   montageReadText: (file) => ipcRenderer.invoke("montage:readText", file),
   montagePickText: () => ipcRenderer.invoke("montage:pickText"),
   montagePickImages: () => ipcRenderer.invoke("montage:pickImages"),
@@ -205,6 +210,13 @@ contextBridge.exposeInMainWorld("api", {
   montageFilmstrip: (file) => ipcRenderer.invoke("montage:filmstrip", file),
   montageWave: (file) => ipcRenderer.invoke("montage:wave", file),
   montageAutoEnhance: (file, range) => ipcRenderer.invoke("montage:autoEnhance", file, range),
+  montageBgPrepare: (item, which) => ipcRenderer.invoke("montage:bgPrepare", item, which),
+  montageBgStop: () => ipcRenderer.invoke("montage:bgStop"),
+  onMontageBg: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-bg", handler);
+    return () => ipcRenderer.removeListener("montage-bg", handler);
+  },
   montageEraseFrame: (file, at, erase) => ipcRenderer.invoke("montage:eraseFrame", file, at, erase),
   onMontageMotion: (cb) => {
     const handler = (_e, data) => cb(data);

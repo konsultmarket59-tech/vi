@@ -1,9 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { MontageClip, MontageKeyframe, MontageProject } from "../lib/types";
-import { captionLines, clamp, fileName, fmtTime, itemLabel, layerDuration, layout, mediaUrl, round3, type OutputWord } from "../lib/montage";
+import { captionLines, clamp, fileName, fmtTime, getDrag, itemLabel, layerDuration, layout, mediaUrl, round3, type DragPayload, type OutputWord } from "../lib/montage";
 import { usePlayhead, type Playhead } from "../lib/playhead";
 
 export type Selection = { kind: "clip" | "text" | "audio" | "layer"; id: string } | null;
+
+/** Куда бросили: на кусок/слой или на дорожку в момент времени. */
+export type DropTarget = { kind: "clip" | "layer"; id: string } | { lane: "main" | "layer" | "music" | "sfx"; time: number; track?: number };
 
 interface Props {
   project: MontageProject;
@@ -19,6 +22,8 @@ interface Props {
   onLive: (p: MontageProject) => void;
   /** Конец перетаскивания: одна запись в историю на всё движение. */
   onCommit: (p: MontageProject) => void;
+  /** Брошено из панели: эффект, фильтр, переход — на кусок; файл — на дорожку. */
+  onDropItem: (data: DragPayload, at: DropTarget) => void;
 }
 
 const HEAD = 72;
@@ -109,9 +114,22 @@ function Diamonds({ keyframes, pps }: { keyframes: MontageKeyframe[]; pps: numbe
   );
 }
 
-function ClipBlock({ clip, scheme, left, width, selected, pps, onDown, onSelect, onDropBefore }: {
+function useDropHighlight() {
+  const [over, setOver] = useState(false);
+  return {
+    over,
+    on: {
+      onDragEnter: () => setOver(true),
+      onDragLeave: () => setOver(false),
+    },
+    off: () => setOver(false),
+  };
+}
+
+function ClipBlock({ clip, scheme, left, width, selected, pps, onDown, onSelect, onDropBefore, onDropFx }: {
   clip: MontageClip;
   scheme: string;
+  onDropFx: (data: DragPayload) => void;
   left: number;
   width: number;
   selected: boolean;
@@ -128,16 +146,29 @@ function ClipBlock({ clip, scheme, left, width, selected, pps, onDown, onSelect,
     clip.adjust.lut && "LUT",
     clip.audioEffect !== "none" && "♫",
   ].filter(Boolean);
+  const hl = useDropHighlight();
   return (
     <div
-      className={`mt-tl-clip ${selected ? "sel" : ""} ${clip.kind}`}
+      className={`mt-tl-clip ${selected ? "sel" : ""} ${clip.kind} ${hl.over ? "drop" : ""}`}
       style={{ left, width: Math.max(4, width) }}
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/montage-clip", clip.id)}
       onDragOver={(e) => e.preventDefault()}
+      {...hl.on}
       onDrop={(e) => {
+        hl.off();
         const id = e.dataTransfer.getData("text/montage-clip");
-        if (id && id !== clip.id) onDropBefore(id);
+        if (id) {
+          e.stopPropagation();
+          if (id !== clip.id) onDropBefore(id);
+          return;
+        }
+        const data = getDrag(e);
+        // Эффект, фильтр, переход — на этот кусок; файл — дорожке (вставка в точку).
+        if (data && data.type !== "media") {
+          e.stopPropagation();
+          onDropFx(data);
+        }
       }}
       onMouseDown={(e) => {
         e.stopPropagation();
@@ -180,16 +211,33 @@ function AudioBlock({ a, scheme, pps, selected, onDown }: {
   );
 }
 
-function LayerBlock({ l, scheme, pps, selected, onDown }: {
+function LayerBlock({ l, scheme, pps, selected, onDown, onDropFx }: {
   l: MontageProject["layers"][number];
   scheme: string;
+  onDropFx: (data: DragPayload) => void;
   pps: number;
   selected: boolean;
   onDown: (e: React.MouseEvent, part: "move" | "start" | "end") => void;
 }) {
   const width = Math.max(6, layerDuration(l) * pps);
+  const hl = useDropHighlight();
   return (
-    <div className={`mt-tl-layer ${selected ? "sel" : ""} ${l.kind === "motion" ? "motion" : ""}`} style={{ left: l.start * pps, width }} onMouseDown={(e) => onDown(e, "move")} title={itemLabel(l)}>
+    <div
+      className={`mt-tl-layer ${selected ? "sel" : ""} ${l.kind === "motion" ? "motion" : ""} ${hl.over ? "drop" : ""}`}
+      style={{ left: l.start * pps, width }}
+      onMouseDown={(e) => onDown(e, "move")}
+      title={itemLabel(l)}
+      onDragOver={(e) => e.preventDefault()}
+      {...hl.on}
+      onDrop={(e) => {
+        hl.off();
+        const data = getDrag(e);
+        if (data && data.type !== "media" && data.type !== "transition") {
+          e.stopPropagation();
+          onDropFx(data);
+        }
+      }}
+    >
       {l.kind !== "motion" && <Filmstrip src={l.src} scheme={scheme} from={l.in} to={l.out} width={width} height={30} kind={l.kind} />}
       <span className="mt-tl-label">
         {l.kind === "motion" ? "✨ " : ""}
@@ -217,7 +265,7 @@ function PlayheadLine({ playhead, pps, scroller }: { playhead: Playhead; pps: nu
   return <div className="mt-tl-playhead" style={{ left: HEAD + time * pps }} />;
 }
 
-function MontageTimeline({ project, playhead, scheme, pps, selection, words, sourceDurations, onSeek, onSelect, onLive, onCommit }: Props) {
+function MontageTimeline({ project, playhead, scheme, pps, selection, words, sourceDurations, onSeek, onSelect, onLive, onCommit, onDropItem }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const live = useRef<MontageProject>(project);
@@ -233,9 +281,11 @@ function MontageTimeline({ project, playhead, scheme, pps, selection, words, sou
       5
     ) + 4;
   const width = total * pps;
+  // Дорожки видео над главной — всегда видны, плюс одна свободная сверху:
+  // файл можно бросить на любую, и в кадре будет несколько видео сразу.
   const layerTracks = useMemo(() => {
-    const used = [...new Set(project.layers.map((l) => l.track))].sort((a, b) => b - a);
-    return used;
+    const max = Math.min(8, Math.max(2, ...project.layers.map((l) => l.track + 1)));
+    return Array.from({ length: max }, (_, i) => max - i);
   }, [project.layers]);
 
   const lines = useMemo(
@@ -341,6 +391,28 @@ function MontageTimeline({ project, playhead, scheme, pps, selection, words, sou
     onSelect({ kind: list === "texts" ? "text" : list === "layers" ? "layer" : "audio", id: item.id });
     setDrag({ kind, list, id: item.id, x0: e.clientX, y0: e.clientY, start: item.start, end: item.end ?? 0, inn: item.in ?? 0, out: item.out ?? 0, track: item.track });
   };
+  const timeAt = (clientX: number) => {
+    const el = ref.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return Math.max(0, round3((clientX - rect.left + el.scrollLeft - HEAD) / pps));
+  };
+  const laneDrop = (lane: "main" | "layer" | "music" | "sfx", track?: number) => ({
+    onDragOver: (e: React.DragEvent) => e.preventDefault(),
+    onDrop: (e: React.DragEvent) => {
+      const data = getDrag(e);
+      if (!data) return;
+      e.preventDefault();
+      if (data.type === "media") {
+        onDropItem(data, { lane, time: timeAt(e.clientX), track });
+        return;
+      }
+      // Эффект брошен мимо куска — на тот, что под точкой (на главной дорожке).
+      const t = timeAt(e.clientX);
+      const hit = items.findIndex((it) => t >= it.start && t < it.end);
+      if (hit >= 0) onDropItem(data, { kind: "clip", id: project.clips[hit].id });
+    },
+  });
   const laneDown = (e: React.MouseEvent) => {
     seekFromEvent(e);
     onSelect(null);
@@ -378,19 +450,20 @@ function MontageTimeline({ project, playhead, scheme, pps, selection, words, sou
         </div>
 
         {layerTracks.map((track) => (
-          <div key={track} className="mt-tl-track layer" data-name={`Слой ${track}`}>
-            <div className="mt-tl-head" title="Слой поверх видео: картинка в картинке, стикер, перебивка">▣{track}</div>
-            <div className="mt-tl-lane" onMouseDown={laneDown}>
+          <div key={track} className="mt-tl-track layer" data-name={`Видео ${track + 1}`}>
+            <div className="mt-tl-head" title="Дорожка видео поверх главной: картинка в картинке, коллаж, стикер, перебивка. Перетащите сюда файл из «Медиа».">🎞{track + 1}</div>
+            <div className="mt-tl-lane" onMouseDown={laneDown} {...laneDrop("layer", track)}>
+              {!project.layers.some((l) => l.track === track) && <span className="mt-tl-empty">перетащите сюда видео или фото — оно ляжет поверх</span>}
               {project.layers.filter((l) => l.track === track).map((l) => (
-                <LayerBlock key={l.id} l={l} scheme={scheme} pps={pps} selected={isSel("layer", l.id)} onDown={(e, part) => startDrag("layers", { ...l, end: l.start + layerDuration(l) }, part, e)} />
+                <LayerBlock key={l.id} l={l} onDropFx={(d) => onDropItem(d, { kind: "layer", id: l.id })} scheme={scheme} pps={pps} selected={isSel("layer", l.id)} onDown={(e, part) => startDrag("layers", { ...l, end: l.start + layerDuration(l) }, part, e)} />
               ))}
             </div>
           </div>
         ))}
 
         <div className="mt-tl-track main" data-name="Видео">
-          <div className="mt-tl-head" title="Главная дорожка">🎬</div>
-          <div className="mt-tl-lane" onMouseDown={laneDown}>
+          <div className="mt-tl-head" title="Главная дорожка (Видео 1)">🎬1</div>
+          <div className="mt-tl-lane" onMouseDown={laneDown} {...laneDrop("main")}>
             {project.clips.map((c, i) => (
               <ClipBlock
                 key={c.id}
@@ -408,6 +481,7 @@ function MontageTimeline({ project, playhead, scheme, pps, selection, words, sou
                   setDrag({ kind: edge === "in" ? "clip-in" : "clip-out", id: c.id, x0: e.clientX, orig: c });
                 }}
                 onDropBefore={(id) => moveClipBefore(id, c.id)}
+                onDropFx={(d) => onDropItem(d, { kind: "clip", id: c.id })}
               />
             ))}
           </div>
@@ -428,7 +502,7 @@ function MontageTimeline({ project, playhead, scheme, pps, selection, words, sou
 
         <div className="mt-tl-track" data-name="Музыка">
           <div className="mt-tl-head" title="Музыка и голос">♪</div>
-          <div className="mt-tl-lane" onMouseDown={laneDown}>
+          <div className="mt-tl-lane" onMouseDown={laneDown} {...laneDrop("music")}>
             {music.map((a) => (
               <AudioBlock key={a.id} a={a} scheme={scheme} pps={pps} selected={isSel("audio", a.id)} onDown={(e, part) => startDrag("audio", a, part, e)} />
             ))}
@@ -437,7 +511,7 @@ function MontageTimeline({ project, playhead, scheme, pps, selection, words, sou
 
         <div className="mt-tl-track thin2" data-name="Звуки">
           <div className="mt-tl-head" title="Звуковые эффекты">✺</div>
-          <div className="mt-tl-lane" onMouseDown={laneDown}>
+          <div className="mt-tl-lane" onMouseDown={laneDown} {...laneDrop("sfx")}>
             {sfx.map((a) => (
               <AudioBlock key={a.id} a={a} scheme={scheme} pps={pps} selected={isSel("audio", a.id)} onDown={(e, part) => startDrag("audio", a, part, e)} />
             ))}

@@ -9,11 +9,15 @@ import {
   captionLines,
   layerDuration,
   gradeOverlays,
+  bgPreview,
   layout,
+  maskCss,
   lookCss,
   mediaUrl,
   motionCss,
   sampleTransform,
+  getDrag,
+  type DragPayload,
   type OutputWord,
 } from "../lib/montage";
 import type { Selection } from "./MontageTimeline";
@@ -35,6 +39,8 @@ interface Props {
   /** Перетаскивание слоя в кадре: commit — отпустили мышь, пора в историю правок. */
   onLayerTransform: (id: string, patch: Partial<MontageTransform>, commit: boolean) => void;
   onTextMove: (id: string, x: number, y: number, commit: boolean) => void;
+  /** Брошено в кадр из панели: эффект, фильтр, переход или файл. */
+  onDropItem?: (data: DragPayload) => void;
 }
 
 /** Как переход выглядит в предпросмотре: стиль уходящего и приходящего куска. */
@@ -140,6 +146,36 @@ export const MotionFrame = memo(function MotionFrame({ motion, width, height, lo
 });
 
 /**
+ * Обводка маски в окне: цветная плашка той же формы, из которой вырезана та
+ * же форма поменьше (в сборке — кольцо по внутреннему краю).
+ */
+function MaskRing({ l, shaped, width }: { l: MontageLayer; shaped: CSSProperties; width: string }) {
+  const color = l.maskStrokeColor || "#ffffff";
+  if (!shaped.maskImage) {
+    return <div className="mt-mask-ring" style={{ boxShadow: `inset 0 0 0 ${width} ${color}`, borderRadius: l.mask === "rounded" ? "6cqmin" : l.mask === "circle" ? "50%" : undefined }} />;
+  }
+  const img = String(shaped.maskImage);
+  const size = String(shaped.maskSize);
+  return (
+    <div
+      className="mt-mask-ring"
+      style={{
+        background: color,
+        padding: width,
+        WebkitMaskImage: `${img}, ${img}`,
+        WebkitMaskSize: `${size}, ${size}`,
+        WebkitMaskPosition: "center, center",
+        WebkitMaskRepeat: "no-repeat, no-repeat",
+        WebkitMaskOrigin: "border-box, content-box",
+        WebkitMaskClip: "border-box, content-box",
+        WebkitMaskComposite: "xor",
+        maskComposite: "exclude",
+      } as CSSProperties}
+    />
+  );
+}
+
+/**
  * Где в кадре водяные знаки куска: в окне они размыты (подсказка, что знак
  * учтён), а в сборке — заменены фоном. Положение считается по геометрии
  * видео на экране: заполнение или вписывание, центр и приближение.
@@ -194,7 +230,7 @@ function EraseMarks({ clip, fit }: { clip: MontageClip; fit: string }) {
  * Цвет, фильтры, эффекты и движение — css; это приближение того, что сделает
  * ffmpeg. Шум, глитч, линза и хромакей точно видны только в собранном ролике.
  */
-export default function MontagePreview({ project, scheme, options, playhead, proxies, playing, words, selection, onTime, onEnded, onSelect, onLayerTransform, onTextMove }: Props) {
+export default function MontagePreview({ project, scheme, options, playhead, proxies, playing, words, selection, onTime, onEnded, onSelect, onLayerTransform, onTextMove, onDropItem }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const media = useRef<Map<string, HTMLMediaElement>>(new Map());
   const time = usePlayhead(playhead);
@@ -245,7 +281,7 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
       if (master && el && !el.paused && !el.seeking) {
         if (el.readyState < 3) next = t;
         else {
-          const mt = master.start + (el.currentTime - master.clip.in) / master.clip.speed;
+          const mt = master.start + (el.currentTime - (bgPreview(master.clip) ? 0 : master.clip.in)) / master.clip.speed;
           if (Math.abs(mt - next) < 0.3) next = Math.max(t, mt);
         }
       }
@@ -278,13 +314,17 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
     const targets = new Map<string, { at: number; rate: number; volume: number; reverse?: boolean }>();
     for (const v of visibleMain) {
       const c = v.clip;
-      if (c.kind === "image" || c.kind === "motion") continue;
-      const at = c.reverse ? c.out - v.local * c.speed : c.in + v.local * c.speed;
+      const bpc = bgPreview(c);
+      if ((c.kind === "image" && !bpc) || c.kind === "motion") continue;
+      // Готовый вид с удалённым фоном начинается с начала куска, а не исходника.
+      const shift = bpc ? c.in : 0;
+      const at = (c.reverse ? c.out - v.local * c.speed : c.in + v.local * c.speed) - shift;
       targets.set(`c:${c.id}`, { at, rate: c.speed, volume: c.muted ? 0 : Math.min(1, c.volume), reverse: c.reverse });
     }
     for (const l of visibleLayers) {
-      if (l.kind === "image" || l.kind === "motion") continue;
-      targets.set(`l:${l.id}`, { at: l.in + (time - l.start) * l.speed, rate: l.speed, volume: l.muted ? 0 : Math.min(1, l.volume) });
+      const bpl = bgPreview(l);
+      if ((l.kind === "image" && !bpl) || l.kind === "motion") continue;
+      targets.set(`l:${l.id}`, { at: (bpl ? 0 : l.in) + (time - l.start) * l.speed, rate: l.speed, volume: l.muted ? 0 : Math.min(1, l.volume) });
     }
     for (const a of project.audio) {
       const local = time - a.start;
@@ -373,6 +413,8 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
           {fit(c) === "blur" && c.kind !== "image" && <div className="mt-stage-blur" />}
           {c.kind === "motion" && c.motion ? (
             <div className="mt-stage-media mt-stage-motion"><MotionFrame motion={c.motion} width={W} height={H} local={hidden ? 0 : local * c.speed + c.in} /></div>
+          ) : bgPreview(c) ? (
+            <video ref={reg(`c:${c.id}`)} className="mt-stage-media" src={mediaUrl(scheme, bgPreview(c))} style={mediaStyle} playsInline preload="auto" muted={c.kind === "image"} />
           ) : c.kind === "image" ? (
             <img className="mt-stage-media" src={mediaUrl(scheme, c.src)} style={mediaStyle} alt="" />
           ) : (
@@ -406,15 +448,54 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
     const fadeIn = l.fadeIn > 0 ? Math.min(1, local / l.fadeIn) : 1;
     const fadeOut = l.fadeOut > 0 ? Math.min(1, (dur - local) / l.fadeOut) : 1;
     const selected = selection?.kind === "layer" && selection.id === l.id;
+    const shaped = maskCss(l.mask, options.masksDir, scheme);
     const mediaStyle: CSSProperties = {
       width: "100%",
-      height: l.mask === "circle" ? "100%" : "auto",
+      height: l.mask === "circle" && !l.cell ? "100%" : "auto",
       objectFit: "cover",
       display: "block",
       filter: lookCss(l.adjust, l.effects, options.filters, options.effects),
       transform: mo.transform,
-      borderRadius: l.mask === "circle" ? "50%" : l.mask === "rounded" ? "12%" : undefined,
+      borderRadius: l.mask === "circle" && !shaped.maskImage ? "50%" : l.mask === "rounded" ? "6cqmin" : undefined,
+      ...shaped,
     };
+    const strokePx = (l.maskStroke || 0) > 0 ? `${((l.maskStroke || 0) * 2.2 / 1080) * 100}cqmin` : "";
+    if (l.cell) {
+      // Ячейка раскладки: заполнение с обрезкой — как в сборке.
+      const c = l.cell;
+      return (
+        <div
+          key={l.id}
+          className={`mt-layer mt-layer-cell ${selected ? "sel" : ""}`}
+          style={{
+            display: hidden ? "none" : undefined,
+            left: `${c.x * 100}%`,
+            top: `${c.y * 100}%`,
+            width: `${c.w * 100}%`,
+            height: `${c.h * 100}%`,
+            opacity: tf.opacity * Math.max(0, Math.min(fadeIn, fadeOut)),
+            zIndex: 10 + l.track,
+            borderRadius: l.mask === "rounded" ? "6cqmin" : undefined,
+            ...maskCss(l.mask, options.masksDir, scheme),
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onSelect({ kind: "layer", id: l.id });
+          }}
+          title="Ячейка раскладки. Что видно в ячейке — «Кадрирование в ячейке» справа"
+        >
+          {bgPreview(l) ? (
+            <video ref={reg(`l:${l.id}`)} src={mediaUrl(scheme, bgPreview(l))} style={{ ...mediaStyle, width: "100%", height: "100%", objectFit: "cover", objectPosition: `${(l.focusX ?? 0.5) * 100}% ${(l.focusY ?? 0.5) * 100}%`, borderRadius: 0 }} playsInline preload="auto" />
+          ) : l.kind === "image" ? (
+            <img src={mediaUrl(scheme, l.src)} style={{ ...mediaStyle, width: "100%", height: "100%", objectFit: "cover", objectPosition: `${(l.focusX ?? 0.5) * 100}% ${(l.focusY ?? 0.5) * 100}%`, borderRadius: 0 }} alt="" draggable={false} />
+          ) : l.kind === "motion" && l.motion ? (
+            <MotionFrame motion={l.motion} width={W} height={H} local={hidden ? 0 : l.in + Math.max(0, local) * l.speed} />
+          ) : (
+            <video ref={reg(`l:${l.id}`)} src={videoUrl(l.src)} style={{ ...mediaStyle, width: "100%", height: "100%", objectFit: "cover", objectPosition: `${(l.focusX ?? 0.5) * 100}% ${(l.focusY ?? 0.5) * 100}%`, borderRadius: 0 }} playsInline preload="auto" />
+          )}
+        </div>
+      );
+    }
     return (
       <div
         key={l.id}
@@ -443,11 +524,14 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
       >
         {l.kind === "motion" && l.motion ? (
           <MotionFrame motion={l.motion} width={W} height={H} local={hidden ? 0 : l.in + Math.max(0, local) * l.speed} />
+        ) : bgPreview(l) ? (
+          <video ref={reg(`l:${l.id}`)} src={mediaUrl(scheme, bgPreview(l))} style={mediaStyle} playsInline preload="auto" />
         ) : l.kind === "image" ? (
           <img src={mediaUrl(scheme, l.src)} style={mediaStyle} alt="" draggable={false} />
         ) : (
           <video ref={reg(`l:${l.id}`)} src={videoUrl(l.src)} style={mediaStyle} playsInline preload="auto" />
         )}
+        {strokePx && l.mask !== "none" && <MaskRing l={l} shaped={shaped} width={strokePx} />}
       </div>
     );
   };
@@ -478,6 +562,14 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
       className="mt-stage"
       style={{ aspectRatio: `${W} / ${H}`, background: project.canvas.background }}
       onMouseDown={() => onSelect(null)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        const data = getDrag(e);
+        if (data && onDropItem) {
+          e.preventDefault();
+          onDropItem(data);
+        }
+      }}
     >
       {fontFace && <style>{fontFace}</style>}
       {/* Резкость в окне — свёрткой SVG: CSS-фильтра резкости нет. */}
@@ -524,8 +616,15 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
               fontFamily: t.fontPath ? `"${cssFamily(t.fontPath)}"` : cap.fontPath ? "mt-caption" : undefined,
               fontWeight: t.fontPath ? 400 : undefined,
               letterSpacing: t.spacing ? `${t.spacing}em` : undefined,
-              textShadow: t.glow ? `0 0 0.12em ${t.accentColor || cap.highlight}, 0 0 0.35em ${t.accentColor || cap.highlight}` : undefined,
-              ...(placed ? { left: `${t.x! * 100}%`, top: `${t.y! * 100}%`, right: "auto", bottom: "auto", transform: "translate(-50%, -50%)" } : {}),
+              lineHeight: t.lineHeight && Math.abs(t.lineHeight - 1) > 0.01 ? 1.2 * t.lineHeight : undefined,
+              textAlign: t.align || undefined,
+              WebkitTextStroke: t.outline ? `${(t.outline * 2 / 1080) * 100}cqmin ${t.outlineColor || "#000"}` : undefined,
+              paintOrder: t.outline ? "stroke fill" : undefined,
+              textShadow: [
+                t.glow ? `0 0 0.12em ${t.accentColor || cap.highlight}, 0 0 0.35em ${t.accentColor || cap.highlight}` : "",
+                t.shadow ? `${(t.shadow / 1080) * 100}cqmin ${(t.shadow / 1080) * 100}cqmin ${((t.shadowBlur || 0) / 1080) * 100 * 2}cqmin ${(t.shadowColor || "#000000")}b0` : "",
+              ].filter(Boolean).join(", ") || undefined,
+              ...(placed ? { left: `${t.x! * 100}%`, top: `${t.y! * 100}%`, right: "auto", bottom: "auto", transform: `translate(${t.align === "left" ? "0" : t.align === "right" ? "-100%" : "-50%"}, -50%)` } : {}),
               ["--p" as string]: String(progress),
             }}
             onMouseDown={(e) => {

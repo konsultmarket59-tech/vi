@@ -354,9 +354,27 @@ export function TitlesPanel({ ctx, config }: { ctx: EditorCtx; config: MontageCo
                   pair={pair}
                   designDir={designDir}
                   scheme={ctx.scheme}
-                  onAdd={() => {
+                  onAdd={async () => {
                     const fields: Record<string, string> = Object.fromEntries(t.fields.map((f) => [f.key, f.value]));
                     if (pair) fields.__pair = pair;
+                    if (t.full) {
+                      // Интро — в начало, аутро — в конец, коллаж — под бегунок.
+                      const assets: Record<string, string> = {};
+                      if (t.photos) {
+                        const picked = await window.api.montagePickImages();
+                        picked.slice(0, t.photos).forEach((p, i) => (assets[`photo${i + 1}`] = p));
+                      }
+                      const clip = newMotionClip(motionOf({ template: t.id, fields, duration: t.duration, designDir, title: t.name, assets }));
+                      ctx.commit((p) => {
+                        const total = projectDuration(p);
+                        const hit = outputToSource(p.clips, ctx.time);
+                        const at = t.group === "Интро" ? 0 : t.group === "Аутро" || !hit || ctx.time >= total - 0.05 ? p.clips.length : hit.index + 1;
+                        return { ...p, clips: [...p.clips.slice(0, at), clip, ...p.clips.slice(at)] };
+                      });
+                      ctx.setSelection({ kind: "clip", id: clip.id });
+                      ctx.notify(`«${t.name}» — на главной дорожке${t.group === "Интро" ? " в начале" : t.group === "Аутро" ? " в конце" : ""}. Текст${t.photos ? " и фото" : ""} — справа.`);
+                      return;
+                    }
                     insertLayer(ctx, motionOf({ template: t.id, fields, duration: t.duration, designDir, title: t.name, transparent: true }));
                     ctx.notify(`Титр «${t.name}» добавлен. Текст — справа, в инспекторе.`);
                   }}
@@ -422,6 +440,27 @@ export function MotionInspector({ ctx, item, layer }: { ctx: EditorCtx; item: Mo
           ))}
           <p className="mt-hint">*слово* в звёздочках — акцентом (цветом и вторым шрифтом пары); «/» — перенос строки.</p>
           <PairSelect value={m.fields.__pair || ""} onChange={(id) => update({ fields: { ...m.fields, __pair: id } })} hasDesignFonts={!!ctx.design?.fontFiles.length} defaultLabel="как в заготовке" />
+          {!!tpl.photos && (
+            <>
+              <div className="mt-photo-chips">
+                {Array.from({ length: tpl.photos }, (_, i) => m.assets[`photo${i + 1}`]).map((p, i) => (
+                  <span key={i} style={p ? { backgroundImage: `url("${mediaUrl(ctx.scheme, p)}")` } : undefined} title={p ? `Фото ${i + 1}` : `Фото ${i + 1} не выбрано`}>{p ? "" : i + 1}</span>
+                ))}
+              </div>
+              <button
+                className="btn btn-secondary btn-block"
+                onClick={async () => {
+                  const picked = await window.api.montagePickImages();
+                  if (!picked.length) return;
+                  const assets: Record<string, string> = { ...m.assets };
+                  picked.slice(0, tpl.photos).forEach((p, i) => (assets[`photo${i + 1}`] = p));
+                  update({ assets });
+                }}
+              >
+                🖼 Выбрать фото ({tpl.photos})
+              </button>
+            </>
+          )}
         </>
       )}
       {!m.template && (

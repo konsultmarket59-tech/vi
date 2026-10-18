@@ -73,11 +73,35 @@ export default function MontageApp() {
               <p className="mt-hint">
                 Ключ и модель нужны ИИ: моушн-дизайну и монтажёру. Монтаж руками, титры, чистка пауз, эффекты, субтитры и экспорт работают и без них.
               </p>
+              <StabilitySettings />
               <SettingsView settings={settings} onChange={setSettings} />
             </div>
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+/** Аппаратное ускорение и журнал — то, что спасает при зависаниях на конкретной видеокарте. */
+function StabilitySettings() {
+  const [flags, setFlags] = useState<{ noGpu?: boolean; noGpuReason?: string; logPath: string } | null>(null);
+  useEffect(() => {
+    window.api.montageFlags().then(setFlags).catch(() => {});
+  }, []);
+  if (!flags) return null;
+  return (
+    <div className="mt-stability">
+      <label className="mt-check">
+        <input
+          type="checkbox"
+          checked={!flags.noGpu}
+          onChange={async (e) => setFlags({ ...flags, ...(await window.api.montageSetFlags({ noGpu: !e.target.checked })) })}
+        />
+        Аппаратное ускорение видео (если окно белеет или зависает — выключите и перезапустите программу)
+      </label>
+      {flags.noGpu && flags.noGpuReason && <p className="mt-hint">Выключено автоматически после сбоя графики: {flags.noGpuReason}</p>}
+      <button className="btn btn-secondary" onClick={() => window.api.montageOpenLog()}>Журнал (прислать разработчику)</button>
     </div>
   );
 }

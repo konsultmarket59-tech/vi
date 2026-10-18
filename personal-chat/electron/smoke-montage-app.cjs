@@ -173,6 +173,30 @@ app.whenReady().then(async () => {
       const erased = await readOpen("p.clips[0].erase");
       check("область знака сохранена в куске", erased && erased.length === 1 && erased[0].x > 0.5 && erased[0].w > 0.2, JSON.stringify(erased));
 
+      // Эффект перетаскиванием на кусок — как в CapCut.
+      await clickText(".mt-rail button", "Эффекты");
+      await until(`!!document.querySelector(".mt-fx-chip")`);
+      const fxBefore = (await readOpen("p.clips[0].effects.length")) || 0;
+      await call(`(() => {
+        const dt = new DataTransfer();
+        document.querySelector(".mt-fx-chip").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
+        const c = document.querySelector(".mt-tl-clip");
+        c.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
+        c.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+      })()`);
+      await wait(1200);
+      check("эффект, брошенный на кусок, применён", (await readOpen("p.clips[0].effects.length")) === fxBefore + 1);
+
+      await clickText(".mt-rail button", "Коллаж");
+      check("вкладка коллажа — раскладки экрана", await until(`document.querySelectorAll(".mt-layout").length >= 4`));
+      await clickText(".mt-rail button", "Титры");
+      check("в титрах — интро, аутро и коллажи", await until(`["Интро", "Аутро", "Коллажи"].every(g => document.querySelector(".mt-left").textContent.includes(g))`, 15000));
+
+      await call(`document.querySelector(".mt-tl-text").dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))`);
+      check("у надписи — интервал, обводка, тень, выравнивание", await until(`["Межстрочный", "Обводка", "Тень"].every(s => document.querySelector(".mt-right").textContent.includes(s)) && !!document.querySelector(".mt-right .mt-seg")`));
+      check("пару можно разгруппировать", await until(`[...document.querySelectorAll(".mt-right button")].some(b => b.textContent.includes("Разгруппировать"))`));
+      await shot("8-text-look");
+
       await clickText(".mt-rail button", "Моушн");
       check("модель для моушна — выбором из списка", await until(`[...document.querySelectorAll(".mt-motion-panel select option")].some(o => /Claude/.test(o.textContent))`));
       void id;

@@ -83,8 +83,14 @@ export default function MontageView({ settings, skills, onOpenSettings, onMotion
         setOptions(o);
         setConfig(c);
         setProjects(list);
+        // После зависания или падения окна последний проект сам не открывается:
+        // если зависание из-за него, оно не повторится по кругу.
+        const safe = await window.api.montageSafeStart().catch(() => false);
         const id = (c.lastProject && list.some((p) => p.id === c.lastProject) && c.lastProject) || list[0]?.id;
-        if (id) setOpen(await window.api.montageRead(id));
+        if (safe) {
+          await newProject(undefined, o, c);
+          setError("Окно перезапущено после зависания. Открыт новый проект; прежние — в «📂 Проекты». Журнал — в настройках (⚙ → «Журнал»).");
+        } else if (id) setOpen(await window.api.montageRead(id));
         else await newProject(undefined, o, c);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

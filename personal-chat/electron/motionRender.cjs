@@ -72,11 +72,13 @@ async function openDoc(BrowserWindow, doc, { width, height, transparent, tmpDir 
         img = await once(t);
       }
       if (settle) {
-        for (let k = 0; k < 4; k++) {
+        // Два одинаковых снимка подряд после паузы — значит, отрисовка догнала.
+        let stable = 0;
+        for (let k = 0; k < 8 && stable < 2; k++) {
+          await sleep(40);
           const next = await once(t);
-          const same = sig(next) === sig(img);
+          stable = sig(next) === sig(img) ? stable + 1 : 0;
           img = next;
-          if (same) break;
         }
       }
       return img;

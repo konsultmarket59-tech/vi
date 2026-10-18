@@ -2028,6 +2028,7 @@ export interface MontageExportOptions {
 }
 
 export interface MontageOptions {
+  masksDir?: string;
   presets: MontagePreset[];
   fits: MontageNamed[];
   filters: MontageFilterDef[];
@@ -2155,7 +2156,18 @@ export interface MontageAdjust {
   grain?: number;
 }
 
+export interface MontageCell {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface MontageLayer {
+  bgRemove?: MontageBg | null;
+  cell?: MontageCell | null;
+  focusX?: number;
+  focusY?: number;
   id: string;
   src: string;
   kind: "video" | "image" | "motion" | string;
@@ -2173,7 +2185,10 @@ export interface MontageLayer {
   keyframes: MontageKeyframe[];
   effects: MontageEffect[];
   adjust: MontageAdjust;
-  mask: "none" | "circle" | "rounded";
+  mask: "none" | "circle" | "rounded" | "rect" | "oval" | "heart" | "star" | "hexagon" | "arch" | "diamond" | "blob" | "triangle" | "squircle";
+  maskFeather?: number;
+  maskStroke?: number;
+  maskStrokeColor?: string;
   chroma: { enabled: boolean; color: string; similarity: number; blend: number };
   label: string;
 }
@@ -2207,6 +2222,10 @@ export interface MontageTemplate {
   fields: MontageTemplateField[];
   needsLogo: boolean;
   pair?: string;
+  /** Полнокадровая заготовка (интро, аутро, коллаж) — кусок главной дорожки. */
+  full?: boolean;
+  /** Сколько фото просит заготовка. */
+  photos?: number;
 }
 
 export interface MontageMotionProgress {
@@ -2228,6 +2247,17 @@ export interface MontageMotionResult {
   pair?: string;
 }
 
+export interface MontageBg {
+  enabled: boolean;
+  model: "person" | "object";
+  quality: "fast" | "good" | "best";
+  replace: "transparent" | "blur" | "color" | "image";
+  color: string;
+  image: string;
+  soft: number;
+  cache?: { key: string; mask: string; preview: string; pkey?: string } | null;
+}
+
 export interface MontageErase {
   x: number;
   y: number;
@@ -2239,6 +2269,7 @@ export interface MontageErase {
 
 export interface MontageClip {
   erase?: MontageErase[];
+  bgRemove?: MontageBg | null;
   id: string;
   src: string;
   kind: "video" | "image" | "motion" | string;
@@ -2292,6 +2323,13 @@ export interface MontageText {
   accentScale?: number;
   spacing?: number;
   glow?: boolean;
+  lineHeight?: number;
+  align?: "" | "left" | "center" | "right";
+  outline?: number;
+  outlineColor?: string;
+  shadow?: number;
+  shadowColor?: string;
+  shadowBlur?: number;
   start: number;
   end: number;
   style: string;
@@ -3005,6 +3043,11 @@ export interface ElectronAPI {
   onMontageProgress(cb: (data: MontageProgress) => void): () => void;
   onMontageRender(cb: (data: MontageRenderProgress) => void): () => void;
   montageReadText(file: string): Promise<string>;
+  montageCrumb(text: string): void;
+  montageSafeStart(): Promise<boolean>;
+  montageFlags(): Promise<{ noGpu?: boolean; noGpuReason?: string; logPath: string }>;
+  montageSetFlags(patch: { noGpu?: boolean }): Promise<{ noGpu?: boolean }>;
+  montageOpenLog(): Promise<void>;
   montagePickText(): Promise<string | null>;
   montagePickImages(): Promise<string[]>;
   montageMotionGenerate(request: { pair?: string; designDir?: string; text?: string; brief?: string; photos?: string[]; width: number; height: number; duration: number; transparent?: boolean; review?: boolean; model?: string }): Promise<MontageMotionResult>;
@@ -3018,6 +3061,9 @@ export interface ElectronAPI {
   montageSystemFonts(): Promise<MontageFont[]>;
   montageProxy(file: string): Promise<{ status: "ready" | "pending" | "none"; path?: string }>;
   montageFilmstrip(file: string): Promise<{ path: string; count: number; duration: number; height: number; step?: number } | null>;
+  montageBgPrepare(item: MontageClip | MontageLayer, which: "clip" | "layer"): Promise<{ key: string; mask: string; preview: string }>;
+  montageBgStop(): Promise<boolean>;
+  onMontageBg(cb: (d: { id: string; stage: string; progress?: number; file?: string }) => void): () => void;
   montageEraseFrame(file: string, at: number, erase: MontageErase[]): Promise<{ uri: string; width: number; height: number }>;
   montageAutoEnhance(file: string, range?: { from: number; to: number }): Promise<Partial<MontageAdjust> & { measured?: Record<string, number> }>;
   montageWave(file: string): Promise<{ path: string; duration: number; width: number } | null>;

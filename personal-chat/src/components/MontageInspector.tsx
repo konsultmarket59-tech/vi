@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import type { MontageAdjust, MontageAudio, MontageClip, MontageEffect, MontageKeyframe, MontageLayer, MontageOptions, MontageText, MontageTransform } from "../lib/types";
-import { MOTION_PRESETS, addKeyframe, clamp, fileName, fmtTime, itemLabel, layerDuration, layout, motionPreset, sampleTransform, setTransformAt, uid } from "../lib/montage";
+import { MASK_SHAPES, MOTION_PRESETS, addKeyframe, clamp, fileName, fmtTime, itemLabel, maskCss, layerDuration, layout, motionPreset, sampleTransform, setTransformAt, uid } from "../lib/montage";
 import { Field, NumberField, Section, Slider, type EditorCtx } from "./MontageControls";
 import { FontPicker, useFontData } from "./MontageFonts";
 import EraseDialog from "./MontageErase";
+import { BgSection } from "./MontageBg";
 
 type Animated = { transform: MontageTransform; keyframes: MontageKeyframe[] };
 
@@ -278,6 +279,7 @@ export function ClipInspector({ ctx, clip }: { ctx: EditorCtx; clip: MontageClip
         <Slider label="Центр по вертикали" value={clip.focusY} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ focusY: v })} />
       </Section>
       <TransformSection item={clip} local={local} dur={dur} isLayer={false} eases={options.eases} patch={(n) => patch({ transform: n.transform, keyframes: n.keyframes })} seek={() => {}} />
+      {(clip.kind === "video" || clip.kind === "image") && <BgSection ctx={ctx} item={clip} which="clip" />}
       <GradeSection adjust={clip.adjust} source={clip.kind === "video" || clip.kind === "image" ? { src: clip.src, from: clip.in, to: clip.out } : undefined} onChange={(a) => patch({ adjust: a })} notify={ctx.notify} />
       <LookSection adjust={clip.adjust} options={options} onChange={(a) => patch({ adjust: a })} />
       <EffectsSection effects={clip.effects} options={options} onChange={(e) => patch({ effects: e })} />
@@ -298,6 +300,14 @@ export function LayerInspector({ ctx, layer, seek }: { ctx: EditorCtx; layer: Mo
   return (
     <div className="mt-inspector">
       <h4 title={layer.src}>▣ Слой: {itemLabel(layer)}</h4>
+      {layer.cell && (
+        <Section title="Кадрирование в ячейке">
+          <p className="mt-hint">Слой в ячейке раскладки: заполняет её с обрезкой. Ползунки — какая часть кадра видна.</p>
+          <Slider label="По горизонтали" value={layer.focusX ?? 0.5} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => ctx.commit((p) => ({ ...p, layers: p.layers.map((x) => (x.id === layer.id ? { ...x, focusX: v } : x)) }))} />
+          <Slider label="По вертикали" value={layer.focusY ?? 0.5} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => ctx.commit((p) => ({ ...p, layers: p.layers.map((x) => (x.id === layer.id ? { ...x, focusY: v } : x)) }))} />
+          <button className="link-btn" onClick={() => ctx.commit((p) => ({ ...p, layers: p.layers.map((x) => (x.id === layer.id ? { ...x, cell: null } : x)) }))}>убрать из раскладки</button>
+        </Section>
+      )}
       <Section title="Основное">
         <div className="mt-row">
           <NumberField label="Начало в ролике" value={layer.start} min={0} onChange={(v) => patch({ start: v })} />
@@ -323,12 +333,29 @@ export function LayerInspector({ ctx, layer, seek }: { ctx: EditorCtx; layer: Mo
       </Section>
       <Section title="Форма и фон">
         <Field label="Маска">
-          <select value={layer.mask} onChange={(e) => patch({ mask: e.target.value as MontageLayer["mask"] })}>
-            <option value="none">Без маски</option>
-            <option value="circle">Круг (голова в кружке)</option>
-            <option value="rounded">Скруглённые углы</option>
-          </select>
+          <div className="mt-mask-grid">
+            {MASK_SHAPES.map((m) => (
+              <button
+                key={m.id}
+                className={`mt-mask ${layer.mask === m.id ? "on" : ""}`}
+                title={m.name}
+                onClick={() => patch({ mask: m.id })}
+                style={m.file ? maskCss(m.id, ctx.options.masksDir, ctx.scheme) : { borderRadius: m.id === "rounded" ? 8 : m.id === "rect" ? 2 : undefined, opacity: m.id === "none" ? 0.25 : undefined }}
+              />
+            ))}
+          </div>
         </Field>
+        {layer.mask !== "none" && (
+          <>
+            <Slider label="Мягкость края" value={layer.maskFeather ?? 0} min={0} max={0.15} step={0.005} fmt={(v) => (v ? `${Math.round(v * 1000) / 10}%` : "чёткий")} onChange={(v) => patch({ maskFeather: v })} />
+            <Slider label="Обводка" value={layer.maskStroke ?? 0} min={0} max={30} step={1} fmt={(v) => (v ? `${v}` : "нет")} onChange={(v) => patch({ maskStroke: v })} />
+            {(layer.maskStroke ?? 0) > 0 && (
+              <Field label="Цвет обводки">
+                <input type="color" value={layer.maskStrokeColor || "#ffffff"} onChange={(e) => patch({ maskStrokeColor: e.target.value })} />
+              </Field>
+            )}
+          </>
+        )}
         <label className="mt-check">
           <input type="checkbox" checked={layer.chroma.enabled} onChange={(e) => patch({ chroma: { ...layer.chroma, enabled: e.target.checked } })} /> Хромакей — убрать фон цвета
         </label>
@@ -348,6 +375,7 @@ export function LayerInspector({ ctx, layer, seek }: { ctx: EditorCtx; layer: Mo
         )}
       </Section>
       <TransformSection item={layer} local={local} dur={dur} isLayer eases={options.eases} patch={(n) => patch({ transform: n.transform, keyframes: n.keyframes })} seek={(t) => seek(layer.start + t)} />
+      {(layer.kind === "video" || layer.kind === "image") && <BgSection ctx={ctx} item={layer} which="layer" />}
       <GradeSection adjust={layer.adjust} source={layer.kind === "video" || layer.kind === "image" ? { src: layer.src, from: layer.in, to: layer.out } : undefined} onChange={(a) => patch({ adjust: a })} notify={ctx.notify} />
       <LookSection adjust={layer.adjust} options={options} onChange={(a) => patch({ adjust: a })} />
       <EffectsSection effects={layer.effects} options={options} onChange={(e) => patch({ effects: e })} />
@@ -410,8 +438,82 @@ export function TextInspector({ ctx, text }: { ctx: EditorCtx; text: MontageText
       <label className="mt-check">
         <input type="checkbox" checked={text.upper} onChange={(e) => patch({ upper: e.target.checked })} /> ЗАГЛАВНЫМИ
       </label>
+      <TextLook ctx={ctx} text={text} patch={patch} />
       <TextFonts ctx={ctx} text={text} patch={patch} />
     </div>
+  );
+}
+
+/** Интервал, выравнивание, обводка и тень; разгруппировка пары на отдельные надписи. */
+function TextLook({ ctx, text, patch }: { ctx: EditorCtx; text: MontageText; patch: (p: Partial<MontageText>) => void }) {
+  const W = ctx.project.canvas.width;
+  const H = ctx.project.canvas.height;
+  const canUngroup = /\n/.test(text.text) || /\*[^*]+\*/.test(text.text);
+  const ungroup = () => {
+    // Каждая строка — своя надпись; в строке рукописный акцент — тоже отдельно.
+    // Ставятся стопкой на месте исходной, дальше их двигают мышью куда нужно.
+    const base = { x: text.x ?? 0.5, y: text.y ?? 0.5 };
+    const sizePx = (text.size || 104) * (Math.min(W, H) / 1080);
+    const step = (sizePx * 1.2 * (text.lineHeight || 1)) / H;
+    const lines = text.text.split(/\r?\n/);
+    const pieces: MontageText[] = [];
+    lines.forEach((line, i) => {
+      const y = base.y + (i - (lines.length - 1) / 2) * step;
+      const segs = line.split(/\*([^*]+)\*/).map((t, k) => ({ t: t.trim(), accent: k % 2 === 1 })).filter((x) => x.t);
+      segs.forEach((sg, k) => {
+        const dx = segs.length > 1 ? (k - (segs.length - 1) / 2) * 0.22 : 0;
+        pieces.push({
+          ...text,
+          id: uid("text"),
+          text: sg.t,
+          x: Math.min(0.95, Math.max(0.05, base.x + dx)),
+          y: Math.min(0.97, Math.max(0.03, y)),
+          fontPath: sg.accent ? text.accentFontPath || text.fontPath : text.fontPath,
+          accentFontPath: "",
+          color: sg.accent ? text.accentColor || ctx.project.captions.highlight : text.color,
+          size: sg.accent ? Math.round((text.size || 104) * (text.accentScale || 1)) : text.size,
+          upper: sg.accent ? false : text.upper,
+          spacing: sg.accent ? 0 : text.spacing,
+        });
+      });
+    });
+    ctx.commit((p) => ({ ...p, texts: p.texts.flatMap((t) => (t.id === text.id ? pieces : [t])) }));
+    if (pieces[0]) ctx.setSelection({ kind: "text", id: pieces[0].id });
+    ctx.notify(`Разгруппировано на ${pieces.length} надписи — двигайте каждую мышью в кадре.`);
+  };
+  return (
+    <Section title="Интервал, обводка, тень">
+      <Field label="Выравнивание">
+        <div className="mt-seg">
+          {(["left", "center", "right"] as const).map((a) => (
+            <button key={a} className={(text.align || "center") === a ? "on" : ""} onClick={() => patch({ align: a })} title={a === "left" ? "По левому краю" : a === "right" ? "По правому краю" : "По центру"}>
+              {a === "left" ? "⟸" : a === "right" ? "⟹" : "⇔"}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Slider label="Межстрочный интервал" value={text.lineHeight ?? 1} min={0.5} max={2} step={0.02} fmt={(v) => `×${v.toFixed(2)}`} onChange={(v) => patch({ lineHeight: v })} />
+      <Slider label="Обводка" value={text.outline ?? 0} min={0} max={20} step={0.5} fmt={(v) => (v ? `${v}` : "нет")} onChange={(v) => patch({ outline: v })} />
+      {(text.outline ?? 0) > 0 && (
+        <Field label="Цвет обводки">
+          <input type="color" value={text.outlineColor || "#000000"} onChange={(e) => patch({ outlineColor: e.target.value })} />
+        </Field>
+      )}
+      <Slider label="Тень" value={text.shadow ?? 0} min={0} max={30} step={0.5} fmt={(v) => (v ? `${v}` : "нет")} onChange={(v) => patch({ shadow: v })} />
+      {(text.shadow ?? 0) > 0 && (
+        <div className="mt-row">
+          <Field label="Цвет тени">
+            <input type="color" value={text.shadowColor || "#000000"} onChange={(e) => patch({ shadowColor: e.target.value })} />
+          </Field>
+          <Slider label="Мягкость" value={text.shadowBlur ?? 0} min={0} max={20} step={0.5} onChange={(v) => patch({ shadowBlur: v })} />
+        </div>
+      )}
+      {canUngroup && (
+        <button className="btn btn-secondary btn-block" onClick={ungroup} title="Каждая строка и рукописное слово — отдельной надписью">
+          ✂ Разгруппировать на отдельные надписи
+        </button>
+      )}
+    </Section>
   );
 }
 

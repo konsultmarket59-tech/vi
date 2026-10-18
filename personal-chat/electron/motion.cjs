@@ -155,7 +155,13 @@ ${[...String(html || "").matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(
   // замеры текста (подгонка под ширину, позиция под строкой) считаются по
   // запасному шрифту, и в кадре всё съезжает.
   window.__want = 0;
-  var imgs = Array.prototype.slice.call(document.images).map(function(img){ return img.complete ? Promise.resolve() : new Promise(function(r){ img.onload = img.onerror = r; }); });
+  // Картинки декодируются заранее и синхронно: иначе кадр рисуется раньше,
+  // чем фото готово, и в снимке остаётся прежнее состояние.
+  var imgs = Array.prototype.slice.call(document.images).map(function(img){
+    img.decoding = "sync";
+    var loaded = img.complete ? Promise.resolve() : new Promise(function(r){ img.onload = img.onerror = r; });
+    return loaded.then(function(){ return img.decode ? img.decode().catch(function(){}) : null; });
+  });
   Promise.all([document.fonts.ready].concat(imgs)).then(function(){
     for (var i = 0; i < window.__run.length; i++) window.__run[i]();
     window.__seek(window.__want);

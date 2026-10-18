@@ -126,6 +126,62 @@ const diff = (a, b) => {
     const full = (f) => frame(f, f.endsWith(".png") ? null : 0.5, 1080, 1920, "380:110:620:1650");
     check("после удаления текстура живая, не мыло", rough(full(path.join(tmp, "erased.mp4"))) > rough(full(clean)) * 0.5, `${rough(full(clean)).toFixed(2)} → ${rough(full(path.join(tmp, "erased.mp4"))).toFixed(2)}`);
     check("знак у края кадра не ломает сборку", fs.existsSync(await renderMarked([{ x: 0.85, y: 0.9, w: 0.15, h: 0.1 }, { x: 0, y: 0, w: 0.2, h: 0.05, mode: "smooth" }], "edge")));
+
+    console.log("раскладка, маски, удаление фона");
+    // Два слоя в ячейках «2 сверху вниз»: верх — из первого фото, низ — из второго.
+    const red = path.join(tmp, "red.png");
+    const blue = path.join(tmp, "blue.png");
+    execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0xE02020:s=800x600", "-frames:v", "1", red]);
+    execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x2040E0:s=600x900", "-frames:v", "1", blue]);
+    const renderLayers = async (layers, name, clipExtra = {}) => {
+      const project = montage.normalizeProject({ canvas: { preset: "9:16", width: 540, height: 960, fps: 25 }, clips: [{ src: bg, kind: "image", in: 0, out: 1.5, ...clipExtra }], layers, captions: { enabled: false } });
+      const out = path.join(tmp, `${name}.mp4`);
+      await montage.renderProject({ bin: ffmpeg, project, outPath: out, workDir: path.join(tmp, `w-${name}`) });
+      return out;
+    };
+    const px = (file, x, y) => {
+      const b = execFileSync(ffmpeg, ["-loglevel", "error", "-ss", "0.7", "-i", file, "-frames:v", "1", "-vf", `crop=1:1:${x}:${y},format=rgb24`, "-f", "rawvideo", "-"]);
+      return [b[0], b[1], b[2]];
+    };
+    const isRed = (c) => c[0] > 170 && c[2] < 90;
+    const isBlue = (c) => c[2] > 170 && c[0] < 90;
+    const split = await renderLayers([
+      { src: red, kind: "image", start: 0, out: 1.5, track: 1, cell: { x: 0, y: 0, w: 1, h: 0.5 } },
+      { src: blue, kind: "image", start: 0, out: 1.5, track: 2, cell: { x: 0, y: 0.5, w: 1, h: 0.5 } },
+    ], "split");
+    check("раскладка: верх — первое видео, низ — второе, без полей", isRed(px(split, 270, 100)) && isRed(px(split, 5, 470)) && isBlue(px(split, 270, 800)) && isBlue(px(split, 535, 490)), JSON.stringify([px(split, 270, 100), px(split, 270, 800)]));
+
+    const heart = await renderLayers([{ src: red, kind: "image", start: 0, out: 1.5, track: 1, cell: { x: 0.1, y: 0.2, w: 0.8, h: 0.45 }, mask: "heart", maskStroke: 10, maskStrokeColor: "#00FF00" }], "heart");
+    const grey = (c) => Math.abs(c[0] - 64) < 20 && Math.abs(c[1] - 64) < 20 && Math.abs(c[2] - 64) < 20;
+    check("маска-сердце: в центре — слой, в углу ячейки — фон", isRed(px(heart, 270, 380)) && grey(px(heart, 70, 210)), JSON.stringify([px(heart, 270, 380), px(heart, 70, 210)]));
+    let green = 0;
+    for (let y = 192; y < 624; y += 6) {
+      const c = px(heart, 140, y);
+      if (c[1] > 150 && c[0] < 120) green++;
+    }
+    // Обводка — зелёное кольцо по краю сердца где-то на вертикали слева.
+    check("обводка маски рисуется по контуру", green >= 1, green);
+
+    // Удаление фона: маска — белый круг на чёрном (как ответ нейросети).
+    const mask = path.join(tmp, "mask.mp4");
+    execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=256x448:d=2,format=gray,geq=lum='255*lte(hypot(X-128,Y-224),30)'", "-c:v", "libx264", "-pix_fmt", "yuv420p", mask]);
+    const photoLayer = { src: red, kind: "image", start: 0, out: 1.5, track: 1, transform: { x: 0.5, y: 0.5, scale: 1 } };
+    const bgItem = montage.normalizeProject({ layers: [{ ...photoLayer, bgRemove: { enabled: true } }] }).layers[0];
+    const cut = await renderLayers([{ ...photoLayer, bgRemove: { enabled: true, cache: { key: montage.bgKey(bgItem), mask, preview: "" } } }], "bglayer");
+    check("слой без фона: объект виден, фон прозрачный", isRed(px(cut, 270, 480)) && grey(px(cut, 30, 480)), JSON.stringify([px(cut, 270, 480), px(cut, 30, 480)]));
+    const clipItem = montage.normalizeProject({ clips: [{ src: red, kind: "image", in: 0, out: 1.5, bgRemove: { enabled: true, replace: "color", color: "#00FF00" } }] }).clips[0];
+    const project = montage.normalizeProject({ canvas: { preset: "9:16", width: 540, height: 960, fps: 25 }, clips: [{ ...clipItem, bgRemove: { ...clipItem.bgRemove, cache: { key: montage.bgKey(clipItem), mask, preview: "" } } }], captions: { enabled: false } });
+    const replaced = path.join(tmp, "bgclip.mp4");
+    await montage.renderProject({ bin: ffmpeg, project, outPath: replaced, workDir: path.join(tmp, "w-bgclip") });
+    const g = px(replaced, 20, 480);
+    check("фон главного видео заменён цветом, объект на месте", g[1] > 180 && g[0] < 80 && isRed(px(replaced, 270, 480)), JSON.stringify([g, px(replaced, 270, 480)]));
+
+    console.log("надписи: интервал, выравнивание, обводка");
+    const multi = montage.normalizeProject({ canvas: { preset: "9:16" }, clips: [{ src: bg, kind: "image", out: 2 }], texts: [{ text: "строка один\nстрока два", lineHeight: 0.7, align: "left", outline: 4, shadow: 5, x: 0.1, y: 0.4, start: 0, end: 2 }], captions: { enabled: false } });
+    const dialogues = montage.buildAss(multi, [], {}).split("\n").filter((l) => l.startsWith("Dialogue"));
+    const ys = dialogues.map((d) => Number((d.match(/\\pos\(\d+,(\d+)\)/) || [])[1]));
+    check("межстрочный интервал: каждая строка своим событием, шаг меньше обычного", dialogues.length === 2 && ys[1] - ys[0] > 0 && ys[1] - ys[0] < 104 * 1.2, JSON.stringify(ys));
+    check("выравнивание по левому краю и обводка с тенью", dialogues.every((d) => /\\an4/.test(d) && /\\bord4/.test(d) && /\\shad5/.test(d)));
   } catch (e) {
     failures++;
     console.log("  FAIL непойманная ошибка —", e && e.stack ? e.stack : e);

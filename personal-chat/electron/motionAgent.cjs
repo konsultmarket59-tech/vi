@@ -258,12 +258,21 @@ function themeFor(design, pairId) {
   return applyPair(theme, pairId && pairId !== "ds" ? pairId : theme.heading ? "" : "minimal");
 }
 
+// Уменьшение фото для композиции: снимок с телефона в 20 МБ, вшитый в документ
+// как есть, раздувает его до сотен мегабайт и вешает предпросмотр. Задаётся
+// программой (через nativeImage), кэшируется на диске.
+let shrinkImage = null;
+function setImageShrinker(fn) {
+  shrinkImage = fn;
+}
+
 async function resolve(m, readDesignFolder) {
   const design = m.designDir ? await readDesignFolder(m.designDir).catch(() => null) : null;
   const pairId = (m.fields && m.fields.__pair) || (m.template ? templates.defaultPair(m.template) : "") || m.pair || "";
   const theme = themeFor(design, pairId);
   const assets = { ...(m.assets || {}) };
   if (theme.logos[0] && !assets.logo) assets.logo = theme.logos[0].path;
+  if (shrinkImage) for (const [k, v] of Object.entries(assets)) if (!/\.svg$/i.test(v)) assets[k] = await shrinkImage(v).catch(() => v);
   let html = m.html || "";
   let duration = m.duration;
   if (m.template) {
@@ -326,4 +335,4 @@ async function prerender(ctx, project, { cacheDir, readDesignFolder, onProgress,
   return project;
 }
 
-module.exports = { streamModel, generate, edit, resolve, docFor, prerender, imageForModel, collectAssets, check, themeFor };
+module.exports = { streamModel, generate, edit, resolve, docFor, prerender, imageForModel, collectAssets, check, themeFor, setImageShrinker };

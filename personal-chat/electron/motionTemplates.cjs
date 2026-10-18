@@ -769,9 +769,377 @@ def({
   </script>`,
 });
 
+
+// ---------- интро, аутро, коллажи ----------
+// Полнокадровые заготовки (full): ложатся куском на главную дорожку — интро в
+// начало, аутро в конец, коллаж под бегунок. photos — сколько фото просит
+// заготовка; пустые места показываются серыми плашками «Фото N».
+
+/** Фото N или плашка-заглушка, если фото ещё не выбрано. */
+function photo(a, n, cls = "ph") {
+  return a[`photo${n}`] ? `<img class="${cls}" src="asset://photo${n}" alt="">` : `<div class="${cls} empty"><span>Фото ${n}</span></div>`;
+}
+
+function bg(th) {
+  return `.bgf{position:absolute;inset:0;background:radial-gradient(120% 90% at 30% 20%, color-mix(in srgb, var(--acc) 22%, var(--dark)) 0%, var(--dark) 70%)}
+  .grain{position:absolute;inset:0;opacity:.08;background-image:repeating-radial-gradient(circle at 17% 32%, #fff 0 1px, transparent 1px 3px)}
+  .ph{display:block;width:100%;height:100%;object-fit:cover}
+  .ph.empty{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#3a3f4b,#262a33);color:rgba(255,255,255,.5);font:600 34px/1 var(--font-body)}`;
+}
+
+def({
+  id: "intro-glitch",
+  name: "Интро: глитч-заголовок",
+  group: "Интро",
+  full: true,
+  duration: 3.5,
+  fields: [
+    { key: "title", label: "Название", value: "Новый выпуск" },
+    { key: "sub", label: "Подпись", value: "смотрите до конца" },
+  ],
+  html: (f, th) => `<style>${base(th)}${bg(th)}
+  .gl{position:absolute;left:6%;right:6%;top:50%;transform:translateY(-50%);text-align:center}
+  .t{position:relative;font:400 150px/1 var(--font-heading);color:#fff;text-transform:uppercase;letter-spacing:-.01em}
+  .t .r,.t .b{position:absolute;inset:0;mix-blend-mode:screen}
+  .t .r{color:#ff2a55}.t .b{color:#21d4ff}
+  .s{margin-top:28px;font:500 46px/1 var(--font-body);color:var(--acc);letter-spacing:.24em;text-transform:uppercase}
+  .bar{position:absolute;left:0;right:0;height:6%;background:var(--acc);mix-blend-mode:difference;opacity:0}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="grain"></div><i class="bar b1" style="top:38%"></i><i class="bar b2" style="top:56%"></i>
+  <div class="gl"><div class="t"><span class="m">${esc(f.title)}</span><span class="r">${esc(f.title)}</span><span class="b">${esc(f.title)}</span></div><div class="s">${esc(f.sub)}</div></div></div>
+  <script>
+  const t = document.querySelector(".t"), gl = document.querySelector(".gl");
+  const k = Math.min(1.25, gl.clientWidth / t.scrollWidth); t.style.fontSize = (150 * k) + "px";
+  tl.from(".t", { autoAlpha: 0, scale: 1.4, filter: "blur(20px)", duration: 0.5, ease: "expo.out" }, 0.1);
+  // Глитч: сдвиги цветовых копий и полосы — дискретно, по шкале.
+  [[0.2, 18, -14], [0.32, -10, 8], [0.44, 6, -4], [0.56, 0, 0], [1.6, 14, -10], [1.68, 0, 0]].forEach(([at, x1, x2]) => { tl.set(".t .r", { x: x1 }, at); tl.set(".t .b", { x: x2 }, at); });
+  [[0.25, 1], [0.35, 0], [1.6, 1], [1.7, 0]].forEach(([at, o]) => tl.set(".bar", { opacity: o }, at));
+  tl.from(".s", { autoAlpha: 0, y: 30, letterSpacing: "0.6em", duration: 0.7, ease: "power3.out" }, 0.7);
+  tl.to(".gl", { scale: 0.92, autoAlpha: 0, duration: 0.4, ease: "power4.in" }, 3.1);
+  </script>`,
+});
+
+def({
+  id: "intro-countdown",
+  name: "Интро: отсчёт 3-2-1",
+  group: "Интро",
+  full: true,
+  duration: 4,
+  fields: [{ key: "title", label: "Название после отсчёта", value: "Поехали" }],
+  html: (f, th) => `<style>${base(th)}${bg(th)}
+  .cd{position:absolute;left:50%;top:50%;width:560px;height:560px;margin:-280px 0 0 -280px}
+  .cd svg{position:absolute;inset:0}
+  .n{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:400 300px/1 var(--font-heading);color:#fff;opacity:0}
+  .t{position:absolute;left:6%;right:6%;top:50%;transform:translateY(-50%);text-align:center;font:400 170px/1 var(--font-heading);color:var(--acc);text-transform:uppercase;opacity:0}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="cd"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1.5"/><circle class="arc" cx="50" cy="50" r="46" fill="none" stroke="var(--acc)" stroke-width="3" stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="289" transform="rotate(-90 50 50)"/></svg><div class="n n3">3</div><div class="n n2">2</div><div class="n n1">1</div></div><div class="t">${esc(f.title)}</div></div>
+  <script>
+  ["n3", "n2", "n1"].forEach((c, i) => {
+    tl.fromTo("." + c, { opacity: 0, scale: 1.4 }, { opacity: 1, scale: 1, duration: 0.25, ease: "power3.out" }, i * 0.8);
+    tl.to("." + c, { opacity: 0, scale: 0.7, duration: 0.2, ease: "power2.in" }, i * 0.8 + 0.6);
+    tl.fromTo(".arc", { strokeDashoffset: 289 }, { strokeDashoffset: 0, duration: 0.8, ease: "none", immediateRender: false }, i * 0.8);
+  });
+  tl.to(".cd", { scale: 0.4, autoAlpha: 0, duration: 0.3, ease: "power3.in" }, 2.35);
+  tl.fromTo(".t", { opacity: 0, scale: 1.8 }, { opacity: 1, scale: 1, duration: 0.5, ease: "expo.out" }, 2.5);
+  tl.to(".t", { opacity: 0, y: -80, duration: 0.35, ease: "power4.in" }, 3.65);
+  </script>`,
+});
+
+def({
+  id: "intro-logo",
+  name: "Интро: логотип с бликом",
+  group: "Интро",
+  full: true,
+  needsLogo: true,
+  duration: 3.5,
+  fields: [{ key: "tagline", label: "Слоган (или название без логотипа)", value: "Строим дома с 2010 года" }],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .lg{position:absolute;left:10%;right:10%;top:50%;transform:translateY(-50%);text-align:center}
+  .lg img{max-width:70%;max-height:420px;width:auto;height:auto}
+  .lg .nm{font:400 130px/1 var(--font-heading);color:#fff;text-transform:uppercase}
+  .tg{margin-top:40px;font:500 42px/1.2 var(--font-body);color:rgba(255,255,255,.85);letter-spacing:.12em;text-transform:uppercase}
+  .sw{position:absolute;top:-30%;bottom:-30%;width:28%;left:-40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);transform:skewX(-20deg);mix-blend-mode:overlay}
+  .ring{position:absolute;left:50%;top:50%;width:900px;height:900px;margin:-450px 0 0 -450px;border-radius:50%;border:2px solid var(--acc);opacity:0}
+  </style>
+  <div class="wrap"><div class="bgf"></div><i class="ring"></i><div class="lg">${a.logo ? `<img src="asset://logo" alt="">` : `<div class="nm">${esc(f.tagline)}</div>`}${a.logo ? `<div class="tg">${esc(f.tagline)}</div>` : ""}<i class="sw"></i></div></div>
+  <script>
+  tl.fromTo(".ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.4, opacity: 0, duration: 1.2, ease: "power2.out" }, 0.1);
+  tl.from(".lg img, .lg .nm", { scale: 1.5, autoAlpha: 0, filter: "blur(30px)", duration: 0.9, ease: "expo.out" }, 0.1);
+  tl.to(".sw", { left: "130%", duration: 1, ease: "power2.inOut" }, 0.8);
+  tl.from(".tg", { autoAlpha: 0, y: 24, duration: 0.6, ease: "power3.out" }, 1.1);
+  tl.to(".lg", { autoAlpha: 0, scale: 1.08, duration: 0.4, ease: "power3.in" }, 3.1);
+  </script>`,
+});
+
+def({
+  id: "intro-kinetic",
+  name: "Интро: слова ударами",
+  group: "Интро",
+  full: true,
+  duration: 3.2,
+  fields: [{ key: "words", label: "Слова (через /)", value: "Три / шага / к дому" }],
+  html: (f, th) => `<style>${base(th)}${bg(th)}
+  .kw{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .kw b{position:absolute;font:400 210px/1 var(--font-heading);color:#fff;text-transform:uppercase;opacity:0}
+  .kw b:nth-child(2n){color:var(--acc)}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="kw">${String(f.words || "").split(/\s*\/\s*/).filter(Boolean).map((w) => `<b>${esc(w)}</b>`).join("")}</div></div>
+  <script>
+  const ws = [...document.querySelectorAll(".kw b")];
+  const box = document.querySelector(".kw");
+  ws.forEach((w) => { const k = Math.min(1, box.clientWidth * 0.88 / w.scrollWidth); w.style.fontSize = (210 * k) + "px"; });
+  const step = 2.6 / Math.max(1, ws.length);
+  ws.forEach((w, i) => {
+    tl.fromTo(w, { opacity: 0, scale: 2.2 }, { opacity: 1, scale: 1, duration: 0.22, ease: "power4.out" }, i * step);
+    if (i < ws.length - 1) tl.to(w, { opacity: 0, scale: 0.6, duration: 0.15, ease: "power2.in" }, (i + 1) * step - 0.12);
+  });
+  tl.to(ws[ws.length - 1], { opacity: 0, y: -60, duration: 0.3, ease: "power4.in" }, 2.85);
+  </script>`,
+});
+
+def({
+  id: "outro-subscribe",
+  name: "Аутро: подпишись",
+  group: "Аутро",
+  full: true,
+  photos: 1,
+  duration: 5,
+  fields: [
+    { key: "title", label: "Призыв", value: "Подпишись, чтобы не пропустить" },
+    { key: "handle", label: "Аккаунт", value: "@my_channel" },
+  ],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .os{position:absolute;left:8%;right:8%;top:50%;transform:translateY(-50%);text-align:center}
+  .av{width:300px;height:300px;margin:0 auto;border-radius:50%;overflow:hidden;border:8px solid var(--acc);box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  .t{margin-top:56px;font:400 92px/1.05 var(--font-heading);color:#fff}
+  .h{margin-top:22px;font:500 50px/1 var(--font-body);color:rgba(255,255,255,.8)}
+  .btn{display:inline-flex;align-items:center;gap:18px;margin-top:60px;padding:30px 60px;border-radius:999px;background:var(--acc);color:var(--ink);font:400 58px/1 var(--font-heading);text-transform:uppercase}
+  .bw{position:relative;display:inline-block;margin-top:60px}
+  .bw .btn{margin-top:0}
+  .btn.done{position:absolute;left:0;top:0;right:0;bottom:0;justify-content:center;background:#2b2f38;color:#fff;opacity:0}
+  .bell{display:inline-block;width:46px;height:46px}
+  .cur{position:absolute;width:80px;height:80px;left:60%;top:110%}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="os"><div class="av">${photo(a, 1)}</div><div class="t">${lines(f.title)}</div><div class="h">${esc(f.handle)}</div><div class="bw"><div class="btn"><svg class="bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg><span>Подписаться</span></div><div class="btn done"><span>Вы подписаны ✓</span></div></div></div>
+  <svg class="cur" viewBox="0 0 24 24"><path d="M4 2l16 9-7 2-3 7z" fill="#fff" stroke="#000" stroke-width="1"/></svg></div>
+  <script>
+  tl.from(".av", { scale: 0, duration: 0.6, ease: "back.out(1.7)" }, 0.1);
+  tl.from(".t .li", { yPercent: 110, duration: 0.55, ease: "expo.out", stagger: 0.08 }, 0.4);
+  tl.from(".h", { autoAlpha: 0, y: 20, duration: 0.4, ease: "power3.out" }, 0.8);
+  tl.from(".bw", { scale: 0.6, autoAlpha: 0, duration: 0.5, ease: "back.out(1.8)" }, 1.0);
+  tl.to(".cur", { left: "56%", top: "74%", duration: 0.8, ease: "power3.out" }, 1.7);
+  tl.to(".bw", { scale: 0.92, duration: 0.1 }, 2.55);
+  tl.set(".btn.done", { opacity: 1 }, 2.65);
+  tl.to(".bw", { scale: 1, duration: 0.25, ease: "back.out(2)" }, 2.65);
+  tl.to(".cur", { autoAlpha: 0, duration: 0.3 }, 3.2);
+  tl.to(".os", { autoAlpha: 0, y: -60, duration: 0.45, ease: "power4.in" }, 4.55);
+  </script>`,
+});
+
+def({
+  id: "outro-thanks",
+  name: "Аутро: спасибо + контакты",
+  group: "Аутро",
+  full: true,
+  needsLogo: true,
+  duration: 5,
+  fields: [
+    { key: "title", label: "Заголовок", value: "Спасибо, что / досмотрели" },
+    { key: "phone", label: "Телефон", value: "+7 950 000-00-00" },
+    { key: "site", label: "Сайт / соцсеть", value: "example.ru" },
+  ],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .ot{position:absolute;left:8%;right:8%;top:50%;transform:translateY(-50%)}
+  .lg{height:120px;margin-bottom:60px}
+  .lg img{height:100%;width:auto}
+  .t{font:400 120px/1 var(--font-heading);color:#fff}
+  .row{display:flex;align-items:center;gap:22px;margin-top:34px;padding:26px 34px;border-radius:24px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);font:500 48px/1 var(--font-body);color:#fff}
+  .row svg{width:52px;height:52px;flex:none;color:var(--acc)}
+  .ln2{height:6px;width:180px;background:var(--acc);border-radius:3px;margin:40px 0 20px;transform-origin:0 50%}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="ot">${a.logo ? `<div class="lg"><img src="asset://logo" alt=""></div>` : ""}<div class="t">${lines(f.title)}</div><i class="ln2" style="display:block"></i>
+  <div class="row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4h4l2 5-3 2a12 12 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>${esc(f.phone)}</div>
+  <div class="row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>${esc(f.site)}</div></div></div>
+  <script>
+  tl.from(".lg", { autoAlpha: 0, y: -30, duration: 0.5, ease: "power3.out" }, 0);
+  tl.from(".t .li", { yPercent: 110, duration: 0.6, ease: "expo.out", stagger: 0.1 }, 0.2);
+  tl.from(".ln2", { scaleX: 0, duration: 0.5, ease: "power4.out" }, 0.7);
+  tl.from(".row", { x: 120, autoAlpha: 0, duration: 0.5, ease: "power3.out", stagger: 0.14 }, 0.9);
+  tl.to(".ot", { autoAlpha: 0, duration: 0.5 }, 4.5);
+  </script>`,
+});
+
+def({
+  id: "outro-cta",
+  name: "Аутро: большой призыв",
+  group: "Аутро",
+  full: true,
+  duration: 4.5,
+  fields: [
+    { key: "title", label: "Призыв (*слово* — акцент)", value: "Запишитесь на *показ*" },
+    { key: "sub", label: "Подпись", value: "ссылка в описании" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .bgc{position:absolute;inset:0;background:var(--acc)}
+  .oc{position:absolute;left:7%;right:7%;top:50%;transform:translateY(-50%);text-align:center;color:var(--ink)}
+  .t{font:400 150px/1.02 var(--font-heading);text-transform:uppercase}
+  .t .acc{color:var(--paper)}
+  .s{margin-top:40px;font:500 50px/1 var(--font-body);letter-spacing:.14em;text-transform:uppercase;opacity:.85}
+  .arrow{width:120px;height:120px;margin:50px auto 0}
+  </style>
+  <div class="wrap"><div class="bgc"></div><div class="oc"><div class="t">${words(f.title)}</div><div class="s">${esc(f.sub)}</div><svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 4v15M5 12l7 7 7-7"/></svg></div></div>
+  <script>
+  const t = document.querySelector(".oc .t"), oc = document.querySelector(".oc");
+  // Длинное слово не вылезает за кадр.
+  const widest = Math.max(...[...t.querySelectorAll(".w")].map((w) => w.scrollWidth));
+  if (widest > oc.clientWidth) t.style.fontSize = Math.floor(150 * oc.clientWidth / widest) + "px";
+  tl.from(".bgc", { scaleY: 0, transformOrigin: "50% 100%", duration: 0.5, ease: "power4.out" }, 0);
+  tl.from(".t .w", { yPercent: 120, autoAlpha: 0, duration: 0.5, ease: "expo.out", stagger: 0.08 }, 0.3);
+  tl.from(".s", { autoAlpha: 0, duration: 0.4 }, 0.9);
+  [1.3, 2.1, 2.9].forEach((at) => { tl.to(".arrow", { y: 26, duration: 0.25, ease: "power2.in" }, at); tl.to(".arrow", { y: 0, duration: 0.35, ease: "power2.out" }, at + 0.25); });
+  tl.to(".oc", { autoAlpha: 0, duration: 0.4 }, 4.1);
+  </script>`,
+});
+
+def({
+  id: "collage-wheel",
+  name: "Коллаж: колесо из фото",
+  group: "Коллажи",
+  full: true,
+  photos: 6,
+  duration: 5,
+  fields: [
+    { key: "top", label: "Строка 1", value: "Настройки" },
+    { key: "main", label: "Крупно", value: "на iPhone" },
+    { key: "sub", label: "Подпись", value: "для твоих идеальных фото" },
+  ],
+  html: (f, th, a) => `<style>${base(th)}
+  .bgw{position:absolute;inset:0;background:#ececec}
+  .wh{position:absolute;left:-8%;top:50%;width:1300px;height:1300px;margin-top:-650px}
+  .sec{position:absolute;left:50%;top:50%;width:640px;height:640px;margin:-640px 0 0 0;transform-origin:0 100%;overflow:hidden;clip-path:polygon(0 100%, 0 0, 100% 0, 100% 42%);}
+  .sec .in{position:absolute;inset:0;transform-origin:0 100%}
+  .sec img,.sec .empty{position:absolute;left:8%;top:6%;width:96%;height:96%;object-fit:cover;filter:grayscale(1) contrast(1.05)}
+  .hole{position:absolute;left:50%;top:50%;width:520px;height:520px;margin:-260px 0 0 -260px;border-radius:50%;background:#ececec}
+  .tx{position:absolute;left:6%;top:50%;transform:translateY(-50%);width:62%}
+  .tp{font:400 54px/1 var(--font-heading);color:#111;letter-spacing:.06em;text-transform:uppercase}
+  .mn{margin-top:14px;font:400 120px/1 var(--font-heading);color:#111;text-transform:uppercase;white-space:nowrap}
+  .ln2{height:5px;width:70%;background:var(--acc);margin:22px 0 16px;transform-origin:0 50%}
+  .sb{font:500 34px/1.2 var(--font-body);color:#111;text-transform:uppercase;letter-spacing:.04em}
+  </style>
+  <div class="wrap"><div class="bgw"></div><div class="wh">${[1, 2, 3, 4, 5, 6].map((n, i) => `<div class="sec" style="transform:rotate(${-70 + i * 50}deg)"><div class="in">${photo(a, n)}</div></div>`).join("")}<i class="hole"></i></div>
+  <div class="tx"><div class="tp">${esc(f.top)}</div><div class="mn">${esc(f.main)}</div><i class="ln2" style="display:block"></i><div class="sb">${esc(f.sub)}</div></div></div>
+  <script>
+  const mn = document.querySelector(".mn"), tx = document.querySelector(".tx");
+  const k = Math.min(1, tx.clientWidth / mn.scrollWidth); mn.style.fontSize = (120 * k) + "px";
+  tl.from(".sec", { scale: 0, duration: 0.6, ease: "back.out(1.4)", stagger: 0.09 }, 0);
+  tl.to(".wh", { rotation: 18, duration: 5, ease: "none" }, 0);
+  tl.from(".tp", { autoAlpha: 0, x: -40, duration: 0.45, ease: "power3.out" }, 0.5);
+  tl.from(".mn", { autoAlpha: 0, x: -60, duration: 0.5, ease: "expo.out" }, 0.65);
+  tl.from(".ln2", { scaleX: 0, duration: 0.5, ease: "power4.out" }, 0.9);
+  tl.from(".sb", { autoAlpha: 0, duration: 0.4 }, 1.1);
+  </script>`,
+});
+
+def({
+  id: "collage-grid",
+  name: "Коллаж: сетка 2×3",
+  group: "Коллажи",
+  full: true,
+  photos: 6,
+  duration: 4.5,
+  fields: [{ key: "title", label: "Заголовок на плашке", value: "Наши работы" }],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .gr{position:absolute;left:5%;right:5%;top:8%;bottom:8%;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,1fr);gap:22px}
+  .cell{position:relative;overflow:hidden;border-radius:28px}
+  .cell .ph{transform:scale(1.08)}
+  .band{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);padding:34px 0;background:var(--acc);text-align:center;font:400 96px/1 var(--font-heading);color:var(--ink);text-transform:uppercase}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="gr">${[1, 2, 3, 4, 5, 6].map((n) => `<div class="cell">${photo(a, n)}</div>`).join("")}</div><div class="band">${esc(f.title)}</div></div>
+  <script>
+  tl.from(".cell", { scale: 0.7, autoAlpha: 0, duration: 0.5, ease: "back.out(1.5)", stagger: 0.08 }, 0);
+  tl.to(".cell .ph", { scale: 1, duration: 4, ease: "none" }, 0);
+  tl.from(".band", { scaleX: 0, duration: 0.5, ease: "power4.out" }, 0.8);
+  tl.to([".gr", ".band"], { autoAlpha: 0, duration: 0.4 }, 4.1);
+  </script>`,
+});
+
+def({
+  id: "collage-polaroid",
+  name: "Коллаж: полароиды",
+  group: "Коллажи",
+  full: true,
+  photos: 4,
+  duration: 5,
+  fields: [{ key: "caption", label: "Подпись (рукописью)", value: "лето 2026" }],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .pl{position:absolute;width:560px;padding:26px 26px 110px;background:#fbfaf6;box-shadow:0 30px 70px rgba(0,0,0,.45);border-radius:6px}
+  .pl .fr{width:100%;aspect-ratio:1;overflow:hidden;background:#ddd}
+  .cap{position:absolute;left:0;right:0;bottom:12%;text-align:center;font:400 120px/1 var(--font-accent,var(--font-heading));color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.5)}
+  </style>
+  <div class="wrap"><div class="bgf"></div>
+  ${[[8, 10, -9], [44, 18, 7], [12, 42, 5], [42, 50, -6]].map(([x, y, r], i) => `<div class="pl p${i}" style="left:${x}%;top:${y}%;transform:rotate(${r}deg)"><div class="fr">${photo(a, i + 1)}</div></div>`).join("")}
+  <div class="cap">${esc(f.caption)}</div></div>
+  <script>
+  document.querySelectorAll(".pl").forEach((p, i) => tl.from(p, { y: -1400, rotation: (i % 2 ? 30 : -30), duration: 0.7, ease: "power3.out" }, i * 0.35));
+  tl.from(".cap", { autoAlpha: 0, scale: 0.7, duration: 0.6, ease: "back.out(1.6)" }, 1.8);
+  tl.to(".wrap", { scale: 1.06, duration: 5, ease: "none" }, 0);
+  </script>`,
+});
+
+def({
+  id: "collage-film",
+  name: "Коллаж: фотоплёнка",
+  group: "Коллажи",
+  full: true,
+  photos: 5,
+  duration: 5,
+  fields: [{ key: "title", label: "Заголовок", value: "Как это было" }],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .film{position:absolute;left:0;top:50%;height:620px;margin-top:-260px;display:flex;gap:26px;padding:56px 26px;background:#111;white-space:nowrap}
+  .film::before,.film::after{content:"";position:absolute;left:0;right:0;height:24px;background:repeating-linear-gradient(90deg,#eee 0 22px,transparent 22px 50px)}
+  .film::before{top:14px}.film::after{bottom:14px}
+  .fr{width:420px;height:508px;flex:none;overflow:hidden;border-radius:6px}
+  .t{position:absolute;left:7%;right:7%;top:12%;font:400 120px/1 var(--font-heading);color:#fff;text-transform:uppercase}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="t">${lines(f.title)}</div><div class="film">${[1, 2, 3, 4, 5, 1, 2].map((n) => `<div class="fr">${photo(a, n)}</div>`).join("")}</div></div>
+  <script>
+  tl.from(".t .li", { yPercent: 110, duration: 0.6, ease: "expo.out", stagger: 0.08 }, 0);
+  tl.fromTo(".film", { x: 200 }, { x: -1900, duration: 5, ease: "none" }, 0);
+  </script>`,
+});
+
+def({
+  id: "collage-mosaic",
+  name: "Коллаж: мозаика 1+3",
+  group: "Коллажи",
+  full: true,
+  photos: 4,
+  duration: 4.5,
+  fields: [
+    { key: "title", label: "Заголовок", value: "Дом мечты" },
+    { key: "sub", label: "Подпись", value: "120 м² · участок 8 соток" },
+  ],
+  html: (f, th, a) => `<style>${base(th)}${bg(th)}
+  .mo{position:absolute;left:5%;right:5%;top:5%;height:66%;display:grid;grid-template-columns:2fr 1fr;grid-template-rows:repeat(3,1fr);gap:18px}
+  .mo .c{overflow:hidden;border-radius:24px}
+  .mo .c:first-child{grid-row:1 / span 3}
+  .mo .ph{transform:scale(1.12)}
+  .tx{position:absolute;left:7%;right:7%;bottom:9%}
+  .t{font:400 130px/1 var(--font-heading);color:#fff;text-transform:uppercase}
+  .s{margin-top:20px;font:500 46px/1.2 var(--font-body);color:var(--acc)}
+  </style>
+  <div class="wrap"><div class="bgf"></div><div class="mo">${[1, 2, 3, 4].map((n) => `<div class="c">${photo(a, n)}</div>`).join("")}</div><div class="tx"><div class="t">${lines(f.title)}</div><div class="s">${esc(f.sub)}</div></div></div>
+  <script>
+  tl.from(".mo .c", { autoAlpha: 0, y: 80, duration: 0.55, ease: "power3.out", stagger: 0.1 }, 0);
+  tl.to(".mo .ph", { scale: 1, duration: 4.5, ease: "none" }, 0);
+  tl.from(".t .li", { yPercent: 110, duration: 0.6, ease: "expo.out" }, 0.5);
+  tl.from(".s", { autoAlpha: 0, y: 20, duration: 0.45, ease: "power3.out" }, 0.8);
+  </script>`,
+});
+
 /** Публичный список: без функций. */
 function list() {
-  return T.map(({ id, name, group, duration, fields, needsLogo, pair }) => ({ id, name, group, duration, fields, needsLogo: !!needsLogo, pair: pair || "" }));
+  return T.map(({ id, name, group, duration, fields, needsLogo, pair, full, photos }) => ({ id, name, group, duration, fields, needsLogo: !!needsLogo, pair: pair || "", full: !!full, photos: photos || 0 }));
 }
 
 /** Код заготовки с полями и темой. */

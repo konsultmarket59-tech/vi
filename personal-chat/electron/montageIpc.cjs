@@ -19,6 +19,7 @@ const motionTemplates = require("./motionTemplates.cjs");
 const motionLib = require("./motion.cjs");
 const motionRender = require("./motionRender.cjs");
 const fontLibrary = require("./fontLibrary.cjs");
+const bgremove = require("./bgremove.cjs");
 
 const SCHEME = "montage-media";
 
@@ -265,6 +266,7 @@ function register(ctx) {
     speechModels: MONTAGE_SPEECH_MODELS,
     lipsyncModels: avatar.LIPSYNC_MODELS,
     scheme: SCHEME,
+    masksDir: montage.masksDir(),
   }));
 
   ipcMain.handle("montage:config", () => readConfig());
@@ -830,6 +832,20 @@ function register(ctx) {
   // ---------- моушн ----------
 
   const motionCacheDir = async () => path.join(await montageRoot(), "motion-cache");
+  motionAgent.setImageShrinker(async (file) => {
+    const st = await fs.stat(file);
+    if (st.size < 900 * 1024) return file;
+    const dir = path.join(await motionCacheDir(), "images");
+    await fs.mkdir(dir, { recursive: true });
+    const out = path.join(dir, `${motionLib.hash(file, st.size, st.mtimeMs)}.jpg`);
+    if (fsSync.existsSync(out)) return out;
+    const img = nativeImage.createFromPath(file);
+    if (img.isEmpty()) return file;
+    const { width, height } = img.getSize();
+    const k = Math.min(1, 1600 / Math.max(width, height));
+    await fs.writeFile(out, (k < 1 ? img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: "good" }) : img).toJPEG(86));
+    return out;
+  });
   const motionCtx = (settings) => ({ BrowserWindow, nativeImage, usage, settings, ffmpeg: ffmpegPath(), tmpDir: app.getPath("temp") });
   let motionAbort = null;
 
@@ -967,6 +983,74 @@ function register(ctx) {
     }
   });
 
+
+  // ---------- удаление фона ----------
+
+  const bgCacheDir = async () => {
+    const d = path.join(await montageRoot(), "cache", "bg");
+    await fs.mkdir(d, { recursive: true });
+    return d;
+  };
+  const modelsDir = () => (speechCacheDir ? speechCacheDir() : path.join(app.getPath("userData"), "models"));
+  let bgAbort = null;
+  const bgJobs = new Map();
+
+  /** Маска куска (кэш по ключу настроек). image — картинка: маска одним кадром. */
+  async function bgMaskFor(item, onProgress) {
+    const key = montage.bgKey(item);
+    const st = await fs.stat(item.src);
+    const image = montage.mediaKind(item.src) === "image";
+    const out = path.join(await bgCacheDir(), `${motionLib.hash(key, st.size, st.mtimeMs, "m1")}.${image ? "png" : "mp4"}`);
+    if (fsSync.existsSync(out)) return { key, mask: out };
+    if (bgJobs.has(out)) return bgJobs.get(out);
+    const job = (async () => {
+      bgAbort = bgAbort || new AbortController();
+      const cacheDir = typeof modelsDir() === "string" ? modelsDir() : await modelsDir();
+      await bgremove.maskVideo({ bin: ffmpegPath(), src: item.src, from: item.in, dur: Math.max(0.1, item.out - item.in), image, out, kind: item.bgRemove.model, quality: item.bgRemove.quality, cacheDir, onProgress, signal: bgAbort.signal });
+      return { key, mask: out };
+    })();
+    bgJobs.set(out, job);
+    try {
+      return await job;
+    } finally {
+      bgJobs.delete(out);
+    }
+  }
+
+  /** Маска + готовый вид для предпросмотра (540p). */
+  ipcMain.handle("montage:bgPrepare", async (event, raw, which = "clip") => {
+    const item = which === "layer" ? montage.normalizeProject({ layers: [raw] }).layers[0] : montage.normalizeProject({ clips: [raw] }).clips[0];
+    if (!item || !item.bgRemove) throw new Error("Удаление фона выключено.");
+    const send = (p) => {
+      try {
+        event.sender.send("montage-bg", { id: raw.id, ...p });
+      } catch {
+        // окно закрыли
+      }
+    };
+    try {
+      const { key, mask } = await bgMaskFor(item, send);
+      const b = item.bgRemove;
+      const image = montage.mediaKind(item.src) === "image";
+      const transparent = which === "layer" || b.replace === "transparent";
+      const prevKey = motionLib.hash(mask, transparent ? "t" : b.replace, b.color, b.image, b.soft, "p1");
+      const preview = path.join(await bgCacheDir(), `${prevKey}.${transparent ? "webm" : "mp4"}`);
+      if (!fsSync.existsSync(preview)) {
+        send({ stage: "preview", progress: 0.99 });
+        await bgremove.previewFile({ bin: ffmpegPath(), src: item.src, from: item.in, dur: image ? Math.max(1, item.out - item.in) : item.out - item.in, image, mask, out: preview, replace: transparent ? "transparent" : b.replace, color: b.color, bgImage: b.image, soft: b.soft });
+      }
+      send({ stage: "done", progress: 1 });
+      return { key, mask, preview };
+    } finally {
+      bgAbort = null;
+    }
+  });
+  ipcMain.handle("montage:bgStop", () => {
+    if (bgAbort) bgAbort.abort();
+    return true;
+  });
+  ipcMain.handle("montage:bgModels", () => bgremove.MODELS);
+
   ipcMain.handle("montage:readDesign", (_e, dir) => readDesignFolder(dir));
   ipcMain.handle("montage:showItem", (_e, p) => shell.showItemInFolder(p));
   ipcMain.handle("montage:openPath", (_e, p) => shell.openPath(p));
@@ -1011,6 +1095,12 @@ function register(ctx) {
     renderAbort = new AbortController();
     try {
       await motionAgent.prerender(motionCtx(), project, { cacheDir: await motionCacheDir(), readDesignFolder, onProgress: send, signal: renderAbort.signal });
+      // Маски удаления фона: готовые берутся из кэша, недостающие считаются сейчас.
+      const withBg = [...project.clips, ...project.layers].filter((x) => x.bgRemove);
+      for (const [i, item] of withBg.entries()) {
+        const { key, mask } = await bgMaskFor(item, (p) => send({ stage: "bg", progress: (i + (p.progress || 0)) / withBg.length, message: `Удаляю фон: ${i + 1} из ${withBg.length}` }));
+        item.bgRemove.cache = { ...(item.bgRemove.cache || {}), key, mask };
+      }
       const result = await montage.renderProject({
         bin: ffmpegPath(),
         project,

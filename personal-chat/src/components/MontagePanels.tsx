@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MontageCaptions, MontageCleanupStats, MontageStockItem, MontageText } from "../lib/types";
-import { captionCss, fileName, fmtTime, layout, mediaUrl, outputToSource, uid } from "../lib/montage";
+import { captionCss, endDrag, fileName, fmtTime, layout, mediaUrl, outputToSource, setDrag, uid } from "../lib/montage";
 import { Field, Slider, type BinItem, type EditorCtx } from "./MontageControls";
 import { FontFaces, FontPicker, PairCard, useFontData } from "./MontageFonts";
 
@@ -13,7 +13,7 @@ function BinCard({ item, ctx }: { item: BinItem; ctx: EditorCtx }) {
     window.api.montageThumbs(item.path, { count: 1, height: 90 }).then(setThumb).catch(() => {});
   }, [item.path, item.kind]);
   return (
-    <div className="mt-bin-card" title={item.path}>
+    <div className="mt-bin-card" title={`${item.path}\nПеретащите на дорожку таймлайна — в нужное место и на нужную дорожку`} draggable onDragStart={(e) => setDrag(e, { type: "media", path: item.path, kind: item.kind, duration: item.duration })} onDragEnd={endDrag}>
       <div className="mt-bin-thumb" style={thumb ? { backgroundImage: `url(${thumb})` } : undefined} onClick={() => ctx.place(item, item.kind === "audio" ? "music" : "main")}>
         {item.kind === "audio" ? "♪" : !thumb ? "…" : ""}
         {item.duration > 0 && <i>{fmtTime(item.duration)}</i>}
@@ -387,13 +387,13 @@ export function EffectsPanel({ ctx }: { ctx: EditorCtx }) {
   };
   return (
     <>
-      <p className="mt-hint">{target ? `Применится к: ${target.name}.` : "Выберите кусок или слой."} Силу и порядок эффектов меняют справа.</p>
+      <p className="mt-hint">Перетащите эффект на кусок или слой на таймлайне — или прямо в кадр. Щелчок — к выбранному{target ? ` (${target.name})` : ""}, Alt+щелчок — ко всем. Силу меняют справа.</p>
       {groups.map((g) => (
         <div key={g}>
           <h4>{g}</h4>
           <div className="mt-chip-grid">
             {ctx.options.effects.filter((e) => e.group === g).map((e) => (
-              <button key={e.id} className="mt-fx-chip" disabled={!target} onClick={(ev) => apply(e.id, ev.altKey)} title="Щелчок — к выбранному, Alt+щелчок — ко всем кускам">
+              <button key={e.id} className="mt-fx-chip" draggable onDragStart={(ev) => setDrag(ev, { type: "effect", id: e.id, name: e.name })} onDragEnd={endDrag} onClick={(ev) => target && apply(e.id, ev.altKey)} title="Перетащите на кусок на таймлайне или в кадр. Щелчок — к выбранному, Alt+щелчок — ко всем кускам">
                 <span className="mt-fx-swatch" style={{ filter: e.css.filter || undefined }} />
                 {e.name}
               </button>
@@ -428,13 +428,13 @@ export function FiltersPanel({ ctx }: { ctx: EditorCtx }) {
   const groups = [...new Set(ctx.options.filters.map((f) => f.group))];
   return (
     <>
-      <p className="mt-hint">{target ? `Для: ${target.name}.` : "Выберите кусок."} Alt+щелчок — ко всему ролику. Сила фильтра и свой LUT — справа, в «Цвет и фильтр».</p>
+      <p className="mt-hint">Перетащите фильтр на кусок на таймлайне или в кадр. Щелчок — к выбранному{target ? ` (${target.name})` : ""}, Alt+щелчок — ко всему ролику. Сила и свой LUT — справа.</p>
       {groups.map((g) => (
         <div key={g || "none"}>
           {g && <h4>{g}</h4>}
           <div className="mt-filter-grid">
             {ctx.options.filters.filter((f) => f.group === g).map((f) => (
-              <button key={f.id} className={`mt-filter ${current === f.id ? "on" : ""}`} disabled={!target} onClick={(e) => apply(f.id, e.altKey)}>
+              <button key={f.id} className={`mt-filter ${current === f.id ? "on" : ""}`} draggable onDragStart={(ev) => setDrag(ev, { type: "filter", id: f.id, name: f.name })} onDragEnd={endDrag} onClick={(e) => target && apply(f.id, e.altKey)}>
                 <span style={{ backgroundImage: thumb ? `url(${thumb})` : undefined, filter: f.css || undefined }} />
                 <small>{f.name}</small>
               </button>
@@ -470,11 +470,11 @@ export function TransitionsPanel({ ctx }: { ctx: EditorCtx }) {
   const cur = joint > 0 ? project.clips[joint].transition.kind : "";
   return (
     <>
-      <p className="mt-hint">{joint > 0 ? `Стык перед куском ${joint + 1} (${fmtTime(items[joint].start, true)}).` : "Нужно хотя бы два куска."} Alt+щелчок — на все стыки.</p>
+      <p className="mt-hint">Перетащите переход на кусок — он встанет на стык перед ним. Щелчок — {joint > 0 ? `на стык перед куском ${joint + 1} (${fmtTime(items[joint].start, true)})` : "нужно хотя бы два куска"}, Alt+щелчок — на все стыки.</p>
       <Slider label="Длительность" value={dur} min={0.1} max={2} step={0.05} fmt={(v) => `${v} с`} onChange={setDur} />
       <div className="mt-chip-grid">
         {ctx.options.transitions.map((t) => (
-          <button key={t.id} className={`mt-fx-chip ${cur === t.id ? "on" : ""}`} disabled={joint <= 0} onClick={(e) => apply(t.id, e.altKey)}>
+          <button key={t.id} className={`mt-fx-chip ${cur === t.id ? "on" : ""}`} draggable onDragStart={(ev) => setDrag(ev, { type: "transition", id: t.id, name: t.name })} onDragEnd={endDrag} onClick={(e) => joint > 0 && apply(t.id, e.altKey)} title="Перетащите на кусок — переход встанет на его начало">
             <span className={`mt-tr-demo t-${t.css}`} />
             {t.name}
           </button>

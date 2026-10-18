@@ -105,6 +105,41 @@ else if (MODE_NAME) {
 }
 
 const USER_DATA_PATH = stripWindowsExtendedPrefix(app.getPath("userData"));
+
+// ---------- устойчивость «Монтажа» ----------
+// Видеоредактор нагружает графику: десятки видео, наложения, размытия. На
+// части видеокарт Windows процесс графики падает или виснет, и окно становится
+// белым. Флаги переживают перезапуск: после падения графики следующий запуск
+// идёт без аппаратного ускорения (видео декодируется процессором — для тяжёлых
+// исходников есть лёгкие копии), а после зависания окна последний проект не
+// открывается сам — чтобы зависание не повторялось по кругу.
+const MONTAGE_FLAGS_PATH = path.join(USER_DATA_PATH, "montage-flags.json");
+const MONTAGE_LOG_PATH = path.join(USER_DATA_PATH, "журнал-монтажа.txt");
+function readMontageFlags() {
+  try {
+    return JSON.parse(fsSync.readFileSync(MONTAGE_FLAGS_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function writeMontageFlags(patch) {
+  try {
+    fsSync.mkdirSync(USER_DATA_PATH, { recursive: true });
+    fsSync.writeFileSync(MONTAGE_FLAGS_PATH, JSON.stringify({ ...readMontageFlags(), ...patch }, null, 2), "utf-8");
+  } catch {
+    // флаги — подстраховка, а не условие работы
+  }
+}
+function montageLog(line) {
+  try {
+    fsSync.mkdirSync(USER_DATA_PATH, { recursive: true });
+    fsSync.appendFileSync(MONTAGE_LOG_PATH, `[${new Date().toISOString()}] ${line}\n`, "utf-8");
+  } catch {
+    // журнал не должен ронять программу
+  }
+}
+if (APP_MODE === "montage" && readMontageFlags().noGpu) app.disableHardwareAcceleration();
+
 const APP_CONFIG_PATH = path.join(USER_DATA_PATH, "config.json");
 const DEFAULT_ROOT = path.join(stripWindowsExtendedPrefix(app.getPath("documents")), COPY_NAME || MODE_NAME || "Личный чат");
 const FALLBACK_ROOT = path.join(USER_DATA_PATH, "data");
@@ -1512,6 +1547,33 @@ async function exportHtmlToPng({ html, defaultName, projectId }) {
 
 // ---------- window ----------
 
+const montageCrumbs = [];
+ipcMain.on("montage:crumb", (_e, text) => {
+  montageCrumbs.push(`${new Date().toISOString().slice(11, 19)} ${String(text).slice(0, 120)}`);
+  if (montageCrumbs.length > 40) montageCrumbs.splice(0, montageCrumbs.length - 40);
+});
+ipcMain.handle("montage:safeStart", (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const safe = !!(win && win.__safeStart);
+  if (win) win.__safeStart = false;
+  return safe;
+});
+ipcMain.handle("montage:flags", () => ({ ...readMontageFlags(), logPath: MONTAGE_LOG_PATH }));
+ipcMain.handle("montage:setFlags", (_e, patch) => {
+  writeMontageFlags(patch || {});
+  return readMontageFlags();
+});
+ipcMain.handle("montage:openLog", () => {
+  if (!fsSync.existsSync(MONTAGE_LOG_PATH)) montageLog("журнал создан");
+  return shell.showItemInFolder(MONTAGE_LOG_PATH);
+});
+app.on("child-process-gone", (_e, details) => {
+  if (APP_MODE !== "montage") return;
+  montageLog(`процесс ${details.type} завершился: ${details.reason} код=${details.exitCode}`);
+  // Упал процесс графики — следующий запуск без аппаратного ускорения.
+  if (details.type === "GPU" && details.reason !== "clean-exit") writeMontageFlags({ noGpu: true, noGpuReason: `${details.reason} ${new Date().toISOString()}` });
+});
+
 function createWindow() {
   const win = new BrowserWindow({
     // Видеоредактору нужна ширина: колонка инструментов, кадр, настройки и таймлайн.
@@ -1546,6 +1608,10 @@ function createWindow() {
   // о проблеме не оставалось ни строчки. Теперь причина записывается на диск
   // ДО перезагрузки и попадает в отчёт, а человек видит, что именно случилось.
   win.webContents.on("render-process-gone", (_event, details) => {
+    if (APP_MODE === "montage") {
+      montageLog(`окно упало: ${details?.reason || ""} код=${details?.exitCode}. Последние действия: ${montageCrumbs.join(" → ")}`);
+      win.__safeStart = true;
+    }
     const entry = report.recordCrash({
       kind: "окно приложения",
       reason: details?.reason || "",
@@ -1559,6 +1625,32 @@ function createWindow() {
   });
   win.webContents.on("unresponsive", () => {
     report.record("main", "warn", "окно перестало отвечать");
+    if (APP_MODE !== "montage") return;
+    montageLog(`ОКНО НЕ ОТВЕЧАЕТ. Последние действия: ${montageCrumbs.join(" → ")}`);
+    // Даём окну восемь секунд: тяжёлая операция может закончиться сама.
+    clearTimeout(win.__hangTimer);
+    win.__hangTimer = setTimeout(async () => {
+      if (win.isDestroyed()) return;
+      const r = await dialog.showMessageBox(win, {
+        type: "warning",
+        buttons: ["Перезагрузить окно", "Подождать"],
+        defaultId: 0,
+        title: "Монтаж",
+        message: "Окно редактора не отвечает",
+        detail: `Проект сохранён на диске. Окно откроется без последнего проекта (его можно открыть из «Проекты»). Журнал: ${MONTAGE_LOG_PATH}`,
+      });
+      if (r.response === 0 && !win.isDestroyed()) {
+        montageLog("перезагрузка окна после зависания (безопасный старт)");
+        win.__safeStart = true;
+        // Зависшее окно обычной перезагрузкой не остановить — процесс окна
+        // завершается, и обработчик падения ниже открывает окно заново.
+        win.webContents.forcefullyCrashRenderer();
+      }
+    }, 8000);
+  });
+  win.webContents.on("responsive", () => {
+    clearTimeout(win.__hangTimer);
+    if (APP_MODE === "montage") montageLog("окно снова отвечает");
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;

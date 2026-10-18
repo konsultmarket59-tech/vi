@@ -63,6 +63,7 @@
       "dist/**/*",
       "electron/**/*",
       "fonts/**/*",
+      "masks/**/*",
       "package.json",
       "bundled-skills/**/*",
       "plugins.json",
@@ -114,7 +115,8 @@
     "asarUnpack": [
       "node_modules/ffmpeg-static/**",
       "node_modules/onnxruntime-node/**",
-      "fonts/**"
+      "fonts/**",
+      "masks/**"
     ]
   }
 }

@@ -3,7 +3,7 @@
 // electron/montage.cjs: предпросмотр обязан показывать ровно то, что соберётся,
 // иначе человек будет править одно, а получать другое.
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import type {
   MontageAudio,
   MontageCaptionStyle,
@@ -443,4 +443,116 @@ export function gradeOverlays(adj: MontageClip["adjust"]): CSSProperties[] {
   const v = adj?.vignette || 0;
   if (v > 0.01) out.push({ background: `radial-gradient(ellipse at center, transparent ${Math.round(60 - v * 25)}%, rgba(0,0,0,${round3(0.35 + v * 0.5)}) 100%)` });
   return out;
+}
+
+// ---------- перетаскивание из панелей на таймлайн ----------
+
+/** Что тащат: эффект, фильтр, переход, файл из «Медиа» или заготовку титра. */
+export type DragPayload =
+  | { type: "effect" | "filter" | "transition"; id: string; name?: string }
+  | { type: "media"; path: string; kind: string; duration: number };
+
+const DRAG_MIME = "application/x-montage";
+
+export function setDrag(e: DragEvent, data: DragPayload) {
+  e.dataTransfer.setData(DRAG_MIME, JSON.stringify(data));
+  e.dataTransfer.effectAllowed = "copy";
+  dragNow = data;
+}
+
+/** Текущее перетаскивание — во время dragover данные события читать нельзя. */
+export let dragNow: DragPayload | null = null;
+export function endDrag() {
+  dragNow = null;
+}
+
+export function getDrag(e: DragEvent): DragPayload | null {
+  try {
+    const raw = e.dataTransfer.getData(DRAG_MIME);
+    return raw ? (JSON.parse(raw) as DragPayload) : dragNow;
+  } catch {
+    return dragNow;
+  }
+}
+
+// ---------- раскладки экрана ----------
+
+export interface MontageLayout {
+  id: string;
+  name: string;
+  cells: { x: number; y: number; w: number; h: number }[];
+}
+
+const grid = (cols: number, rows: number) => {
+  const out = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out.push({ x: c / cols, y: r / rows, w: 1 / cols, h: 1 / rows });
+  return out;
+};
+
+/** Раскладки: ячейки в долях кадра. Зазор и скругление добавляются при применении. */
+export const LAYOUTS: MontageLayout[] = [
+  { id: "rows2", name: "2 сверху вниз", cells: grid(1, 2) },
+  { id: "cols2", name: "2 рядом", cells: grid(2, 1) },
+  { id: "rows3", name: "3 сверху вниз", cells: grid(1, 3) },
+  { id: "grid4", name: "4 сеткой", cells: grid(2, 2) },
+  { id: "grid6", name: "6 сеткой", cells: grid(2, 3) },
+  { id: "big2", name: "Большое + 2", cells: [{ x: 0, y: 0, w: 1, h: 0.62 }, { x: 0, y: 0.62, w: 0.5, h: 0.38 }, { x: 0.5, y: 0.62, w: 0.5, h: 0.38 }] },
+  { id: "side3", name: "Большое + 2 сбоку", cells: [{ x: 0, y: 0, w: 0.62, h: 1 }, { x: 0.62, y: 0, w: 0.38, h: 0.5 }, { x: 0.62, y: 0.5, w: 0.38, h: 0.5 }] },
+  { id: "pip-br", name: "Окно справа внизу", cells: [{ x: 0.6, y: 0.66, w: 0.34, h: 0.26 }] },
+  { id: "pip-tl", name: "Окно слева вверху", cells: [{ x: 0.06, y: 0.08, w: 0.34, h: 0.26 }] },
+  { id: "card", name: "Карточка по центру", cells: [{ x: 0.08, y: 0.15, w: 0.84, h: 0.6 }] },
+  { id: "diag2", name: "Два окна наискосок", cells: [{ x: 0.06, y: 0.08, w: 0.6, h: 0.42 }, { x: 0.34, y: 0.5, w: 0.6, h: 0.42 }] },
+];
+
+/** Ячейки раскладки с зазором (доля кадра) — зазор режется внутрь каждой ячейки. */
+export function layoutCells(l: MontageLayout, gap: number) {
+  return l.cells.map((c) => ({
+    x: round3(c.x + (c.x > 0.001 ? gap / 2 : gap)),
+    y: round3(c.y + (c.y > 0.001 ? gap / 2 : gap)),
+    w: round3(c.w - (c.x > 0.001 ? gap / 2 : gap) - (c.x + c.w < 0.999 ? gap / 2 : gap)),
+    h: round3(c.h - (c.y > 0.001 ? gap / 2 : gap) - (c.y + c.h < 0.999 ? gap / 2 : gap)),
+  }));
+}
+
+// ---------- маски слоя ----------
+
+export const MASK_SHAPES: { id: MontageLayer["mask"]; name: string; file?: string }[] = [
+  { id: "none", name: "Без маски" },
+  { id: "rect", name: "Прямоугольник" },
+  { id: "rounded", name: "Скругление" },
+  { id: "circle", name: "Круг", file: "circle.png" },
+  { id: "oval", name: "Овал", file: "circle.png" },
+  { id: "squircle", name: "Плавный квадрат", file: "squircle.png" },
+  { id: "heart", name: "Сердце", file: "heart.png" },
+  { id: "star", name: "Звезда", file: "star.png" },
+  { id: "hexagon", name: "Шестиугольник", file: "hexagon.png" },
+  { id: "arch", name: "Арка", file: "arch.png" },
+  { id: "diamond", name: "Ромб", file: "diamond.png" },
+  { id: "blob", name: "Капля", file: "blob.png" },
+  { id: "triangle", name: "Треугольник", file: "triangle.png" },
+];
+
+/** CSS маски для предпросмотра: форма картинкой, «Овал» — растянутый круг. */
+export function maskCss(mask: MontageLayer["mask"], masksDir: string | undefined, scheme: string): CSSProperties {
+  const shape = MASK_SHAPES.find((m) => m.id === mask);
+  if (!shape || !shape.file || !masksDir) return {};
+  const url = `url("${mediaUrl(scheme, `${masksDir.replace(/[\\/]$/, "")}/${shape.file}`)}")`;
+  const size = mask === "oval" ? "100% 100%" : "contain";
+  return { WebkitMaskImage: url, maskImage: url, WebkitMaskSize: size, maskSize: size, WebkitMaskPosition: "center", maskPosition: "center", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat" } as CSSProperties;
+}
+
+// ---------- удаление фона ----------
+
+/** Ключ маски — как в electron/montage.cjs: те же границы и модель — маска годится. */
+export function bgKey(it: { src: string; in: number; out: number; bgRemove?: MontageClip["bgRemove"] }) {
+  const b = it.bgRemove;
+  return b ? [it.src, round3(it.in), round3(it.out), b.model, b.quality].join("|") : "";
+}
+export function bgPreviewKey(b: NonNullable<MontageClip["bgRemove"]>) {
+  return [b.replace, b.color, b.image, b.soft].join("|");
+}
+/** Готовый вид с удалённым фоном для предпросмотра (или пусто). */
+export function bgPreview(it: { src: string; in: number; out: number; bgRemove?: MontageClip["bgRemove"] }) {
+  const b = it.bgRemove;
+  return b && b.enabled && b.cache && b.cache.preview && b.cache.key === bgKey(it) ? b.cache.preview : "";
 }
