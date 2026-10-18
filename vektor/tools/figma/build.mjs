@@ -43,6 +43,8 @@ patch('src/app/demo/document.ts', "const DEMO_URL = '/demo.fig'", "const DEMO_UR
 // CanvasKit (wasm) ищем рядом со страницей, а не в корне сайта
 patch('packages/core/src/canvaskit.ts', "const base = 'env' in import.meta ? import.meta.env.BASE_URL : '/'", "if (typeof document !== 'undefined') return new URL(file, document.baseURI).href\n    const base = 'env' in import.meta ? import.meta.env.BASE_URL : '/'")
 patch('index.html', '<img src="/brand/app-icon.svg"', '<img src="./brand/app-icon.svg"')
+// картинки из буфера Figma: в настольном «Векторе» (vk://) запросы к figma.com идут через главный процесс
+patch('src/app/editor/session/create.ts', 'resolveFigmaClipboardImages: IS_TAURI ? resolveFigmaClipboardImages : undefined,', "resolveFigmaClipboardImages: IS_TAURI ? resolveFigmaClipboardImages : location.protocol === 'vk:' ? (key: string, hashes: string[]) => resolveFigmaClipboardImages(key, hashes, (input: RequestInfo | URL, init?: RequestInit) => fetch(String(input instanceof Request ? input.url : input).replace(/^(https?):\\/\\//, location.origin + '/__net/$1/'), init)) : undefined,")
 fs.copyFileSync(path.join(here, 'vk-bridge.ts'), path.join(src, 'src', 'vk-bridge.ts'))
 // virtual:pwa-register остаётся в коде, но не вызывается — заглушка для сборщика
 const stubDir = path.join(src, 'src', 'vk-stub')

@@ -280,7 +280,7 @@ code { background: var(--panel2); padding: 0 4px; border-radius: 3px; }
 body.ws-other .wshost { display: block; }
 body.ws-other #app > :not(#menubar) { visibility: hidden; }
 .ws-pane { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
-.wsbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; background: var(--panel); border-bottom: 1px solid var(--line); white-space: nowrap; overflow-x: auto; flex: none; }
+.wsbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; background: var(--panel); border-bottom: 1px solid var(--line); white-space: nowrap; flex-wrap: wrap; row-gap: 4px; flex: none; }
 .wsbar .pbt.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .wsbar button.primary { height: 26px; }
 .pbt.danger { color: #c62828; }

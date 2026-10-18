@@ -468,8 +468,8 @@ if (!gotLock) {
     await applyProxySettings(loadNet());
     protocol.handle("vk", (req) => handleVk(req).catch((e) => new Response(String(e && e.message || e), { status: 502 })));
     // шрифты системы (Local Font Access API) — без лишних вопросов
-    session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(["local-fonts", "clipboard-read", "clipboard-sanitized-write"].includes(permission)));
-    session.defaultSession.setPermissionCheckHandler((wc, permission) => ["local-fonts", "clipboard-read", "clipboard-sanitized-write"].includes(permission));
+    session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(["local-fonts", "clipboard-read", "clipboard-sanitized-write", "fileSystem"].includes(permission)));
+    session.defaultSession.setPermissionCheckHandler((wc, permission) => ["local-fonts", "clipboard-read", "clipboard-sanitized-write", "fileSystem"].includes(permission));
     createWindow(fileFromArgs(process.argv));
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow(null);

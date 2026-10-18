@@ -103,8 +103,10 @@ const FigProject = {
       h('div', { class: 'fp-acts' },
         h('button', { class: 'pbt', title: 'Новый файл в проекте', onclick: () => FigProject.newFile() }, '+ Файл'),
         h('button', { class: 'pbt', title: 'Сохранить открытую вкладку в проект', onclick: () => FigProject.saveActive(true) }, 'Сохранить'),
+        h('button', { class: 'pbt', title: 'Сохранить все открытые вкладки в папку проекта', onclick: () => FigProject.saveAll() }, 'Сохранить всё'),
         h('button', { class: 'ib', title: 'Обновить список', onclick: () => FigProject.refresh() }, '↻'),
         h('button', { class: 'ib', title: 'Убрать проект из списка', onclick: () => FigProject.remove() }, '×')));
+    if (FigProject.needPerm) el.append(h('button', { class: 'primary', onclick: async () => { const p2 = FigProject.project(); if (p2 && Host.desktop && !p2.root) return FigProject.add(); if (await FigProject.canWrite(p2, true)) { UI.toast('Запись в папку разрешена'); FigProject.saveActive(false); } } }, Host.desktop ? 'Подключить папку заново' : 'Разрешить запись в папку'));
     const list = h('div', { class: 'fp-list' });
     if (!FigProject.files.length) list.append(h('p', { class: 'muted small' }, 'В проекте пока нет файлов. «+ Файл» — новый макет, или откройте файл и нажмите «Сохранить».'));
     const openRels = new Set(Object.values(FigProject.tabs));
@@ -157,6 +159,7 @@ const FigProject = {
       FigProject.tabs[tab] = rel;
     }
     if (/\.pen$/i.test(rel)) rel = rel.replace(/\.pen$/i, '.fig');
+    if (!await FigProject.canWrite(p, ask)) return;
     const buf = await api.exportFig(rel.replace(/\.fig$/i, ''));
     await Host.writeToFolder(FigProject.folder(p), rel, new Uint8Array(buf));
     if (api.markSaved) api.markSaved();
@@ -166,6 +169,34 @@ const FigProject = {
     } catch (e) { }
     if (!FigProject.files.some(f => f.rel === rel)) await FigProject.refresh(); else FigProject.render();
     if (ask) UI.toast('Сохранено в проект: ' + rel);
+  },
+  // доступ на запись: в настольной программе — по пути папки; в браузере — разрешение на папку (нужен щелчок)
+  async canWrite(p, gesture) {
+    if (p.root) return true;
+    if (Host.desktop) { FigProject.needPerm = true; FigProject.render(); if (gesture) UI.toast('Подключите папку проекта заново: «+ Подключить папку проекта…»', true); return false; }
+    if (!p.handle) return false;
+    let st = 'prompt';
+    try { st = await p.handle.queryPermission({ mode: 'readwrite' }); } catch (e) { }
+    if (st !== 'granted' && gesture) { try { st = await p.handle.requestPermission({ mode: 'readwrite' }); } catch (e) { } }
+    FigProject.needPerm = st !== 'granted';
+    if (FigProject.needPerm) FigProject.render();
+    return !FigProject.needPerm;
+  },
+  // сохранить все открытые вкладки в проект (каждая — своим файлом)
+  async saveAll() {
+    const p = FigProject.project(); if (!p) return FigProject.add();
+    const api = await FigmaWS.api();
+    if (!await FigProject.canWrite(p, true)) return;
+    const back = api.activeTab();
+    let n = 0;
+    await withBusy('Сохраняю проект…', async () => {
+      for (const t of api.tabs().filter(x => !x.home)) {
+        api.switchTab(t.id); await new Promise(r => setTimeout(r, 300));
+        await FigProject.saveActive(true); n++;
+      }
+      if (back) api.switchTab(back);
+    });
+    UI.toast('В проект сохранено файлов: ' + n);
   },
   async autosave() {
     if (!FigProject.project() || !FigmaWS.frame) return;

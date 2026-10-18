@@ -689,7 +689,7 @@ const Motion = {
       h('span', { class: 'sep' }), Motion.playBtn, Motion.timeLbl,
       h('span', { class: 'grow' }),
       B('ИИ-видео…', 'Сгенерировать видео моделью Polza из кадра', () => Motion.aiVideoDialog()),
-      B('Экспорт ▾', 'Сохранить ролик в MP4 или WebM', e => { const r = e.currentTarget.getBoundingClientRect(); UI.showMenuList([{ label: 'MP4 (H.264)', action: () => Motion.exportDialog('mp4') }, { label: 'WebM (VP9)', action: () => Motion.exportDialog('webm') }, { label: 'PNG текущего кадра', action: () => Motion.exportFrame() }], r.left, r.bottom); }, 'primary'));
+      B('Экспорт ▾', 'Сохранить ролик в MP4 или WebM', e => { const r = e.currentTarget.getBoundingClientRect(); UI.showMenuList([{ label: 'MP4 (H.264)', action: () => Motion.exportDialog('mp4') }, { label: 'WebM (VP9)', action: () => Motion.exportDialog('webm') }, { label: 'GIF (анимация)', action: () => Motion.gifDialog() }, { label: 'PNG текущего кадра', action: () => Motion.exportFrame() }], r.left, r.bottom); }, 'primary'));
     const canvas = h('canvas', { class: 'mo-canvas' });
     Motion.canvas = canvas; Motion.g = canvas.getContext('2d');
     const stage = h('div', { class: 'mo-stage' }, canvas);
@@ -1385,6 +1385,41 @@ const Motion = {
     UI.dialog('Экспорт ' + fmt.toUpperCase(), h('div', { class: 'form' }, h('label', {}, 'Размер', scale), h('label', {}, 'Качество', q),
       h('p', { class: 'muted' }, `${P.duration} с × ${P.fps} к/с = ${Math.round(P.duration * P.fps)} кадров. Звук — из видео-фона и музыки.`)),
     [{ label: 'Отмена' }, { label: 'Сохранить', primary: true, action: () => { Motion.render(fmt, { scale: +scale.value, quality: q.value }).then(r => r && Motion.saveBlob(r.blob, r.name)); } }]);
+  },
+  gifDialog() {
+    const P = Motion.p;
+    const side = UI.sel([[480, 'до 480 px'], [640, 'до 640 px'], [800, 'до 800 px'], [1080, 'до 1080 px (большой файл)']], 640, () => { });
+    const fps = UI.sel([[10, '10 к/с'], [15, '15 к/с'], [20, '20 к/с'], [25, '25 к/с']], 15, () => { });
+    UI.dialog('Экспорт GIF', h('div', { class: 'form' }, h('label', {}, 'Размер по большей стороне', side), h('label', {}, 'Частота кадров', fps),
+      h('p', { class: 'muted' }, `${P.duration} с. GIF — без звука, 256 цветов; для соцсетей лучше MP4.`)),
+    [{ label: 'Отмена' }, { label: 'Сохранить', primary: true, action: () => { Motion.renderGIF({ side: +side.value, fps: +fps.value }).then(r => r && Motion.saveBlob(r.blob, r.name)); } }]);
+  },
+  async renderGIF({ side = 640, fps = 15 } = {}) {
+    Motion.pause();
+    const P = Motion.p, k = Math.min(1, side / Math.max(P.w, P.h));
+    const W = Math.max(2, Math.round(P.w * k)), H = Math.max(2, Math.round(P.h * k));
+    const frames = Math.max(1, Math.round(P.duration * fps));
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    const cancel = { stop: false };
+    UI.busy('GIF: 0%');
+    const box = UI.$('#busy'); if (box) box.append(h('button', { class: 'pbt', style: { marginLeft: '10px' }, onclick: () => { cancel.stop = true; } }, 'Отмена'));
+    const frame = async t => { await Motion.seekAll(t); g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.setTransform(k, 0, 0, k, 0, 0); Motion.drawFrame(g, t); return g.getImageData(0, 0, W, H).data; };
+    try {
+      // палитра — по 8 кадрам по всей длине ролика
+      const samples = [];
+      for (let i = 0; i < 8; i++) samples.push(await frame(P.duration * i / 8));
+      const enc = GifEnc.create(W, H, GifEnc.palette(samples), Math.round(100 / fps));
+      for (let i = 0; i < frames; i++) {
+        if (cancel.stop) throw new Error('Экспорт отменён');
+        enc.add(await frame(i / fps));
+        if (i % 3 === 0) { const el = UI.$('#busy'); if (el && el.childNodes[1]) el.childNodes[1].textContent = 'GIF: ' + Math.round(i / frames * 100) + '%'; await new Promise(r => setTimeout(r, 0)); }
+      }
+      const blob = enc.finish();
+      UI.toast('Готово: ' + (blob.size / 1048576).toFixed(1) + ' МБ');
+      return { blob, name: (P.name || 'ролик') + '.gif' };
+    } catch (e) { UI.toast(e.message || String(e), true); return null; }
+    finally { UI.busy(null); }
   },
   async saveBlob(blob, name, folder) {
     if (folder) return Host.writeToFolder(folder, name, blob);
