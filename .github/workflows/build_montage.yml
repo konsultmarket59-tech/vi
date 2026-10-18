@@ -6,7 +6,7 @@ on:
     tags:
       - "montage-build-*"
     # Ветка, в которой делается «Монтаж»: каждая отправка с правками программы
-    # сразу собирает установщики — запускать сборку руками не нужно.
+    # сразу собирает установщик — запускать сборку руками не нужно.
     branches:
       - "claude/exciting-gauss-8w8aki"
     paths:
@@ -17,20 +17,10 @@ permissions:
   contents: write
 
 jobs:
+  # Только Windows: программа нужна там. Имена файлов — латиницей: кириллицу
+  # GitHub вырезает из имён файлов релиза.
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: --win
-            files: personal-chat/release-montage/*.exe
-            name: Montage-Windows
-          - os: ubuntu-latest
-            target: --linux
-            files: personal-chat/release-montage/*.AppImage
-            name: Montage-Linux
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: personal-chat
@@ -47,26 +37,25 @@ jobs:
       # Отдельная программа «Монтаж»: тот же код, своя конфигурация сборки
       # (имя, точка входа electron/montage-main.cjs, папка release-montage).
       # --publish never: иначе electron-builder пробует выложить сборку сам.
-      - run: npx electron-builder ${{ matrix.target }} --config electron-builder.montage.json --publish never
+      - run: npx electron-builder --win --config electron-builder.montage.json --publish never
 
       # Файлы сборки — прямо на странице запуска, без релиза.
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
-          path: ${{ matrix.files }}
+          name: Montage-Windows
+          path: personal-chat/release-montage/*.exe
           if-no-files-found: error
 
       - name: Publish build to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: montage-desktop
-          name: "Монтаж — видеоредактор (Windows и Linux)"
+          name: "Монтаж — видеоредактор для Windows"
           body: |
-            Автоматическая сборка видеоредактора «Монтаж» из ветки ${{ github.ref_name }}.
-            Windows: `.exe` — portable-версия запускается без установки, Setup — обычный установщик.
+            Автоматическая сборка видеоредактора «Монтаж» для Windows из ветки ${{ github.ref_name }}.
+            `Montage-…-portable.exe` — запускается без установки, `Montage-…-Setup.exe` — обычный установщик.
             При первом запуске SmartScreen может предупредить («файл без цифровой подписи») —
             «Подробнее» → «Выполнить в любом случае».
-            Linux: `.AppImage` — сделайте файл исполняемым и запустите.
           prerelease: true
           target_commitish: ${{ github.sha }}
-          files: ${{ matrix.files }}
+          files: personal-chat/release-montage/*.exe

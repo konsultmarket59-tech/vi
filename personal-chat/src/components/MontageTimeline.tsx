@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { MontageClip, MontageKeyframe, MontageProject } from "../lib/types";
-import { captionLines, clamp, fileName, fmtTime, layerDuration, layout, round3, type OutputWord } from "../lib/montage";
+import { captionLines, clamp, fileName, fmtTime, itemLabel, layerDuration, layout, mediaUrl, round3, type OutputWord } from "../lib/montage";
+import { usePlayhead, type Playhead } from "../lib/playhead";
 
 export type Selection = { kind: "clip" | "text" | "audio" | "layer"; id: string } | null;
 
 interface Props {
   project: MontageProject;
-  time: number;
+  playhead: Playhead;
+  scheme: string;
   pps: number;
   selection: Selection;
   words: OutputWord[];
@@ -25,38 +27,76 @@ type Drag =
   | { kind: "clip-in" | "clip-out"; id: string; x0: number; orig: MontageClip }
   | { kind: "move" | "start" | "end"; list: "texts" | "layers" | "audio"; id: string; x0: number; y0: number; start: number; end: number; inn: number; out: number; track?: number };
 
-/** Полоска кадров для куска — грузится лениво и кешируется в окне. */
-function useThumbs(src: string, from: number, to: number, kind: string, height: number) {
-  const [uri, setUri] = useState("");
-  const count = clamp(Math.round((to - from) / 2), 2, 12);
+type Strip = { path: string; count: number; duration: number; height: number } | null;
+type Wave = { path: string; duration: number; width: number } | null;
+
+// Полоска кадров и волна — одна на исходник на всё время работы окна: сколько
+// бы кусков ни было из одного файла и как ни менялся масштаб, ffmpeg
+// запускается один раз (и то лишь при первом открытии — дальше с диска).
+const strips = new Map<string, Promise<Strip>>();
+const waves = new Map<string, Promise<Wave>>();
+function useCached<T>(map: Map<string, Promise<T>>, src: string, load: (s: string) => Promise<T>, skip: boolean): T | null {
+  const [v, setV] = useState<T | null>(null);
   useEffect(() => {
-    if (kind === "audio") return;
+    if (skip || !src) return;
     let alive = true;
-    window.api
-      .montageThumbs(src, { count, height, from, to })
-      .then((u) => alive && setUri(u))
-      .catch(() => {});
+    if (!map.has(src)) map.set(src, load(src).catch(() => null as T));
+    map.get(src)!.then((r) => alive && setV(r));
     return () => {
       alive = false;
     };
-  }, [src, from, to, count, height, kind]);
-  return uri;
+  }, [map, src, load, skip]);
+  return v;
 }
 
-function useWave(src: string, from: number, to: number, width: number, color: string) {
-  const [uri, setUri] = useState("");
-  const w = Math.round(clamp(width, 40, 2400) / 40) * 40;
+/**
+ * Кадры куска из полоски исходника: ячейки по высоте дорожки, каждая берёт
+ * ближайший кадр полоски. Без запросов к ffmpeg при прокрутке и зуме.
+ */
+function Filmstrip({ src, scheme, from, to, width, height, kind }: { src: string; scheme: string; from: number; to: number; width: number; height: number; kind: string }) {
+  const strip = useCached(strips, src, window.api.montageFilmstrip, kind !== "video" && kind !== "image");
+  const [aspect, setAspect] = useState(16 / 9);
+  const url = strip ? mediaUrl(scheme, strip.path) : "";
   useEffect(() => {
-    let alive = true;
-    window.api
-      .montageWaveform(src, { width: w, height: 30, from, to, color })
-      .then((u) => alive && setUri(u))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [src, from, to, w, color]);
-  return uri;
+    if (!url || !strip) return;
+    const img = new Image();
+    img.onload = () => setAspect(img.naturalWidth / strip.count / img.naturalHeight || 16 / 9);
+    img.src = url;
+  }, [url, strip]);
+  if (!strip || !url) return null;
+  const cellW = height * aspect;
+  const cells = Math.max(1, Math.min(60, Math.ceil(width / cellW)));
+  const out = [];
+  for (let i = 0; i < cells; i++) {
+    const t = from + ((i + 0.5) / cells) * (to - from);
+    const idx = strip.count <= 1 ? 0 : clamp(Math.floor((t / Math.max(0.01, strip.duration)) * strip.count), 0, strip.count - 1);
+    out.push(
+      <i
+        key={i}
+        style={{ left: i * cellW, width: cellW, backgroundImage: `url("${url}")`, backgroundSize: `${strip.count * cellW}px ${height}px`, backgroundPosition: `${-idx * cellW}px 0` }}
+      />
+    );
+  }
+  return <div className="mt-tl-strip">{out}</div>;
+}
+
+/** Волна куска звука — вырезка из волны всего файла. */
+function WaveSlice({ src, scheme, from, to, width, color }: { src: string; scheme: string; from: number; to: number; width: number; color: string }) {
+  const wave = useCached(waves, src, window.api.montageWave, false);
+  if (!wave || !wave.duration) return null;
+  const full = (width / Math.max(0.05, to - from)) * wave.duration;
+  return (
+    <div
+      className="mt-tl-wave"
+      style={{
+        WebkitMaskImage: `url("${mediaUrl(scheme, wave.path)}")`,
+        WebkitMaskSize: `${full}px 100%`,
+        WebkitMaskPosition: `${-(from / wave.duration) * full}px 0`,
+        WebkitMaskRepeat: "no-repeat",
+        background: color,
+      }}
+    />
+  );
 }
 
 function Diamonds({ keyframes, pps }: { keyframes: MontageKeyframe[]; pps: number }) {
@@ -69,8 +109,9 @@ function Diamonds({ keyframes, pps }: { keyframes: MontageKeyframe[]; pps: numbe
   );
 }
 
-function ClipBlock({ clip, left, width, selected, pps, onDown, onSelect, onDropBefore }: {
+function ClipBlock({ clip, scheme, left, width, selected, pps, onDown, onSelect, onDropBefore }: {
   clip: MontageClip;
+  scheme: string;
   left: number;
   width: number;
   selected: boolean;
@@ -79,7 +120,6 @@ function ClipBlock({ clip, left, width, selected, pps, onDown, onSelect, onDropB
   onSelect: () => void;
   onDropBefore: (draggedId: string) => void;
 }) {
-  const thumbs = useThumbs(clip.src, clip.in, clip.out, clip.kind, 44);
   const badges = [
     clip.speed !== 1 && `×${clip.speed}`,
     clip.reverse && "⟲",
@@ -103,12 +143,12 @@ function ClipBlock({ clip, left, width, selected, pps, onDown, onSelect, onDropB
         e.stopPropagation();
         onSelect();
       }}
-      title={`${fileName(clip.src)} · ${fmtTime(clip.in, true)}–${fmtTime(clip.out, true)}`}
+      title={`${itemLabel(clip)} · ${fmtTime(clip.in, true)}–${fmtTime(clip.out, true)}`}
     >
-      {thumbs && <div className="mt-tl-thumbs" style={{ backgroundImage: `url(${thumbs})` }} />}
+      {clip.kind === "motion" ? <div className="mt-tl-motion">✨</div> : <Filmstrip src={clip.src} scheme={scheme} from={clip.in} to={clip.out} width={width} height={44} kind={clip.kind} />}
       <span className="mt-tl-label">
         {clip.transition.kind !== "none" && <i className="mt-tl-tr">⧓</i>}
-        {badges.join(" ")} {clip.label || fileName(clip.src)}
+        {badges.join(" ")} {itemLabel(clip)}
       </span>
       <Diamonds keyframes={clip.keyframes} pps={pps} />
       <div className="mt-tl-edge l" onMouseDown={(e) => onDown(e, "in")} draggable={false} />
@@ -117,14 +157,14 @@ function ClipBlock({ clip, left, width, selected, pps, onDown, onSelect, onDropB
   );
 }
 
-function AudioBlock({ a, pps, selected, onDown }: {
+function AudioBlock({ a, scheme, pps, selected, onDown }: {
   a: MontageProject["audio"][number];
+  scheme: string;
   pps: number;
   selected: boolean;
   onDown: (e: React.MouseEvent, part: "move" | "start" | "end") => void;
 }) {
   const width = Math.max(6, (a.out - a.in) * pps);
-  const wave = useWave(a.src, a.in, a.out, width, a.kind === "sfx" ? "#ffd27a" : "#7debff");
   return (
     <div
       className={`mt-tl-audio k-${a.kind} ${selected ? "sel" : ""}`}
@@ -132,7 +172,7 @@ function AudioBlock({ a, pps, selected, onDown }: {
       onMouseDown={(e) => onDown(e, "move")}
       title={fileName(a.src)}
     >
-      {wave && <div className="mt-tl-wave" style={{ backgroundImage: `url(${wave})` }} />}
+      <WaveSlice src={a.src} scheme={scheme} from={a.in} to={a.out} width={width} color={a.kind === "sfx" ? "#ffd27a" : "#7debff"} />
       <span>{a.kind === "sfx" ? "✺" : a.kind === "voice" ? "🎙" : "♪"} {fileName(a.src)}{a.effect !== "none" ? ` · ${a.effect}` : ""}{a.duck ? " · приседает под голос" : ""}</span>
       <div className="mt-tl-edge l" onMouseDown={(e) => { e.stopPropagation(); onDown(e, "start"); }} />
       <div className="mt-tl-edge r" onMouseDown={(e) => { e.stopPropagation(); onDown(e, "end"); }} />
@@ -140,20 +180,22 @@ function AudioBlock({ a, pps, selected, onDown }: {
   );
 }
 
-function LayerBlock({ l, pps, selected, onDown }: {
+function LayerBlock({ l, scheme, pps, selected, onDown }: {
   l: MontageProject["layers"][number];
+  scheme: string;
   pps: number;
   selected: boolean;
   onDown: (e: React.MouseEvent, part: "move" | "start" | "end") => void;
 }) {
-  const thumbs = useThumbs(l.src, l.in, l.out, l.kind, 30);
+  const width = Math.max(6, layerDuration(l) * pps);
   return (
-    <div className={`mt-tl-layer ${selected ? "sel" : ""}`} style={{ left: l.start * pps, width: Math.max(6, layerDuration(l) * pps) }} onMouseDown={(e) => onDown(e, "move")} title={fileName(l.src)}>
-      {thumbs && <div className="mt-tl-thumbs" style={{ backgroundImage: `url(${thumbs})` }} />}
+    <div className={`mt-tl-layer ${selected ? "sel" : ""} ${l.kind === "motion" ? "motion" : ""}`} style={{ left: l.start * pps, width }} onMouseDown={(e) => onDown(e, "move")} title={itemLabel(l)}>
+      {l.kind !== "motion" && <Filmstrip src={l.src} scheme={scheme} from={l.in} to={l.out} width={width} height={30} kind={l.kind} />}
       <span className="mt-tl-label">
+        {l.kind === "motion" ? "✨ " : ""}
         {l.chroma.enabled ? "🟩 " : ""}
         {l.mask !== "none" ? "◯ " : ""}
-        {l.label || fileName(l.src)}
+        {itemLabel(l)}
       </span>
       <Diamonds keyframes={l.keyframes} pps={pps} />
       <div className="mt-tl-edge l" onMouseDown={(e) => { e.stopPropagation(); onDown(e, "start"); }} />
@@ -162,7 +204,20 @@ function LayerBlock({ l, pps, selected, onDown }: {
   );
 }
 
-export default function MontageTimeline({ project, time, pps, selection, words, sourceDurations, onSeek, onSelect, onLive, onCommit }: Props) {
+/** Линия бегунка — единственное на таймлайне, что движется каждый кадр. */
+function PlayheadLine({ playhead, pps, scroller }: { playhead: Playhead; pps: number; scroller: React.RefObject<HTMLDivElement | null> }) {
+  const time = usePlayhead(playhead);
+  // Бегунок не уезжает за край, пока играет.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const x = time * pps;
+    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - HEAD - 40) el.scrollLeft = Math.max(0, x - 80);
+  }, [time, pps, scroller]);
+  return <div className="mt-tl-playhead" style={{ left: HEAD + time * pps }} />;
+}
+
+function MontageTimeline({ project, playhead, scheme, pps, selection, words, sourceDurations, onSeek, onSelect, onLive, onCommit }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const live = useRef<MontageProject>(project);
@@ -258,13 +313,6 @@ export default function MontageTimeline({ project, time, pps, selection, words, 
     };
   }, [drag, pps, sourceDurations, onLive, onCommit]);
 
-  // Бегунок не уезжает за край, пока играет.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const x = time * pps;
-    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - HEAD - 40) el.scrollLeft = Math.max(0, x - 80);
-  }, [time, pps]);
 
   const seekFromEvent = (e: React.MouseEvent) => {
     const el = ref.current;
@@ -334,7 +382,7 @@ export default function MontageTimeline({ project, time, pps, selection, words, 
             <div className="mt-tl-head" title="Слой поверх видео: картинка в картинке, стикер, перебивка">▣{track}</div>
             <div className="mt-tl-lane" onMouseDown={laneDown}>
               {project.layers.filter((l) => l.track === track).map((l) => (
-                <LayerBlock key={l.id} l={l} pps={pps} selected={isSel("layer", l.id)} onDown={(e, part) => startDrag("layers", { ...l, end: l.start + layerDuration(l) }, part, e)} />
+                <LayerBlock key={l.id} l={l} scheme={scheme} pps={pps} selected={isSel("layer", l.id)} onDown={(e, part) => startDrag("layers", { ...l, end: l.start + layerDuration(l) }, part, e)} />
               ))}
             </div>
           </div>
@@ -347,6 +395,7 @@ export default function MontageTimeline({ project, time, pps, selection, words, 
               <ClipBlock
                 key={c.id}
                 clip={c}
+                scheme={scheme}
                 pps={pps}
                 left={items[i].start * pps}
                 width={items[i].duration * pps}
@@ -381,7 +430,7 @@ export default function MontageTimeline({ project, time, pps, selection, words, 
           <div className="mt-tl-head" title="Музыка и голос">♪</div>
           <div className="mt-tl-lane" onMouseDown={laneDown}>
             {music.map((a) => (
-              <AudioBlock key={a.id} a={a} pps={pps} selected={isSel("audio", a.id)} onDown={(e, part) => startDrag("audio", a, part, e)} />
+              <AudioBlock key={a.id} a={a} scheme={scheme} pps={pps} selected={isSel("audio", a.id)} onDown={(e, part) => startDrag("audio", a, part, e)} />
             ))}
           </div>
         </div>
@@ -390,13 +439,15 @@ export default function MontageTimeline({ project, time, pps, selection, words, 
           <div className="mt-tl-head" title="Звуковые эффекты">✺</div>
           <div className="mt-tl-lane" onMouseDown={laneDown}>
             {sfx.map((a) => (
-              <AudioBlock key={a.id} a={a} pps={pps} selected={isSel("audio", a.id)} onDown={(e, part) => startDrag("audio", a, part, e)} />
+              <AudioBlock key={a.id} a={a} scheme={scheme} pps={pps} selected={isSel("audio", a.id)} onDown={(e, part) => startDrag("audio", a, part, e)} />
             ))}
           </div>
         </div>
 
-        <div className="mt-tl-playhead" style={{ left: HEAD + time * pps }} />
+        <PlayheadLine playhead={playhead} pps={pps} scroller={ref} />
       </div>
     </div>
   );
 }
+
+export default memo(MontageTimeline);

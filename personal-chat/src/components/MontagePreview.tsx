@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { MontageClip, MontageLayer, MontageOptions, MontageProject, MontageTransform } from "../lib/types";
+import type { MontageClip, MontageLayer, MontageMotion, MontageOptions, MontageProject, MontageTransform } from "../lib/types";
+import { usePlayhead, type Playhead } from "../lib/playhead";
 import {
   activeTexts,
   captionCss,
@@ -19,10 +20,13 @@ interface Props {
   project: MontageProject;
   scheme: string;
   options: MontageOptions;
-  time: number;
+  playhead: Playhead;
+  /** Лёгкие копии для показа: исходник → файл 540p. */
+  proxies: Record<string, string>;
   playing: boolean;
   words: OutputWord[];
   selection: Selection;
+  /** Время для остального редактора — пока играет, не чаще четырёх раз в секунду. */
   onTime: (t: number) => void;
   onEnded: () => void;
   onSelect: (s: Selection) => void;
@@ -84,6 +88,55 @@ function FxOverlays({ list }: { list: string[] }) {
   );
 }
 
+
+/**
+ * Моушн в кадре — тот же код, что уйдёт в рендер, в рамке. Рамка рисует
+ * композицию в полном размере кадра и уменьшается под окно; время ей
+ * передаётся сообщением — шкала GSAP перематывается на нужный момент.
+ */
+export const MotionFrame = memo(function MotionFrame({ motion, width, height, local }: { motion: MontageMotion; width: number; height: number; local: number }) {
+  const [doc, setDoc] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [k, setK] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    window.api
+      .montageMotionDoc(motion, { width, height })
+      .then((r) => alive && setDoc(r.doc))
+      .catch(() => alive && setDoc(""));
+    return () => {
+      alive = false;
+    };
+  }, [motion, width, height]);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setK(el.clientWidth / width));
+    ro.observe(el);
+    setK(el.clientWidth / width);
+    return () => ro.disconnect();
+  }, [width]);
+  useEffect(() => {
+    frame.current?.contentWindow?.postMessage({ seek: local }, "*");
+  }, [local, doc]);
+  return (
+    <div ref={box} className="mt-motion-box" style={{ aspectRatio: `${width} / ${height}` }}>
+      {doc && (
+        <iframe
+          ref={frame}
+          className="mt-motion-frame"
+          srcDoc={doc}
+          sandbox="allow-scripts"
+          style={{ width, height, transform: `scale(${k})` }}
+          onLoad={() => frame.current?.contentWindow?.postMessage({ seek: local }, "*")}
+          title="моушн"
+        />
+      )}
+    </div>
+  );
+});
+
 /**
  * Предпросмотр без сборки.
  *
@@ -95,28 +148,26 @@ function FxOverlays({ list }: { list: string[] }) {
  * Цвет, фильтры, эффекты и движение — css; это приближение того, что сделает
  * ffmpeg. Шум, глитч, линза и хромакей точно видны только в собранном ролике.
  */
-export default function MontagePreview({ project, scheme, options, time, playing, words, selection, onTime, onEnded, onSelect, onLayerTransform, onTextMove }: Props) {
+export default function MontagePreview({ project, scheme, options, playhead, proxies, playing, words, selection, onTime, onEnded, onSelect, onLayerTransform, onTextMove }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const media = useRef<Map<string, HTMLMediaElement>>(new Map());
-  const timeRef = useRef(time);
-  useEffect(() => {
-    timeRef.current = time;
-  }, [time]);
+  const time = usePlayhead(playhead);
   const { items, duration } = useMemo(() => layout(project.clips), [project.clips]);
+  const videoUrl = (src: string) => mediaUrl(scheme, proxies[src] || src);
   const { width: W, height: H } = project.canvas;
 
   // ---------- что видно в момент time ----------
 
-  const visibleMain: { clip: MontageClip; index: number; local: number }[] = [];
+  const visibleMain: { clip: MontageClip; index: number; local: number; start: number }[] = [];
   let preloadMain: MontageClip | null = null;
   items.forEach((it, i) => {
-    if (time >= it.start - 1e-6 && time < it.end) visibleMain.push({ clip: project.clips[i], index: i, local: time - it.start });
+    if (time >= it.start - 1e-6 && time < it.end) visibleMain.push({ clip: project.clips[i], index: i, local: time - it.start, start: it.start });
     else if (!preloadMain && it.start > time && it.start - time < 1.5) preloadMain = project.clips[i];
   });
   // Последний кадр ролика показываем, а не чёрный экран.
   if (!visibleMain.length && project.clips.length && time >= duration - 1e-6) {
     const i = project.clips.length - 1;
-    visibleMain.push({ clip: project.clips[i], index: i, local: items[i].duration });
+    visibleMain.push({ clip: project.clips[i], index: i, local: items[i].duration, start: items[i].start });
   }
   const layers = [...project.layers].sort((a, b) => a.track - b.track);
   const visibleLayers = layers.filter((l) => time >= l.start && time < l.start + layerDuration(l));
@@ -124,23 +175,53 @@ export default function MontagePreview({ project, scheme, options, time, playing
 
   // ---------- часы ----------
 
+  // Часы идут за видео: пока главный кусок играет, время берётся из него, а
+  // не из часов окна. Тогда видео не приходится перематывать вдогонку (каждая
+  // перемотка — подвисание), а пока оно подгружается — время ждёт его.
+  const visRef = useRef(visibleMain);
+  useLayoutEffect(() => {
+    visRef.current = visibleMain;
+  });
   useEffect(() => {
     if (!playing) return;
-    const wall0 = performance.now();
-    const t0 = timeRef.current >= duration - 0.05 ? 0 : timeRef.current;
+    let t = playhead.get() >= duration - 0.05 ? 0 : playhead.get();
+    playhead.set(t);
+    let last = performance.now();
+    let reported = last;
     let raf = 0;
     const tick = () => {
-      const t = t0 + (performance.now() - wall0) / 1000;
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      let next = t + dt;
+      const master = visRef.current.find((v) => v.clip.kind === "video" && !v.clip.reverse);
+      const el = master && media.current.get(`c:${master.clip.id}`);
+      if (master && el && !el.paused && !el.seeking) {
+        if (el.readyState < 3) next = t;
+        else {
+          const mt = master.start + (el.currentTime - master.clip.in) / master.clip.speed;
+          if (Math.abs(mt - next) < 0.3) next = Math.max(t, mt);
+        }
+      }
+      t = next;
       if (t >= duration) {
+        playhead.set(duration);
         onTime(duration);
         onEnded();
         return;
       }
-      onTime(t);
+      playhead.set(t);
+      if (now - reported > 250) {
+        reported = now;
+        onTime(t);
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      onTime(playhead.get());
+    };
     // Часы перезапускаются только по «играть/стоп» и смене длины ролика.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, duration]);
@@ -151,12 +232,12 @@ export default function MontagePreview({ project, scheme, options, time, playing
     const targets = new Map<string, { at: number; rate: number; volume: number; reverse?: boolean }>();
     for (const v of visibleMain) {
       const c = v.clip;
-      if (c.kind === "image") continue;
+      if (c.kind === "image" || c.kind === "motion") continue;
       const at = c.reverse ? c.out - v.local * c.speed : c.in + v.local * c.speed;
       targets.set(`c:${c.id}`, { at, rate: c.speed, volume: c.muted ? 0 : Math.min(1, c.volume), reverse: c.reverse });
     }
     for (const l of visibleLayers) {
-      if (l.kind === "image") continue;
+      if (l.kind === "image" || l.kind === "motion") continue;
       targets.set(`l:${l.id}`, { at: l.in + (time - l.start) * l.speed, rate: l.speed, volume: l.muted ? 0 : Math.min(1, l.volume) });
     }
     for (const a of project.audio) {
@@ -244,10 +325,12 @@ export default function MontagePreview({ project, scheme, options, time, playing
       <div key={c.id} className="mt-clip" style={{ zIndex: z, display: hidden ? "none" : undefined, ...extra }}>
         <div className="mt-clip-inner" style={{ ...transformCss(tf), opacity: tf.opacity * Math.max(0, Math.min(fadeIn, fadeOut)) }}>
           {fit(c) === "blur" && c.kind !== "image" && <div className="mt-stage-blur" />}
-          {c.kind === "image" ? (
+          {c.kind === "motion" && c.motion ? (
+            <div className="mt-stage-media mt-stage-motion"><MotionFrame motion={c.motion} width={W} height={H} local={hidden ? 0 : local * c.speed + c.in} /></div>
+          ) : c.kind === "image" ? (
             <img className="mt-stage-media" src={mediaUrl(scheme, c.src)} style={mediaStyle} alt="" />
           ) : (
-            <video ref={reg(`c:${c.id}`)} className="mt-stage-media" src={mediaUrl(scheme, c.src)} style={mediaStyle} playsInline preload="auto" />
+            <video ref={reg(`c:${c.id}`)} className="mt-stage-media" src={videoUrl(c.src)} style={mediaStyle} playsInline preload="auto" />
           )}
           <FxOverlays list={mo.overlays} />
         </div>
@@ -291,7 +374,7 @@ export default function MontagePreview({ project, scheme, options, time, playing
           left: `${tf.x * 100}%`,
           top: `${tf.y * 100}%`,
           width: `${tf.scale * 100}%`,
-          aspectRatio: l.mask === "circle" ? "1" : undefined,
+          aspectRatio: l.mask === "circle" ? "1" : l.kind === "motion" ? `${W} / ${H}` : undefined,
           transform: `translate(-50%, -50%) rotate(${tf.rotation}deg)`,
           opacity: tf.opacity * Math.max(0, Math.min(fadeIn, fadeOut)),
           zIndex: 10 + l.track,
@@ -306,12 +389,14 @@ export default function MontagePreview({ project, scheme, options, time, playing
           if (!selected) return;
           onLayerTransform(l.id, { scale: Math.max(0.03, Math.round(tf.scale * (e.deltaY < 0 ? 1.05 : 0.95) * 1000) / 1000) }, true);
         }}
-        title={l.chroma.enabled ? "Хромакей виден в собранном ролике" : "Тащите, чтобы подвинуть; колесо — размер"}
+        title={l.kind === "motion" ? "Титр — поля текста справа, в инспекторе" : l.chroma.enabled ? "Хромакей виден в собранном ролике" : "Тащите, чтобы подвинуть; колесо — размер"}
       >
-        {l.kind === "image" ? (
+        {l.kind === "motion" && l.motion ? (
+          <MotionFrame motion={l.motion} width={W} height={H} local={hidden ? 0 : l.in + Math.max(0, local) * l.speed} />
+        ) : l.kind === "image" ? (
           <img src={mediaUrl(scheme, l.src)} style={mediaStyle} alt="" draggable={false} />
         ) : (
-          <video ref={reg(`l:${l.id}`)} src={mediaUrl(scheme, l.src)} style={mediaStyle} playsInline preload="auto" />
+          <video ref={reg(`l:${l.id}`)} src={videoUrl(l.src)} style={mediaStyle} playsInline preload="auto" />
         )}
       </div>
     );
@@ -348,7 +433,7 @@ export default function MontagePreview({ project, scheme, options, time, playing
       {visibleMain.map((v, k) => renderClip(v.clip, v.local, k === 0 ? outT : inT, k + 1))}
       {preloadMain && renderClip(preloadMain, 0, {}, 0, true)}
       {trans?.flash && <div className="mt-flash" style={{ background: trans.flash, opacity: trans.flashOpacity }} />}
-      {!project.clips.length && <div className="mt-stage-empty">Добавьте видео на дорожку — слева «Медиа», «Сток» или вкладка «ИИ-монтажёр»</div>}
+      {!project.clips.length && !project.layers.length && <div className="mt-stage-empty">Добавьте видео слева в «Медиа» или создайте ролик во вкладке «✨ Моушн»</div>}
       {visibleLayers.map((l) => renderLayer(l))}
       {preloadLayers.map((l) => renderLayer(l, true))}
       {project.audio.map((a) => (

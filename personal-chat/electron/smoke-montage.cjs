@@ -433,11 +433,13 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".sidebar-item")].find(n => n.textContent.includes("Монтаж")).click()`);
       await wait(800);
       check("раздел открывается", (await call(`!!document.querySelector(".mt-root")`)) === true);
-      check("четыре вкладки", (await call(`[...document.querySelectorAll(".mt-root > .mt-tabs > button:not(.link-btn)")].length`)) === 4);
-      check("источник из настроек виден", (await call(`document.querySelectorAll(".mt-file").length`)) >= 2);
-      await call(`[...document.querySelectorAll(".mt-tabs button")].find(b => b.textContent.includes("Проекты")).click()`);
+      check("раздел открывается сразу редактором", (await call(`!!document.querySelector(".mt-editor")`)) === true);
+      await call(`[...document.querySelectorAll(".mt-rail button")].find(b => b.textContent.includes("Монтажёр")).click()`);
+      await wait(800);
+      check("источник из настроек виден в монтажёре", (await call(`document.querySelectorAll(".mt-file").length`)) >= 2);
+      await call(`[...document.querySelectorAll(".mt-topbar button")].find(b => b.textContent.includes("Проекты")).click()`);
       await wait(400);
-      await call(`[...document.querySelectorAll(".mt-project button")].find(b => b.textContent === "Открыть").click()`);
+      await call(`[...document.querySelectorAll(".mt-overlay .mt-project")].find(p => p.textContent.includes("Клип агента")).querySelector("button").click()`);
       await wait(1500);
       const clipsBefore = await call(`document.querySelectorAll(".mt-tl-clip").length`);
       check("редактор открыл проект агента", clipsBefore >= 1 && !!(await call(`!!document.querySelector(".mt-stage video")`)), String(clipsBefore));
@@ -515,7 +517,7 @@ app.whenReady().then(async () => {
       await call(`[...document.querySelectorAll(".mt-modal button")].find(b => b.textContent.includes("Закрыть")).click()`);
       await wait(200);
 
-      await call(`[...document.querySelectorAll(".mt-root > .mt-tabs button")].find(b => b.textContent.includes("Аватар")).click()`);
+      await call(`[...document.querySelectorAll(".mt-rail button")].find(b => b.textContent.includes("Аватар")).click()`);
       await wait(400);
       check("вкладка аватара открывается", (await call(`!!document.querySelector(".mt-avatar")`)) === true);
       const keys = await call(`window.api.montageSaveAvatarKeys({ eleven: "секрет" })`);

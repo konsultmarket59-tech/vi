@@ -415,15 +415,41 @@ function normalizeAdjust(adj = {}) {
   };
 }
 
-function normalizeClip(raw = {}) {
-  const kind = raw.kind || mediaKind(raw.src) || "video";
-  const inn = Math.max(0, num(raw.in, 0));
-  const out = Math.max(inn + 0.05, num(raw.out, inn + (kind === "image" ? 3 : 1)));
-  const tr = raw.transition || {};
+/**
+ * Моушн — анимированная композиция (HTML + GSAP): ролик ИИ-моушна или
+ * заготовка титра. Хранится кодом и рендерится перед сборкой в обычный файл.
+ * template + fields — заготовка (код строится заново при каждом рендере),
+ * иначе html — код, написанный моделью.
+ */
+function normalizeMotion(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const fields = raw.fields && typeof raw.fields === "object" ? Object.fromEntries(Object.entries(raw.fields).map(([k, v]) => [k, String(v ?? "")])) : {};
+  const assets = raw.assets && typeof raw.assets === "object" ? Object.fromEntries(Object.entries(raw.assets).filter(([k, v]) => /^[\w.-]+$/.test(k) && typeof v === "string")) : {};
   return {
-    id: raw.id || uid("clip"),
-    src: String(raw.src || ""),
+    html: String(raw.html || ""),
+    template: String(raw.template || ""),
+    fields,
+    duration: clamp(num(raw.duration, 5), 0.2, 600),
+    transparent: !!raw.transparent,
+    designDir: String(raw.designDir || ""),
+    title: String(raw.title || ""),
+    storyboard: Array.isArray(raw.storyboard) ? raw.storyboard.map(String).slice(0, 30) : [],
+    assets,
+  };
+}
+
+function normalizeClip(raw = {}) {
+  const motion = raw.kind === "motion" ? normalizeMotion(raw.motion) : null;
+  const kind = motion ? "motion" : raw.kind === "motion" ? "video" : raw.kind || mediaKind(raw.src) || "video";
+  const inn = Math.max(0, num(raw.in, 0));
+  const out = Math.max(inn + 0.05, num(raw.out, inn + (kind === "image" ? 3 : motion ? motion.duration : 1)));
+  const tr = raw.transition || {};
+  const id = raw.id || uid("clip");
+  return {
+    id,
+    src: String(raw.src || (motion ? `motion://${id}` : "")),
     kind,
+    ...(motion ? { motion } : {}),
     in: round3(inn),
     out: round3(out),
     speed: clamp(num(raw.speed, 1), SPEED_MIN, SPEED_MAX),
@@ -456,14 +482,19 @@ const LAYER_TRANSFORM = { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, opacity: 1 }
  * перебивка с хромакеем. scale — ширина слоя в долях ширины кадра.
  */
 function normalizeLayer(raw = {}) {
-  const kind = raw.kind || mediaKind(raw.src) || "video";
+  const motion = raw.kind === "motion" ? normalizeMotion(raw.motion) : null;
+  const kind = motion ? "motion" : raw.kind === "motion" ? "video" : raw.kind || mediaKind(raw.src) || "video";
   const inn = Math.max(0, num(raw.in, 0));
-  const out = Math.max(inn + 0.1, num(raw.out, inn + (kind === "image" ? 3 : 5)));
+  const out = Math.max(inn + 0.1, num(raw.out, inn + (kind === "image" ? 3 : motion ? motion.duration : 5)));
   const ch = raw.chroma || {};
+  const id = raw.id || uid("layer");
+  // Титр-моушн нарисован на весь кадр — по умолчанию слой во всю ширину.
+  const defaults = motion ? { ...LAYER_TRANSFORM, scale: 1 } : LAYER_TRANSFORM;
   return {
-    id: raw.id || uid("layer"),
-    src: String(raw.src || ""),
+    id,
+    src: String(raw.src || (motion ? `motion://${id}` : "")),
     kind,
+    ...(motion ? { motion } : {}),
     track: clamp(Math.round(num(raw.track, 1)), 1, 8),
     start: round3(Math.max(0, num(raw.start, 0))),
     in: round3(inn),
@@ -473,8 +504,8 @@ function normalizeLayer(raw = {}) {
     muted: raw.muted === undefined ? false : !!raw.muted,
     fadeIn: clamp(num(raw.fadeIn, 0), 0, 5),
     fadeOut: clamp(num(raw.fadeOut, 0), 0, 5),
-    transform: fx.normalizeTransform(raw.transform, LAYER_TRANSFORM),
-    keyframes: fx.normalizeKeyframes(raw.keyframes, LAYER_TRANSFORM),
+    transform: fx.normalizeTransform(raw.transform, defaults),
+    keyframes: fx.normalizeKeyframes(raw.keyframes, defaults),
     effects: normalizeEffects(raw.effects),
     adjust: normalizeAdjust(raw.adjust),
     mask: ["none", "circle", "rounded"].includes(raw.mask) ? raw.mask : "none",
@@ -1354,6 +1385,7 @@ async function probeMedia(bin, file) {
   const d = stderr.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
   const v = stderr.match(/Stream #[^\n]*Video:[^\n]*?(\d{2,5})x(\d{2,5})/);
   const fps = stderr.match(/(\d+(?:\.\d+)?) fps/);
+  const codec = stderr.match(/Stream #[^\n]*Video:\s*(\w+)/);
   const rot = stderr.match(/rotation of (-?[\d.]+)/) || stderr.match(/rotate\s*:\s*(-?\d+)/);
   let width = v ? Number(v[1]) : 0;
   let height = v ? Number(v[2]) : 0;
@@ -1367,7 +1399,23 @@ async function probeMedia(bin, file) {
     width,
     height,
     fps: fps ? Number(fps[1]) : 0,
+    videoCodec: codec ? codec[1].toLowerCase() : "",
   };
+}
+
+/**
+ * Нужна ли лёгкая копия для предпросмотра. Плеер окна тянет H.264/VP9 до
+ * Full HD; HEVC с телефона, ProRes, 4K и 50–60 кадров на длинном исходнике
+ * он либо не показывает вовсе, либо показывает рывками.
+ */
+function needsProxy(info, file) {
+  if (!info || !info.hasVideo) return false;
+  const ext = path.extname(String(file || "")).toLowerCase();
+  if (![".mp4", ".m4v", ".webm", ".mov"].includes(ext)) return true;
+  if (!["h264", "vp8", "vp9", "av1"].includes(info.videoCodec)) return true;
+  if (Math.max(info.width, info.height) > 1920) return true;
+  if (info.fps > 31 && info.duration > 120) return true;
+  return false;
 }
 
 /**
@@ -1391,6 +1439,7 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
   project.canvas = { ...project.canvas, ...size, fps: clamp(Math.round(num(exportOptions.fps, project.canvas.fps)), 12, 60) };
   // Подписи и тексты считались под 1080 по короткой стороне — масштаб тот же.
 
+  if ([...project.clips, ...project.layers].some((c) => c.kind === "motion")) throw new Error("Моушн не отрендерен в файл перед сборкой.");
   const probes = new Map();
   for (const c of [...project.clips, ...project.layers]) {
     if (c.kind === "image" || probes.has(c.src)) continue;
@@ -1744,9 +1793,10 @@ function validateProject(project) {
   }
   project.clips.forEach((c, i) => {
     if (c.out - c.in < 0.05) problems.push(`Кусок ${i + 1} короче кадра.`);
+    if (c.kind === "motion" && !c.motion.html && !c.motion.template) problems.push(`Моушн ${i + 1} пустой — в нём нет кода.`);
   });
   for (const l of project.layers || []) {
-    if (l.start >= total) problems.push(`Слой «${path.basename(l.src)}» начинается после конца ролика.`);
+    if (l.start >= total) problems.push(`Слой «${l.kind === "motion" ? l.motion.title || "моушн" : path.basename(l.src)}» начинается после конца ролика.`);
   }
   for (const a of project.audio) {
     if (a.start >= total) problems.push(`Звук «${path.basename(a.src)}» начинается после конца ролика.`);
@@ -1801,6 +1851,8 @@ module.exports = {
   CLEANUP_DEFAULTS,
   SOUND_FILLER,
   mediaKind,
+  normalizeMotion,
+  needsProxy,
   normWord,
   splitWords,
   layoutWords,

@@ -2071,6 +2071,9 @@ export interface MontageConfig {
   remoteModel: string;
   language: string;
   preset: string;
+  motionModel?: string;
+  motionReview?: boolean;
+  lastProject?: string;
   cleanup: MontageCleanup;
   captions: MontageCaptions;
 }
@@ -2144,7 +2147,8 @@ export interface MontageAdjust {
 export interface MontageLayer {
   id: string;
   src: string;
-  kind: "video" | "image" | string;
+  kind: "video" | "image" | "motion" | string;
+  motion?: MontageMotion;
   track: number;
   start: number;
   in: number;
@@ -2163,10 +2167,58 @@ export interface MontageLayer {
   label: string;
 }
 
+/** Моушн: анимированная композиция (HTML + GSAP) — ролик ИИ или заготовка титра. */
+export interface MontageMotion {
+  html: string;
+  template: string;
+  fields: Record<string, string>;
+  duration: number;
+  transparent: boolean;
+  designDir: string;
+  title: string;
+  storyboard: string[];
+  assets: Record<string, string>;
+}
+
+export interface MontageTemplateField {
+  key: string;
+  label: string;
+  value: string;
+  multiline?: boolean;
+}
+
+export interface MontageTemplate {
+  id: string;
+  name: string;
+  group: string;
+  duration: number;
+  fields: MontageTemplateField[];
+  needsLogo: boolean;
+}
+
+export interface MontageMotionProgress {
+  stage: string;
+  message?: string;
+  chars?: number;
+  progress?: number;
+  round?: number;
+  storyboard?: string[];
+}
+
+export interface MontageMotionResult {
+  html: string;
+  duration: number;
+  storyboard?: string[];
+  problems: string[];
+  assets: Record<string, string>;
+  designDir?: string;
+}
+
 export interface MontageClip {
   id: string;
   src: string;
-  kind: "video" | "image" | string;
+  kind: "video" | "image" | "motion" | string;
+  motion?: MontageMotion;
   in: number;
   out: number;
   speed: number;
@@ -2903,6 +2955,21 @@ export interface ElectronAPI {
   montageAvatarRun(request: MontageAvatarRequest): Promise<{ path: string; audio?: string }>;
   onMontageProgress(cb: (data: MontageProgress) => void): () => void;
   onMontageRender(cb: (data: MontageRenderProgress) => void): () => void;
+  montageReadText(file: string): Promise<string>;
+  montagePickText(): Promise<string | null>;
+  montagePickImages(): Promise<string[]>;
+  montageMotionGenerate(request: { designDir?: string; text?: string; brief?: string; photos?: string[]; width: number; height: number; duration: number; transparent?: boolean; review?: boolean; model?: string }): Promise<MontageMotionResult>;
+  montageMotionEdit(request: { motion: MontageMotion; instruction: string; width: number; height: number; model?: string }): Promise<MontageMotionResult>;
+  montageMotionStop(): Promise<boolean>;
+  montageMotionDoc(motion: Partial<MontageMotion>, size: { width: number; height: number }): Promise<{ doc: string; duration: number }>;
+  montageMotionExport(motion: Partial<MontageMotion>, size: { width: number; height: number; fps?: number }): Promise<{ path: string; duration: number }>;
+  montageTemplates(): Promise<MontageTemplate[]>;
+  montageTemplateThumb(id: string, designDir?: string): Promise<string>;
+  montageProxy(file: string): Promise<{ status: "ready" | "pending" | "none"; path?: string }>;
+  montageFilmstrip(file: string): Promise<{ path: string; count: number; duration: number; height: number; step?: number } | null>;
+  montageWave(file: string): Promise<{ path: string; duration: number; width: number } | null>;
+  onMontageMotion(cb: (data: MontageMotionProgress) => void): () => void;
+  onMontageProxy(cb: (data: { file: string; progress?: number; proxy?: string; error?: string }) => void): () => void;
   onMontageAvatar(cb: (data: { stage: string; status?: string; queue?: number; path?: string }) => void): () => void;
 
   // клининг

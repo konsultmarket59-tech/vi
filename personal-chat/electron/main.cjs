@@ -4446,6 +4446,9 @@ montageIpc.register({
   loadSettings,
   readDesignFolder,
   speechCacheDir,
+  nativeImage,
+  usage,
+  extractDocText,
 });
 
 ipcMain.handle("stories:parseScript", (_e, text) => videostories.parseScenes(text));

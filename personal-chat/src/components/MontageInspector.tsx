@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MontageAdjust, MontageAudio, MontageClip, MontageEffect, MontageKeyframe, MontageLayer, MontageOptions, MontageText, MontageTransform } from "../lib/types";
-import { MOTION_PRESETS, addKeyframe, clamp, fileName, fmtTime, layerDuration, layout, motionPreset, sampleTransform, setTransformAt, uid } from "../lib/montage";
+import { MOTION_PRESETS, addKeyframe, clamp, fileName, fmtTime, itemLabel, layerDuration, layout, motionPreset, sampleTransform, setTransformAt, uid } from "../lib/montage";
 import { Field, NumberField, Section, Slider, type EditorCtx } from "./MontageControls";
 
 type Animated = { transform: MontageTransform; keyframes: MontageKeyframe[] };
@@ -144,7 +144,7 @@ export function ClipInspector({ ctx, clip }: { ctx: EditorCtx; clip: MontageClip
   const transcribed = !!ctx.transcripts[clip.src];
   return (
     <div className="mt-inspector">
-      <h4 title={clip.src}>{clip.kind === "image" ? "🖼" : "🎬"} {fileName(clip.src)}</h4>
+      <h4 title={clip.src}>{clip.kind === "image" ? "🖼" : clip.kind === "motion" ? "✨" : "🎬"} {itemLabel(clip)}</h4>
       <Section title="Основное">
         <div className="mt-row">
           <NumberField label="С (сек исходника)" value={clip.in} min={0} max={clip.out - 0.05} onChange={(v) => patch({ in: v })} />
@@ -218,7 +218,7 @@ export function LayerInspector({ ctx, layer, seek }: { ctx: EditorCtx; layer: Mo
   const patch = (p: Partial<MontageLayer>) => ctx.commit((pr) => ({ ...pr, layers: pr.layers.map((l) => (l.id === layer.id ? { ...l, ...p } : l)) }));
   return (
     <div className="mt-inspector">
-      <h4 title={layer.src}>▣ Слой: {fileName(layer.src)}</h4>
+      <h4 title={layer.src}>▣ Слой: {itemLabel(layer)}</h4>
       <Section title="Основное">
         <div className="mt-row">
           <NumberField label="Начало в ролике" value={layer.start} min={0} onChange={(v) => patch({ start: v })} />

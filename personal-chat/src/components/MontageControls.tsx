@@ -31,6 +31,8 @@ export interface EditorCtx {
   design: StoriesDesign | null;
   applyDesign: (d: StoriesDesign) => void;
   setCaptions: (patch: Partial<MontageCaptions>) => void;
+  /** Поставить бегунок. */
+  seek: (t: number) => void;
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {

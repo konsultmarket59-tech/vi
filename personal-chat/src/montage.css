@@ -367,3 +367,57 @@
 .mt-app-main { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 .mt-app-main > .mt-root, .mt-app-main > div > .mt-root { flex: 1; min-height: 0; }
 .mt-app-settings { flex: 1; overflow: auto; padding: 16px 20px; }
+
+/* ---------- редактор сразу: широкие панели, окна поверх ---------- */
+.mt-work.wide { grid-template-columns: 64px 420px 1fr 300px; }
+@media (max-width: 1400px) { .mt-work.wide { grid-template-columns: 56px 360px 1fr 260px; } }
+.mt-rail { overflow-y: auto; }
+.mt-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(5, 6, 9, 0.6); display: flex; align-items: flex-start; justify-content: center; padding: 48px 24px; backdrop-filter: blur(3px); }
+.mt-overlay-card { width: min(980px, 100%); max-height: calc(100vh - 96px); overflow: auto; background: var(--bg, #16181d); color: inherit; border: 1px solid #2f333b; border-radius: 14px; padding: 18px 20px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
+.mt-overlay-card.mt-app-settings { flex: none; }
+.mt-panel-title { margin: 0 0 6px; font-size: 16px; }
+.mt-project.current { outline: 2px solid var(--e-accent, #7c7cff); }
+.mt-app-main > .mt-root { flex: 1; min-height: 0; }
+
+/* ---------- моушн ---------- */
+.mt-stage-motion { position: absolute; inset: 0; }
+.mt-motion-box { position: relative; width: 100%; overflow: hidden; pointer-events: none; }
+.mt-stage-motion .mt-motion-box { height: 100%; aspect-ratio: auto !important; }
+.mt-motion-frame { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: transparent; pointer-events: none; }
+.mt-layer .mt-motion-box { height: 100%; }
+.mt-motion-panel textarea { width: 100%; resize: vertical; font: inherit; font-size: 13px; line-height: 1.4; }
+.mt-ds-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin: 10px 0; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--e-line, #2f333b); }
+.mt-ds-card.empty { padding: 6px; }
+.mt-ds-name { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.mt-ds-name b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt-ds-name small { color: var(--e-dim); font-size: 11.5px; }
+.mt-swatches.small { margin: 0; flex-wrap: nowrap; }
+.mt-swatches.small span { width: 14px; height: 30px; border-radius: 4px; cursor: default; }
+.mt-photo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.mt-photo-chips span { width: 52px; height: 52px; border-radius: 8px; background-size: cover; background-position: center; display: flex; align-items: flex-start; justify-content: flex-end; padding: 2px 5px; color: #fff; text-shadow: 0 1px 2px #000; cursor: pointer; font-size: 13px; }
+.mt-big { padding: 12px 14px !important; font-size: 15px !important; margin-top: 10px; background: linear-gradient(135deg, #7c5cff, #ff5ab4) !important; border: 0 !important; color: #fff !important; }
+.mt-big:disabled { opacity: 0.45; }
+.mt-motion-progress { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 10px; border-radius: 10px; background: rgba(124, 92, 255, 0.12); font-size: 13px; }
+.mt-motion-progress span { flex: 1; }
+.mt-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); border-top-color: #fff; animation: mt-spin 0.8s linear infinite; flex: none; display: inline-block; }
+@keyframes mt-spin { to { transform: rotate(360deg); } }
+.mt-storyboard { margin: 10px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.5; color: var(--e-text, #ddd); }
+.mt-storyboard li { margin-bottom: 3px; }
+.mt-check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; margin: 6px 0; }
+.mt-motion-insp { border-bottom: 1px solid var(--e-line); padding-bottom: 10px; margin-bottom: 6px; }
+.mt-motion-insp textarea { width: 100%; font: inherit; font-size: 13px; }
+
+/* ---------- титры ---------- */
+.mt-tpl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.mt-tpl { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 1px solid var(--e-line, #2f333b); border-radius: 10px; background: #1a1d22; color: var(--e-text, #ddd); cursor: pointer; overflow: hidden; text-align: left; transition: transform 0.12s, border-color 0.12s; }
+.mt-tpl:hover { transform: translateY(-2px); border-color: var(--e-accent, #7c7cff); }
+.mt-tpl-img { aspect-ratio: 9 / 13; background: #3a3f4b center / cover no-repeat; display: flex; align-items: center; justify-content: center; }
+.mt-tpl span { padding: 0 8px 7px; font-size: 12px; }
+
+/* ---------- дорожки: полоски кадров и волна из кэша ---------- */
+.mt-tl-strip { position: absolute; inset: 0; overflow: hidden; opacity: 0.85; pointer-events: none; }
+.mt-tl-strip i { position: absolute; top: 0; bottom: 0; background-repeat: no-repeat; }
+.mt-tl-wave { background-size: auto; opacity: 0.7; }
+.mt-tl-clip.motion { background: linear-gradient(135deg, #5a3cc8, #c23c8e); border-color: #9a74ff; }
+.mt-tl-motion { position: absolute; right: 6px; top: 4px; font-size: 14px; opacity: 0.8; pointer-events: none; }
+.mt-tl-layer.motion { background: linear-gradient(135deg, #3e2a8a, #8a2a68); border-color: #b48cff; }

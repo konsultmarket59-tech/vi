@@ -1,29 +1,24 @@
 import { useEffect, useState } from "react";
-import type { LicenceStatus, Settings, Skill, StoriesHandoff } from "./lib/types";
+import type { LicenceStatus, Settings, Skill } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import MontageView from "./components/MontageView";
-import VideoStoriesView from "./components/VideoStoriesView";
 import SettingsView from "./components/SettingsView";
 import LicenceGate from "./components/LicenceGate";
-
-type Screen = "montage" | "motion" | "settings";
 
 /**
  * Отдельная программа «Монтаж».
  *
- * Тот же раздел, что в «Личном чате», только на всё окно и без чата вокруг.
- * Моушн-дизайн («Видео-сторис») — соседней вкладкой: готовый ролик уходит туда
- * одной кнопкой. Настройки — только те, что нужны монтажу: ключ и модель для
- * ИИ-монтажёра, прокси.
+ * Открывается сразу редактор: моушн, титры, ИИ-монтажёр и аватар — внутри
+ * него, вкладками слева. Настройки (ключ и модель для ИИ, прокси) — окном
+ * поверх редактора: открытый проект и таймлайн остаются как были.
  */
 export default function MontageApp() {
-  const [screen, setScreen] = useState<Screen>("montage");
+  const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [licence, setLicence] = useState<LicenceStatus | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [handoff, setHandoff] = useState<StoriesHandoff | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -39,7 +34,7 @@ export default function MontageApp() {
         setSkills(sk);
         document.title = "Монтаж";
         // Без ключа агент не заработает — сразу показываем, куда его вставить.
-        if (!s.apiKey) setScreen("settings");
+        if (!s.apiKey) setShowSettings(true);
         setLoaded(true);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -65,33 +60,21 @@ export default function MontageApp() {
 
   return (
     <div className="mt-app">
-      <header className="mt-app-bar">
-        <b className="mt-app-name">✂️ Монтаж</b>
-        <button className={screen === "montage" ? "on" : ""} onClick={() => setScreen("montage")}>Монтаж</button>
-        <button className={screen === "motion" ? "on" : ""} onClick={() => setScreen("motion")}>✨ Моушн-дизайн</button>
-        <div className="mt-spacer" />
-        <button className={screen === "settings" ? "on" : ""} onClick={() => setScreen("settings")}>⚙ Настройки</button>
-      </header>
       <main className="mt-app-main">
-        {/* Монтаж не размонтируется при переходе в настройки: открытый проект и таймлайн остаются как были. */}
-        <div style={{ display: screen === "montage" ? "contents" : "none" }}>
-          <MontageView
-            settings={settings}
-            skills={skills}
-            onOpenSettings={() => setScreen("settings")}
-            onMotionDesign={(h) => {
-              setHandoff({ ...h, nonce: Date.now() });
-              setScreen("motion");
-            }}
-          />
-        </div>
-        {screen === "motion" && <VideoStoriesView settings={settings} skills={skills} onOpenSettings={() => setScreen("settings")} handoff={handoff} />}
-        {screen === "settings" && (
-          <div className="mt-app-settings">
-            <p className="mt-hint">
-              Ключ и модель нужны ИИ-монтажёру и моушн-дизайну. Монтаж руками, чистка пауз без агента, эффекты, субтитры и экспорт работают и без них.
-            </p>
-            <SettingsView settings={settings} onChange={setSettings} />
+        <MontageView settings={settings} skills={skills} onOpenSettings={() => setShowSettings(true)} />
+        {showSettings && (
+          <div className="mt-overlay" onMouseDown={() => setShowSettings(false)}>
+            <div className="mt-overlay-card mt-app-settings" onMouseDown={(e) => e.stopPropagation()}>
+              <div className="mt-row">
+                <h3 className="mt-panel-title">Настройки</h3>
+                <div className="mt-spacer" />
+                <button className="btn btn-primary" onClick={() => setShowSettings(false)}>Готово</button>
+              </div>
+              <p className="mt-hint">
+                Ключ и модель нужны ИИ: моушн-дизайну и монтажёру. Монтаж руками, титры, чистка пауз, эффекты, субтитры и экспорт работают и без них.
+              </p>
+              <SettingsView settings={settings} onChange={setSettings} />
+            </div>
           </div>
         )}
       </main>

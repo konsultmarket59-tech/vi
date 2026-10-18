@@ -32,7 +32,8 @@
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
-    "perMachine": false
+    "perMachine": false,
+    "artifactName": "Montage-${version}-Setup.${ext}"
   },
   "linux": {
     "target": [
@@ -59,5 +60,9 @@
   "extraMetadata": {
     "main": "electron/montage-main.cjs",
     "name": "montage"
+  },
+  "artifactName": "Montage-${version}-${arch}.${ext}",
+  "portable": {
+    "artifactName": "Montage-${version}-portable.${ext}"
   }
 }

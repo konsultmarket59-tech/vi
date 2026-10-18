@@ -189,6 +189,29 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("montage-render", handler);
     return () => ipcRenderer.removeListener("montage-render", handler);
   },
+  montageReadText: (file) => ipcRenderer.invoke("montage:readText", file),
+  montagePickText: () => ipcRenderer.invoke("montage:pickText"),
+  montagePickImages: () => ipcRenderer.invoke("montage:pickImages"),
+  montageMotionGenerate: (request) => ipcRenderer.invoke("montage:motionGenerate", request),
+  montageMotionEdit: (request) => ipcRenderer.invoke("montage:motionEdit", request),
+  montageMotionStop: () => ipcRenderer.invoke("montage:motionStop"),
+  montageMotionDoc: (motion, size) => ipcRenderer.invoke("montage:motionDoc", motion, size),
+  montageMotionExport: (motion, size) => ipcRenderer.invoke("montage:motionExport", motion, size),
+  montageTemplates: () => ipcRenderer.invoke("montage:templates"),
+  montageTemplateThumb: (id, designDir) => ipcRenderer.invoke("montage:templateThumb", id, designDir),
+  montageProxy: (file) => ipcRenderer.invoke("montage:proxy", file),
+  montageFilmstrip: (file) => ipcRenderer.invoke("montage:filmstrip", file),
+  montageWave: (file) => ipcRenderer.invoke("montage:wave", file),
+  onMontageMotion: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-motion", handler);
+    return () => ipcRenderer.removeListener("montage-motion", handler);
+  },
+  onMontageProxy: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-proxy", handler);
+    return () => ipcRenderer.removeListener("montage-proxy", handler);
+  },
   onMontageAvatar: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on("montage-avatar", handler);

@@ -9,6 +9,7 @@ import type {
   MontageCaptionStyle,
   MontageCaptions,
   MontageClip,
+  MontageMotion,
   MontageEffectDef,
   MontageFilterDef,
   MontageKeyframe,
@@ -395,4 +396,28 @@ export function newAudio(src: string, kind: MontageAudio["kind"], start: number,
 
 export function newText(start: number, text = "Текст", style = "title"): MontageText {
   return { id: uid("text"), text, start: round3(start), end: round3(start + 2.5), style, animation: "pop", position: "", size: 0, color: "", bg: "", upper: true, x: null, y: null };
+}
+
+/** Пустой моушн с заданными полями. */
+export function motionOf(patch: Partial<MontageMotion>): MontageMotion {
+  return { html: "", template: "", fields: {}, duration: 5, transparent: false, designDir: "", title: "", storyboard: [], assets: {}, ...patch };
+}
+
+/** Кусок главной дорожки из моушн-ролика. */
+export function newMotionClip(motion: MontageMotion): MontageClip {
+  const c = newClip("", "motion", motion.duration);
+  return { ...c, src: `motion://${c.id}`, motion, label: motion.title || "Моушн" };
+}
+
+/** Титр-моушн слоем поверх видео — на весь кадр. */
+export function newMotionLayer(motion: MontageMotion, start: number, track = 1): MontageLayer {
+  const l = newLayer("", "motion", motion.duration, start, track);
+  return { ...l, src: `motion://${l.id}`, motion: { ...motion, transparent: true }, out: round3(motion.duration), muted: true, transform: { ...l.transform, scale: 1 }, label: motion.title || "Титр" };
+}
+
+/** Подпись блока на дорожке: у моушна — название, у файла — имя. */
+export function itemLabel(it: { src: string; label?: string; kind?: string; motion?: MontageMotion }): string {
+  if (it.label) return it.label;
+  if (it.kind === "motion") return it.motion?.title || "Моушн";
+  return fileName(it.src);
 }

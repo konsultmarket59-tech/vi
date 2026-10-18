@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { MontageAudio, MontageCaptions, MontageClip, MontageConfig, MontageOptions, MontageProject, MontageTransform, MontageTranscript, StoriesDesign, StoriesHandoff } from "../lib/types";
 import { fileName, fmtTime, layerDuration, layout, newAudio, newClip, newLayer, outputToSource, outputWords, projectDuration, round3, setTransformAt, splitAt, uid } from "../lib/montage";
 import MontagePreview from "./MontagePreview";
@@ -7,41 +8,125 @@ import MontageExport from "./MontageExport";
 import { AudioInspector, ClipInspector, LayerInspector, TextInspector } from "./MontageInspector";
 import { AIPanel, AudioPanel, CaptionsPanel, DesignPanel, EffectsPanel, FiltersPanel, MediaPanel, StockPanel, TextPanel, TransitionsPanel } from "./MontagePanels";
 import type { BinItem, EditorCtx } from "./MontageControls";
+import { MotionInspector, MotionPanel, TitlesPanel } from "./MontageMotion";
+import { createPlayhead, usePlayhead, usePlayheadSelect, type Playhead } from "../lib/playhead";
+import type { OutputWord } from "../lib/montage";
 
 interface Props {
   options: MontageOptions;
   config: MontageConfig;
   initial: MontageProject;
   onSaved: () => void;
-  onClose: () => void;
-  onMotionDesign: (handoff: Omit<StoriesHandoff, "nonce">) => void;
+  onConfig: (patch: Partial<MontageConfig>) => void;
+  /** Кнопки и панели, которые даёт раздел: проекты, настройки, монтажёр, аватар. */
+  projectsButton?: ReactNode;
+  settingsButton?: ReactNode;
+  agentPanel?: ReactNode;
+  avatarPanel?: ReactNode;
+  /** Старый путь в «Видео-сторис» — только в «Личном чате». */
+  onMotionDesign?: (handoff: Omit<StoriesHandoff, "nonce">) => void;
 }
 
-type LeftTab = "media" | "stock" | "audio" | "text" | "captions" | "effects" | "filters" | "transitions" | "design" | "ai";
+type LeftTab = "media" | "motion" | "titles" | "stock" | "audio" | "text" | "captions" | "effects" | "filters" | "transitions" | "design" | "agent" | "avatar" | "ai";
 
 /** Колонка инструментов слева — как верхняя панель CapCut, только вертикально. */
 const LEFT_TABS: { id: LeftTab; icon: string; label: string }[] = [
   { id: "media", icon: "🎞", label: "Медиа" },
-  { id: "stock", icon: "🌐", label: "Сток" },
-  { id: "audio", icon: "♪", label: "Звуки" },
+  { id: "motion", icon: "✨", label: "Моушн" },
+  { id: "titles", icon: "🏷", label: "Титры" },
   { id: "text", icon: "T", label: "Текст" },
   { id: "captions", icon: "CC", label: "Субтитры" },
+  { id: "stock", icon: "🌐", label: "Сток" },
+  { id: "audio", icon: "♪", label: "Звуки" },
   { id: "effects", icon: "✦", label: "Эффекты" },
   { id: "filters", icon: "◐", label: "Фильтры" },
   { id: "transitions", icon: "⧓", label: "Переходы" },
   { id: "design", icon: "🎨", label: "Дизайн" },
-  { id: "ai", icon: "🤖", label: "ИИ" },
+  { id: "agent", icon: "🤖", label: "Монтажёр" },
+  { id: "avatar", icon: "🧑", label: "Аватар" },
+  { id: "ai", icon: "🧹", label: "Чистка" },
 ];
+
+/** Широкие панели — там формы, а не списки. */
+const WIDE: LeftTab[] = ["motion", "agent", "avatar"];
+
+function Clock({ playhead, duration }: { playhead: Playhead; duration: number }) {
+  const t = usePlayhead(playhead);
+  return <span className="mt-clock">{fmtTime(t, true)} / {fmtTime(duration, true)}</span>;
+}
+
+/**
+ * Текст ролика: тысячи слов. Перерисовывается, только когда меняется
+ * текущее слово, а не на каждом кадре.
+ */
+const WordList = memo(function WordList({ words, transcripts, wordSel, setWordSel, seek, playhead }: {
+  words: OutputWord[];
+  transcripts: Record<string, MontageTranscript>;
+  wordSel: { from: number; to: number } | null;
+  setWordSel: (s: { from: number; to: number } | null) => void;
+  seek: (t: number) => void;
+  playhead: Playhead;
+}) {
+  const currentWord = usePlayheadSelect(playhead, (time) => {
+    // Слова идут по порядку — двоичный поиск вместо перебора тысяч слов на кадр.
+    let lo = 0;
+    let hi = words.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (time < words[mid].s) hi = mid - 1;
+      else if (time >= words[mid].e) lo = mid + 1;
+      else return mid;
+    }
+    return -1;
+  });
+  return (
+    <div className="mt-words">
+      {words.map((w, i) => {
+        const inSel = wordSel && i >= Math.min(wordSel.from, wordSel.to) && i <= Math.max(wordSel.from, wordSel.to);
+        const filler = transcripts[w.src]?.words[w.index]?.filler;
+        return (
+          <span
+            key={`${w.clipId}-${w.index}`}
+            className={`${i === currentWord ? "now" : ""} ${inSel ? "sel" : ""} ${filler ? `f-${filler}` : ""}`}
+            onClick={(e) => {
+              if (e.shiftKey && wordSel) setWordSel({ from: wordSel.from, to: i });
+              else if (e.shiftKey) setWordSel({ from: i, to: i });
+              else {
+                setWordSel({ from: i, to: i });
+                seek(w.s + 0.001);
+              }
+            }}
+          >
+            {w.w}{" "}
+          </span>
+        );
+      })}
+    </div>
+  );
+});
 
 const HISTORY_LIMIT = 80;
 
-export default function MontageEditor({ options, config, initial, onSaved, onClose, onMotionDesign }: Props) {
+export default function MontageEditor({ options, config, initial, onSaved, onConfig, projectsButton, settingsButton, agentPanel, avatarPanel, onMotionDesign }: Props) {
   // История правок одним состоянием: настоящее, прошлое и будущее меняются
   // вместе, иначе отмена и новая правка могут разойтись на один шаг.
   const [hist, setHist] = useState<{ past: MontageProject[]; present: MontageProject; future: MontageProject[] }>({ past: [], present: initial, future: [] });
   const project = hist.present;
-  const [time, setTime] = useState(0);
+  // time — для правок и панелей; пока ролик играет, обновляется четыре раза в
+  // секунду. Точное время кадра — в playhead (см. lib/playhead.ts).
+  const [time, setTimeState] = useState(0);
+  const playhead = useMemo(() => createPlayhead(0), []);
+  const setTime = useCallback(
+    (next: number | ((t: number) => number)) => {
+      const v = typeof next === "function" ? next(playhead.get()) : next;
+      playhead.set(v);
+      setTimeState(v);
+    },
+    [playhead]
+  );
   const [playing, setPlaying] = useState(false);
+  const [proxies, setProxies] = useState<Record<string, string>>({});
+  const [proxyProgress, setProxyProgress] = useState<Record<string, number>>({});
   const [selection, setSelection] = useState<Selection>(null);
   const [pps, setPps] = useState(40);
   const [tab, setTab] = useState<LeftTab>("media");
@@ -134,8 +219,47 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
     void refreshTranscripts();
   }, [refreshTranscripts]);
 
+  // Лёгкие копии для предпросмотра: тяжёлые исходники (HEVC, 4K, ProRes,
+  // 60 кадров) плеер окна не тянет — показываем копию 540p, собираем из оригинала.
+  const videoSources = useMemo(
+    () => [...new Set([...project.clips, ...project.layers].filter((c) => c.kind === "video").map((c) => c.src))],
+    [project.clips, project.layers]
+  );
+  const asked = useRef(new Set<string>());
   useEffect(() => {
-    const need = [...new Set([...project.clips.map((c) => c.src), ...project.layers.map((l) => l.src), ...project.audio.map((a) => a.src), ...bin.map((b) => b.path)])].filter((s) => durations[s] === undefined);
+    for (const src of videoSources) {
+      if (asked.current.has(src)) continue;
+      asked.current.add(src);
+      window.api
+        .montageProxy(src)
+        .then((r) => {
+          if (r.status === "ready" && r.path) setProxies((p) => ({ ...p, [src]: r.path! }));
+          if (r.status === "pending") setProxyProgress((p) => ({ ...p, [src]: 0 }));
+        })
+        .catch(() => {});
+    }
+  }, [videoSources]);
+  useEffect(
+    () =>
+      window.api.onMontageProxy((d) => {
+        if (d.proxy) {
+          setProxies((p) => ({ ...p, [d.file]: d.proxy! }));
+          setProxyProgress((p) => {
+            const { [d.file]: _done, ...rest } = p;
+            return rest;
+          });
+        } else if (d.error) {
+          setProxyProgress((p) => {
+            const { [d.file]: _failed, ...rest } = p;
+            return rest;
+          });
+        } else if (typeof d.progress === "number") setProxyProgress((p) => ({ ...p, [d.file]: d.progress! }));
+      }),
+    []
+  );
+
+  useEffect(() => {
+    const need = [...new Set([...project.clips.map((c) => c.src), ...project.layers.map((l) => l.src), ...project.audio.map((a) => a.src), ...bin.map((b) => b.path)])].filter((s) => durations[s] === undefined && !s.startsWith("motion://"));
     if (!need.length) return;
     let alive = true;
     (async () => {
@@ -327,6 +451,10 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
 
   /** Моушн-дизайн: ролик собирается и уезжает в «Видео-сторис» со своим текстом. */
   async function motion() {
+    if (!onMotionDesign) {
+      setTab("motion");
+      return;
+    }
     setBusy("Собираю ролик для моушн-дизайна…");
     try {
       const r = await window.api.montageRender(project, { format: "mp4", suffix: "-для-моушна" });
@@ -397,18 +525,26 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
     notify: setNotice, fail, busy, setBusy, transcripts, sources, transcribeSources,
     bin, addToBin, place, cleanup, design, applyDesign,
     setCaptions: (patch: Partial<MontageCaptions>) => commit((p) => ({ ...p, captions: { ...p.captions, ...patch } })),
+    seek: setTime,
   };
 
   const selClip = selection?.kind === "clip" ? project.clips.find((c) => c.id === selection.id) : undefined;
   const selText = selection?.kind === "text" ? project.texts.find((t) => t.id === selection.id) : undefined;
   const selAudio = selection?.kind === "audio" ? project.audio.find((a) => a.id === selection.id) : undefined;
   const selLayer = selection?.kind === "layer" ? project.layers.find((l) => l.id === selection.id) : undefined;
-  const currentWord = words.findIndex((w) => time >= w.s && time < w.e);
+  const onSeek = useCallback(
+    (t: number) => {
+      setPlaying(false);
+      setTime(t);
+    },
+    [setTime]
+  );
+  const proxyPending = Object.values(proxyProgress);
 
   return (
     <div className="mt-editor">
       <div className="mt-topbar">
-        <button className="link-btn" onClick={onClose}>← Проекты</button>
+        {projectsButton}
         <input className="mt-title" value={project.title} onChange={(e) => setProject((p) => ({ ...p, title: e.target.value }))} />
         <select
           value={project.canvas.preset}
@@ -428,6 +564,11 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
           ))}
         </select>
         <div className="mt-spacer" />
+        {proxyPending.length > 0 && (
+          <span className="mt-dim" title="Тяжёлые исходники показываются лёгкой копией — так длинное видео не тормозит. Собирается всё из оригинала.">
+            ⚡ Готовлю для плавного показа: {Math.round((proxyPending.reduce((a, b) => a + b, 0) / proxyPending.length) * 100)}%
+          </span>
+        )}
         <button className="btn btn-secondary" disabled={!hist.past.length} onClick={undo} title="Отменить (Ctrl+Z)">↶</button>
         <button className="btn btn-secondary" disabled={!hist.future.length} onClick={redo} title="Вернуть (Ctrl+Shift+Z)">↷</button>
         <button className="btn btn-primary" onClick={async () => {
@@ -436,6 +577,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
           setPlaying(false);
           setExporting(true);
         }}>⬇ Экспорт</button>
+        {settingsButton}
       </div>
 
       {(error || notice || busy) && (
@@ -446,7 +588,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
         </div>
       )}
 
-      <div className="mt-work">
+      <div className={`mt-work ${WIDE.includes(tab) ? "wide" : ""}`}>
         <nav className="mt-rail">
           {LEFT_TABS.map((t) => (
             <button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)} title={t.label}>
@@ -458,6 +600,10 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
         <aside className="mt-left">
           <div className="mt-left-body">
             {tab === "media" && <MediaPanel ctx={ctx} />}
+            {tab === "motion" && <MotionPanel ctx={ctx} config={config} onConfig={onConfig} />}
+            {tab === "titles" && <TitlesPanel ctx={ctx} config={config} />}
+            {tab === "agent" && (agentPanel || <p className="mt-hint">ИИ-монтажёр доступен в программе «Монтаж».</p>)}
+            {tab === "avatar" && (avatarPanel || <p className="mt-hint">Аватар доступен в программе «Монтаж».</p>)}
             {tab === "stock" && <StockPanel ctx={ctx} />}
             {tab === "audio" && <AudioPanel ctx={ctx} />}
             {tab === "text" && <TextPanel ctx={ctx} />}
@@ -476,7 +622,8 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
               project={project}
               scheme={scheme}
               options={options}
-              time={time}
+              playhead={playhead}
+              proxies={proxies}
               playing={playing}
               words={words}
               selection={selection}
@@ -490,12 +637,14 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
           <div className="mt-transport">
             <button className="btn btn-secondary" onClick={() => setTime(0)} title="В начало (Home)">⏮</button>
             <button className="btn btn-primary mt-play" onClick={() => setPlaying((v) => !v)} title="Пробел">{playing ? "⏸" : "▶"}</button>
-            <span className="mt-clock">{fmtTime(time, true)} / {fmtTime(duration, true)}</span>
+            <Clock playhead={playhead} duration={duration} />
             <span className="mt-dim">{project.canvas.width}×{project.canvas.height}</span>
           </div>
         </section>
 
         <aside className="mt-right">
+          {selClip?.kind === "motion" && <MotionInspector key={selClip.id} ctx={ctx} item={selClip} layer={false} />}
+          {selLayer?.kind === "motion" && <MotionInspector key={selLayer.id} ctx={ctx} item={selLayer} layer />}
           {selClip && <ClipInspector ctx={ctx} clip={selClip} />}
           {selLayer && <LayerInspector ctx={ctx} layer={selLayer} seek={(t) => setTime(t)} />}
           {selText && <TextInspector ctx={ctx} text={selText} />}
@@ -505,7 +654,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
               <h4>Текст ролика</h4>
               {!words.length && (
                 <p className="mt-hint">
-                  {sources.length ? "Записи не расшифрованы — вкладка «ИИ» слева, и здесь можно будет резать по тексту." : "Выберите кусок, слой, надпись или звук — здесь появятся их настройки."}
+                  {sources.length ? "Записи не расшифрованы — вкладка «Чистка» слева, и здесь можно будет резать по тексту." : "Выберите кусок, слой, надпись или звук — здесь появятся их настройки."}
                 </p>
               )}
               {words.length > 0 && <p className="mt-hint">Щелчок — перейти к слову. Shift+щелчок — выделить кусок, Delete — вырезать его из ролика.</p>}
@@ -515,28 +664,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
                   <button className="link-btn" onClick={() => setWordSel(null)}>снять</button>
                 </div>
               )}
-              <div className="mt-words">
-                {words.map((w, i) => {
-                  const inSel = wordSel && i >= Math.min(wordSel.from, wordSel.to) && i <= Math.max(wordSel.from, wordSel.to);
-                  const filler = transcripts[w.src]?.words[w.index]?.filler;
-                  return (
-                    <span
-                      key={`${w.clipId}-${w.index}`}
-                      className={`${i === currentWord ? "now" : ""} ${inSel ? "sel" : ""} ${filler ? `f-${filler}` : ""}`}
-                      onClick={(e) => {
-                        if (e.shiftKey && wordSel) setWordSel({ from: wordSel.from, to: i });
-                        else if (e.shiftKey) setWordSel({ from: i, to: i });
-                        else {
-                          setWordSel({ from: i, to: i });
-                          setTime(w.s + 0.001);
-                        }
-                      }}
-                    >
-                      {w.w}{" "}
-                    </span>
-                  );
-                })}
-              </div>
+              <WordList words={words} transcripts={transcripts} wordSel={wordSel} setWordSel={setWordSel} seek={setTime} playhead={playhead} />
             </div>
           )}
         </aside>
@@ -563,15 +691,13 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
 
       <MontageTimeline
         project={project}
-        time={time}
+        playhead={playhead}
+        scheme={scheme}
         pps={pps}
         selection={selection}
         words={words}
         sourceDurations={durations}
-        onSeek={(t) => {
-          setPlaying(false);
-          setTime(t);
-        }}
+        onSeek={onSeek}
         onSelect={setSelection}
         onLive={onLive}
         onCommit={onCommit}

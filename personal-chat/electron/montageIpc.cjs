@@ -14,6 +14,10 @@ const fx = require("./montagefx.cjs");
 const stock = require("./stock.cjs");
 const library = require("./library.cjs");
 const speech = require("./speech.cjs");
+const motionAgent = require("./motionAgent.cjs");
+const motionTemplates = require("./motionTemplates.cjs");
+const motionLib = require("./motion.cjs");
+const motionRender = require("./motionRender.cjs");
 
 const SCHEME = "montage-media";
 
@@ -91,6 +95,9 @@ function handleProtocol(protocol) {
           start = Math.max(0, size - Number(m[2]));
           end = size - 1;
         }
+        // Открытый запрос «с байта N до конца» отдаём кусками: иначе каждая
+        // перемотка длинного видео тянет поток на гигабайты, и плеер ждёт.
+        if (m && m[1] && !m[2]) end = Math.min(end, start + 8 * 1024 * 1024 - 1);
         end = Math.min(end, size - 1);
         if (start > end || start >= size) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, "Access-Control-Allow-Origin": "*" } });
         const stream = fsSync.createReadStream(filePath, { start, end });
@@ -132,7 +139,7 @@ async function freeName(dir, base, ext) {
  * @param {import("electron").IpcMain} ctx.ipcMain
  */
 function register(ctx) {
-  const { ipcMain, dialog, BrowserWindow, shell, app, ffmpegPath, getRootPath, loadSettings, readDesignFolder, speechCacheDir } = ctx;
+  const { ipcMain, dialog, BrowserWindow, shell, app, ffmpegPath, getRootPath, loadSettings, readDesignFolder, speechCacheDir, nativeImage, usage, extractDocText } = ctx;
 
   const montageRoot = async () => path.join(await getRootPath(), "montage");
   const projectsDir = async () => path.join(await montageRoot(), "projects");
@@ -151,6 +158,10 @@ function register(ctx) {
     remoteModel: "whisper-1",
     language: "ru",
     preset: "9:16",
+    // Модель для ИИ-моушна; пусто — та же, что в общих настройках.
+    motionModel: "",
+    motionReview: true,
+    lastProject: "",
     cleanup: { ...montage.CLEANUP_DEFAULTS, punchIn: 0.08 },
     captions: montage.defaultCaptions(),
   });
@@ -361,6 +372,155 @@ function register(ctx) {
       await fs.rm(dest, { force: true }).catch(() => {});
     }
   });
+
+
+  // ---------- лёгкие копии и полоски для быстрого монтажа ----------
+
+  const cacheDir = async (sub) => {
+    const d = path.join(await montageRoot(), "cache", sub);
+    await fs.mkdir(d, { recursive: true });
+    return d;
+  };
+  async function sourceKey(file) {
+    const st = await fs.stat(file);
+    return motionLib.hash(file, st.size, st.mtimeMs);
+  }
+
+  /**
+   * Лёгкая копия для предпросмотра: 540 по короткой стороне, H.264, ключевой
+   * кадр каждые полсекунды — перемотка мгновенная, плеер не задыхается.
+   * Делается в фоне по одной; сборка всегда идёт из оригинала.
+   */
+  const proxyJobs = new Map();
+  const proxyQueue = [];
+  let proxyBusy = false;
+  async function pumpProxies() {
+    if (proxyBusy) return;
+    const job = proxyQueue.shift();
+    if (!job) return;
+    proxyBusy = true;
+    const tmp = job.out.replace(/\.mp4$/, ".part.mp4");
+    try {
+      const info = await montage.probeMedia(ffmpegPath(), job.file);
+      const portrait = info.height > info.width;
+      const scale = portrait ? "scale=540:-2" : "scale=-2:540";
+      await new Promise((resolve, reject) => {
+        const { spawn } = require("node:child_process");
+        const p = spawn(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-i", job.file, "-vf", `${scale},fps=30`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-g", "15", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-ac", "2", "-movflags", "+faststart", tmp], { windowsHide: true });
+        let err = "";
+        p.stderr.on("data", (d) => (err += d));
+        p.stdout.on("data", (d) => {
+          const m = String(d).match(/out_time_ms=(\d+)/g);
+          if (m && info.duration) {
+            const t = Number(m[m.length - 1].split("=")[1]) / 1e6;
+            for (const w of BrowserWindow.getAllWindows()) w.webContents.send("montage-proxy", { file: job.file, progress: Math.min(0.99, t / info.duration) });
+          }
+        });
+        p.on("error", reject);
+        p.on("close", (c) => (c === 0 ? resolve() : reject(new Error(err.slice(-300)))));
+      });
+      await fs.rename(tmp, job.out);
+      job.resolve(job.out);
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send("montage-proxy", { file: job.file, progress: 1, proxy: job.out });
+    } catch (e) {
+      await fs.rm(tmp, { force: true }).catch(() => {});
+      job.resolve("");
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send("montage-proxy", { file: job.file, error: String(e && e.message) });
+    } finally {
+      proxyBusy = false;
+      pumpProxies();
+    }
+  }
+
+  ipcMain.handle("montage:proxy", async (_e, file) => {
+    try {
+      if (montage.mediaKind(file) !== "video") return { status: "none" };
+      const out = path.join(await cacheDir("proxies"), `${await sourceKey(file)}.mp4`);
+      if (fsSync.existsSync(out)) return { status: "ready", path: out };
+      if (proxyJobs.has(out)) return { status: "pending" };
+      const info = await montage.probeMedia(ffmpegPath(), file);
+      if (!montage.needsProxy(info, file)) return { status: "none" };
+      const done = new Promise((resolve) => proxyQueue.push({ file, out, resolve }));
+      proxyJobs.set(out, done);
+      done.then(() => proxyJobs.delete(out));
+      pumpProxies();
+      return { status: "pending" };
+    } catch {
+      return { status: "none" };
+    }
+  });
+
+  /**
+   * Полоска кадров на весь исходник — одна картинка на файл, с диска. Дорожка
+   * режет её под каждый кусок сама: раньше каждый кусок и каждое изменение
+   * зума запускали ffmpeg заново, и длинный исходник декодировался целиком.
+   */
+  const stripJobs = new Map();
+  ipcMain.handle("montage:filmstrip", async (_e, file) => {
+    const kind = montage.mediaKind(file);
+    if (kind !== "video" && kind !== "image") return null;
+    const key = await sourceKey(file).catch(() => "");
+    if (!key) return null;
+    if (stripJobs.has(key)) return stripJobs.get(key);
+    const job = (async () => {
+      const dir = await cacheDir("strips");
+      const meta = path.join(dir, `${key}.json`);
+      try {
+        return JSON.parse(await fs.readFile(meta, "utf-8"));
+      } catch {
+        // ещё не делали
+      }
+      const out = path.join(dir, `${key}.jpg`);
+      const H = 64;
+      let result;
+      if (kind === "image") {
+        await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-i", file, "-vf", `scale=-2:${H}`, "-frames:v", "1", out]);
+        result = { path: out, count: 1, duration: 0, height: H };
+      } else {
+        const info = await montage.probeMedia(ffmpegPath(), file);
+        const duration = info.duration || 1;
+        const count = Math.max(4, Math.min(120, Math.round(duration / 2)));
+        const step = duration / count;
+        // Только ключевые кадры: декодер не разворачивает весь файл, и
+        // полоска часового исходника готова за секунды.
+        await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-skip_frame", "nokey", "-i", file, "-vf", `fps=1/${step.toFixed(4)},scale=-2:${H},tile=${count}x1`, "-an", "-vsync", "vfr", "-frames:v", "1", "-q:v", "5", out]).catch(async () => {
+          await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-i", file, "-vf", `fps=1/${step.toFixed(4)},scale=-2:${H},tile=${count}x1`, "-an", "-frames:v", "1", "-q:v", "5", out]);
+        });
+        result = { path: out, count, duration, height: H, step };
+      }
+      await fs.writeFile(meta, JSON.stringify(result), "utf-8");
+      return result;
+    })().catch(() => null);
+    stripJobs.set(key, job);
+    return job;
+  });
+
+  /** Волна звука на весь исходник — одна на файл; дорожка показывает нужный кусок. */
+  const waveJobs = new Map();
+  async function fullWave(file) {
+    const key = await sourceKey(file);
+    if (waveJobs.has(key)) return waveJobs.get(key);
+    const job = (async () => {
+      const dir = await cacheDir("waves");
+      const meta = path.join(dir, `${key}.json`);
+      try {
+        return JSON.parse(await fs.readFile(meta, "utf-8"));
+      } catch {
+        // ещё не делали
+      }
+      const info = await montage.probeMedia(ffmpegPath(), file);
+      if (!info.hasAudio) return null;
+      const width = Math.max(400, Math.min(16000, Math.round((info.duration || 10) * 25)));
+      const out = path.join(dir, `${key}.png`);
+      await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-i", file, "-filter_complex", `aformat=channel_layouts=mono,showwavespic=s=${width}x60:colors=#ffffff:scale=sqrt`, "-frames:v", "1", out]);
+      const result = { path: out, duration: info.duration, width };
+      await fs.writeFile(meta, JSON.stringify(result), "utf-8");
+      return result;
+    })().catch(() => null);
+    waveJobs.set(key, job);
+    return job;
+  }
+  ipcMain.handle("montage:wave", (_e, file) => fullWave(file).catch(() => null));
 
   ipcMain.handle("montage:transcript", (_e, file) => readTranscript(file));
   ipcMain.handle("montage:transcripts", (_e, paths) => transcriptsFor(paths || []));
@@ -598,6 +758,142 @@ function register(ctx) {
     return montage.cutWordsFromClip(montage.normalizeClip(clip), tr.words, new Set(indices || []));
   });
 
+
+  // ---------- моушн ----------
+
+  const motionCacheDir = async () => path.join(await montageRoot(), "motion-cache");
+  const motionCtx = (settings) => ({ BrowserWindow, nativeImage, usage, settings, ffmpeg: ffmpegPath(), tmpDir: app.getPath("temp") });
+  let motionAbort = null;
+
+  /** Текст статьи или поста из файла: docx, pdf, txt, md, html. */
+  ipcMain.handle("montage:readText", async (_e, file) => {
+    if (!file) return "";
+    if (/\.(txt|md|csv|json|html?)$/i.test(file)) return (await fs.readFile(file, "utf-8")).slice(0, 60000);
+    if (extractDocText) return String((await extractDocText(file)) || "").slice(0, 60000);
+    return "";
+  });
+  ipcMain.handle("montage:pickText", async () => (await pick({ title: "Статья, пост или сценарий", properties: ["openFile"], filters: [{ name: "Текст", extensions: ["txt", "md", "docx", "pdf", "rtf", "html", "htm"] }] }))[0] || null);
+  ipcMain.handle("montage:pickImages", async () => pick({ title: "Фото для ролика", properties: ["openFile", "multiSelections"], filters: [{ name: "Картинки", extensions: ["png", "jpg", "jpeg", "webp"] }] }));
+
+  /**
+   * ИИ-моушн: дизайн-система + текст → готовая композиция.
+   * Ход работы — событиями «montage-motion»: человек видит, что модель пишет.
+   */
+  ipcMain.handle("montage:motionGenerate", async (event, request = {}) => {
+    const settings = await loadSettings();
+    const config = await readConfig();
+    const design = request.designDir ? await readDesignFolder(request.designDir).catch(() => null) : null;
+    motionAbort = new AbortController();
+    const send = (p) => {
+      try {
+        event.sender.send("montage-motion", p);
+      } catch {
+        // окно закрыли
+      }
+    };
+    try {
+      const r = await motionAgent.generate(
+        motionCtx(settings),
+        {
+          design,
+          text: String(request.text || ""),
+          brief: String(request.brief || ""),
+          photos: request.photos || [],
+          width: request.width || 1080,
+          height: request.height || 1920,
+          duration: request.duration || 20,
+          transparent: !!request.transparent,
+          review: request.review !== undefined ? !!request.review : config.motionReview !== false,
+          model: request.model || config.motionModel || "",
+          signal: motionAbort.signal,
+        },
+        send
+      );
+      return { ...r, designDir: request.designDir || "" };
+    } finally {
+      motionAbort = null;
+    }
+  });
+
+  ipcMain.handle("montage:motionEdit", async (event, request = {}) => {
+    const settings = await loadSettings();
+    const config = await readConfig();
+    const m = request.motion || {};
+    const design = m.designDir ? await readDesignFolder(m.designDir).catch(() => null) : null;
+    motionAbort = new AbortController();
+    const send = (p) => {
+      try {
+        event.sender.send("montage-motion", p);
+      } catch {
+        // окно закрыли
+      }
+    };
+    try {
+      return await motionAgent.edit(
+        motionCtx(settings),
+        { design, html: m.html, assets: m.assets || {}, instruction: String(request.instruction || ""), width: request.width || 1080, height: request.height || 1920, duration: m.duration, transparent: !!m.transparent, model: request.model || config.motionModel || "", signal: motionAbort.signal },
+        send
+      );
+    } finally {
+      motionAbort = null;
+    }
+  });
+
+  ipcMain.handle("montage:motionStop", () => {
+    if (motionAbort) motionAbort.abort();
+    return true;
+  });
+
+  /** Документ моушна для рамки предпросмотра. */
+  ipcMain.handle("montage:motionDoc", (_e, m, size = {}) => motionAgent.docFor(montage.normalizeMotion(m), { width: size.width || 1080, height: size.height || 1920, readDesignFolder, preview: true }));
+
+  /** Заготовки титров. */
+  ipcMain.handle("montage:templates", () => motionTemplates.list());
+
+  /** Картинка заготовки для сетки: кадр с середины на сером фоне, кэш на диске. */
+  ipcMain.handle("montage:templateThumb", async (_e, id, designDir = "") => {
+    const dir = path.join(await motionCacheDir(), "thumbs");
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, `${id}-${motionLib.hash(designDir, "v1")}.jpg`);
+    if (fsSync.existsSync(file)) return file;
+    const r = await motionAgent.resolve({ template: id, fields: {}, designDir, assets: {} }, readDesignFolder);
+    const doc = motionLib.buildDoc({ html: r.html, width: 1080, height: 1920, theme: r.theme, assets: r.assets, background: "#3a3f4b" });
+    const page = await motionRender.openDoc(BrowserWindow, doc, { width: 1080, height: 1920, tmpDir: app.getPath("temp") });
+    try {
+      const img = await page.grab(Math.min(r.duration * 0.55, 2.4));
+      await fs.writeFile(file, img.resize({ width: 216 }).toJPEG(82));
+    } finally {
+      await page.close();
+    }
+    return file;
+  });
+
+  /** Отрендерить моушн отдельным файлом (кнопка «Сохранить как видео»). */
+  ipcMain.handle("montage:motionExport", async (event, m, size = {}) => {
+    const config = await readConfig();
+    const outDir = await outputDirFor(config);
+    const norm = montage.normalizeMotion(m);
+    const r = await motionAgent.resolve(norm, readDesignFolder);
+    const doc = motionLib.buildDoc({ html: r.html, width: size.width || 1080, height: size.height || 1920, theme: r.theme, assets: r.assets, transparent: norm.transparent });
+    const out = await freeName(outDir, slug(norm.title || "моушн"), norm.transparent ? ".mov" : ".mp4");
+    motionAbort = new AbortController();
+    try {
+      return await motionRender.renderToFile(BrowserWindow, doc, {
+        width: size.width || 1080,
+        height: size.height || 1920,
+        fps: size.fps || 30,
+        transparent: norm.transparent,
+        outPath: out,
+        ffmpeg: ffmpegPath(),
+        tmpDir: app.getPath("temp"),
+        signal: motionAbort.signal,
+        onProgress: (p) => event.sender.send("montage-motion", { stage: "render", progress: p }),
+      });
+    } finally {
+      motionAbort = null;
+    }
+  });
+
   ipcMain.handle("montage:readDesign", (_e, dir) => readDesignFolder(dir));
   ipcMain.handle("montage:showItem", (_e, p) => shell.showItemInFolder(p));
   ipcMain.handle("montage:openPath", (_e, p) => shell.openPath(p));
@@ -641,6 +937,7 @@ function register(ctx) {
     const work = await fs.mkdtemp(path.join(app.getPath("temp"), "montage-render-"));
     renderAbort = new AbortController();
     try {
+      await motionAgent.prerender(motionCtx(), project, { cacheDir: await motionCacheDir(), readDesignFolder, onProgress: send, signal: renderAbort.signal });
       const result = await montage.renderProject({
         bin: ffmpegPath(),
         project,
