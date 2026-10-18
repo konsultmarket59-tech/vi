@@ -2142,6 +2142,17 @@ export interface MontageAdjust {
   filter: string;
   filterAmount: number;
   lut: string;
+  exposure?: number;
+  temperature?: number;
+  tint?: number;
+  vibrance?: number;
+  highlights?: number;
+  shadows?: number;
+  sharpness?: number;
+  clarity?: number;
+  vignette?: number;
+  denoise?: number;
+  grain?: number;
 }
 
 export interface MontageLayer {
@@ -2175,6 +2186,7 @@ export interface MontageMotion {
   duration: number;
   transparent: boolean;
   designDir: string;
+  pair?: string;
   title: string;
   storyboard: string[];
   assets: Record<string, string>;
@@ -2194,6 +2206,7 @@ export interface MontageTemplate {
   duration: number;
   fields: MontageTemplateField[];
   needsLogo: boolean;
+  pair?: string;
 }
 
 export interface MontageMotionProgress {
@@ -2212,9 +2225,20 @@ export interface MontageMotionResult {
   problems: string[];
   assets: Record<string, string>;
   designDir?: string;
+  pair?: string;
+}
+
+export interface MontageErase {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  mode: "clone" | "smooth";
+  from: "auto" | "left" | "right" | "up" | "down";
 }
 
 export interface MontageClip {
+  erase?: MontageErase[];
   id: string;
   src: string;
   kind: "video" | "image" | "motion" | string;
@@ -2240,9 +2264,34 @@ export interface MontageClip {
   label: string;
 }
 
+export interface MontageFont {
+  id?: string;
+  family: string;
+  category?: string;
+  path: string;
+}
+
+export interface MontageFontPair {
+  id: string;
+  name: string;
+  head: MontageFont;
+  accent: MontageFont;
+  body: MontageFont;
+  upper: boolean;
+  spacing?: number;
+  glow?: boolean;
+  sample: string;
+}
+
 export interface MontageText {
   id: string;
   text: string;
+  fontPath?: string;
+  accentFontPath?: string;
+  accentColor?: string;
+  accentScale?: number;
+  spacing?: number;
+  glow?: boolean;
   start: number;
   end: number;
   style: string;
@@ -2958,15 +3007,19 @@ export interface ElectronAPI {
   montageReadText(file: string): Promise<string>;
   montagePickText(): Promise<string | null>;
   montagePickImages(): Promise<string[]>;
-  montageMotionGenerate(request: { designDir?: string; text?: string; brief?: string; photos?: string[]; width: number; height: number; duration: number; transparent?: boolean; review?: boolean; model?: string }): Promise<MontageMotionResult>;
+  montageMotionGenerate(request: { pair?: string; designDir?: string; text?: string; brief?: string; photos?: string[]; width: number; height: number; duration: number; transparent?: boolean; review?: boolean; model?: string }): Promise<MontageMotionResult>;
   montageMotionEdit(request: { motion: MontageMotion; instruction: string; width: number; height: number; model?: string }): Promise<MontageMotionResult>;
   montageMotionStop(): Promise<boolean>;
   montageMotionDoc(motion: Partial<MontageMotion>, size: { width: number; height: number }): Promise<{ doc: string; duration: number }>;
   montageMotionExport(motion: Partial<MontageMotion>, size: { width: number; height: number; fps?: number }): Promise<{ path: string; duration: number }>;
   montageTemplates(): Promise<MontageTemplate[]>;
-  montageTemplateThumb(id: string, designDir?: string): Promise<string>;
+  montageTemplateThumb(id: string, designDir?: string, pair?: string): Promise<string>;
+  montageFonts(): Promise<{ library: MontageFont[]; pairs: MontageFontPair[]; categories: Record<string, string> }>;
+  montageSystemFonts(): Promise<MontageFont[]>;
   montageProxy(file: string): Promise<{ status: "ready" | "pending" | "none"; path?: string }>;
   montageFilmstrip(file: string): Promise<{ path: string; count: number; duration: number; height: number; step?: number } | null>;
+  montageEraseFrame(file: string, at: number, erase: MontageErase[]): Promise<{ uri: string; width: number; height: number }>;
+  montageAutoEnhance(file: string, range?: { from: number; to: number }): Promise<Partial<MontageAdjust> & { measured?: Record<string, number> }>;
   montageWave(file: string): Promise<{ path: string; duration: number; width: number } | null>;
   onMontageMotion(cb: (data: MontageMotionProgress) => void): () => void;
   onMontageProxy(cb: (data: { file: string; progress?: number; proxy?: string; error?: string }) => void): () => void;

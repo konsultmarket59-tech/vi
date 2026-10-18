@@ -216,8 +216,27 @@ const SETTINGS_PATH = path.join(USER_DATA_PATH, "settings.json");
 
 const OLD_DEFAULT_MAX_TOKENS = 4096;
 
+// «Монтаж» и «Личный чат» — две программы со своими папками, но ключ Polza у
+// человека один. Пока в «Монтаже» ключа нет, берём подключение из «Личного
+// чата» (ключ, адрес, модель, прокси): иначе ИИ-моушн отвечал «не задан
+// API-ключ», хотя ключ давно вставлен в соседней программе.
+async function chatConnection() {
+  if (APP_MODE !== "montage") return null;
+  const appData = stripWindowsExtendedPrefix(app.getPath("appData"));
+  for (const dir of ["Личный чат", "personal-chat"]) {
+    const other = await readJson(path.join(appData, dir, "settings.json"), null);
+    if (other && other.apiKey) return other;
+  }
+  return null;
+}
+const CONNECTION_FIELDS = ["apiKey", "baseUrl", "model", "proxyMode", "proxyUrl", "proxyUsername", "proxyPassword"];
+
 async function loadSettings() {
   const s = await readJson(SETTINGS_PATH, {});
+  if (!s.apiKey) {
+    const other = await chatConnection();
+    if (other) for (const k of CONNECTION_FIELDS) if (other[k] !== undefined && (s[k] === undefined || k === "apiKey")) s[k] = other[k];
+  }
   // One-time migration: earlier versions defaulted maxTokens to 4096, which is far too
   // small for long-form deliverables (funnels, contracts) and silently cut answers short.
   // A saved value still sitting at that exact old default almost certainly means the user

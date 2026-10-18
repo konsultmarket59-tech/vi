@@ -47,7 +47,7 @@ async function openDoc(BrowserWindow, doc, { width, height, transparent, tmpDir 
       if (await exec("!!(window.__state && window.__state.ready)").catch(() => false)) break;
       await sleep(50);
     }
-    const grab = async (t) => {
+    const once = async (t) => {
       const before = painted;
       await exec(`window.__seek(${Number(t).toFixed(4)}); new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))`);
       win.webContents.invalidate();
@@ -58,10 +58,32 @@ async function openDoc(BrowserWindow, doc, { width, height, transparent, tmpDir 
       // На экране с увеличением кадр приходит крупнее — приводим к размеру холста.
       return size.width === width && size.height === height ? img : img.resize({ width, height, quality: "best" });
     };
-    // Первый кадр после открытия приходит устаревшим (ещё до перемотки) —
-    // прогреваем отрисовку, чтобы и самый первый снимок был верным.
-    await grab(0.001);
-    await grab(0);
+    const sig = (img) => img.resize({ width: 24, height: 24, quality: "good" }).toBitmap().toString("base64");
+    let fresh = true;
+    // Первый снимок после открытия (и после тяжёлой смены кадра — большие
+    // размытые тени в программной отрисовке) приходит прежним. Поэтому первый
+    // кадр снимается дважды, а одиночные снимки (settle: картинка заготовки,
+    // лист кадров для модели) — пока картинка не перестанет меняться. В рендере
+    // кадры идут подряд, и проверка только удлинила бы сборку.
+    const grab = async (t, { settle = false } = {}) => {
+      let img = await once(t);
+      if (fresh) {
+        fresh = false;
+        img = await once(t);
+      }
+      if (settle) {
+        for (let k = 0; k < 4; k++) {
+          const next = await once(t);
+          const same = sig(next) === sig(img);
+          img = next;
+          if (same) break;
+        }
+      }
+      return img;
+    };
+    // Прогрев отрисовки: первые кадры после открытия приходят устаревшими.
+    await once(0.001);
+    await once(0);
     return {
       win,
       exec,
@@ -105,7 +127,7 @@ async function contactSheet(BrowserWindow, doc, opts, { count = 8, ffmpeg, width
     const times = [];
     for (let i = 0; i < count; i++) times.push(((i + 0.5) / count) * duration);
     for (let i = 0; i < times.length; i++) {
-      const img = await page.grab(times[i]);
+      const img = await page.grab(times[i], { settle: true });
       await fs.writeFile(path.join(dir, `f${i}.png`), img.toPNG());
     }
     const cols = Math.min(4, count);

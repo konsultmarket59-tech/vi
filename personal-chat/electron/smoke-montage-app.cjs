@@ -101,10 +101,10 @@ app.whenReady().then(async () => {
       const { execFileSync } = require("node:child_process");
       const h264 = path.join(appData, "clip-h264.mp4");
       const hevc = path.join(appData, "clip-hevc.mp4");
-      execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=6", "-f", "lavfi", "-i", "sine=f=440:duration=6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", h264]);
+      execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30:duration=20", "-f", "lavfi", "-i", "sine=f=440:duration=20", "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "10M", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", h264]);
       execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=3840x2160:rate=30:duration=2", "-c:v", "libx265", "-preset", "ultrafast", "-pix_fmt", "yuv420p", hevc]);
       const id = await call(`(async () => {
-        const p = await window.api.montageNormalize({ title: "плавность", canvas: { preset: "16:9", width: 1920, height: 1080, fps: 30 }, clips: [{ src: ${JSON.stringify(h264)}, kind: "video", in: 0, out: 6 }, { src: ${JSON.stringify(hevc)}, kind: "video", in: 0, out: 2 }] });
+        const p = await window.api.montageNormalize({ title: "плавность", canvas: { preset: "9:16", width: 1080, height: 1920, fps: 30 }, clips: [{ src: ${JSON.stringify(h264)}, kind: "video", in: 0, out: 20 }, { src: ${JSON.stringify(hevc)}, kind: "video", in: 0, out: 2 }] });
         const saved = await window.api.montageSave(p);
         await window.api.montageSaveConfig({ lastProject: saved.id });
         return saved.id;
@@ -118,6 +118,10 @@ app.whenReady().then(async () => {
       const h264proxy = await call(`window.api.montageProxy(${JSON.stringify(h264)})`);
       check("обычному H.264 копия не нужна", h264proxy.status === "none", JSON.stringify(h264proxy));
       check("полоска кадров на дорожке — из кэша", await until(`document.querySelectorAll(".mt-tl-strip i").length >= 2`, 30000));
+      check("файл больше 8 МБ (как длинное видео)", fs.statSync(h264).size > 8 * 1024 * 1024, fs.statSync(h264).size);
+      // Перемотка в середину на паузе — кадр должен показаться (раньше длинное видео оставалось чёрным).
+      await call(`(() => { const r = document.querySelector(".mt-tl-ruler").getBoundingClientRect(); document.querySelector(".mt-tl-ruler").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: r.left + 72 + 7.8 * 40, clientY: r.top + 5 })); })()`);
+      check("длинное видео показывает кадр после перемотки", await until(`(() => { const v = document.querySelector(".mt-stage video"); return v && v.readyState >= 2 && v.videoWidth > 0; })()`, 15000), await call(`JSON.stringify([...document.querySelectorAll(".mt-stage video")].map(v => [v.readyState, v.networkState, v.currentTime]))`));
       await call(`document.querySelector(".mt-play").click()`);
       await wait(2500);
       const clock = await call(`document.querySelector(".mt-clock").textContent`);
@@ -125,6 +129,52 @@ app.whenReady().then(async () => {
       check("воспроизведение идёт", played >= 1, clock);
       await shot("4-playing");
       await call(`document.querySelector(".mt-play").click()`);
+      await wait(300);
+
+      // Шрифтовые пары и выбор шрифта.
+      await clickText(".mt-rail button", "Текст");
+      check("шрифтовые пары — карточками", await until(`document.querySelectorAll(".mt-pair").length >= 12`));
+      await call(`document.querySelector(".mt-pair").click()`);
+      check("пара легла надписью", await until(`document.querySelectorAll(".mt-tl-text").length >= 1`));
+      check("у надписи — выбор шрифта и шрифта акцента", await until(`document.querySelectorAll(".mt-right .mt-font-picker").length >= 2`));
+      await call(`document.querySelector(".mt-right .mt-font-current").click()`);
+      check("список шрифтов — с кириллическими встроенными", await until(`document.querySelectorAll(".mt-font-pop .mt-font-item").length >= 35`));
+      await shot("5-fonts");
+      await call(`document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))`);
+      await wait(1200);
+      const readOpen = (expr) => call(`window.api.montageConfig().then(c => window.api.montageRead(c.lastProject)).then(p => ${expr})`);
+      const textSaved = await readOpen("p.texts[0]");
+      check("надпись сохраняется со шрифтами пары", textSaved && /\.ttf$/.test(textSaved.fontPath) && /\.ttf$/.test(textSaved.accentFontPath) && /\*/.test(textSaved.text), JSON.stringify(textSaved));
+
+      // Коррекция и авто-улучшение.
+      await call(`document.querySelector(".mt-tl-clip").dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))`);
+      check("у куска — коррекция изображения", await until(`[...document.querySelectorAll(".mt-right summary")].some(s => s.textContent.includes("Коррекция"))`));
+      await call(`[...document.querySelectorAll(".mt-right summary")].find(s => s.textContent.includes("Коррекция")).click()`);
+      await clickText(".mt-right button", "Авто-улучшение");
+      check("авто-улучшение мерит кадр и ставит ползунки", await until(`document.querySelector(".mt-status") && document.querySelector(".mt-status").textContent.includes("улучшен")`, 20000));
+      await shot("6-grade");
+
+      // Водяной знак: обвести — увидеть «после» — сохранить.
+      await clickText(".mt-right button", "Убрать водяной знак");
+      check("окно удаления знака с кадром", await until(`(() => { const i = document.querySelector(".mt-erase-frame img"); return i && i.naturalWidth > 0; })()`, 20000));
+      const drag = (t, x, y) => call(`(() => { const f = document.querySelector(".mt-erase-frame"); const r = f.getBoundingClientRect(); f.dispatchEvent(new MouseEvent(${JSON.stringify(t)}, { bubbles: true, clientX: r.left + r.width * ${x}, clientY: r.top + r.height * ${y} })); })()`);
+      // По событию за раз, как рука: между ними окно успевает обновиться.
+      await drag("mousedown", 0.6, 0.85);
+      await wait(80);
+      await drag("mousemove", 0.8, 0.9);
+      await wait(80);
+      await drag("mousemove", 0.95, 0.95);
+      await wait(80);
+      await drag("mouseup", 0.95, 0.95);
+      check("после обводки показан кадр без знака", await until(`document.querySelectorAll(".mt-erase-item").length === 1 && !document.querySelector(".mt-erase-busy")`, 20000));
+      await shot("7-erase");
+      await clickText(".mt-erase button", "Готово");
+      await wait(1200);
+      const erased = await readOpen("p.clips[0].erase");
+      check("область знака сохранена в куске", erased && erased.length === 1 && erased[0].x > 0.5 && erased[0].w > 0.2, JSON.stringify(erased));
+
+      await clickText(".mt-rail button", "Моушн");
+      check("модель для моушна — выбором из списка", await until(`[...document.querySelectorAll(".mt-motion-panel select option")].some(o => /Claude/.test(o.textContent))`));
       void id;
     }
   } catch (e) {

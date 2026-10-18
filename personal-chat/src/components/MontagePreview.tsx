@@ -2,11 +2,13 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import type { CSSProperties } from "react";
 import type { MontageClip, MontageLayer, MontageMotion, MontageOptions, MontageProject, MontageTransform } from "../lib/types";
 import { usePlayhead, type Playhead } from "../lib/playhead";
+import { cssFamily, FontFaces } from "./MontageFonts";
 import {
   activeTexts,
   captionCss,
   captionLines,
   layerDuration,
+  gradeOverlays,
   layout,
   lookCss,
   mediaUrl,
@@ -136,6 +138,50 @@ export const MotionFrame = memo(function MotionFrame({ motion, width, height, lo
     </div>
   );
 });
+
+/**
+ * Где в кадре водяные знаки куска: в окне они размыты (подсказка, что знак
+ * учтён), а в сборке — заменены фоном. Положение считается по геометрии
+ * видео на экране: заполнение или вписывание, центр и приближение.
+ */
+function EraseMarks({ clip, fit }: { clip: MontageClip; fit: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [geo, setGeo] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    const media = box?.parentElement?.querySelector(".mt-stage-media") as HTMLVideoElement | HTMLImageElement | null;
+    if (!box || !media) return;
+    const calc = () => {
+      const vw = (media as HTMLVideoElement).videoWidth || (media as HTMLImageElement).naturalWidth;
+      const vh = (media as HTMLVideoElement).videoHeight || (media as HTMLImageElement).naturalHeight;
+      const cw = box.clientWidth;
+      const ch = box.clientHeight;
+      if (!vw || !vh || !cw || !ch) return;
+      const k = fit === "crop" ? Math.max(cw / vw, ch / vh) : Math.min(cw / vw, ch / vh);
+      const w = vw * k;
+      const h = vh * k;
+      setGeo({ x: (cw - w) * clip.focusX, y: (ch - h) * clip.focusY, w, h });
+    };
+    calc();
+    media.addEventListener("loadedmetadata", calc);
+    media.addEventListener("load", calc);
+    const ro = new ResizeObserver(calc);
+    ro.observe(box);
+    return () => {
+      media.removeEventListener("loadedmetadata", calc);
+      media.removeEventListener("load", calc);
+      ro.disconnect();
+    };
+  }, [clip.focusX, clip.focusY, fit, clip.src]);
+  return (
+    <div ref={ref} className="mt-erase-marks" style={{ transform: clip.zoom > 1 ? `scale(${clip.zoom})` : undefined, transformOrigin: `${clip.focusX * 100}% ${clip.focusY * 100}%` }}>
+      {geo &&
+        (clip.erase || []).map((r, i) => (
+          <i key={i} title="Водяной знак: в собранном ролике заменится фоном" style={{ left: geo.x + r.x * geo.w, top: geo.y + r.y * geo.h, width: r.w * geo.w, height: r.h * geo.h }} />
+        ))}
+    </div>
+  );
+}
 
 /**
  * Предпросмотр без сборки.
@@ -332,7 +378,11 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
           ) : (
             <video ref={reg(`c:${c.id}`)} className="mt-stage-media" src={videoUrl(c.src)} style={mediaStyle} playsInline preload="auto" />
           )}
-          <FxOverlays list={mo.overlays} />
+          {c.erase && c.erase.length > 0 && <EraseMarks clip={c} fit={fit(c)} />}
+          <FxOverlays list={[...mo.overlays, ...((c.adjust.grain || 0) > 0.05 ? ["grain"] : [])]} />
+          {gradeOverlays(c.adjust).map((st, i) => (
+            <div key={`g${i}`} className="mt-grade-ov" style={st} />
+          ))}
         </div>
       </div>
     );
@@ -430,6 +480,18 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
       onMouseDown={() => onSelect(null)}
     >
       {fontFace && <style>{fontFace}</style>}
+      {/* Резкость в окне — свёрткой SVG: CSS-фильтра резкости нет. */}
+      <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden>
+        {[1, 2, 3, 4, 5].map((k) => {
+          const a = k * 0.12;
+          return (
+            <filter key={k} id={`mt-sharpen-${k}`}>
+              <feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix={`0 ${-a} 0 ${-a} ${1 + 4 * a} ${-a} 0 ${-a} 0`} />
+            </filter>
+          );
+        })}
+      </svg>
+      <FontFaces paths={project.texts.flatMap((t) => [t.fontPath || "", t.accentFontPath || ""])} scheme={scheme} />
       {visibleMain.map((v, k) => renderClip(v.clip, v.local, k === 0 ? outT : inT, k + 1))}
       {preloadMain && renderClip(preloadMain, 0, {}, 0, true)}
       {trans?.flash && <div className="mt-flash" style={{ background: trans.flash, opacity: trans.flashOpacity }} />}
@@ -459,7 +521,10 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
               fontSize: t.size ? `${(t.size / Math.min(W, H)) * 100}cqmin` : undefined,
               color: t.color || undefined,
               background: t.bg || (t.style === "hook" || t.style === "label" ? cap.highlight : undefined),
-              fontFamily: cap.fontPath ? "mt-caption" : undefined,
+              fontFamily: t.fontPath ? `"${cssFamily(t.fontPath)}"` : cap.fontPath ? "mt-caption" : undefined,
+              fontWeight: t.fontPath ? 400 : undefined,
+              letterSpacing: t.spacing ? `${t.spacing}em` : undefined,
+              textShadow: t.glow ? `0 0 0.12em ${t.accentColor || cap.highlight}, 0 0 0.35em ${t.accentColor || cap.highlight}` : undefined,
               ...(placed ? { left: `${t.x! * 100}%`, top: `${t.y! * 100}%`, right: "auto", bottom: "auto", transform: "translate(-50%, -50%)" } : {}),
               ["--p" as string]: String(progress),
             }}
@@ -475,10 +540,20 @@ export default function MontagePreview({ project, scheme, options, playhead, pro
             }}
           >
             {t.animation === "type"
-              ? (t.upper ? t.text.toUpperCase() : t.text).slice(0, Math.ceil(t.text.length * Math.min(1, (time - t.start) / Math.max(0.3, (t.end - t.start) / 2))))
-              : t.upper
-                ? t.text.toUpperCase()
-                : t.text}
+              ? (t.upper ? t.text.toUpperCase() : t.text).replace(/\*/g, "").slice(0, Math.ceil(t.text.length * Math.min(1, (time - t.start) / Math.max(0.3, (t.end - t.start) / 2))))
+              : /\*[^*]+\*/.test(t.text)
+                ? t.text.split(/\*([^*]+)\*/).map((seg, i) =>
+                    i % 2 ? (
+                      <span key={i} style={{ fontFamily: t.accentFontPath ? `"${cssFamily(t.accentFontPath)}"` : undefined, color: t.accentColor || cap.highlight, fontSize: `${t.accentScale || 1}em`, letterSpacing: 0, textTransform: "none", fontWeight: t.accentFontPath ? 400 : undefined }}>
+                        {seg}
+                      </span>
+                    ) : (
+                      <span key={i}>{t.upper ? seg.toUpperCase() : seg}</span>
+                    )
+                  )
+                : t.upper
+                  ? t.text.toUpperCase()
+                  : t.text}
           </div>
         );
       })}

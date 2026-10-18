@@ -412,7 +412,46 @@ function normalizeAdjust(adj = {}) {
     // Сила фильтра: 1 — как задуман, меньше — смешан с исходником.
     filterAmount: clamp(num(adj.filterAmount, 1), 0, 1),
     lut: typeof adj.lut === "string" ? adj.lut : "",
+    // Профессиональная коррекция — как в Lightroom/CapCut Pro: экспозиция в
+    // ступенях, температура и оттенок, сочность, света и тени, резкость,
+    // чёткость (локальный контраст), виньетка, шумоподавление и зерно.
+    exposure: clamp(num(adj.exposure, 0), -2, 2),
+    temperature: clamp(num(adj.temperature, 0), -1, 1),
+    tint: clamp(num(adj.tint, 0), -1, 1),
+    vibrance: clamp(num(adj.vibrance, 0), -1, 1),
+    highlights: clamp(num(adj.highlights, 0), -1, 1),
+    shadows: clamp(num(adj.shadows, 0), -1, 1),
+    sharpness: clamp(num(adj.sharpness, 0), 0, 1),
+    clarity: clamp(num(adj.clarity, 0), 0, 1),
+    vignette: clamp(num(adj.vignette, 0), 0, 1),
+    denoise: clamp(num(adj.denoise, 0), 0, 1),
+    grain: clamp(num(adj.grain, 0), 0, 1),
   };
+}
+
+/**
+ * Коррекция кадра фильтрами ffmpeg. Порядок как в проявке: сначала шум
+ * (чтобы резкость не усиливала его), потом свет и цвет, локальный контраст,
+ * резкость и в самом конце виньетка и зерно.
+ */
+function gradeChain(a) {
+  const out = [];
+  const r = round3;
+  if (a.denoise > 0.01) out.push(`hqdn3d=${r(1 + a.denoise * 5)}:${r(1 + a.denoise * 4)}:${r(2 + a.denoise * 7)}:${r(2 + a.denoise * 6)}`);
+  if (Math.abs(a.exposure) > 0.005) out.push(`exposure=exposure=${r(a.exposure)}`);
+  if (Math.abs(a.temperature) > 0.005) out.push(`colortemperature=temperature=${Math.round(6500 - a.temperature * 3000)}:mix=1:pl=1`);
+  if (Math.abs(a.tint) > 0.005) out.push(`colorchannelmixer=gg=${r(1 - a.tint * 0.12)}:rr=${r(1 + Math.max(0, a.tint) * 0.04)}:bb=${r(1 + Math.max(0, a.tint) * 0.04)}`);
+  if (Math.abs(a.highlights) > 0.005 || Math.abs(a.shadows) > 0.005) {
+    const sh = clamp(0.25 + a.shadows * 0.13, 0.05, 0.45);
+    const hl = clamp(0.75 + a.highlights * 0.13, 0.55, 0.95);
+    out.push(`curves=master='0/0 0.25/${r(sh)} 0.75/${r(hl)} 1/1'`);
+  }
+  if (Math.abs(a.vibrance) > 0.005) out.push(`vibrance=intensity=${r(a.vibrance)}`);
+  if (a.clarity > 0.01) out.push(`unsharp=lx=13:ly=11:la=${r(a.clarity * 0.9)}:cx=3:cy=3:ca=0`);
+  if (a.sharpness > 0.01) out.push(`unsharp=lx=5:ly=5:la=${r(a.sharpness * 1.6)}:cx=3:cy=3:ca=0`);
+  if (a.vignette > 0.01) out.push(`vignette=angle=${r(0.25 + a.vignette * 0.75)}`);
+  if (a.grain > 0.01) out.push(`noise=alls=${Math.round(4 + a.grain * 22)}:allf=t`);
+  return out;
 }
 
 /**
@@ -432,6 +471,8 @@ function normalizeMotion(raw) {
     duration: clamp(num(raw.duration, 5), 0.2, 600),
     transparent: !!raw.transparent,
     designDir: String(raw.designDir || ""),
+    // Шрифтовая пара (id из библиотеки) или "ds" — шрифты дизайн-системы.
+    pair: String(raw.pair || ""),
     title: String(raw.title || ""),
     storyboard: Array.isArray(raw.storyboard) ? raw.storyboard.map(String).slice(0, 30) : [],
     assets,
@@ -471,8 +512,102 @@ function normalizeClip(raw = {}) {
     keyframes: fx.normalizeKeyframes(raw.keyframes),
     reverse: !!raw.reverse,
     audioEffect: fx.AUDIO_FX.some((a) => a.id === raw.audioEffect) ? raw.audioEffect : "none",
+    // Водяные знаки, которые нужно убрать: прямоугольники в долях кадра исходника.
+    erase: normalizeErase(raw.erase),
     label: String(raw.label || ""),
   };
+}
+
+function normalizeErase(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((r) => {
+      const x = clamp(num(r && r.x, 0), 0, 1);
+      const y = clamp(num(r && r.y, 0), 0, 1);
+      return {
+        x,
+        y,
+        w: clamp(num(r && r.w, 0), 0, 1 - x),
+        h: clamp(num(r && r.h, 0), 0, 1 - y),
+        mode: r && r.mode === "smooth" ? "smooth" : "clone",
+        from: ["left", "right", "up", "down"].includes(r && r.from) ? r.from : "auto",
+      };
+    })
+    .filter((r) => r.w > 0.003 && r.h > 0.003)
+    .slice(0, 8);
+}
+
+/**
+ * Удаление водяного знака — граф ffmpeg на кадре исходника (до кадрирования).
+ *
+ * «clone» — заплатка из соседнего участка того же кадра, отражённая зеркально:
+ * у шва со стороны источника пиксели продолжают сами себя, и текстура (трава,
+ * стена, небо, ткань) остаётся живой, без мыльного пятна. Края заплатки мягкие,
+ * но мягкая полоса лежит снаружи знака, на чистом фоне, — внутри знака замена
+ * полная, ни контура, ни призрака. «smooth» — классическое заполнение по краям
+ * (delogo): для мелких знаков на ровном фоне.
+ */
+function eraseGraph(erase, W, H, inLabel, outLabel) {
+  const even = (v) => Math.max(0, Math.round(v / 2) * 2);
+  const parts = [];
+  let cur = inLabel;
+  erase.forEach((r, i) => {
+    const last = i === erase.length - 1;
+    const next = last ? outLabel : `[er${i}]`;
+    const x = even(r.x * W);
+    const y = even(r.y * H);
+    const w = Math.max(4, even(r.w * W));
+    const h = Math.max(4, even(r.h * H));
+    // delogo требует полосу хотя бы в пиксель от края кадра.
+    const dx = Math.min(Math.max(1, x), W - 3);
+    const dy = Math.min(Math.max(1, y), H - 3);
+    const dw = Math.max(2, Math.min(w, W - 2 - dx));
+    const dh = Math.max(2, Math.min(h, H - 2 - dy));
+    const delogo = `delogo=x=${dx}:y=${dy}:w=${dw}:h=${dh}`;
+    if (r.mode === "smooth") {
+      parts.push(`${cur}${delogo}${next}`);
+      cur = next;
+      return;
+    }
+    const F = Math.max(4, even(Math.min(w, h) * 0.18));
+    const ex = Math.max(0, x - F);
+    const ey = Math.max(0, y - F);
+    const ew = Math.min(W - ex, w + 2 * F);
+    const eh = Math.min(H - ey, h + 2 * F);
+    let from = r.from;
+    if (from === "auto") {
+      // Фон берём с ближней стороны, где хватает места: у широкого знака —
+      // сверху или снизу (сдвиг на его высоту), у высокого — сбоку.
+      const room = { left: ex, right: W - (ex + ew), up: ey, down: H - (ey + eh) };
+      const horiz = Math.max(room.left, room.right) >= ew ? (room.left >= room.right ? "left" : "right") : "";
+      const vert = Math.max(room.up, room.down) >= eh ? (room.up >= room.down ? "up" : "down") : "";
+      from = horiz && (!vert || ew / W <= eh / H) ? horiz : vert || horiz || (room.left >= room.right ? "left" : "right");
+    }
+    let sx = ex;
+    let sy = ey;
+    if (from === "left") sx = ex - ew;
+    if (from === "right") sx = ex + ew;
+    if (from === "up") sy = ey - eh;
+    if (from === "down") sy = ey + eh;
+    sx = Math.min(Math.max(0, even(sx)), W - ew);
+    sy = Math.min(Math.max(0, even(sy)), H - eh);
+    const flip = from === "left" || from === "right" ? "hflip," : "vflip,";
+    const S = Math.max(3, Math.round(Math.min(w, h) * 0.3));
+    const alpha = `255*clip(min(min(X,W-1-X),min(Y,H-1-Y))/${F},0,1)`;
+    // Частотное разделение: мелкая текстура — из соседней заплатки, а цвет и
+    // яркость — из плавного заполнения по краям знака. Тогда заплатка не
+    // выделяется ни на градиенте неба, ни на виньетке, ни на спаде света.
+    parts.push(
+      `${cur}split=3[eb${i}][es${i}][ed${i}]`,
+      `[ed${i}]${delogo},crop=${ew}:${eh}:${ex}:${ey},format=gbrp,gblur=sigma=${S}[el${i}]`,
+      `[es${i}]crop=${ew}:${eh}:${sx}:${sy},${flip}format=gbrp,split[ea${i}][ec${i}]`,
+      `[ec${i}]gblur=sigma=${S}[eg${i}]`,
+      `[ea${i}][eg${i}]blend=all_expr='clip(A-B+128,0,255)'[eh${i}]`,
+      `[eh${i}][el${i}]blend=all_expr='clip(A+B-128,0,255)',format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${alpha}'[ep${i}]`,
+      `[eb${i}][ep${i}]overlay=${ex}:${ey}:format=auto${next}`
+    );
+    cur = next;
+  });
+  return parts.join(";");
 }
 
 const LAYER_TRANSFORM = { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, opacity: 1 };
@@ -537,6 +672,15 @@ function normalizeText(raw = {}) {
     color: raw.color || "",
     bg: raw.bg || "",
     upper: raw.upper === undefined ? true : !!raw.upper,
+    // Шрифт файлом (встроенная библиотека, система, дизайн-система) и второй
+    // шрифт пары — для *слов в звёздочках*: так собираются заголовки из
+    // шрифтовых пар, «КАЧЕСТВО роликов» с рукописным акцентом.
+    fontPath: String(raw.fontPath || ""),
+    accentFontPath: String(raw.accentFontPath || ""),
+    accentColor: /^#[0-9a-f]{6}$/i.test(raw.accentColor || "") ? raw.accentColor : "",
+    accentScale: clamp(num(raw.accentScale, 1), 0.5, 2.5),
+    spacing: clamp(num(raw.spacing, 0), -0.1, 0.6),
+    glow: !!raw.glow,
     // Своё место в кадре (доли), если надпись перетащили мышью в предпросмотре.
     x: Number.isFinite(Number(raw.x)) && raw.x !== null && raw.x !== "" ? clamp(Number(raw.x), 0, 1) : null,
     y: Number.isFinite(Number(raw.y)) && raw.y !== null && raw.y !== "" ? clamp(Number(raw.y), 0, 1) : null,
@@ -935,25 +1079,62 @@ function buildAss(project, words, fonts = {}) {
     }
   }
 
+  const textFg = (styleId) => {
+    const st2 = textStyles[styleId] || textStyles.title;
+    const bg = styleId === "hook" || styleId === "label" ? accent : "#000000";
+    return isLight(bg) && st2.box ? "#0A0A0A" : "#FFFFFF";
+  };
   for (const t of project.texts) {
     const tags = [];
     if (t.x !== null && t.x !== undefined && t.y !== null && t.y !== undefined) tags.push(`\\an5\\pos(${Math.round(t.x * W)},${Math.round(t.y * H)})`);
     else if (t.position) tags.push(`\\an${t.position === "top" ? 8 : t.position === "center" ? 5 : 2}`);
-    if (t.size) tags.push(`\\fs${Math.round(t.size * scale)}`);
-    if (t.color) tags.push(`\\c${assColor(t.color)}`);
+    const baseSize = Math.round((t.size || (textStyles[t.style] || textStyles.title).size) * scale);
+    const fam = (fonts.byPath && t.fontPath && fonts.byPath[t.fontPath]) || "";
+    const accFam = (fonts.byPath && t.accentFontPath && fonts.byPath[t.accentFontPath]) || fam;
+    const mainColor = t.color || textFg(t.style);
+    // Тэги вида букв — повторяются после каждого акцентного куска, чтобы
+    // вернуть основной шрифт, цвет и размер.
+    const look = [];
+    if (fam) look.push(`\\fn${fam.replace(/[\\{}]/g, "")}\\b0\\i0`);
+    if (t.size || fam) look.push(`\\fs${baseSize}`);
+    if (t.color) look.push(`\\c${assColor(t.color)}`);
+    if (t.spacing) look.push(`\\fsp${Math.round(t.spacing * baseSize)}`);
+    tags.push(...look);
     if (t.bg) tags.push(`\\3c${assColor(t.bg)}\\4c${assColor(t.bg)}`);
     const dur = Math.max(0.2, t.end - t.start);
     const ms = (v) => Math.round(Math.min(v, dur / 3) * 1000);
     if (t.animation === "pop") tags.push(`\\fscx60\\fscy60\\t(0,${ms(0.12)},\\fscx110\\fscy110)\\t(${ms(0.12)},${ms(0.22)},\\fscx100\\fscy100)\\fad(60,${ms(0.2)})`);
     else if (t.animation === "fade") tags.push(`\\fad(${ms(0.35)},${ms(0.3)})`);
     else if (t.animation === "slide") tags.push(`\\fad(80,${ms(0.25)})\\frx50\\t(0,${ms(0.3)},\\frx0)`);
-    const raw = t.upper ? t.text.toUpperCase() : t.text;
-    const body = assEscape(raw);
+    const hasAccent = /\*[^*]+\*/.test(t.text);
+    // В паре заглавными пишется только основной шрифт: рукописный акцент
+    // строчными — как в «ШРИФТОВЫЕ пары».
+    const raw = t.upper && !hasAccent ? t.text.toUpperCase() : t.text;
+    let body = assEscape(raw.replace(/\*/g, ""));
+    if (hasAccent) {
+      const animTags = tags.filter((x) => /\\t\(|\\fsc/.test(x)).join("");
+      const accSize = Math.round(baseSize * (t.accentScale || 1));
+      const accLook = `${accFam ? `\\fn${accFam.replace(/[\\{}]/g, "")}\\b0\\i0` : ""}\\fs${accSize}\\c${assColor(t.accentColor || accent)}\\fsp0`;
+      body = raw
+        .split(/\*([^*]+)\*/)
+        .map((seg, i) => {
+          if (!seg) return "";
+          if (i % 2 === 1) return `{${accLook}${animTags}}${assEscape(seg)}{${look.join("")}\\c${assColor(mainColor)}${animTags}}`;
+          return assEscape(t.upper ? seg.toUpperCase() : seg);
+        })
+        .join("")
+        .replace(/\{\}/g, "");
+    }
+    // Свечение — размытая обводка отдельным слоем под буквами.
+    if (t.glow && t.animation !== "type") {
+      const g = t.accentColor || accent;
+      ev(1, t.start, t.end, `T_${t.style}`, `{${tags.join("")}\\1a&HFF&\\3c${assColor(g)}\\bord${Math.round(baseSize * 0.12)}\\blur${Math.round(baseSize * 0.18)}\\shad0}${body.replace(/\\c&H[0-9A-F]+&/g, "")}`);
+    }
     if (t.animation === "type") {
       // Печатается: по событию на каждую добавленную букву, последнее держится.
       // Режется исходный текст, а экранируется каждый кусок: иначе срез мог бы
       // прийтись посреди «\N» и оставить в кадре обратную косую черту.
-      const chars = Array.from(raw);
+      const chars = Array.from(raw.replace(/\*/g, ""));
       const step = Math.min(0.06, (dur * 0.5) / Math.max(1, chars.length));
       for (let i = 1; i <= chars.length; i++) {
         const st = t.start + (i - 1) * step;
@@ -1008,8 +1189,8 @@ function atempoChain(speed) {
  * n — уникальная метка: внутри одного графа несколько слоёв.
  */
 function colorChain(adj, n, lutName) {
-  const out = [];
-  const a = adj || {};
+  const a = normalizeAdjust(adj || {});
+  const out = gradeChain(a);
   if (a.brightness || (a.contrast ?? 1) !== 1 || (a.saturation ?? 1) !== 1) {
     out.push(`eq=brightness=${round3(a.brightness || 0)}:contrast=${round3(a.contrast ?? 1)}:saturation=${round3(a.saturation ?? 1)}`);
   }
@@ -1113,7 +1294,7 @@ function frameDuration(seconds, fps) {
  * без перекодирования. Звук внутри кусков — PCM: у AAC на каждом стыке
  * добавляется своя задержка, и на сотне резов голос уезжал бы от губ.
  */
-function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false, lutName = "" } = {}) {
+function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false, lutName = "", srcW = 0, srcH = 0 } = {}) {
   const dur = frameDuration(clipDuration(clip), canvas.fps);
   const srcDur = round3(dur * (clip.speed || 1) + 0.1);
   const args = ["-y", "-hide_banner", "-loglevel", "error"];
@@ -1126,9 +1307,10 @@ function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false
   if (silent) args.push("-f", "lavfi", "-t", String(round3(dur + 0.1)), "-i", "anullsrc=r=48000:cl=stereo");
   const vf = clipVideoFilter(clip, canvas, { lutName });
   const af = clipAudioFilter(clip, { denoise });
+  const erase = clip.erase && clip.erase.length && srcW && srcH ? eraseGraph(clip.erase, srcW, srcH, "[0:v]", "[clean]") : "";
   args.push(
     "-filter_complex",
-    `[0:v]${vf}[v];[${silent ? 1 : 0}:a]${af}[a]`,
+    `${erase ? `${erase};[clean]` : "[0:v]"}${vf}[v];[${silent ? 1 : 0}:a]${af}[a]`,
     "-map", "[v]", "-map", "[a]",
     "-t", String(round3(dur)),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
@@ -1211,7 +1393,7 @@ function layerFilter(layer, idx, inputIndex, canvas, lutName) {
  * Итоговый граф: переходы между группами, слои, логотип, субтитры и надписи,
  * музыка и звуковые эффекты, громкость.
  */
-function buildFinalArgs({ groups, project, assFile, fontsDir, outPath, codec, layerInfo = {}, layerLuts = {} }) {
+function buildFinalArgs({ groups, project, assFile, fontsDir, outPath, codec, layerInfo = {}, layerLuts = {}, audible = true }) {
   const { canvas } = project;
   const args = ["-y", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-nostats"];
   groups.forEach((g) => args.push("-i", g.file));
@@ -1313,7 +1495,9 @@ function buildFinalArgs({ groups, project, assFile, fontsDir, outPath, codec, la
     filters.push(`${a}${voiceParts.join("")}amix=inputs=${1 + voiceParts.length}:normalize=0:duration=first[amix]`);
     a = "[amix]";
   }
-  if (project.audioFx && project.audioFx.loudnorm) {
+  // На чистой тишине (ролик из картинок и моушна без музыки) loudnorm делит на
+  // ноль и роняет кодер звука — выравнивать там нечего.
+  if (project.audioFx && project.audioFx.loudnorm && audible) {
     // Громкость под соцсети: −14 LUFS, как у YouTube и Reels.
     filters.push(`${a}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[anorm]`);
     a = "[anorm]";
@@ -1442,7 +1626,9 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
   if ([...project.clips, ...project.layers].some((c) => c.kind === "motion")) throw new Error("Моушн не отрендерен в файл перед сборкой.");
   const probes = new Map();
   for (const c of [...project.clips, ...project.layers]) {
-    if (c.kind === "image" || probes.has(c.src)) continue;
+    // Картинки мерить незачем — кроме тех, где убирается водяной знак: там
+    // нужен размер кадра в пикселях.
+    if ((c.kind === "image" && !(c.erase && c.erase.length)) || probes.has(c.src)) continue;
     probes.set(c.src, await probeMedia(bin, c.src));
   }
 
@@ -1471,7 +1657,7 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
     if (clip.kind !== "image" && info && !info.hasVideo) throw new Error(`«${path.basename(clip.src)}» — это звук, а не видео. Звук кладётся на звуковую дорожку.`);
     const file = path.join(workDir, `seg-${String(i).padStart(4, "0")}.mkv`);
     const lutName = await lutFor(clip.adjust.lut);
-    const { args, duration } = buildClipArgs(clip, project.canvas, path.basename(file), { hasAudio: clip.kind === "image" ? false : !!(info && info.hasAudio), denoise: project.audioFx.denoise, lutName });
+    const { args, duration } = buildClipArgs(clip, project.canvas, path.basename(file), { hasAudio: clip.kind === "image" ? false : !!(info && info.hasAudio), denoise: project.audioFx.denoise, lutName, srcW: (info && info.width) || 0, srcH: (info && info.height) || 0 });
     report("pieces", i / project.clips.length, { index: i, total: project.clips.length });
     await runFfmpeg(bin, args, { cwd: workDir, signal });
     segFiles.push({ file, duration });
@@ -1498,8 +1684,10 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
   let fontsDir = "";
   const words = project.captions.enabled ? outputWords(project, transcripts) : [];
   if (words.length || project.texts.length) {
-    const fonts = {};
-    const usable = fontFiles.filter((f) => f && f.path);
+    const fonts = { byPath: {} };
+    // Шрифты надписей — каждый своим файлом: у надписи свой шрифт и шрифт акцента.
+    const textFonts = [...new Set(project.texts.flatMap((t) => [t.fontPath, t.accentFontPath]).filter(Boolean))].map((p) => ({ path: p, role: "path" }));
+    const usable = [...fontFiles, ...textFonts].filter((f) => f && f.path);
     if (usable.length) {
       fontsDir = "fonts";
       await fs.mkdir(path.join(workDir, fontsDir), { recursive: true });
@@ -1510,7 +1698,8 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
           await fs.writeFile(path.join(workDir, fontsDir, `font-${k}${path.extname(f.path).toLowerCase()}`), buf);
           // ASS ищет шрифт по семейству, записанному внутри файла, а не по имени файла.
           const family = familyFromFontFile(buf) || f.family;
-          if (f.role === "text") fonts.textFamily = family;
+          if (f.role === "path") fonts.byPath[f.path] = family;
+          else if (f.role === "text") fonts.textFamily = family;
           else if (!fonts.family) fonts.family = family;
         } catch {
           // нечитаемый шрифт — субтитры уйдут запасным, это видно по предупреждению
@@ -1529,7 +1718,11 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
   const direct = def.kind === "video";
   const master = direct ? path.resolve(outPath) : path.join(workDir, "master.mp4");
   const codec = fx.codecArgs(direct ? format : "mp4", exportOptions.quality || "normal", project.canvas.fps);
-  const final = buildFinalArgs({ groups, project, assFile, fontsDir, outPath: master, codec, layerInfo, layerLuts });
+  const audible =
+    project.audio.some((a) => a.volume > 0) ||
+    project.clips.some((c) => c.kind !== "image" && !c.muted && c.volume > 0 && probes.get(c.src) && probes.get(c.src).hasAudio) ||
+    project.layers.some((l) => l.kind === "video" && !l.muted && l.volume > 0 && probes.get(l.src) && probes.get(l.src).hasAudio);
+  const final = buildFinalArgs({ groups, project, assFile, fontsDir, outPath: master, codec, layerInfo, layerLuts, audible });
   await fs.writeFile(path.join(workDir, "graph.txt"), final.graph, "utf-8");
   await runFfmpeg(bin, final.args, { cwd: workDir, total: final.duration, onProgress: (p) => report("encode", p), signal });
   if (!direct) {
@@ -1852,6 +2045,9 @@ module.exports = {
   SOUND_FILLER,
   mediaKind,
   normalizeMotion,
+  gradeChain,
+  eraseGraph,
+  normalizeErase,
   needsProxy,
   normWord,
   splitWords,

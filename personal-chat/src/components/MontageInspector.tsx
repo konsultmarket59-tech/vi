@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { MontageAdjust, MontageAudio, MontageClip, MontageEffect, MontageKeyframe, MontageLayer, MontageOptions, MontageText, MontageTransform } from "../lib/types";
 import { MOTION_PRESETS, addKeyframe, clamp, fileName, fmtTime, itemLabel, layerDuration, layout, motionPreset, sampleTransform, setTransformAt, uid } from "../lib/montage";
 import { Field, NumberField, Section, Slider, type EditorCtx } from "./MontageControls";
+import { FontPicker, useFontData } from "./MontageFonts";
+import EraseDialog from "./MontageErase";
 
 type Animated = { transform: MontageTransform; keyframes: MontageKeyframe[] };
 
@@ -68,6 +70,68 @@ function TransformSection<T extends Animated>({ item, local, dur, isLayer, patch
           ))}
         </div>
       )}
+    </Section>
+  );
+}
+
+const GRADE_KEYS = ["exposure", "temperature", "tint", "vibrance", "highlights", "shadows", "sharpness", "clarity", "vignette", "denoise", "grain"] as const;
+
+/**
+ * Профессиональная коррекция: свет, цвет, детали. «Авто» мерит кадр и
+ * выставляет экспозицию, света и тени, сочность, чёткость и резкость.
+ */
+function GradeSection({ adjust, source, onChange, notify }: { adjust: MontageAdjust; source?: { src: string; from: number; to: number }; onChange: (a: MontageAdjust) => void; notify: (t: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const v = (k: (typeof GRADE_KEYS)[number]) => adjust[k] ?? 0;
+  const set = (k: (typeof GRADE_KEYS)[number], val: number) => onChange({ ...adjust, [k]: val });
+  const pct = (x: number) => `${x > 0 ? "+" : ""}${Math.round(x * 100)}`;
+  const touched = GRADE_KEYS.some((k) => Math.abs(v(k)) > 0.001);
+  return (
+    <Section title="Коррекция изображения" open={touched}>
+      <div className="mt-row">
+        {source && (
+          <button
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const r = await window.api.montageAutoEnhance(source.src, { from: source.from, to: source.to });
+                const { measured: _m, ...patch } = r;
+                onChange({ ...adjust, ...patch });
+                notify("Кадр улучшен автоматически: экспозиция, света и тени, сочность, чёткость и резкость. Подправьте ползунками, если нужно.");
+              } catch (e) {
+                notify(e instanceof Error ? e.message : String(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Измеряю кадр…" : "✨ Авто-улучшение"}
+          </button>
+        )}
+        {touched && (
+          <button className="link-btn" onClick={() => onChange({ ...adjust, ...Object.fromEntries(GRADE_KEYS.map((k) => [k, 0])) })}>
+            сбросить
+          </button>
+        )}
+      </div>
+      <h5 className="mt-sub">Свет</h5>
+      <Slider label="Экспозиция" value={v("exposure")} min={-2} max={2} step={0.05} fmt={(x) => `${x > 0 ? "+" : ""}${x.toFixed(2)} EV`} onChange={(x) => set("exposure", x)} />
+      <Slider label="Света" value={v("highlights")} min={-1} max={1} step={0.05} fmt={pct} onChange={(x) => set("highlights", x)} />
+      <Slider label="Тени" value={v("shadows")} min={-1} max={1} step={0.05} fmt={pct} onChange={(x) => set("shadows", x)} />
+      <h5 className="mt-sub">Цвет</h5>
+      <Slider label="Температура (холоднее ↔ теплее)" value={v("temperature")} min={-1} max={1} step={0.05} fmt={pct} onChange={(x) => set("temperature", x)} />
+      <Slider label="Оттенок (зелёный ↔ пурпурный)" value={v("tint")} min={-1} max={1} step={0.05} fmt={pct} onChange={(x) => set("tint", x)} />
+      <Slider label="Сочность" value={v("vibrance")} min={-1} max={1} step={0.05} fmt={pct} onChange={(x) => set("vibrance", x)} />
+      <h5 className="mt-sub">Детали</h5>
+      <Slider label="Чёткость" value={v("clarity")} min={0} max={1} step={0.05} fmt={pct} onChange={(x) => set("clarity", x)} />
+      <Slider label="Резкость" value={v("sharpness")} min={0} max={1} step={0.05} fmt={pct} onChange={(x) => set("sharpness", x)} />
+      <Slider label="Шумоподавление" value={v("denoise")} min={0} max={1} step={0.05} fmt={pct} onChange={(x) => set("denoise", x)} />
+      <h5 className="mt-sub">Эффекты</h5>
+      <Slider label="Виньетка" value={v("vignette")} min={0} max={1} step={0.05} fmt={pct} onChange={(x) => set("vignette", x)} />
+      <Slider label="Зерно" value={v("grain")} min={0} max={1} step={0.05} fmt={pct} onChange={(x) => set("grain", x)} />
+      <p className="mt-hint">Резкость, чёткость и шумоподавление точно видны в собранном ролике; предпросмотр показывает их приближённо.</p>
     </Section>
   );
 }
@@ -142,9 +206,23 @@ export function ClipInspector({ ctx, clip }: { ctx: EditorCtx; clip: MontageClip
   const local = clamp(time - (item?.start || 0), 0, dur);
   const patch = (p: Partial<MontageClip>) => ctx.commit((pr) => ({ ...pr, clips: pr.clips.map((c) => (c.id === clip.id ? { ...c, ...p } : c)) }));
   const transcribed = !!ctx.transcripts[clip.src];
+  const [erasing, setErasing] = useState(false);
   return (
     <div className="mt-inspector">
       <h4 title={clip.src}>{clip.kind === "image" ? "🖼" : clip.kind === "motion" ? "✨" : "🎬"} {itemLabel(clip)}</h4>
+      {(clip.kind === "video" || clip.kind === "image") && (
+        <button className="btn btn-secondary btn-block" onClick={() => setErasing(true)} title="Обвести водяной знак — он заменится фоном">
+          🩹 Убрать водяной знак{clip.erase?.length ? ` · ${clip.erase.length}` : ""}
+        </button>
+      )}
+      {erasing && (
+        <EraseDialog
+          clip={clip}
+          at={clip.kind === "image" ? 0 : clip.in + local * clip.speed}
+          onSave={(erase) => patch({ erase })}
+          onClose={() => setErasing(false)}
+        />
+      )}
       <Section title="Основное">
         <div className="mt-row">
           <NumberField label="С (сек исходника)" value={clip.in} min={0} max={clip.out - 0.05} onChange={(v) => patch({ in: v })} />
@@ -200,6 +278,7 @@ export function ClipInspector({ ctx, clip }: { ctx: EditorCtx; clip: MontageClip
         <Slider label="Центр по вертикали" value={clip.focusY} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ focusY: v })} />
       </Section>
       <TransformSection item={clip} local={local} dur={dur} isLayer={false} eases={options.eases} patch={(n) => patch({ transform: n.transform, keyframes: n.keyframes })} seek={() => {}} />
+      <GradeSection adjust={clip.adjust} source={clip.kind === "video" || clip.kind === "image" ? { src: clip.src, from: clip.in, to: clip.out } : undefined} onChange={(a) => patch({ adjust: a })} notify={ctx.notify} />
       <LookSection adjust={clip.adjust} options={options} onChange={(a) => patch({ adjust: a })} />
       <EffectsSection effects={clip.effects} options={options} onChange={(e) => patch({ effects: e })} />
       {clip.kind === "video" && (
@@ -269,6 +348,7 @@ export function LayerInspector({ ctx, layer, seek }: { ctx: EditorCtx; layer: Mo
         )}
       </Section>
       <TransformSection item={layer} local={local} dur={dur} isLayer eases={options.eases} patch={(n) => patch({ transform: n.transform, keyframes: n.keyframes })} seek={(t) => seek(layer.start + t)} />
+      <GradeSection adjust={layer.adjust} source={layer.kind === "video" || layer.kind === "image" ? { src: layer.src, from: layer.in, to: layer.out } : undefined} onChange={(a) => patch({ adjust: a })} notify={ctx.notify} />
       <LookSection adjust={layer.adjust} options={options} onChange={(a) => patch({ adjust: a })} />
       <EffectsSection effects={layer.effects} options={options} onChange={(e) => patch({ effects: e })} />
     </div>
@@ -330,7 +410,45 @@ export function TextInspector({ ctx, text }: { ctx: EditorCtx; text: MontageText
       <label className="mt-check">
         <input type="checkbox" checked={text.upper} onChange={(e) => patch({ upper: e.target.checked })} /> ЗАГЛАВНЫМИ
       </label>
+      <TextFonts ctx={ctx} text={text} patch={patch} />
     </div>
+  );
+}
+
+/** Шрифты надписи: основной, пара для *акцента*, разрядка и свечение. */
+function TextFonts({ ctx, text, patch }: { ctx: EditorCtx; text: MontageText; patch: (p: Partial<MontageText>) => void }) {
+  const fonts = useFontData();
+  const designFonts = ctx.design?.fontFiles || [];
+  return (
+    <Section title="Шрифт и пара">
+      <Field label="Пара целиком">
+        <select
+          value=""
+          onChange={(e) => {
+            const p = fonts.pairs.find((x) => x.id === e.target.value);
+            if (p) patch({ fontPath: p.head.path, accentFontPath: p.accent.path, accentScale: p.accent.category === "script" ? 1.3 : 1, spacing: p.spacing || 0, glow: !!p.glow, upper: p.upper });
+          }}
+        >
+          <option value="">выбрать шрифтовую пару…</option>
+          {fonts.pairs.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      </Field>
+      <FontPicker label="Шрифт" value={text.fontPath || ""} designFonts={designFonts} onChange={(path) => patch({ fontPath: path })} />
+      <FontPicker label="Шрифт *акцента*" value={text.accentFontPath || ""} designFonts={designFonts} sample="акцент" onChange={(path) => patch({ accentFontPath: path })} />
+      <p className="mt-hint">Слова в *звёздочках* набираются шрифтом акцента и акцентным цветом. В паре заглавными пишется только основной шрифт.</p>
+      <Slider label="Размер акцента" value={text.accentScale ?? 1} min={0.6} max={2} step={0.05} fmt={(v) => `×${v.toFixed(2)}`} onChange={(v) => patch({ accentScale: v })} />
+      <Slider label="Разрядка" value={text.spacing ?? 0} min={-0.05} max={0.5} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ spacing: v })} />
+      <div className="mt-row">
+        <Field label="Цвет акцента">
+          <input type="color" value={text.accentColor || ctx.project.captions.highlight || "#ffd400"} onChange={(e) => patch({ accentColor: e.target.value })} />
+        </Field>
+        <label className="mt-check">
+          <input type="checkbox" checked={!!text.glow} onChange={(e) => patch({ glow: e.target.checked })} /> Свечение
+        </label>
+      </div>
+    </Section>
   );
 }
 

@@ -18,6 +18,7 @@ const motionAgent = require("./motionAgent.cjs");
 const motionTemplates = require("./motionTemplates.cjs");
 const motionLib = require("./motion.cjs");
 const motionRender = require("./motionRender.cjs");
+const fontLibrary = require("./fontLibrary.cjs");
 
 const SCHEME = "montage-media";
 
@@ -95,9 +96,6 @@ function handleProtocol(protocol) {
           start = Math.max(0, size - Number(m[2]));
           end = size - 1;
         }
-        // Открытый запрос «с байта N до конца» отдаём кусками: иначе каждая
-        // перемотка длинного видео тянет поток на гигабайты, и плеер ждёт.
-        if (m && m[1] && !m[2]) end = Math.min(end, start + 8 * 1024 * 1024 - 1);
         end = Math.min(end, size - 1);
         if (start > end || start >= size) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, "Access-Control-Allow-Origin": "*" } });
         const stream = fsSync.createReadStream(filePath, { start, end });
@@ -336,6 +334,10 @@ function register(ctx) {
     try {
       if (kind === "image") {
         await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-i", file, "-vf", `scale=-2:${height}`, "-frames:v", "1", dest]);
+      } else if (count === 1) {
+        // Один кадр — быстрым переходом, без декодирования всего файла.
+        const at = to > from ? (from + to) / 2 : Math.min(1, ((await montage.probeMedia(ffmpegPath(), file)).duration || 2) / 2);
+        await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", "-ss", String(at), "-i", file, "-vf", `scale=-2:${height}`, "-frames:v", "1", "-q:v", "5", dest]);
       } else {
         const span = Math.max(0.5, to > from ? to - from : (await montage.probeMedia(ffmpegPath(), file)).duration || 10);
         const step = span / count;
@@ -521,6 +523,72 @@ function register(ctx) {
     return job;
   }
   ipcMain.handle("montage:wave", (_e, file) => fullWave(file).catch(() => null));
+
+
+  /**
+   * Авто-улучшение кадра: замер яркости, разброса и насыщенности (signalstats)
+   * в нескольких точках куска → экспозиция, света/тени, сочность, чёткость.
+   * Как кнопка «Авто» в Lightroom: разумная отправная точка, дальше — руками.
+   */
+  ipcMain.handle("montage:autoEnhance", async (_e, file, { from = 0, to = 0 } = {}) => {
+    const { spawn } = require("node:child_process");
+    const kind = montage.mediaKind(file);
+    const span = to > from ? to - from : 0;
+    const times = kind === "image" ? [0] : span ? [from + span * 0.2, from + span * 0.5, from + span * 0.8] : [from];
+    const stats = [];
+    for (const t of times) {
+      const out = await new Promise((resolve) => {
+        const args = ["-hide_banner", "-loglevel", "error", ...(kind === "image" ? [] : ["-ss", String(Math.max(0, t))]), "-i", file, "-frames:v", "1", "-vf", "scale=480:-2,signalstats,metadata=print:file=-", "-f", "null", "-"];
+        const p = spawn(ffmpegPath(), args, { windowsHide: true });
+        let txt = "";
+        p.stdout.on("data", (d) => (txt += d));
+        p.on("error", () => resolve(""));
+        p.on("close", () => resolve(txt));
+      });
+      const get = (k) => {
+        const m = out.match(new RegExp(`lavfi\\.signalstats\\.${k}=([\\d.]+)`));
+        return m ? Number(m[1]) : NaN;
+      };
+      const y = get("YAVG");
+      if (Number.isFinite(y)) stats.push({ y, low: get("YLOW"), high: get("YHIGH"), sat: get("SATAVG") });
+    }
+    if (!stats.length) throw new Error("Не удалось измерить кадр.");
+    const avg = (k) => stats.reduce((a, s) => a + (Number.isFinite(s[k]) ? s[k] : 0), 0) / stats.length;
+    const y = avg("y");
+    const low = avg("low");
+    const high = avg("high");
+    const sat = avg("sat");
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+    return {
+      exposure: r2(clampN(Math.log2(118 / Math.max(8, y)) * 0.7, -1, 1)),
+      contrast: r2(high - low < 150 ? 1.1 : high - low < 190 ? 1.05 : 1),
+      highlights: r2(high > 240 ? -0.35 : high > 225 ? -0.15 : 0),
+      shadows: r2(low < 12 ? 0.3 : low < 25 ? 0.15 : 0),
+      vibrance: r2(sat < 30 ? 0.4 : sat < 50 ? 0.25 : 0.1),
+      clarity: 0.25,
+      sharpness: 0.3,
+      denoise: r2(y < 70 ? 0.3 : 0),
+      measured: { y: Math.round(y), low: Math.round(low), high: Math.round(high), sat: Math.round(sat) },
+    };
+  });
+
+
+  /** Кадр исходника до и после удаления водяного знака — тот же граф, что в сборке. */
+  ipcMain.handle("montage:eraseFrame", async (_e, file, at = 0, erase = []) => {
+    const info = await montage.probeMedia(ffmpegPath(), file);
+    if (!info.width || !info.height) throw new Error("Не удалось прочитать размер кадра.");
+    const list = montage.normalizeErase(erase);
+    const dest = path.join(app.getPath("temp"), `montage-erase-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+    const isImage = montage.mediaKind(file) === "image";
+    try {
+      const graph = list.length ? `${montage.eraseGraph(list, info.width, info.height, "[0:v]", "[c]")};[c]scale='min(1280,iw)':-2[o]` : "[0:v]scale='min(1280,iw)':-2[o]";
+      await montage.runFfmpeg(ffmpegPath(), ["-y", "-hide_banner", "-loglevel", "error", ...(isImage ? [] : ["-ss", String(Math.max(0, at))]), "-i", file, "-filter_complex", graph, "-map", "[o]", "-frames:v", "1", "-q:v", "3", dest]);
+      return { uri: `data:image/jpeg;base64,${(await fs.readFile(dest)).toString("base64")}`, width: info.width, height: info.height };
+    } finally {
+      await fs.rm(dest, { force: true }).catch(() => {});
+    }
+  });
 
   ipcMain.handle("montage:transcript", (_e, file) => readTranscript(file));
   ipcMain.handle("montage:transcripts", (_e, paths) => transcriptsFor(paths || []));
@@ -803,6 +871,7 @@ function register(ctx) {
           height: request.height || 1920,
           duration: request.duration || 20,
           transparent: !!request.transparent,
+          pair: String(request.pair || ""),
           review: request.review !== undefined ? !!request.review : config.motionReview !== false,
           model: request.model || config.motionModel || "",
           signal: motionAbort.signal,
@@ -831,7 +900,7 @@ function register(ctx) {
     try {
       return await motionAgent.edit(
         motionCtx(settings),
-        { design, html: m.html, assets: m.assets || {}, instruction: String(request.instruction || ""), width: request.width || 1080, height: request.height || 1920, duration: m.duration, transparent: !!m.transparent, model: request.model || config.motionModel || "", signal: motionAbort.signal },
+        { design, html: m.html, assets: m.assets || {}, instruction: String(request.instruction || ""), width: request.width || 1080, height: request.height || 1920, duration: m.duration, transparent: !!m.transparent, pair: m.pair || "", model: request.model || config.motionModel || "", signal: motionAbort.signal },
         send
       );
     } finally {
@@ -850,17 +919,21 @@ function register(ctx) {
   /** Заготовки титров. */
   ipcMain.handle("montage:templates", () => motionTemplates.list());
 
+  /** Шрифты: встроенная библиотека с кириллицей и шрифтовые пары. */
+  ipcMain.handle("montage:fonts", () => ({ library: fontLibrary.library(), pairs: fontLibrary.pairs(), categories: fontLibrary.CATEGORY_NAMES }));
+  ipcMain.handle("montage:systemFonts", () => fontLibrary.system());
+
   /** Картинка заготовки для сетки: кадр с середины на сером фоне, кэш на диске. */
-  ipcMain.handle("montage:templateThumb", async (_e, id, designDir = "") => {
+  ipcMain.handle("montage:templateThumb", async (_e, id, designDir = "", pair = "") => {
     const dir = path.join(await motionCacheDir(), "thumbs");
     await fs.mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${id}-${motionLib.hash(designDir, "v1")}.jpg`);
+    const file = path.join(dir, `${id}-${motionLib.hash(designDir, pair, "v2")}.jpg`);
     if (fsSync.existsSync(file)) return file;
-    const r = await motionAgent.resolve({ template: id, fields: {}, designDir, assets: {} }, readDesignFolder);
+    const r = await motionAgent.resolve({ template: id, fields: pair ? { __pair: pair } : {}, designDir, assets: {} }, readDesignFolder);
     const doc = motionLib.buildDoc({ html: r.html, width: 1080, height: 1920, theme: r.theme, assets: r.assets, background: "#3a3f4b" });
     const page = await motionRender.openDoc(BrowserWindow, doc, { width: 1080, height: 1920, tmpDir: app.getPath("temp") });
     try {
-      const img = await page.grab(Math.min(r.duration * 0.55, 2.4));
+      const img = await page.grab(Math.min(r.duration * 0.55, 2.4), { settle: true });
       await fs.writeFile(file, img.resize({ width: 216 }).toJPEG(82));
     } finally {
       await page.close();

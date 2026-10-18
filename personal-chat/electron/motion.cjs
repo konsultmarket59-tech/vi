@@ -83,17 +83,21 @@ function buildDoc({ html, width, height, theme = null, assets = {}, transparent 
   const addFont = (f, family) => {
     if (!f || !f.path) return;
     try {
-      fontFaces.push(`@font-face{font-family:"${family}";src:url("${dataUri(f.path)}");font-display:block}`);
+      // Один файл — на все жирности: иначе браузер «дорисует» жирность сам, и
+      // рукописный шрифт пары выйдет размазанным.
+      fontFaces.push(`@font-face{font-family:"${family}";src:url("${dataUri(f.path)}");font-weight:100 900;font-display:block}`);
     } catch {
       // нечитаемый файл — останется запасной шрифт
     }
   };
   addFont(t.heading, "DS Heading");
   if (t.body && t.body !== t.heading) addFont(t.body, "DS Body");
+  if (t.accent && t.accent !== t.heading) addFont(t.accent, "DS Accent");
   const bodyFamily = t.body && t.body !== t.heading ? '"DS Body"' : t.heading ? '"DS Heading"' : "";
   const vars = [
     `--font-heading:${t.heading ? '"DS Heading",' : ""}"Inter","Segoe UI",Arial,sans-serif`,
     `--font-body:${bodyFamily ? bodyFamily + "," : ""}"Inter","Segoe UI",Arial,sans-serif`,
+    ...(t.accent ? [`--font-accent:${t.accent !== t.heading ? '"DS Accent"' : '"DS Heading"'},var(--font-heading)`] : []),
     ...t.colours.map((c, i) => `--c${i + 1}:${c}`),
     ...t.vars.filter((v) => !/url\(|expression/i.test(v.value)).map((v) => `--${cssName(v.name)}:${v.value}`),
   ];
@@ -132,6 +136,9 @@ html,body{margin:0;padding:0;width:${width}px;height:${height}px;overflow:hidden
   // случайный gsap.to вне tl перематывается вместе со всеми, а не по часам.
   gsap.ticker.lagSmoothing(0);
   gsap.globalTimeline.pause();
+  // Иначе дошедшая до конца шкала удаляется из общей, и перемотка назад
+  // (предпросмотр, лист кадров) её больше не двигает — кадр застывает.
+  gsap.globalTimeline.autoRemoveChildren = false;
   window.__T0 = gsap.globalTimeline.time();
   window.tl = gsap.timeline();
   window.STAGE = { width: ${width}, height: ${height}, el: document.getElementById("stage") };
@@ -262,6 +269,7 @@ function designBlock(theme, assets) {
   if (theme.colours.length) lines.push(`Палитра (переменные): ${theme.colours.map((c, i) => `--c${i + 1}: ${c}`).join(", ")}`);
   if (theme.vars.length) lines.push(`Переменные дизайн-системы: ${theme.vars.slice(0, 50).map((v) => `--${cssName(v.name)}: ${v.value}`).join("; ")}`);
   lines.push(`Шрифты: заголовки — ${theme.heading ? theme.heading.family : "системный гротеск"}, текст — ${theme.body ? theme.body.family : "системный гротеск"}.`);
+  if (theme.accent) lines.push(`Акцентный шрифт пары — ${theme.accent.family} (var(--font-accent)): им набирай одно-два ключевых слова в заголовке (рукописный/курсивный контраст к основному), строчными, крупнее основного на 10–30%. Основной шрифт — плотный, часто заглавными.`);
   if (theme.description) lines.push(`Описание системы:\n${theme.description.slice(0, 4000)}`);
   const list = Object.entries(assets);
   lines.push(list.length ? `Картинки (asset://имя):\n${list.map(([name, a]) => `- ${name}: ${a.label}${a.size ? `, ${a.size}` : ""}`).join("\n")}` : "Картинок нет — обходись вёрсткой, иконками и типографикой.");

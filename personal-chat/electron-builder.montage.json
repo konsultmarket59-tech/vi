@@ -4,6 +4,7 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "fonts/**/*",
     "package.json",
     "bundled-skills/**/*",
     "plugins.json",
@@ -55,7 +56,8 @@
   },
   "asarUnpack": [
     "node_modules/ffmpeg-static/**",
-    "node_modules/onnxruntime-node/**"
+    "node_modules/onnxruntime-node/**",
+    "fonts/**"
   ],
   "extraMetadata": {
     "main": "electron/montage-main.cjs",

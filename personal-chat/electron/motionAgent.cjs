@@ -11,6 +11,7 @@ const motion = require("./motion.cjs");
 const mr = require("./motionRender.cjs");
 const templates = require("./motionTemplates.cjs");
 const { EXAMPLE } = require("./motionExample.cjs");
+const fonts = require("./fontLibrary.cjs");
 
 /**
  * Запрос к модели с потоком: ролик — это 15–30 тысяч знаков кода, без потока
@@ -163,7 +164,7 @@ async function settle(ctx, messages, reply, o, progress) {
  * @param {object} o {design, text, brief, photos, width, height, duration, transparent, review, model, signal}
  */
 async function generate(ctx, o, onProgress = () => {}) {
-  const theme = motion.themeFromDesign(o.design);
+  const theme = themeFor(o.design, o.pair || "");
   const { files, info, images } = collectAssets(ctx.nativeImage, theme, o.photos || []);
   const opts = { width: o.width, height: o.height, theme, assets: files, transparent: !!o.transparent, signal: o.signal, model: o.model };
   const prompt = [
@@ -213,12 +214,13 @@ async function generate(ctx, o, onProgress = () => {}) {
     storyboard,
     problems: result.problems,
     assets: files,
+    pair: theme.pair || "",
   };
 }
 
 /** Правка готового ролика словами: «сделай финал длиннее», «логотип крупнее». */
 async function edit(ctx, o, onProgress = () => {}) {
-  const theme = motion.themeFromDesign(o.design);
+  const theme = themeFor(o.design, o.pair || "");
   const files = o.assets || {};
   const info = Object.fromEntries(Object.keys(files).map((k) => [k, { label: k.startsWith("logo") ? "логотип" : "фото" }]));
   const opts = { width: o.width, height: o.height, theme, assets: files, transparent: !!o.transparent, signal: o.signal, model: o.model };
@@ -239,15 +241,33 @@ async function edit(ctx, o, onProgress = () => {}) {
  * Код и тема моушн-элемента проекта. Заготовка строится заново — так правка
  * полей и смена дизайн-системы сразу видны.
  */
+/**
+ * Шрифтовая пара поверх темы: основной, акцентный и наборный шрифт.
+ * Без пары и без шрифтов в дизайн-системе — нейтральная пара, а не системный
+ * Arial: так и заготовки, и ИИ-моушн сразу выглядят свёрстанными.
+ */
+function applyPair(theme, pairId) {
+  const p = pairId ? fonts.pair(pairId) : null;
+  if (!p) return theme;
+  return { ...theme, heading: { family: p.head.family, path: p.head.path }, body: { family: p.body.family, path: p.body.path }, accent: { family: p.accent.family, path: p.accent.path }, accentScript: p.accent.category === "script" || /italic/i.test(p.accent.family), pair: p.id };
+}
+
+function themeFor(design, pairId) {
+  const theme = motion.themeFromDesign(design);
+  if (pairId === "ds" && theme.heading) return theme;
+  return applyPair(theme, pairId && pairId !== "ds" ? pairId : theme.heading ? "" : "minimal");
+}
+
 async function resolve(m, readDesignFolder) {
   const design = m.designDir ? await readDesignFolder(m.designDir).catch(() => null) : null;
-  const theme = motion.themeFromDesign(design);
+  const pairId = (m.fields && m.fields.__pair) || (m.template ? templates.defaultPair(m.template) : "") || m.pair || "";
+  const theme = themeFor(design, pairId);
   const assets = { ...(m.assets || {}) };
   if (theme.logos[0] && !assets.logo) assets.logo = theme.logos[0].path;
   let html = m.html || "";
   let duration = m.duration;
   if (m.template) {
-    const b = templates.build(m.template, m.fields || {}, templates.templateTheme(theme.colours), assets);
+    const b = templates.build(m.template, m.fields || {}, { ...templates.templateTheme(theme.colours), accentScript: !!theme.accentScript }, assets);
     html = b.html;
     duration = b.duration;
   }
@@ -306,4 +326,4 @@ async function prerender(ctx, project, { cacheDir, readDesignFolder, onProgress,
   return project;
 }
 
-module.exports = { streamModel, generate, edit, resolve, docFor, prerender, imageForModel, collectAssets, check };
+module.exports = { streamModel, generate, edit, resolve, docFor, prerender, imageForModel, collectAssets, check, themeFor };

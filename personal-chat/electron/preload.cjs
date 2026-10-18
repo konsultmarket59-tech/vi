@@ -198,10 +198,14 @@ contextBridge.exposeInMainWorld("api", {
   montageMotionDoc: (motion, size) => ipcRenderer.invoke("montage:motionDoc", motion, size),
   montageMotionExport: (motion, size) => ipcRenderer.invoke("montage:motionExport", motion, size),
   montageTemplates: () => ipcRenderer.invoke("montage:templates"),
-  montageTemplateThumb: (id, designDir) => ipcRenderer.invoke("montage:templateThumb", id, designDir),
+  montageTemplateThumb: (id, designDir, pair) => ipcRenderer.invoke("montage:templateThumb", id, designDir, pair),
+  montageFonts: () => ipcRenderer.invoke("montage:fonts"),
+  montageSystemFonts: () => ipcRenderer.invoke("montage:systemFonts"),
   montageProxy: (file) => ipcRenderer.invoke("montage:proxy", file),
   montageFilmstrip: (file) => ipcRenderer.invoke("montage:filmstrip", file),
   montageWave: (file) => ipcRenderer.invoke("montage:wave", file),
+  montageAutoEnhance: (file, range) => ipcRenderer.invoke("montage:autoEnhance", file, range),
+  montageEraseFrame: (file, at, erase) => ipcRenderer.invoke("montage:eraseFrame", file, at, erase),
   onMontageMotion: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on("montage-motion", handler);

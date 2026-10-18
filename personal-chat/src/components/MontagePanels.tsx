@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MontageCaptions, MontageCleanupStats, MontageStockItem } from "../lib/types";
+import type { MontageCaptions, MontageCleanupStats, MontageStockItem, MontageText } from "../lib/types";
 import { captionCss, fileName, fmtTime, layout, mediaUrl, outputToSource, uid } from "../lib/montage";
 import { Field, Slider, type BinItem, type EditorCtx } from "./MontageControls";
+import { FontFaces, FontPicker, PairCard, useFontData } from "./MontageFonts";
 
 // ---------- медиа ----------
 
@@ -256,14 +257,40 @@ export function AudioPanel({ ctx }: { ctx: EditorCtx }) {
 // ---------- текст ----------
 
 export function TextPanel({ ctx }: { ctx: EditorCtx }) {
-  const add = (style: string, text: string) => {
-    const t = { id: uid("text"), text, start: Math.round(ctx.time * 1000) / 1000, end: Math.round((ctx.time + 2.5) * 1000) / 1000, style, animation: style === "lower" ? "slide" : "pop", position: "" as const, size: 0, color: "", bg: "", upper: true, x: null, y: null };
+  const fonts = useFontData();
+  const add = (style: string, text: string, extra: Partial<MontageText> = {}) => {
+    const t: MontageText = { id: uid("text"), text, start: Math.round(ctx.time * 1000) / 1000, end: Math.round((ctx.time + 2.5) * 1000) / 1000, style, animation: style === "lower" ? "slide" : "pop", position: "", size: 0, color: "", bg: "", upper: true, x: null, y: null, ...extra };
     ctx.commit((p) => ({ ...p, texts: [...p.texts, t] }));
     ctx.setSelection({ kind: "text", id: t.id });
   };
   return (
     <>
       <p className="mt-hint">Надпись встаёт под бегунок. Её можно перетащить мышью прямо в кадре.</p>
+      <h4>Шрифтовые пары</h4>
+      <p className="mt-hint">Крупный шрифт и рукописный акцент. *Слово в звёздочках* — вторым шрифтом.</p>
+      <FontFaces paths={fonts.pairs.flatMap((p) => [p.head.path, p.accent.path])} scheme={ctx.scheme} />
+      <div className="mt-pair-grid">
+        {fonts.pairs.map((p) => (
+          <PairCard
+            key={p.id}
+            pair={p}
+            accent={ctx.project.captions.highlight}
+            onPick={() =>
+              add("title", p.sample, {
+                fontPath: p.head.path,
+                accentFontPath: p.accent.path,
+                accentScale: p.accent.category === "script" ? 1.3 : 1,
+                spacing: p.spacing || 0,
+                glow: !!p.glow,
+                upper: p.upper,
+                size: 96,
+                animation: "fade",
+              })
+            }
+          />
+        ))}
+      </div>
+      <h4>Простые надписи</h4>
       {ctx.options.textStyles.map((s) => (
         <button key={s.id} className={`mt-text-preset s-${s.id}`} onClick={() => add(s.id, s.id === "hook" ? "Хук ролика" : s.id === "lower" ? "Имя · должность" : s.name)}>
           {s.name}
@@ -304,14 +331,13 @@ export function CaptionsPanel({ ctx }: { ctx: EditorCtx }) {
           );
         })}
       </div>
-      <Field label="Шрифт">
-        <div className="mt-row">
-          <button className="btn btn-secondary" onClick={async () => { const f = await window.api.montagePickFile("font"); if (f) set({ fontPath: f, font: fileName(f).replace(/\.[^.]+$/, "") }); }}>
-            {cap.fontPath ? fileName(cap.fontPath) : "Файл шрифта…"}
-          </button>
-          {cap.fontPath && <button className="link-btn" onClick={() => set({ fontPath: "", font: "" })}>по стилю</button>}
-        </div>
-      </Field>
+      <FontPicker
+        label="Шрифт субтитров"
+        value={cap.fontPath || ""}
+        designFonts={ctx.design?.fontFiles || []}
+        sample="Субтитры"
+        onChange={(path, family) => set({ fontPath: path, font: family })}
+      />
       <Slider label="Размер" value={cap.size} min={36} max={160} step={2} onChange={(v) => set({ size: v })} />
       <div className="mt-row">
         <Field label="Цвет"><input type="color" value={cap.color} onChange={(e) => set({ color: e.target.value })} /></Field>

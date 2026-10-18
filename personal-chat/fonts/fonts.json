@@ -1,0 +1,275 @@
+[
+ {
+  "id": "oswald-bold",
+  "family": "Oswald Bold",
+  "category": "display",
+  "file": "oswald-bold.ttf",
+  "source": "oswald"
+ },
+ {
+  "id": "oswald-light",
+  "family": "Oswald Light",
+  "category": "display",
+  "file": "oswald-light.ttf",
+  "source": "oswald"
+ },
+ {
+  "id": "unbounded-black",
+  "family": "Unbounded Black",
+  "category": "display",
+  "file": "unbounded-black.ttf",
+  "source": "unbounded"
+ },
+ {
+  "id": "unbounded-medium",
+  "family": "Unbounded Medium",
+  "category": "display",
+  "file": "unbounded-medium.ttf",
+  "source": "unbounded"
+ },
+ {
+  "id": "montserrat-black",
+  "family": "Montserrat Black",
+  "category": "sans",
+  "file": "montserrat-black.ttf",
+  "source": "montserrat"
+ },
+ {
+  "id": "montserrat-semibold",
+  "family": "Montserrat SemiBold",
+  "category": "sans",
+  "file": "montserrat-semibold.ttf",
+  "source": "montserrat"
+ },
+ {
+  "id": "montserrat-light",
+  "family": "Montserrat Light",
+  "category": "sans",
+  "file": "montserrat-light.ttf",
+  "source": "montserrat"
+ },
+ {
+  "id": "manrope-medium",
+  "family": "Manrope Medium",
+  "category": "sans",
+  "file": "manrope-medium.ttf",
+  "source": "manrope"
+ },
+ {
+  "id": "manrope-extrabold",
+  "family": "Manrope ExtraBold",
+  "category": "sans",
+  "file": "manrope-extrabold.ttf",
+  "source": "manrope"
+ },
+ {
+  "id": "inter-regular",
+  "family": "Inter Regular",
+  "category": "sans",
+  "file": "inter-regular.ttf",
+  "source": "inter"
+ },
+ {
+  "id": "inter-bold",
+  "family": "Inter Bold",
+  "category": "sans",
+  "file": "inter-bold.ttf",
+  "source": "inter"
+ },
+ {
+  "id": "rubik-black",
+  "family": "Rubik Black",
+  "category": "display",
+  "file": "rubik-black.ttf",
+  "source": "rubik"
+ },
+ {
+  "id": "fira-xc-black",
+  "family": "Fira Extra Condensed Black",
+  "category": "display",
+  "file": "fira-xc-black.ttf",
+  "source": "firasansextracondensed"
+ },
+ {
+  "id": "alumni-bold",
+  "family": "Alumni Sans Bold",
+  "category": "display",
+  "file": "alumni-bold.ttf",
+  "source": "alumnisans"
+ },
+ {
+  "id": "yanone-bold",
+  "family": "Yanone Kaffeesatz Bold",
+  "category": "display",
+  "file": "yanone-bold.ttf",
+  "source": "yanonekaffeesatz"
+ },
+ {
+  "id": "russo-one",
+  "family": "Russo One",
+  "category": "display",
+  "file": "russo-one.ttf",
+  "source": "russoone"
+ },
+ {
+  "id": "rubik-mono-one",
+  "family": "Rubik Mono One",
+  "category": "display",
+  "file": "rubik-mono-one.ttf",
+  "source": "rubikmonoone"
+ },
+ {
+  "id": "seymour-one",
+  "family": "Seymour One",
+  "category": "display",
+  "file": "seymour-one.ttf",
+  "source": "seymourone"
+ },
+ {
+  "id": "playfair-black",
+  "family": "Playfair Display Black",
+  "category": "serif",
+  "file": "playfair-black.ttf",
+  "source": "playfairdisplay"
+ },
+ {
+  "id": "playfair-italic",
+  "family": "Playfair Display Italic",
+  "category": "serif",
+  "file": "playfair-italic.ttf",
+  "source": "playfairdisplay"
+ },
+ {
+  "id": "cormorant-bold",
+  "family": "Cormorant Bold",
+  "category": "serif",
+  "file": "cormorant-bold.ttf",
+  "source": "cormorant"
+ },
+ {
+  "id": "cormorant-italic",
+  "family": "Cormorant Italic",
+  "category": "serif",
+  "file": "cormorant-italic.ttf",
+  "source": "cormorant"
+ },
+ {
+  "id": "prata",
+  "family": "Prata",
+  "category": "serif",
+  "file": "prata.ttf",
+  "source": "prata"
+ },
+ {
+  "id": "yeseva-one",
+  "family": "Yeseva One",
+  "category": "serif",
+  "file": "yeseva-one.ttf",
+  "source": "yesevaone"
+ },
+ {
+  "id": "forum",
+  "family": "Forum",
+  "category": "serif",
+  "file": "forum.ttf",
+  "source": "forum"
+ },
+ {
+  "id": "ruslan-display",
+  "family": "Ruslan Display",
+  "category": "serif",
+  "file": "ruslan-display.ttf",
+  "source": "ruslandisplay"
+ },
+ {
+  "id": "philosopher-bold",
+  "family": "Philosopher Bold",
+  "category": "sans",
+  "file": "philosopher-bold.ttf",
+  "source": "philosopher"
+ },
+ {
+  "id": "tenor-sans",
+  "family": "Tenor Sans",
+  "category": "sans",
+  "file": "tenor-sans.ttf",
+  "source": "tenorsans"
+ },
+ {
+  "id": "caveat-bold",
+  "family": "Caveat Bold",
+  "category": "script",
+  "file": "caveat-bold.ttf",
+  "source": "caveat"
+ },
+ {
+  "id": "marck-script",
+  "family": "Marck Script",
+  "category": "script",
+  "file": "marck-script.ttf",
+  "source": "marckscript"
+ },
+ {
+  "id": "great-vibes",
+  "family": "Great Vibes",
+  "category": "script",
+  "file": "great-vibes.ttf",
+  "source": "greatvibes"
+ },
+ {
+  "id": "bad-script",
+  "family": "Bad Script",
+  "category": "script",
+  "file": "bad-script.ttf",
+  "source": "badscript"
+ },
+ {
+  "id": "lobster",
+  "family": "Lobster",
+  "category": "script",
+  "file": "lobster.ttf",
+  "source": "lobster"
+ },
+ {
+  "id": "pacifico",
+  "family": "Pacifico",
+  "category": "script",
+  "file": "pacifico.ttf",
+  "source": "pacifico"
+ },
+ {
+  "id": "amatic-bold",
+  "family": "Amatic SC Bold",
+  "category": "script",
+  "file": "amatic-bold.ttf",
+  "source": "amaticsc"
+ },
+ {
+  "id": "neucha",
+  "family": "Neucha",
+  "category": "script",
+  "file": "neucha.ttf",
+  "source": "neucha"
+ },
+ {
+  "id": "comfortaa-bold",
+  "family": "Comfortaa Bold",
+  "category": "sans",
+  "file": "comfortaa-bold.ttf",
+  "source": "comfortaa"
+ },
+ {
+  "id": "poiret-one",
+  "family": "Poiret One",
+  "category": "sans",
+  "file": "poiret-one.ttf",
+  "source": "poiretone"
+ },
+ {
+  "id": "bellota-bold",
+  "family": "Bellota Bold",
+  "category": "sans",
+  "file": "bellota-bold.ttf",
+  "source": "bellota"
+ }
+]

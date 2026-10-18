@@ -2,6 +2,79 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MontageClip, MontageConfig, MontageLayer, MontageMotion, MontageMotionProgress, MontageTemplate } from "../lib/types";
 import { fileName, fmtTime, layerDuration, mediaUrl, motionOf, newMotionClip, newMotionLayer, outputToSource, projectDuration, round3 } from "../lib/montage";
 import { Field, Section, type EditorCtx } from "./MontageControls";
+import { listModels, type ModelInfo } from "../lib/api";
+import { CURATED_CHAT_MODELS, mergeModelLists } from "../lib/curatedModels";
+import { useFontData } from "./MontageFonts";
+
+/** Шрифты ролика или титра: дизайн-системы, заготовки или любая шрифтовая пара. */
+export function PairSelect({ value, onChange, hasDesignFonts, defaultLabel }: { value: string; onChange: (id: string) => void; hasDesignFonts: boolean; defaultLabel: string }) {
+  const fonts = useFontData();
+  return (
+    <Field label="Шрифты">
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{defaultLabel}</option>
+        {hasDesignFonts && <option value="ds">шрифты дизайн-системы</option>}
+        <optgroup label="Шрифтовые пары">
+          {fonts.pairs.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </optgroup>
+      </select>
+    </Field>
+  );
+}
+
+/**
+ * Модель для моушна — выбором из списка Polza, по вкусу. Пусто — та же, что в
+ * настройках. Ключ берётся из настроек (а если в «Монтаже» его нет — из
+ * «Личного чата»).
+ */
+export function ModelPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const [models, setModels] = useState<ModelInfo[]>(CURATED_CHAT_MODELS);
+  const [base, setBase] = useState("");
+  const [hasKey, setHasKey] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const s = await window.api.getSettings();
+      if (!alive) return;
+      setBase(s.model || "");
+      setHasKey(!!s.apiKey);
+      if (!s.apiKey) return;
+      try {
+        const list = await listModels(s.baseUrl, s.apiKey);
+        if (alive) setModels(mergeModelLists(CURATED_CHAT_MODELS, list));
+      } catch {
+        // список не загрузился — остаются проверенные модели
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const known = models.some((m) => m.id === value);
+  return (
+    <Field label="Модель">
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">как в настройках{base ? ` — ${base}` : ""}</option>
+        <optgroup label="Проверенные">
+          {CURATED_CHAT_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </optgroup>
+        {models.length > CURATED_CHAT_MODELS.length && (
+          <optgroup label="Все модели Polza">
+            {models.slice(CURATED_CHAT_MODELS.length).map((m) => (
+              <option key={m.id} value={m.id}>{m.name || m.id}</option>
+            ))}
+          </optgroup>
+        )}
+        {value && !known && <option value={value}>{value}</option>}
+      </select>
+      {!hasKey && <small className="mt-error-inline">Нет ключа Polza — ⚙ справа сверху.</small>}
+    </Field>
+  );
+}
 
 const DURATIONS = [10, 15, 20, 30, 45, 60];
 
@@ -53,6 +126,7 @@ export function MotionPanel({ ctx, config, onConfig }: { ctx: EditorCtx; config:
   const [photos, setPhotos] = useState<string[]>([]);
   const [duration, setDuration] = useState(20);
   const [asTitle, setAsTitle] = useState(false);
+  const [pair, setPair] = useState("");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<MontageMotionProgress | null>(null);
   const [storyboard, setStoryboard] = useState<string[]>([]);
@@ -89,11 +163,12 @@ export function MotionPanel({ ctx, config, onConfig }: { ctx: EditorCtx; config:
         height: project.canvas.height,
         duration,
         transparent: asTitle,
+        pair,
         review: config.motionReview !== false,
         model: config.motionModel || undefined,
       });
       const title = (r.storyboard?.[0] || text.split(/\n/)[0] || "Моушн").replace(/^\s*(\d+[.)]|[-•—])\s*/, "").slice(0, 48);
-      const motion = motionOf({ html: r.html, duration: Math.max(1, r.duration), designDir, title, storyboard: r.storyboard || [], assets: r.assets, transparent: asTitle });
+      const motion = motionOf({ html: r.html, duration: Math.max(1, r.duration), designDir, title, storyboard: r.storyboard || [], assets: r.assets, transparent: asTitle, pair: r.pair || pair });
       if (asTitle) insertLayer(ctx, motion);
       else insertClip(ctx, newMotionClip(motion));
       setProblems(r.problems);
@@ -184,6 +259,8 @@ export function MotionPanel({ ctx, config, onConfig }: { ctx: EditorCtx; config:
           </select>
         </Field>
       </div>
+      <PairSelect value={pair} onChange={setPair} hasDesignFonts={!!ctx.design?.fontFiles.length} defaultLabel={ctx.design?.fontFiles.length ? "авто: шрифты дизайн-системы" : "авто: шрифты подберутся"} />
+      <ModelPicker value={config.motionModel || ""} onChange={(id) => onConfig({ motionModel: id })} />
       <p className="mt-dim">Кадр {project.canvas.width}×{project.canvas.height} — как у проекта.</p>
 
       {!running ? (
@@ -209,9 +286,6 @@ export function MotionPanel({ ctx, config, onConfig }: { ctx: EditorCtx; config:
           <input type="checkbox" checked={config.motionReview !== false} onChange={(e) => onConfig({ motionReview: e.target.checked })} />
           Самопроверка по кадрам — модель смотрит на свой ролик и правит (дольше, чище)
         </label>
-        <Field label="Модель для моушна (пусто — из настроек)">
-          <input value={config.motionModel || ""} onChange={(e) => onConfig({ motionModel: e.target.value })} placeholder="например, anthropic/claude-sonnet-4.5" />
-        </Field>
         <p className="mt-hint">Лучше всего моушн пишут сильные модели (Claude Sonnet/Opus, GPT-5): ролик — это 15–30 тысяч знаков кода.</p>
       </Section>
     </div>
@@ -221,25 +295,26 @@ export function MotionPanel({ ctx, config, onConfig }: { ctx: EditorCtx; config:
 // Картинки заготовок рендерятся по одной: каждая — невидимое окно браузера.
 let thumbQueue: Promise<unknown> = Promise.resolve();
 const thumbCache = new Map<string, Promise<string>>();
-function templateThumb(id: string, designDir: string) {
-  const key = `${id}|${designDir}`;
+function templateThumb(id: string, designDir: string, pair = "") {
+  const key = `${id}|${designDir}|${pair}`;
   if (!thumbCache.has(key)) {
-    const p = thumbQueue.then(() => window.api.montageTemplateThumb(id, designDir)).catch(() => "");
+    const p = thumbQueue.then(() => window.api.montageTemplateThumb(id, designDir, pair)).catch(() => "");
     thumbQueue = p;
     thumbCache.set(key, p);
   }
   return thumbCache.get(key)!;
 }
 
-function TemplateCard({ t, designDir, scheme, onAdd }: { t: MontageTemplate; designDir: string; scheme: string; onAdd: () => void }) {
+function TemplateCard({ t, designDir, pair, scheme, onAdd }: { t: MontageTemplate; designDir: string; pair: string; scheme: string; onAdd: () => void }) {
   const [thumb, setThumb] = useState("");
   useEffect(() => {
     let alive = true;
-    void templateThumb(t.id, designDir).then((f) => alive && setThumb(f));
+    setThumb("");
+    void templateThumb(t.id, designDir, pair).then((f) => alive && setThumb(f));
     return () => {
       alive = false;
     };
-  }, [t.id, designDir]);
+  }, [t.id, designDir, pair]);
   return (
     <button className="mt-tpl" onClick={onAdd} title={`${t.name} · ${t.duration} с — добавить под бегунок`}>
       <div className="mt-tpl-img" style={thumb ? { backgroundImage: `url("${mediaUrl(scheme, thumb)}")` } : undefined}>{!thumb && <i className="mt-spinner" />}</div>
@@ -254,6 +329,7 @@ function TemplateCard({ t, designDir, scheme, onAdd }: { t: MontageTemplate; des
  */
 export function TitlesPanel({ ctx, config }: { ctx: EditorCtx; config: MontageConfig }) {
   const [list, setList] = useState<MontageTemplate[]>([]);
+  const [pair, setPair] = useState("");
   const designDir = ctx.project.design?.dir || config.designDir || "";
   useEffect(() => {
     window.api.montageTemplates().then(setList).catch(ctx.fail);
@@ -264,6 +340,7 @@ export function TitlesPanel({ ctx, config }: { ctx: EditorCtx; config: MontageCo
     <div>
       <h3 className="mt-panel-title">Титры</h3>
       <p className="mt-hint">{designDir ? `В стиле «${fileName(designDir)}».` : "Подключите дизайн-систему во вкладке «Дизайн» — титры возьмут её цвета и шрифты."} Щелчок — титр под бегунком, текст — справа.</p>
+      <PairSelect value={pair} onChange={setPair} hasDesignFonts={!!ctx.design?.fontFiles.length} defaultLabel="у каждой заготовки свои" />
       {groups.map((g) => (
         <div key={g}>
           <h4>{g}</h4>
@@ -274,10 +351,12 @@ export function TitlesPanel({ ctx, config }: { ctx: EditorCtx; config: MontageCo
                 <TemplateCard
                   key={t.id}
                   t={t}
+                  pair={pair}
                   designDir={designDir}
                   scheme={ctx.scheme}
                   onAdd={() => {
-                    const fields = Object.fromEntries(t.fields.map((f) => [f.key, f.value]));
+                    const fields: Record<string, string> = Object.fromEntries(t.fields.map((f) => [f.key, f.value]));
+                    if (pair) fields.__pair = pair;
                     insertLayer(ctx, motionOf({ template: t.id, fields, duration: t.duration, designDir, title: t.name, transparent: true }));
                     ctx.notify(`Титр «${t.name}» добавлен. Текст — справа, в инспекторе.`);
                   }}
@@ -341,7 +420,8 @@ export function MotionInspector({ ctx, item, layer }: { ctx: EditorCtx; item: Mo
           {tpl.fields.map((f) => (
             <TemplateFieldInput key={f.key} label={f.label} value={m.fields[f.key] ?? f.value} multiline={f.multiline || (m.fields[f.key] ?? f.value).length > 40} onChange={(v) => update({ fields: { ...m.fields, [f.key]: v } })} />
           ))}
-          <p className="mt-hint">*слово* в звёздочках — акцентным цветом; «/» — перенос строки.</p>
+          <p className="mt-hint">*слово* в звёздочках — акцентом (цветом и вторым шрифтом пары); «/» — перенос строки.</p>
+          <PairSelect value={m.fields.__pair || ""} onChange={(id) => update({ fields: { ...m.fields, __pair: id } })} hasDesignFonts={!!ctx.design?.fontFiles.length} defaultLabel="как в заготовке" />
         </>
       )}
       {!m.template && (

@@ -47,7 +47,8 @@ function base(theme) {
   .ln{display:block;overflow:hidden;padding:0 .04em .06em}
   .li{display:inline-block}
   .w{display:inline-block}
-  .acc{color:var(--acc)}
+  .acc{color:var(--acc);font-family:var(--font-accent,inherit)}
+  ${theme.accentScript ? ".acc{text-transform:none;font-weight:400;font-size:1.12em;letter-spacing:0}" : ""}
   .shadow{filter:drop-shadow(0 10px 30px rgba(0,0,0,.35))}`;
 }
 
@@ -603,12 +604,183 @@ def({
   </script>`,
 });
 
+
+// ---------- шрифтовые пары ----------
+// Заголовки как в трендовых рилс: плотный крупный шрифт и рукописный или
+// курсивный акцент. У каждой заготовки своя пара по умолчанию; в инспекторе
+// её можно сменить на любую другую или на шрифты дизайн-системы.
+
+def({
+  id: "pair-stack",
+  name: "Стопка: мелко + КРУПНО + рукопись",
+  group: "Шрифтовые пары",
+  pair: "tall",
+  duration: 4,
+  fields: [
+    { key: "top", label: "Сверху мелко", value: "как улучшить" },
+    { key: "main", label: "Крупно (/ — строка)", value: "Качество / роликов" },
+    { key: "tail", label: "Рукописью", value: "ваших" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .st{position:absolute;left:8%;right:8%;top:16%}
+  .tp{font:500 50px/1 var(--font-body);color:#fff;letter-spacing:.01em;margin-left:.1em;text-shadow:0 4px 24px rgba(0,0,0,.35)}
+  .mn{font:400 230px/.86 var(--font-heading);color:var(--acc);text-transform:uppercase;letter-spacing:-.01em;margin-top:14px;text-shadow:0 10px 50px rgba(0,0,0,.3)}
+  .tl{font:400 130px/1 var(--font-accent,var(--font-body));color:#fff;text-align:right;margin-top:-18px;clip-path:inset(-20% 100% -20% 0);text-shadow:0 6px 30px rgba(0,0,0,.35)}
+  </style>
+  <div class="wrap"><div class="st"><div class="tp">${esc(f.top)}</div><div class="mn">${lines(f.main)}</div><div class="tl">${esc(f.tail)}</div></div></div>
+  <script>
+  // Крупные строки — на всю ширину колонки: шрифт подгоняется по самой длинной.
+  const mn = document.querySelector(".mn"), st = document.querySelector(".st");
+  const widest = Math.max(...[...mn.querySelectorAll(".li")].map((e) => e.scrollWidth));
+  mn.style.fontSize = Math.round(230 * Math.min(1.9, st.clientWidth / Math.max(1, widest))) + "px";
+  tl.from(".tp", { y: 30, autoAlpha: 0, duration: 0.45, ease: "power3.out" }, 0);
+  tl.from(".mn .li", { yPercent: 105, duration: 0.6, ease: "expo.out", stagger: 0.1 }, 0.15);
+  tl.to(".tl", { clipPath: "inset(-20% 0% -20% 0)", duration: 0.8, ease: "power2.inOut" }, 0.75);
+  tl.to(".st", { y: -120, autoAlpha: 0, duration: 0.4, ease: "power4.in" }, 3.6);
+  </script>`,
+});
+
+def({
+  id: "pair-overlap",
+  name: "КРУПНО + рукопись поверх",
+  group: "Шрифтовые пары",
+  pair: "reels",
+  duration: 4,
+  fields: [
+    { key: "main", label: "Крупное слово", value: "Шрифтовые" },
+    { key: "script", label: "Рукописью поверх", value: "пары" },
+    { key: "note", label: "Мелко", value: "для своих видео" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .ov{position:absolute;left:6%;right:6%;top:50%;transform:translateY(-50%);text-align:center}
+  .mn{font:400 200px/.9 var(--font-heading);color:#fff;text-transform:uppercase;letter-spacing:-.01em;white-space:nowrap;text-shadow:0 10px 50px rgba(0,0,0,.35)}
+  .mn .c{display:inline-block}
+  .sc{display:inline-block;font:400 210px/1 var(--font-accent,var(--font-heading));color:var(--acc);transform:rotate(-7deg);margin-top:-95px;margin-left:34%;clip-path:inset(-20% 100% -20% 0);text-shadow:0 8px 40px rgba(0,0,0,.35)}
+  .nt{font:600 34px/1 var(--font-body);color:#fff;letter-spacing:.18em;text-transform:uppercase;margin-top:10px;opacity:.9}
+  </style>
+  <div class="wrap"><div class="ov"><div class="mn">${Array.from(String(f.main || "")).map((c) => `<span class="c">${c === " " ? "&nbsp;" : esc(c)}</span>`).join("")}</div><div><span class="sc">${esc(f.script)}</span></div><div class="nt">${esc(f.note)}</div></div></div>
+  <script>
+  const mn = document.querySelector(".mn"), box = document.querySelector(".ov");
+  // Длинное слово не вылезает за кадр: шрифт ужимается под ширину.
+  mn.style.fontSize = Math.round(200 * Math.min(1.5, box.clientWidth / mn.scrollWidth)) + "px";
+  tl.from(".mn .c", { yPercent: 120, autoAlpha: 0, duration: 0.5, ease: "expo.out", stagger: 0.04 }, 0);
+  tl.to(".sc", { clipPath: "inset(-20% 0% -20% 0)", duration: 0.75, ease: "power2.inOut" }, 0.55);
+  tl.from(".nt", { y: 20, autoAlpha: 0, duration: 0.4, ease: "power3.out" }, 1.1);
+  tl.to(".ov", { scale: 1.08, autoAlpha: 0, duration: 0.4, ease: "power4.in" }, 3.6);
+  </script>`,
+});
+
+def({
+  id: "pair-script-hero",
+  name: "Большая рукопись",
+  group: "Шрифтовые пары",
+  pair: "magazine",
+  duration: 4.2,
+  fields: [
+    { key: "top", label: "Сверху", value: "Как сделать" },
+    { key: "script", label: "Рукописью (/ — строка)", value: "новый / формат / рилс" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .tp{position:absolute;left:8%;right:8%;top:9%;font:500 84px/1 var(--font-body);color:var(--paper);text-shadow:0 6px 30px rgba(0,0,0,.35)}
+  .hr{position:absolute;left:8%;right:8%;bottom:16%;text-align:center}
+  .hr .s{display:block;font:400 190px/.95 var(--font-accent,var(--font-heading));color:var(--acc);clip-path:inset(-30% 100% -30% 0);text-shadow:0 8px 40px rgba(0,0,0,.35)}
+  </style>
+  <div class="wrap"><div class="tp">${esc(f.top)}</div><div class="hr">${String(f.script || "").split(/\s*(?:\/|\n)\s*/).filter(Boolean).map((l) => `<span class="s">${esc(l)}</span>`).join("")}</div></div>
+  <script>
+  tl.from(".tp", { y: -40, autoAlpha: 0, duration: 0.5, ease: "power3.out" }, 0);
+  document.querySelectorAll(".hr .s").forEach((el, i) => tl.to(el, { clipPath: "inset(-30% 0% -30% 0)", duration: 0.7, ease: "power2.inOut" }, 0.3 + i * 0.45));
+  tl.to([".tp", ".hr"], { autoAlpha: 0, y: 40, duration: 0.4, ease: "power4.in", stagger: 0.05 }, 3.75);
+  </script>`,
+});
+
+def({
+  id: "pair-cinema",
+  name: "Кинотитр",
+  group: "Шрифтовые пары",
+  pair: "cinema",
+  duration: 4.5,
+  fields: [
+    { key: "title", label: "Название", value: "Тихий вечер" },
+    { key: "sub", label: "Подзаголовок", value: "история одного дома" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .cn{position:absolute;left:5%;right:5%;top:50%;transform:translateY(-50%);text-align:center}
+  .t{font:400 120px/1.05 var(--font-heading);color:#f4ecd8;text-transform:uppercase;letter-spacing:.2em;text-shadow:0 0 40px rgba(0,0,0,.5)}
+  .ln2{height:2px;width:56%;margin:26px auto;background:linear-gradient(90deg,transparent,#f4ecd8,transparent);transform:scaleX(0)}
+  .s{font:400 64px/1.1 var(--font-accent,var(--font-body));color:#f4ecd8;opacity:.92}
+  </style>
+  <div class="wrap"><div class="cn"><div class="t">${esc(f.title)}</div><div class="ln2"></div><div class="s">${esc(f.sub)}</div></div></div>
+  <script>
+  const t = document.querySelector(".t"), cn = document.querySelector(".cn");
+  const k = Math.min(1, cn.clientWidth / t.scrollWidth); if (k < 1) t.style.fontSize = (120 * k) + "px";
+  tl.fromTo(".t", { letterSpacing: "0.6em", autoAlpha: 0, filter: "blur(14px)" }, { letterSpacing: "0.2em", autoAlpha: 1, filter: "blur(0px)", duration: 1.6, ease: "power2.out" }, 0);
+  tl.to(".ln2", { scaleX: 1, duration: 0.9, ease: "power3.inOut" }, 0.9);
+  tl.from(".s", { autoAlpha: 0, y: 16, duration: 0.8, ease: "power2.out" }, 1.4);
+  tl.to(".cn", { autoAlpha: 0, filter: "blur(10px)", duration: 0.6, ease: "power2.in" }, 3.9);
+  </script>`,
+});
+
+def({
+  id: "pair-neon",
+  name: "Неоновая рукопись",
+  group: "Шрифтовые пары",
+  pair: "neon",
+  duration: 4,
+  fields: [
+    { key: "title", label: "Надпись", value: "Завораживающий звук" },
+    { key: "sub", label: "Мелко", value: "для твоих reels" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .ne{position:absolute;left:7%;right:7%;top:50%;transform:translateY(-50%);text-align:center}
+  .t{font:400 116px/1.05 var(--font-heading);color:#fff;text-shadow:0 0 8px #fff,0 0 22px var(--acc),0 0 48px var(--acc),0 0 90px var(--acc)}
+  .s{margin-top:22px;font:600 40px/1 var(--font-body);color:#fff;letter-spacing:.2em;text-transform:uppercase;text-shadow:0 0 14px var(--acc)}
+  </style>
+  <div class="wrap"><div class="ne"><div class="t">${esc(f.title)}</div><div class="s">${esc(f.sub)}</div></div></div>
+  <script>
+  // Неон «загорается» с миганием — по шкале, поэтому каждый кадр одинаков.
+  tl.set(".t", { autoAlpha: 0 }, 0);
+  [[0.1, 1], [0.16, 0.15], [0.24, 1], [0.3, 0.3], [0.42, 1]].forEach(([at, a]) => tl.set(".t", { autoAlpha: a }, at));
+  tl.from(".s", { autoAlpha: 0, y: 14, duration: 0.5, ease: "power2.out" }, 0.7);
+  tl.to(".ne", { autoAlpha: 0, duration: 0.35, ease: "power2.in" }, 3.65);
+  </script>`,
+});
+
+def({
+  id: "pair-inline",
+  name: "Строка с рукописным словом",
+  group: "Шрифтовые пары",
+  pair: "minimal",
+  duration: 4,
+  fields: [
+    { key: "l1", label: "Строка 1 (*слово* — рукописью)", value: "Завораживающий звук" },
+    { key: "l2", label: "Строка 2", value: "для твоих *reels*" },
+  ],
+  html: (f, th) => `<style>${base(th)}
+  .il{position:absolute;left:7%;right:7%;top:50%;transform:translateY(-50%);text-align:center;color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.4)}
+  .a{font:500 96px/1.12 var(--font-heading)}
+  .b{font:500 58px/1.2 var(--font-body);margin-top:10px}
+  .il .acc{font-size:1.5em;line-height:.8}
+  </style>
+  <div class="wrap"><div class="il"><div class="a">${words(f.l1)}</div><div class="b">${words(f.l2)}</div></div></div>
+  <script>
+  tl.from(".il .w:not(.acc)", { y: 30, autoAlpha: 0, duration: 0.45, ease: "power3.out", stagger: 0.06 }, 0);
+  tl.from(".il .acc", { autoAlpha: 0, scale: 0.6, rotation: -8, duration: 0.6, ease: "back.out(1.6)", stagger: 0.1 }, 0.5);
+  tl.to(".il", { autoAlpha: 0, y: -40, duration: 0.4, ease: "power4.in" }, 3.6);
+  </script>`,
+});
+
 /** Публичный список: без функций. */
 function list() {
-  return T.map(({ id, name, group, duration, fields, needsLogo }) => ({ id, name, group, duration, fields, needsLogo: !!needsLogo }));
+  return T.map(({ id, name, group, duration, fields, needsLogo, pair }) => ({ id, name, group, duration, fields, needsLogo: !!needsLogo, pair: pair || "" }));
 }
 
 /** Код заготовки с полями и темой. */
+/** Пара шрифтов заготовки по умолчанию. */
+function defaultPair(id) {
+  const t = T.find((x) => x.id === id);
+  return (t && t.pair) || "";
+}
+
 function build(id, values = {}, theme, assets = {}) {
   const t = T.find((x) => x.id === id);
   if (!t) throw new Error(`Нет такой заготовки: ${id}`);
@@ -617,4 +789,4 @@ function build(id, values = {}, theme, assets = {}) {
   return { html: t.html(fields, theme, assets), duration: t.duration, fields };
 }
 
-module.exports = { list, build, templateTheme, words, lines, esc };
+module.exports = { list, build, defaultPair, templateTheme, words, lines, esc };

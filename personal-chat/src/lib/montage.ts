@@ -262,7 +262,18 @@ export function layerDuration(l: MontageLayer) {
 
 /** CSS-фильтр куска: цвет, фильтр (с силой) и эффекты. */
 export function lookCss(adj: MontageClip["adjust"], effects: MontageClip["effects"], filters: MontageFilterDef[], fxDefs: MontageEffectDef[]) {
-  const parts = [`brightness(${1 + (adj?.brightness || 0)})`, `contrast(${adj?.contrast ?? 1})`, `saturate(${adj?.saturation ?? 1})`];
+  // Коррекция в окне — приближение того, что сделает ffmpeg: экспозиция и тени —
+  // яркостью, света и чёткость — контрастом, сочность — насыщенностью.
+  const ex = adj?.exposure || 0;
+  const sh = adj?.shadows || 0;
+  const hl = adj?.highlights || 0;
+  const bright = (1 + (adj?.brightness || 0)) * Math.pow(2, ex * 0.6) * (1 + sh * 0.05 + hl * 0.03);
+  const contrast = (adj?.contrast ?? 1) * (1 - sh * 0.1 + hl * 0.06) * (1 + (adj?.clarity || 0) * 0.12);
+  const sat = (adj?.saturation ?? 1) * (1 + (adj?.vibrance || 0) * 0.55);
+  const parts = [`brightness(${round3(bright)})`, `contrast(${round3(contrast)})`, `saturate(${round3(sat)})`];
+  const sharp = Math.round(((adj?.sharpness || 0) + (adj?.clarity || 0) * 0.4) * 5);
+  if (sharp > 0) parts.push(`url(#mt-sharpen-${Math.min(5, sharp)})`);
+  if ((adj?.denoise || 0) > 0.05) parts.push(`blur(${round3((adj?.denoise || 0) * 0.08)}cqmin)`);
   const f = filters.find((x) => x.id === adj?.filter);
   if (f && f.css && (adj?.filterAmount ?? 1) > 0.05) parts.push(f.css);
   for (const e of effects || []) {
@@ -420,4 +431,16 @@ export function itemLabel(it: { src: string; label?: string; kind?: string; moti
   if (it.label) return it.label;
   if (it.kind === "motion") return it.motion?.title || "Моушн";
   return fileName(it.src);
+}
+
+/** Слои поверх кадра для коррекции в окне: температура, оттенок, виньетка, зерно. */
+export function gradeOverlays(adj: MontageClip["adjust"]): CSSProperties[] {
+  const out: CSSProperties[] = [];
+  const t = adj?.temperature || 0;
+  if (Math.abs(t) > 0.01) out.push({ background: t > 0 ? "rgb(255,150,40)" : "rgb(40,130,255)", mixBlendMode: "soft-light", opacity: Math.abs(t) * 0.7 });
+  const g = adj?.tint || 0;
+  if (Math.abs(g) > 0.01) out.push({ background: g > 0 ? "rgb(255,60,200)" : "rgb(60,255,90)", mixBlendMode: "soft-light", opacity: Math.abs(g) * 0.5 });
+  const v = adj?.vignette || 0;
+  if (v > 0.01) out.push({ background: `radial-gradient(ellipse at center, transparent ${Math.round(60 - v * 25)}%, rgba(0,0,0,${round3(0.35 + v * 0.5)}) 100%)` });
+  return out;
 }
