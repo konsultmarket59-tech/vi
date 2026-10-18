@@ -39,6 +39,8 @@ const near = (a, b, eps) => Math.abs(a - b) <= eps;
 
 const m = require("./montage.cjs");
 const avatar = require("./avatar.cjs");
+const fxlib = require("./montagefx.cjs");
+const stock = require("./stock.cjs");
 const library = require("./library.cjs");
 const ffmpeg = require("ffmpeg-static");
 const { finish } = require("./finish.cjs");
@@ -246,6 +248,119 @@ app.whenReady().then(async () => {
     const cleanedDur = cleaned.reduce((a, c) => a + (c.out - c.in), 0);
     check("секундная пауза вырезана, речь осталась", cleanedDur > 4.6 && cleanedDur < 5.5, String(cleanedDur));
 
+    console.log("\nэффекты, фильтры, звуки");
+    // Каждая запись таблиц обязана собираться: опечатка в одном фильтре
+    // роняла бы экспорт всего ролика, а заметили бы её только у человека.
+    const runOk = (args) => spawnSync(ffmpeg, args, { encoding: "utf-8" }).status === 0;
+    const fxBad = fxlib.EFFECTS.filter((e) => !runOk(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=160x284:r=25:d=0.3", "-filter_complex", `[0:v]${fxlib.effectsChain([{ kind: e.id, amount: 1 }], { W: 160, H: 284, dur: 1, n: 0 })},format=yuv420p[v]`, "-map", "[v]", "-f", "null", "-"]));
+    check(`все ${fxlib.EFFECTS.length} видеоэффектов собираются`, fxBad.length === 0, fxBad.map((e) => e.id).join(", "));
+    const flBad = fxlib.FILTERS.filter((f) => f.vf && !runOk(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=160x284:r=25:d=0.2", "-vf", f.vf, "-f", "null", "-"]));
+    check(`все ${fxlib.FILTERS.length - 1} фильтров собираются`, flBad.length === 0, flBad.map((f) => f.id).join(", "));
+    const afBad = fxlib.AUDIO_FX.filter((f) => f.af && !runOk(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=d=0.3", "-ar", "48000", "-af", f.af, "-f", "null", "-"]));
+    check(`все ${fxlib.AUDIO_FX.length - 1} звуковых эффектов голоса собираются`, afBad.length === 0, afBad.map((f) => f.id).join(", "));
+    const sfxBad = fxlib.SFX.filter((x) => !runOk(fxlib.sfxArgs(x.id, path.join(outDir, `sfx-${x.id}.wav`))));
+    check(`все ${fxlib.SFX.length} звуков библиотеки синтезируются`, sfxBad.length === 0, sfxBad.map((x) => x.id).join(", "));
+    check("стилей субтитров больше двадцати", fxlib.CAPTION_STYLES.length >= 20, String(fxlib.CAPTION_STYLES.length));
+    const capBad = fxlib.CAPTION_STYLES.filter((st) => {
+      const pr = m.normalizeProject({ clips: [{ src: "/a.mp4", in: 0, out: 3 }], captions: { enabled: true, style: st.id } });
+      const ass = m.buildAss(pr, m.outputWords(pr, { "/a.mp4": { words: tw } }));
+      return !ass.includes(",Caption,,") || /undefined|NaN/.test(ass);
+    });
+    check("каждый стиль субтитров даёт чистый ASS", capBad.length === 0, capBad.map((x) => x.id).join(", "));
+
+    console.log("\nключевые точки");
+    const kf = fxlib.normalizeKeyframes([{ t: 2, x: 0.75 }, { t: 0, x: 0.25, ease: "linear" }]);
+    check("точки сортируются по времени", kf[0].t === 0 && kf[1].t === 2);
+    check("между точками — интерполяция", near(fxlib.sampleTransform({}, kf, 1).x, 0.5, 1e-9));
+    check("до первой и после последней — крайние значения", fxlib.sampleTransform({}, kf, -1).x === 0.25 && fxlib.sampleTransform({}, kf, 9).x === 0.75);
+    const expr = fxlib.keyframeExpr("x", {}, kf, { offset: 1 });
+    const evalAt = (t) => Function("t", "lt", "if_", `return ${expr.replace(/if\(/g, "if_(")}`)(t, (a, b) => (a < b ? 1 : 0), (c, a, b) => (c ? a : b));
+    check("выражение ffmpeg совпадает с расчётом окна", near(evalAt(2), 0.5, 1e-6) && near(evalAt(0), 0.25, 1e-6) && near(evalAt(5), 0.75, 1e-6), `${evalAt(0)} ${evalAt(2)} ${evalAt(5)}`);
+
+    console.log("\nслои: картинка в картинке, хромакей, движение");
+    const blue = path.join(outDir, "синий.mp4");
+    execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x0000FF:s=360x640:r=25:d=3", "-f", "lavfi", "-i", "sine=d=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", blue]);
+    const greenRed = path.join(outDir, "хромакей.mp4");
+    execFileSync(ffmpeg, ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x00FF00:s=200x200:r=25:d=3", "-f", "lavfi", "-i", "color=c=0xFF0000:s=60x60:r=25:d=3", "-filter_complex", "[0][1]overlay=70:70", "-c:v", "libx264", "-pix_fmt", "yuv420p", greenRed]);
+    const pixel = (file, t, fx, fy) => {
+      const raw = rgbAt(file, t, 90, 160);
+      const i = (Math.round(fy * 159) * 90 + Math.round(fx * 89)) * 3;
+      return [raw[i], raw[i + 1], raw[i + 2]];
+    };
+    const isRed = ([r, g, b]) => r > 150 && g < 90 && b < 90;
+    const isBlue = ([r, g, b]) => b > 150 && r < 90 && g < 90;
+    const layerProject = {
+      canvas: { width: 360, height: 640, fps: 25 },
+      clips: [{ src: blue, in: 0, out: 3 }],
+      layers: [{ src: greenRed, kind: "video", start: 0, in: 0, out: 3, chroma: { enabled: true, similarity: 0.25 }, keyframes: [{ t: 0, x: 0.3, y: 0.5, scale: 0.5, ease: "linear" }, { t: 2.5, x: 0.7, y: 0.5, scale: 0.5 }] }],
+      audioFx: { loudnorm: false },
+    };
+    const outLayer = path.join(outDir, "слой.mp4");
+    const wl = fs.mkdtempSync(path.join(os.tmpdir(), "mt-work-"));
+    await m.renderProject({ bin: ffmpeg, project: layerProject, outPath: outLayer, workDir: wl });
+    fs.rmSync(wl, { recursive: true, force: true });
+    check("слой поверх кадра: в начале красный квадрат слева", isRed(pixel(outLayer, 0.04, 0.3, 0.5)), JSON.stringify(pixel(outLayer, 0.04, 0.3, 0.5)));
+    check("ключевые точки двигают слой: в конце квадрат справа", isRed(pixel(outLayer, 2.6, 0.7, 0.5)) && !isRed(pixel(outLayer, 2.6, 0.3, 0.5)), JSON.stringify([pixel(outLayer, 2.6, 0.7, 0.5), pixel(outLayer, 2.6, 0.3, 0.5)]));
+    check("хромакей убрал зелёный фон слоя", isBlue(pixel(outLayer, 0.04, 0.3 - 0.2, 0.5)), JSON.stringify(pixel(outLayer, 0.04, 0.1, 0.5)));
+
+    console.log("\nформаты экспорта");
+    const small = { canvas: { width: 360, height: 640, fps: 25 }, clips: [{ src, in: 0, out: 1.5, effects: [{ kind: "vhs", amount: 0.5 }], reverse: true, keyframes: [{ t: 0, scale: 1 }, { t: 1.5, scale: 1.3, rotation: 5 }] }], texts: [{ text: "Тест", start: 0, end: 1, style: "hook", x: 0.3, y: 0.7 }], audioFx: { loudnorm: false } };
+    for (const [format, size, expect] of [["webm", "360", { v: true, a: true, w: 360 }], ["mp4-hevc", "720", { v: true, a: true, w: 720 }], ["gif", "source", { v: true, a: false, w: 240 }], ["mp3", "source", { v: false, a: true }], ["mov", "source", { v: true, a: true, w: 360 }]]) {
+      const ext = fxlib.EXPORT_FORMATS.find((f) => f.id === format).ext;
+      const out = path.join(outDir, `экспорт-${format}${ext}`);
+      const w = fs.mkdtempSync(path.join(os.tmpdir(), "mt-work-"));
+      let info = null;
+      try {
+        await m.renderProject({ bin: ffmpeg, project: small, outPath: out, workDir: w, exportOptions: { format, size, gifWidth: 240 } });
+        info = await m.probeMedia(ffmpeg, out);
+      } catch (e) {
+        info = { error: e.message };
+      }
+      fs.rmSync(w, { recursive: true, force: true });
+      check(`экспорт ${format}`, info && !info.error && info.hasVideo === expect.v && info.hasAudio === expect.a && (!expect.w || info.width === expect.w), JSON.stringify(info));
+    }
+    const lut = path.join(outDir, "тёплый lut.cube");
+    let cube = "LUT_3D_SIZE 2\n";
+    for (let b = 0; b < 2; b++) for (let g = 0; g < 2; g++) for (let r = 0; r < 2; r++) cube += `${r ? 1 : 0.2} ${g} ${b * 0.5}\n`;
+    fs.writeFileSync(lut, cube);
+    const outLut = path.join(outDir, "lut.mp4");
+    const wlut = fs.mkdtempSync(path.join(os.tmpdir(), "mt-work-"));
+    await m.renderProject({ bin: ffmpeg, project: { canvas: { width: 360, height: 640, fps: 25 }, clips: [{ src: blue, in: 0, out: 1, adjust: { lut } }], audioFx: { loudnorm: false } }, outPath: outLut, workDir: wlut });
+    fs.rmSync(wlut, { recursive: true, force: true });
+    const lutPx = pixel(outLut, 0.5, 0.5, 0.5);
+    check("LUT из файла с пробелом в имени применяется", lutPx[2] < 160, JSON.stringify(lutPx));
+
+    console.log("\nсток (ответы сервисов подменены)");
+    const stockCalls = [];
+    const stockFetch = async (url, init = {}) => {
+      stockCalls.push({ url: String(url), headers: init.headers || {} });
+      const json = (data) => ({ ok: true, status: 200, json: async () => data, text: async () => "", arrayBuffer: async () => Buffer.from("ID3файл"), headers: { get: () => "7" } });
+      if (url.includes("api.pexels.com/videos")) return json({ videos: [{ id: 1, duration: 9, image: "t.jpg", url: "p", user: { name: "Автор" }, video_files: [{ link: "https://v/360.mp4", width: 360, height: 640 }, { link: "https://v/1080.mp4", width: 1080, height: 1920 }, { link: "https://v/4k.mp4", width: 2160, height: 3840 }] }] });
+      if (url.includes("pixabay.com/api/videos")) return json({ hits: [{ id: 2, duration: 5, tags: "город", user: "pix", pageURL: "pg", videos: { large: { url: "https://v/l.mp4", width: 1920, height: 1080, thumbnail: "th" }, small: { url: "https://v/s.mp4", width: 640, height: 360 } } }] });
+      if (url.includes("api.openverse.org")) return json({ results: [{ id: "ov1", title: "Whoosh", url: "https://cdn/whoosh.mp3", creator: "Кто-то", license: "by", license_version: "4.0", foreign_landing_url: "https://fs/1", duration: 1200 }] });
+      if (url.includes("freesound.org")) return json({ results: [{ id: 7, name: "click", duration: 0.2, previews: { "preview-hq-mp3": "https://fs/c.mp3" }, license: "https://creativecommons.org/publicdomain/zero/1.0/", username: "u" }] });
+      if (url.includes("jamendo.com")) return json({ results: [{ id: 9, name: "Song", artist_name: "Band", duration: 120, audio: "https://j/a.mp3", audiodownload: "https://j/d.mp3", license_ccurl: "cc" }] });
+      return json({});
+    };
+    const pexels = await stock.search({ provider: "pexels", kind: "video", query: "город", keys: { pexels: "PK" }, fetchImpl: stockFetch });
+    check("Pexels: выбран файл ближе к Full HD, не 4K", pexels[0].url === "https://v/1080.mp4" && stockCalls[0].headers.Authorization === "PK");
+    const pix = await stock.search({ provider: "pixabay", kind: "video", query: "город", keys: { pixabay: "X" }, fetchImpl: stockFetch });
+    check("Pixabay: видео найдено", pix[0].url === "https://v/l.mp4");
+    const ov = await stock.search({ provider: "openverse", kind: "sfx", query: "whoosh", keys: {}, fetchImpl: stockFetch });
+    check("Openverse работает без ключа, звуки — категория sound_effect", ov.length === 1 && stockCalls.some((c) => c.url.includes("category=sound_effect")) && ov[0].duration === 1.2);
+    const fsd = await stock.search({ provider: "freesound", kind: "sfx", query: "click", keys: { freesound: "F" }, fetchImpl: stockFetch });
+    const jam = await stock.search({ provider: "jamendo", kind: "music", query: "rock", keys: { jamendo: "J" }, fetchImpl: stockFetch });
+    check("Freesound и Jamendo разбираются", fsd[0].url === "https://fs/c.mp3" && jam[0].url === "https://j/d.mp3");
+    const noKey = await stock.search({ provider: "pexels", kind: "video", query: "x", keys: {}, fetchImpl: stockFetch }).catch((e) => e.message);
+    check("без ключа — понятный отказ с адресом, где его взять", /бесплатный ключ/.test(noKey) && /pexels\.com/.test(noKey), noKey);
+    const stockDir = path.join(outDir, "сток");
+    const got = await stock.download(ov[0], stockDir, { fetchImpl: stockFetch });
+    check("скачанное лежит в папке стока по виду материала", fs.existsSync(got) && got.includes(path.join("сток", "звуки")));
+    const again = await stock.download(ov[0], stockDir, { fetchImpl: async () => { throw new Error("повторная загрузка"); } });
+    check("уже скачанное не качается повторно", again === got);
+    const credits = await stock.creditsFor(stockDir, [got]);
+    check("подпись автора для CC BY попадает в описание", credits.includes("Кто-то") && credits.includes("BY"), credits);
+
     console.log("\nаватар (сервисы подменены)");
     const calls = [];
     const fake = async (url, init = {}) => {
@@ -340,12 +455,66 @@ app.whenReady().then(async () => {
       check("Ctrl+Z отменяет разрез", (await call(`document.querySelectorAll(".mt-tl-clip").length`)) === clipsBefore);
       await call(`[...document.querySelectorAll(".mt-toolbar button")].find(b => b.textContent.includes("Текст")).click()`);
       await wait(300);
+      await call(`document.querySelector(".mt-text-preset.s-hook").click()`);
+      await wait(300);
       check("надпись добавляется на дорожку текста", (await call(`document.querySelectorAll(".mt-tl-text").length`)) >= 1);
       check("у надписи открылись настройки", (await call(`[...document.querySelectorAll(".mt-inspector h4")].some(h => h.textContent.includes("Надпись"))`)) === true);
       await wait(1000);
       const saved = await call(`window.api.montageList().then(l => l.find(p => p.title === "Клип агента"))`);
       const reread = await call(`window.api.montageRead(${JSON.stringify(created[0].id)})`);
       check("правки сохраняются сами", saved && reread.texts.length >= 2, JSON.stringify(reread.texts.map((t) => t.text)));
+      // Перетаскивание надписи мышью в кадре — у неё появляется своё место.
+      await call(`(() => { const el = document.querySelector(".mt-overlay-text"); const r = el.getBoundingClientRect();
+        el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: r.left + 5, clientY: r.top + 5 }));
+        window.dispatchEvent(new MouseEvent("mousemove", { clientX: r.left + 45, clientY: r.top + 85 }));
+        window.dispatchEvent(new MouseEvent("mouseup", { clientX: r.left + 45, clientY: r.top + 85 })); })()`);
+      await wait(1200);
+      const moved = await call(`window.api.montageRead(${JSON.stringify(created[0].id)})`);
+      const hook = moved.texts.find((t) => t.style === "hook" && t.x !== null);
+      check("надпись перетаскивается мышью в кадре", !!hook && hook.y > 0.1, JSON.stringify(moved.texts.map((t) => [t.text, t.x, t.y])));
+
+      // Эффект из панели — на выбранный кусок.
+      await call(`document.querySelector(".mt-tl-clip").dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))`);
+      await call(`[...document.querySelectorAll(".mt-rail button")].find(b => b.textContent.includes("Эффекты")).click()`);
+      await wait(300);
+      await call(`[...document.querySelectorAll(".mt-fx-chip")].find(b => b.textContent.includes("VHS")).click()`);
+      await wait(300);
+      check("эффект из панели лёг на выбранный кусок", (await call(`document.querySelector(".mt-tl-clip .mt-tl-label").textContent.includes("✦1")`)) === true);
+      // Ключевая точка из инспектора — ромбик на куске.
+      await call(`[...document.querySelectorAll(".mt-inspector button")].find(b => b.textContent.includes("Ключевая точка")).click()`);
+      await wait(300);
+      check("ключевая точка видна ромбиком на таймлайне", (await call(`document.querySelectorAll(".mt-tl-clip .mt-tl-kf").length`)) === 1);
+      // Звук из библиотеки — на дорожку звуков.
+      await call(`[...document.querySelectorAll(".mt-rail button")].find(b => b.textContent.includes("Звуки")).click()`);
+      await wait(300);
+      await call(`[...document.querySelectorAll(".mt-stock-row")].find(r => r.textContent.includes("Вжух")).querySelector(".btn").click()`);
+      await wait(1500);
+      check("звуковой эффект встал на свою дорожку", (await call(`document.querySelectorAll(".mt-tl-audio.k-sfx").length`)) === 1);
+      // Слой поверх видео из медиатеки.
+      await call(`[...document.querySelectorAll(".mt-rail button")].find(b => b.textContent.includes("Медиа")).click()`);
+      await wait(300);
+      await call(`document.querySelector(".mt-bin-actions button[title^='Слоем']").click()`);
+      await wait(1200);
+      check("слой из медиатеки — на дорожке слоёв и в кадре", (await call(`document.querySelectorAll(".mt-tl-layer").length`)) === 1 && (await call(`document.querySelectorAll(".mt-layer").length`)) >= 1);
+      check("у слоя открылись настройки с маской и хромакеем", (await call(`[...document.querySelectorAll(".mt-inspector summary")].some(s => s.textContent.includes("Форма и фон"))`)) === true);
+      // Переход из панели — на стык.
+      await call(`[...document.querySelectorAll(".mt-toolbar button")].find(b => b.textContent.includes("Разрезать")).click()`);
+      await wait(300);
+      await call(`[...document.querySelectorAll(".mt-rail button")].find(b => b.textContent.includes("Переходы")).click()`);
+      await wait(300);
+      await call(`[...document.querySelectorAll(".mt-fx-chip")].find(b => b.textContent.includes("Растворение")).click()`);
+      await wait(1000);
+      const withTr = await call(`window.api.montageRead(${JSON.stringify(created[0].id)})`);
+      check("переход встал на стык", withTr.clips.some((c) => c.transition.kind === "fade"), JSON.stringify(withTr.clips.map((c) => c.transition.kind)));
+      // Экспорт сразу в два формата.
+      await call(`[...document.querySelectorAll(".mt-topbar button")].find(b => b.textContent.includes("Экспорт")).click()`);
+      await wait(500);
+      check("окно экспорта открывается", (await call(`!!document.querySelector(".mt-modal")`)) === true);
+      const many = await call(`window.api.montageExportMany(${JSON.stringify({ ...withTr, layers: [] })}, [{ format: "gif", gifWidth: 160 }, { format: "mp3" }])`);
+      check("экспорт в несколько форматов за раз", many.length === 2 && many.every((r) => r.path && fs.existsSync(r.path)) && /\.gif$/.test(many[0].path) && /\.mp3$/.test(many[1].path), JSON.stringify(many));
+      await call(`[...document.querySelectorAll(".mt-modal button")].find(b => b.textContent.includes("Закрыть")).click()`);
+      await wait(200);
+
       await call(`[...document.querySelectorAll(".mt-root > .mt-tabs button")].find(b => b.textContent.includes("Аватар")).click()`);
       await wait(400);
       check("вкладка аватара открывается", (await call(`!!document.querySelector(".mt-avatar")`)) === true);

@@ -1,0 +1,63 @@
+{
+  "appId": "ru.personal-chat.montage",
+  "productName": "Монтаж",
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json",
+    "bundled-skills/**/*",
+    "plugins.json",
+    "licence-config.json",
+    "managed-config.json",
+    "node_modules/ffmpeg-static/**/*",
+    "node_modules/@huggingface/transformers/**/*",
+    "node_modules/onnxruntime-node/**/*",
+    "node_modules/onnxruntime-common/**/*"
+  ],
+  "directories": {
+    "output": "release-montage"
+  },
+  "win": {
+    "icon": "build/icon.ico",
+    "target": [
+      "nsis",
+      "portable"
+    ],
+    "files": [
+      "!node_modules/onnxruntime-node/bin/napi-v*/darwin/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/win32/arm64/**"
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": false
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "category": "AudioVideo",
+    "files": [
+      "!node_modules/onnxruntime-node/bin/napi-v*/win32/**"
+    ]
+  },
+  "mac": {
+    "target": [
+      "zip"
+    ],
+    "category": "public.app-category.video",
+    "files": [
+      "!node_modules/onnxruntime-node/bin/napi-v*/win32/**"
+    ]
+  },
+  "asarUnpack": [
+    "node_modules/ffmpeg-static/**",
+    "node_modules/onnxruntime-node/**"
+  ],
+  "extraMetadata": {
+    "main": "electron/montage-main.cjs",
+    "name": "montage"
+  }
+}

@@ -14,7 +14,12 @@
     "electron:start": "npm run build && electron .",
     "electron:build:win": "npm run build && electron-builder --win",
     "electron:build:linux": "npm run build && electron-builder --linux",
-    "electron:build:mac": "npm run build && electron-builder --mac"
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "montage:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron electron/montage-main.cjs\"",
+    "montage:start": "npm run build && electron electron/montage-main.cjs",
+    "montage:build:win": "npm run build && electron-builder --win --config electron-builder.montage.json",
+    "montage:build:linux": "npm run build && electron-builder --linux --config electron-builder.montage.json",
+    "montage:build:mac": "npm run build && electron-builder --mac --config electron-builder.montage.json"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

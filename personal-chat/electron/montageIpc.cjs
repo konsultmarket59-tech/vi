@@ -10,10 +10,20 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const montage = require("./montage.cjs");
 const avatar = require("./avatar.cjs");
+const fx = require("./montagefx.cjs");
+const stock = require("./stock.cjs");
 const library = require("./library.cjs");
 const speech = require("./speech.cjs");
 
 const SCHEME = "montage-media";
+
+const KEY_NAMES = ["eleven", "fal", "heygen", "pexels", "pixabay", "freesound", "jamendo"];
+
+function keyStatus(k) {
+  const out = { voices: Object.keys(k.voices || {}).length };
+  for (const name of KEY_NAMES) out[name] = !!k[name];
+  return out;
+}
 
 /**
  * Модели распознавания для монтажа.
@@ -166,7 +176,7 @@ function register(ctx) {
     try {
       return JSON.parse(await fs.readFile(keysFile(), "utf-8"));
     } catch {
-      return { eleven: "", fal: "", heygen: "", voices: {} };
+      return { eleven: "", fal: "", heygen: "", pexels: "", pixabay: "", freesound: "", jamendo: "", voices: {} };
     }
   }
 
@@ -238,9 +248,8 @@ function register(ctx) {
   ipcMain.handle("montage:options", () => ({
     presets: montage.CANVAS_PRESETS,
     fits: montage.FIT_MODES,
-    filters: montage.FILTERS.map(({ id, name }) => ({ id, name })),
-    transitions: montage.TRANSITIONS,
-    captionStyles: montage.CAPTION_STYLES,
+    ...fx.publicTables(),
+    stockProviders: stock.PROVIDERS,
     textStyles: montage.TEXT_STYLES,
     textAnimations: montage.TEXT_ANIMATIONS,
     cleanup: montage.CLEANUP_DEFAULTS,
@@ -266,7 +275,9 @@ function register(ctx) {
   ipcMain.handle("montage:pickFile", async (_e, kind) => {
     const filters = {
       font: [{ name: "Шрифты", extensions: ["ttf", "otf", "woff", "woff2", "ttc"] }],
-      image: [{ name: "Картинки", extensions: ["png", "jpg", "jpeg", "webp", "svg"] }],
+      image: [{ name: "Картинки", extensions: ["png", "jpg", "jpeg", "webp", "gif", "svg"] }],
+      lut: [{ name: "LUT", extensions: ["cube", "3dl"] }],
+      overlay: [{ name: "Видео и картинки", extensions: ["mp4", "mov", "m4v", "mkv", "webm", "avi", "png", "jpg", "jpeg", "webp", "gif"] }],
       audio: [{ name: "Звук", extensions: ["mp3", "wav", "m4a", "aac", "ogg", "flac", "opus"] }],
       video: [{ name: "Видео", extensions: ["mp4", "mov", "m4v", "mkv", "webm", "avi"] }],
     }[kind] || [{ name: "Все файлы", extensions: ["*"] }];
@@ -616,7 +627,7 @@ function register(ctx) {
     return fonts;
   }
 
-  async function renderOne(event, raw, { outDir, index = 0, total = 1 } = {}) {
+  async function renderOne(event, raw, { outDir, index = 0, total = 1, exportOptions = {} } = {}) {
     const project = montage.normalizeProject(raw);
     const send = (p) => {
       try {
@@ -625,7 +636,8 @@ function register(ctx) {
         // окно закрыли
       }
     };
-    const outPath = await freeName(outDir, slug(project.title), ".mp4");
+    const format = fx.EXPORT_FORMATS.find((f) => f.id === exportOptions.format) || fx.EXPORT_FORMATS[0];
+    const outPath = await freeName(outDir, slug(project.title) + (exportOptions.suffix || ""), format.ext);
     const work = await fs.mkdtemp(path.join(app.getPath("temp"), "montage-render-"));
     renderAbort = new AbortController();
     try {
@@ -638,11 +650,14 @@ function register(ctx) {
         fontFiles: await fontFilesFor(project),
         onProgress: send,
         signal: renderAbort.signal,
+        exportOptions,
       });
-      // Описание для публикации — рядом с роликом, чтобы не искать его в приложении.
-      if (project.meta && (project.meta.description || project.meta.hook)) {
-        await fs.writeFile(outPath.replace(/\.mp4$/, ".txt"), [project.meta.hook, project.meta.description].filter(Boolean).join("\n\n") + "\n", "utf-8").catch(() => {});
-      }
+      // Описание для публикации и подпись авторов стока (её просит CC BY) —
+      // рядом с роликом, чтобы не искать их в приложении.
+      const used = [...project.clips.map((c) => c.src), ...project.layers.map((l) => l.src), ...project.audio.map((a) => a.src)];
+      const credits = await stock.creditsFor(await stockDir(), used).catch(() => "");
+      const text = [project.meta && project.meta.hook, project.meta && project.meta.description, credits].filter(Boolean).join("\n\n");
+      if (text) await fs.writeFile(outPath.replace(/\.[^.]+$/, ".txt"), text + "\n", "utf-8").catch(() => {});
       return result;
     } finally {
       renderAbort = null;
@@ -650,12 +665,31 @@ function register(ctx) {
     }
   }
 
-  ipcMain.handle("montage:render", async (event, project) => {
+  ipcMain.handle("montage:render", async (event, project, exportOptions) => {
     const config = await readConfig();
-    return renderOne(event, project, { outDir: await outputDirFor(config) });
+    return renderOne(event, project, { outDir: await outputDirFor(config), exportOptions: exportOptions || {} });
   });
 
-  ipcMain.handle("montage:renderMany", async (event, ids) => {
+  /**
+   * Несколько форматов за раз: «mp4 для Reels + GIF для сайта + mp3 для подкаста».
+   * Каждый собирается своим проходом — форматы различаются размером и кодеком.
+   */
+  ipcMain.handle("montage:exportMany", async (event, project, targets = []) => {
+    const config = await readConfig();
+    const outDir = await outputDirFor(config);
+    const results = [];
+    for (let i = 0; i < targets.length; i++) {
+      try {
+        results.push({ target: targets[i], ...(await renderOne(event, project, { outDir, index: i, total: targets.length, exportOptions: targets[i] })) });
+      } catch (e) {
+        results.push({ target: targets[i], error: e instanceof Error ? e.message : String(e) });
+        if (/остановлена/.test(String(e && e.message))) break;
+      }
+    }
+    return results;
+  });
+
+  ipcMain.handle("montage:renderMany", async (event, ids, exportOptions) => {
     const config = await readConfig();
     const outDir = await outputDirFor(config);
     const dir = await projectsDir();
@@ -663,7 +697,7 @@ function register(ctx) {
     for (let i = 0; i < ids.length; i++) {
       try {
         const project = await montage.readProject(dir, ids[i]);
-        results.push({ id: ids[i], ...(await renderOne(event, project, { outDir, index: i, total: ids.length })) });
+        results.push({ id: ids[i], ...(await renderOne(event, project, { outDir, index: i, total: ids.length, exportOptions: exportOptions || {} })) });
       } catch (e) {
         results.push({ id: ids[i], error: e instanceof Error ? e.message : String(e) });
         if (/остановлена/.test(String(e && e.message))) break;
@@ -672,20 +706,54 @@ function register(ctx) {
     return results;
   });
 
+  // ---------- звуки и сток ----------
+
+  /** Звуковой эффект из библиотеки — собирается один раз и лежит в данных. */
+  ipcMain.handle("montage:sfx", async (_e, id) => {
+    const dir = path.join(await montageRoot(), "звуки");
+    await fs.mkdir(dir, { recursive: true });
+    const dest = path.join(dir, `${id}.wav`);
+    if (!fsSync.existsSync(dest)) await montage.runFfmpeg(ffmpegPath(), fx.sfxArgs(id, dest));
+    return dest;
+  });
+
+  const stockDir = async () => path.join(await montageRoot(), "сток");
+
+  ipcMain.handle("montage:stockSearch", async (_e, request = {}) => {
+    const k = await readKeys();
+    const settings = await loadSettings().catch(() => ({}));
+    // Ключ Pexels уже мог быть задан в «Видео-сторис» — второй раз не просим.
+    const keys = { ...k, pexels: k.pexels || settings.pexelsKey || "" };
+    return stock.search({ ...request, keys });
+  });
+
+  ipcMain.handle("montage:stockDownload", async (event, item) => {
+    const send = (progress) => {
+      try {
+        event.sender.send("montage-stock", { id: item.id, provider: item.provider, progress });
+      } catch {
+        // окно закрыли
+      }
+    };
+    const dest = await stock.download(item, await stockDir(), { onProgress: send });
+    send(1);
+    return dest;
+  });
+
   // ---------- аватар ----------
 
   ipcMain.handle("montage:avatarKeys", async () => {
     const k = await readKeys();
     // Окну отдаются не ключи, а то, что они заданы.
-    return { eleven: !!k.eleven, fal: !!k.fal, heygen: !!k.heygen, voices: Object.keys(k.voices || {}).length };
+    return keyStatus(k);
   });
   ipcMain.handle("montage:saveAvatarKeys", async (_e, patch = {}) => {
     const k = await readKeys();
-    for (const key of ["eleven", "fal", "heygen"]) if (typeof patch[key] === "string" && patch[key].trim()) k[key] = patch[key].trim();
+    for (const key of KEY_NAMES) if (typeof patch[key] === "string" && patch[key].trim()) k[key] = patch[key].trim();
     if (patch.forgetVoices) k.voices = {};
     await fs.mkdir(path.dirname(keysFile()), { recursive: true });
     await fs.writeFile(keysFile(), JSON.stringify(k, null, 2), "utf-8");
-    return { eleven: !!k.eleven, fal: !!k.fal, heygen: !!k.heygen, voices: Object.keys(k.voices || {}).length };
+    return keyStatus(k);
   });
 
   ipcMain.handle("montage:heygenList", async () => {

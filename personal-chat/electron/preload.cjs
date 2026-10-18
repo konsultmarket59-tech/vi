@@ -164,8 +164,17 @@ contextBridge.exposeInMainWorld("api", {
   montageReadDesign: (dir) => ipcRenderer.invoke("montage:readDesign", dir),
   montageShowItem: (p) => ipcRenderer.invoke("montage:showItem", p),
   montageOpenPath: (p) => ipcRenderer.invoke("montage:openPath", p),
-  montageRender: (project) => ipcRenderer.invoke("montage:render", project),
-  montageRenderMany: (ids) => ipcRenderer.invoke("montage:renderMany", ids),
+  montageRender: (project, exportOptions) => ipcRenderer.invoke("montage:render", project, exportOptions),
+  montageRenderMany: (ids, exportOptions) => ipcRenderer.invoke("montage:renderMany", ids, exportOptions),
+  montageExportMany: (project, targets) => ipcRenderer.invoke("montage:exportMany", project, targets),
+  montageSfx: (id) => ipcRenderer.invoke("montage:sfx", id),
+  montageStockSearch: (request) => ipcRenderer.invoke("montage:stockSearch", request),
+  montageStockDownload: (item) => ipcRenderer.invoke("montage:stockDownload", item),
+  onMontageStock: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on("montage-stock", handler);
+    return () => ipcRenderer.removeListener("montage-stock", handler);
+  },
   montageAvatarKeys: () => ipcRenderer.invoke("montage:avatarKeys"),
   montageSaveAvatarKeys: (patch) => ipcRenderer.invoke("montage:saveAvatarKeys", patch),
   montageHeygenList: () => ipcRenderer.invoke("montage:heygenList"),

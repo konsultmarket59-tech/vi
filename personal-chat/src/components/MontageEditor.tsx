@@ -1,32 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  MontageAudio,
-  MontageClip,
-  MontageCleanupStats,
-  MontageConfig,
-  MontageOptions,
-  MontageProject,
-  MontageText,
-  MontageTranscript,
-  StoriesDesign,
-  StoriesHandoff,
-} from "../lib/types";
-import {
-  clamp,
-  fileName,
-  fmtTime,
-  layout,
-  newClip,
-  newText,
-  outputToSource,
-  outputWords,
-  projectDuration,
-  round3,
-  splitAt,
-  uid,
-} from "../lib/montage";
+import type { MontageAudio, MontageCaptions, MontageClip, MontageConfig, MontageOptions, MontageProject, MontageTransform, MontageTranscript, StoriesDesign, StoriesHandoff } from "../lib/types";
+import { fileName, fmtTime, layerDuration, layout, newAudio, newClip, newLayer, outputToSource, outputWords, projectDuration, round3, setTransformAt, splitAt, uid } from "../lib/montage";
 import MontagePreview from "./MontagePreview";
 import MontageTimeline, { type Selection } from "./MontageTimeline";
+import MontageExport from "./MontageExport";
+import { AudioInspector, ClipInspector, LayerInspector, TextInspector } from "./MontageInspector";
+import { AIPanel, AudioPanel, CaptionsPanel, DesignPanel, EffectsPanel, FiltersPanel, MediaPanel, StockPanel, TextPanel, TransitionsPanel } from "./MontagePanels";
+import type { BinItem, EditorCtx } from "./MontageControls";
 
 interface Props {
   options: MontageOptions;
@@ -37,16 +17,20 @@ interface Props {
   onMotionDesign: (handoff: Omit<StoriesHandoff, "nonce">) => void;
 }
 
-type BinItem = { path: string; kind: string; duration: number };
-type LeftTab = "media" | "text" | "captions" | "audio" | "design" | "ai";
+type LeftTab = "media" | "stock" | "audio" | "text" | "captions" | "effects" | "filters" | "transitions" | "design" | "ai";
 
-const LEFT_TABS: { id: LeftTab; label: string }[] = [
-  { id: "media", label: "Медиа" },
-  { id: "text", label: "Текст" },
-  { id: "captions", label: "Субтитры" },
-  { id: "audio", label: "Звук" },
-  { id: "design", label: "Дизайн" },
-  { id: "ai", label: "ИИ" },
+/** Колонка инструментов слева — как верхняя панель CapCut, только вертикально. */
+const LEFT_TABS: { id: LeftTab; icon: string; label: string }[] = [
+  { id: "media", icon: "🎞", label: "Медиа" },
+  { id: "stock", icon: "🌐", label: "Сток" },
+  { id: "audio", icon: "♪", label: "Звуки" },
+  { id: "text", icon: "T", label: "Текст" },
+  { id: "captions", icon: "CC", label: "Субтитры" },
+  { id: "effects", icon: "✦", label: "Эффекты" },
+  { id: "filters", icon: "◐", label: "Фильтры" },
+  { id: "transitions", icon: "⧓", label: "Переходы" },
+  { id: "design", icon: "🎨", label: "Дизайн" },
+  { id: "ai", icon: "🤖", label: "ИИ" },
 ];
 
 const HISTORY_LIMIT = 80;
@@ -56,8 +40,6 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
   // вместе, иначе отмена и новая правка могут разойтись на один шаг.
   const [hist, setHist] = useState<{ past: MontageProject[]; present: MontageProject; future: MontageProject[] }>({ past: [], present: initial, future: [] });
   const project = hist.present;
-  const past = hist.past;
-  const future = hist.future;
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [selection, setSelection] = useState<Selection>(null);
@@ -68,11 +50,9 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
   const [busy, setBusy] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
-  const [render, setRender] = useState<{ stage: string; progress?: number } | null>(null);
-  const [result, setResult] = useState<string>("");
   const [design, setDesign] = useState<StoriesDesign | null>(null);
-  const [stats, setStats] = useState<MontageCleanupStats | null>(null);
   const [wordSel, setWordSel] = useState<{ from: number; to: number } | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const scheme = options.scheme;
   const bin: BinItem[] = useMemo(() => ((project.meta as { bin?: BinItem[] }).bin || []), [project.meta]);
@@ -88,7 +68,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
     });
   }, []);
 
-  /** Правка без записи в историю — название проекта, кадры перетаскивания. */
+  /** Правка без записи в историю — название проекта. */
   const setProject = useCallback((fn: (p: MontageProject) => MontageProject) => {
     setHist((h) => ({ ...h, present: fn(h.present) }));
   }, []);
@@ -109,6 +89,18 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
       const base = before || h.present;
       if (base === p) return { ...h, present: p };
       return { past: [...h.past.slice(-HISTORY_LIMIT), base], present: p, future: [] };
+    });
+  }, []);
+  const liveOrCommit = useCallback((fn: (p: MontageProject) => MontageProject, final: boolean) => {
+    setHist((h) => {
+      const next = fn(h.present);
+      if (!final) {
+        if (!dragStart.current) dragStart.current = h.present;
+        return { ...h, present: next };
+      }
+      const base = dragStart.current || h.present;
+      dragStart.current = null;
+      return { past: [...h.past.slice(-HISTORY_LIMIT), base], present: next, future: [] };
     });
   }, []);
 
@@ -134,7 +126,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
 
   // ---------- расшифровки и длительности ----------
 
-  const sources = useMemo(() => [...new Set(project.clips.map((c) => c.src))], [project.clips]);
+  const sources = useMemo(() => [...new Set(project.clips.filter((c) => c.kind === "video").map((c) => c.src))], [project.clips]);
   const refreshTranscripts = useCallback(async () => {
     setTranscripts(await window.api.montageTranscripts(sources));
   }, [sources]);
@@ -143,40 +135,51 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
   }, [refreshTranscripts]);
 
   useEffect(() => {
-    const need = [...new Set([...sources, ...project.audio.map((a) => a.src), ...bin.map((b) => b.path)])].filter((s) => durations[s] === undefined);
+    const need = [...new Set([...project.clips.map((c) => c.src), ...project.layers.map((l) => l.src), ...project.audio.map((a) => a.src), ...bin.map((b) => b.path)])].filter((s) => durations[s] === undefined);
     if (!need.length) return;
+    let alive = true;
     (async () => {
       const found: Record<string, number> = {};
       for (const s of need) found[s] = (await window.api.montageProbe(s).catch(() => ({ duration: 0 }))).duration || 0;
-      setDurations((d) => ({ ...d, ...found }));
+      if (alive) setDurations((d) => ({ ...d, ...found }));
     })();
-  }, [sources, project.audio, bin, durations]);
+    return () => {
+      alive = false;
+    };
+  }, [project.clips, project.layers, project.audio, bin, durations]);
 
   useEffect(() => {
-    if (!project.design?.dir) return setDesign(null);
+    if (!project.design?.dir) {
+      setDesign(null);
+      return;
+    }
     window.api.montageReadDesign(project.design.dir).then(setDesign).catch(() => setDesign(null));
   }, [project.design?.dir]);
 
   const words = useMemo(() => outputWords(project.clips, transcripts), [project.clips, transcripts]);
   const duration = projectDuration(project);
 
-  useEffect(() => window.api.onMontageRender((p) => setRender({ stage: p.stage, progress: p.progress })), []);
-
-  // ---------- выбранное ----------
-
-  const selClip = selection?.kind === "clip" ? project.clips.find((c) => c.id === selection.id) : undefined;
-  const selText = selection?.kind === "text" ? project.texts.find((t) => t.id === selection.id) : undefined;
-  const selAudio = selection?.kind === "audio" ? project.audio.find((a) => a.id === selection.id) : undefined;
-
-  const patchClip = (id: string, patch: Partial<MontageClip>) => commit((p) => ({ ...p, clips: p.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
-  const patchText = (id: string, patch: Partial<MontageText>) => commit((p) => ({ ...p, texts: p.texts.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
-  const patchAudio = (id: string, patch: Partial<MontageAudio>) => commit((p) => ({ ...p, audio: p.audio.map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
-
   // ---------- действия ----------
 
+  const fail = useCallback((e: unknown) => setError(e instanceof Error ? e.message : String(e)), []);
+
   const split = useCallback(() => {
+    // Слой режется так же, как кусок: выбранный слой под бегунком — на два.
+    if (selection?.kind === "layer") {
+      commit((p) => {
+        const l = p.layers.find((x) => x.id === selection.id);
+        if (!l) return p;
+        const local = time - l.start;
+        if (local < 0.05 || local > layerDuration(l) - 0.05) return p;
+        const cut = round3(l.in + local * l.speed);
+        const a = { ...l, out: cut, keyframes: l.keyframes.filter((k) => k.t <= local) };
+        const b = { ...l, id: uid("layer"), start: round3(time), in: cut, keyframes: l.keyframes.filter((k) => k.t > local).map((k) => ({ ...k, t: round3(k.t - local) })) };
+        return { ...p, layers: p.layers.flatMap((x) => (x.id === l.id ? [a, b] : [x])) };
+      });
+      return;
+    }
     commit((p) => ({ ...p, clips: splitAt(p.clips, time) }));
-  }, [commit, time]);
+  }, [commit, time, selection]);
 
   const remove = useCallback(() => {
     if (!selection) return;
@@ -185,6 +188,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
       clips: selection.kind === "clip" ? p.clips.filter((c) => c.id !== selection.id) : p.clips,
       texts: selection.kind === "text" ? p.texts.filter((t) => t.id !== selection.id) : p.texts,
       audio: selection.kind === "audio" ? p.audio.filter((a) => a.id !== selection.id) : p.audio,
+      layers: selection.kind === "layer" ? p.layers.filter((l) => l.id !== selection.id) : p.layers,
     }));
     setSelection(null);
   }, [commit, selection]);
@@ -195,61 +199,67 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
       if (selection.kind === "clip") {
         const i = p.clips.findIndex((c) => c.id === selection.id);
         if (i < 0) return p;
-        const copy = { ...p.clips[i], id: uid("clip") };
-        return { ...p, clips: [...p.clips.slice(0, i + 1), copy, ...p.clips.slice(i + 1)] };
+        return { ...p, clips: [...p.clips.slice(0, i + 1), { ...p.clips[i], id: uid("clip") }, ...p.clips.slice(i + 1)] };
       }
       if (selection.kind === "text") {
         const t = p.texts.find((x) => x.id === selection.id);
         if (!t) return p;
-        const len = t.end - t.start;
-        return { ...p, texts: [...p.texts, { ...t, id: uid("text"), start: t.end, end: round3(t.end + len) }] };
+        return { ...p, texts: [...p.texts, { ...t, id: uid("text"), start: t.end, end: round3(t.end + (t.end - t.start)) }] };
       }
-      return p;
+      if (selection.kind === "layer") {
+        const l = p.layers.find((x) => x.id === selection.id);
+        if (!l) return p;
+        return { ...p, layers: [...p.layers, { ...l, id: uid("layer"), track: Math.min(8, l.track + 1) }] };
+      }
+      const a = p.audio.find((x) => x.id === selection.id);
+      if (!a) return p;
+      return { ...p, audio: [...p.audio, { ...a, id: uid("audio"), start: round3(a.start + (a.out - a.in)) }] };
     });
   };
 
-  async function importMedia() {
-    const picked = await window.api.montagePickMedia();
-    if (!picked.length) return;
-    const items: BinItem[] = [];
-    for (const p of picked) {
-      const probe = await window.api.montageProbe(p).catch(() => null);
-      const kind = /\.(png|jpe?g|webp|gif|bmp)$/i.test(p) ? "image" : probe && !probe.hasVideo ? "audio" : "video";
-      items.push({ path: p, kind, duration: probe?.duration || 0 });
-    }
-    commit((pr) => {
-      const existing = ((pr.meta as { bin?: BinItem[] }).bin || []).filter((b) => !picked.includes(b.path));
-      return { ...pr, meta: { ...pr.meta, bin: [...existing, ...items] } as MontageProject["meta"] };
-    });
-  }
+  const addToBin = useCallback(
+    (items: BinItem[]) =>
+      commit((pr) => {
+        const paths = items.map((i) => i.path);
+        const existing = ((pr.meta as { bin?: BinItem[] }).bin || []).filter((b) => !paths.includes(b.path));
+        return { ...pr, meta: { ...pr.meta, bin: [...existing, ...items] } as MontageProject["meta"] };
+      }),
+    [commit]
+  );
 
-  /** Медиа из корзины — на дорожку: видео и картинки в конец ролика, звук — под бегунок. */
-  function addToTimeline(item: BinItem) {
-    if (item.kind === "audio") {
-      const a: MontageAudio = {
-        id: uid("audio"), src: item.path, start: round3(time), in: 0,
-        out: round3(Math.max(1, Math.min(item.duration || 30, Math.max(5, duration - time) || 30))),
-        volume: 0.25, fadeIn: 0.5, fadeOut: 1.5, duck: true, loop: false,
-      };
-      commit((p) => ({ ...p, audio: [...p.audio, a] }));
-      setSelection({ kind: "audio", id: a.id });
-      return;
-    }
-    const c = newClip(item.path, item.kind, item.duration);
-    commit((p) => {
-      // Вставка в точку бегунка: если бегунок внутри куска — после этого куска.
-      const hit = outputToSource(p.clips, time);
-      const at = hit && time < duration - 0.05 ? hit.index + 1 : p.clips.length;
-      return { ...p, clips: [...p.clips.slice(0, at), c, ...p.clips.slice(at)] };
-    });
-    setSelection({ kind: "clip", id: c.id });
-  }
-
-  function addText(style: string, text: string) {
-    const t = { ...newText(time, text, style), animation: style === "hook" ? "pop" : style === "lower" ? "slide" : "pop" };
-    commit((p) => ({ ...p, texts: [...p.texts, t] }));
-    setSelection({ kind: "text", id: t.id });
-  }
+  /** Медиа — на дорожку: главную (в точку бегунка), слоем поверх или звуком. */
+  const place = useCallback(
+    (item: BinItem, where: "main" | "layer" | MontageAudio["kind"]) => {
+      if (where === "music" || where === "sfx" || where === "voice") {
+        const len = where === "music" ? Math.min(item.duration || 30, Math.max(5, duration - time) || 30) : item.duration || 1;
+        const a = newAudio(item.path, where, time, len);
+        commit((p) => ({ ...p, audio: [...p.audio, a] }));
+        setSelection({ kind: "audio", id: a.id });
+        return;
+      }
+      if (where === "layer") {
+        commit((p) => {
+          // Свободная дорожка в этот момент — слои не налезают друг на друга на таймлайне.
+          const base = newLayer(item.path, item.kind, item.duration, time);
+          const len = layerDuration(base);
+          let track = 1;
+          while (track < 8 && p.layers.some((l) => l.track === track && l.start < time + len && l.start + layerDuration(l) > time)) track++;
+          const l = { ...base, track };
+          setSelection({ kind: "layer", id: l.id });
+          return { ...p, layers: [...p.layers, l] };
+        });
+        return;
+      }
+      const c = newClip(item.path, item.kind, item.duration);
+      commit((p) => {
+        const hit = outputToSource(p.clips, time);
+        const at = hit && time < duration - 0.05 ? hit.index + 1 : p.clips.length;
+        return { ...p, clips: [...p.clips.slice(0, at), c, ...p.clips.slice(at)] };
+      });
+      setSelection({ kind: "clip", id: c.id });
+    },
+    [commit, time, duration]
+  );
 
   async function transcribeSources() {
     setBusy("Расшифровываю записи…");
@@ -259,7 +269,7 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
       if (r.failed.length) setError(r.failed.map((f) => `${fileName(f.path)}: ${f.error}`).join("\n"));
       await refreshTranscripts();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      fail(e);
     } finally {
       setBusy("");
     }
@@ -269,7 +279,8 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
     setBusy("Убираю паузы и паразиты…");
     setError(null);
     try {
-      const r = await window.api.montageClean({ clips: project.clips, ids: onlySelected && selClip ? [selClip.id] : undefined });
+      const sel = selection?.kind === "clip" ? selection.id : "";
+      const r = await window.api.montageClean({ clips: project.clips, ids: onlySelected && sel ? [sel] : undefined });
       if (!r.touched) setNotice("Чистить нечего: у кусков нет расшифровки или в них нет речи.");
       else {
         const before = layout(project.clips).duration;
@@ -278,16 +289,11 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
         commit((p) => ({ ...p, clips: r.clips }));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      fail(e);
     } finally {
       setBusy("");
     }
   }
-
-  useEffect(() => {
-    if (tab !== "ai" || !project.clips.length) return;
-    window.api.montageCleanupStats({ clips: project.clips }).then(setStats).catch(() => setStats(null));
-  }, [tab, project.clips, transcripts]);
 
   /** Монтаж по тексту: выделенные слова вырезаются из своих кусков. */
   async function cutSelectedWords() {
@@ -305,23 +311,6 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
     setWordSel(null);
   }
 
-  async function exportVideo() {
-    setError(null);
-    setResult("");
-    const problems = await window.api.montageValidate(project);
-    if (problems.length) return setError(problems.join("\n"));
-    setPlaying(false);
-    setRender({ stage: "pieces", progress: 0 });
-    try {
-      const r = await window.api.montageRender(project);
-      setResult(r.path);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRender(null);
-    }
-  }
-
   function applyDesign(d: StoriesDesign) {
     const accent = d.colours.find((c) => /^#[0-9a-f]{6}$/i.test(c) && !/^#(f{6}|0{6})$/i.test(c));
     commit((p) => ({
@@ -336,12 +325,36 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
     setNotice("Дизайн-система применена: шрифт и акцент субтитров, логотип в углу. Надписи берут тот же акцент.");
   }
 
+  /** Моушн-дизайн: ролик собирается и уезжает в «Видео-сторис» со своим текстом. */
+  async function motion() {
+    setBusy("Собираю ролик для моушн-дизайна…");
+    try {
+      const r = await window.api.montageRender(project, { format: "mp4", suffix: "-для-моушна" });
+      onMotionDesign({ sourcePath: r.path, text: words.map((w) => w.w).join(" "), designDir: project.design?.dir || config.designDir || undefined, preset: project.canvas.preset, title: project.title });
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const onLayerTransform = useCallback(
+    (id: string, patch: Partial<MontageTransform>, final: boolean) =>
+      liveOrCommit((p) => ({ ...p, layers: p.layers.map((l) => (l.id === id ? setTransformAt(l, Math.max(0, time - l.start), patch) : l)) }), final),
+    [liveOrCommit, time]
+  );
+  const onTextMove = useCallback(
+    (id: string, x: number, y: number, final: boolean) =>
+      liveOrCommit((p) => ({ ...p, texts: p.texts.map((t) => (t.id === id ? { ...t, x: round3(x), y: round3(y) } : t)) }), final),
+    [liveOrCommit]
+  );
+
   // ---------- клавиши ----------
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable) return;
+      if (exporting || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement)?.isContentEditable) return;
       const fps = project.canvas.fps;
       if (e.code === "Space") {
         e.preventDefault();
@@ -360,20 +373,37 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "н")) {
         e.preventDefault();
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "d" || e.key === "в")) {
+        e.preventDefault();
+        duplicate();
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         setTime((t) => Math.max(0, t - (e.shiftKey ? 1 : 1 / fps)));
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         setTime((t) => Math.min(duration, t + (e.shiftKey ? 1 : 1 / fps)));
+      } else if (e.key === "Home") {
+        setTime(0);
+      } else if (e.key === "End") {
+        setTime(duration);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  const ctx: EditorCtx = {
+    project, options, scheme, time, duration, selection, setSelection, commit,
+    notify: setNotice, fail, busy, setBusy, transcripts, sources, transcribeSources,
+    bin, addToBin, place, cleanup, design, applyDesign,
+    setCaptions: (patch: Partial<MontageCaptions>) => commit((p) => ({ ...p, captions: { ...p.captions, ...patch } })),
+  };
+
+  const selClip = selection?.kind === "clip" ? project.clips.find((c) => c.id === selection.id) : undefined;
+  const selText = selection?.kind === "text" ? project.texts.find((t) => t.id === selection.id) : undefined;
+  const selAudio = selection?.kind === "audio" ? project.audio.find((a) => a.id === selection.id) : undefined;
+  const selLayer = selection?.kind === "layer" ? project.layers.find((l) => l.id === selection.id) : undefined;
   const currentWord = words.findIndex((w) => time >= w.s && time < w.e);
-  const preset = options.presets.find((p) => p.id === project.canvas.preset);
 
   return (
     <div className="mt-editor">
@@ -398,187 +428,45 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
           ))}
         </select>
         <div className="mt-spacer" />
-        <button className="btn btn-secondary" disabled={!past.length} onClick={undo} title="Отменить (Ctrl+Z)">↶</button>
-        <button className="btn btn-secondary" disabled={!future.length} onClick={redo} title="Вернуть (Ctrl+Shift+Z)">↷</button>
-        <button className="btn btn-primary" disabled={!!render} onClick={exportVideo}>⬇ Экспорт</button>
+        <button className="btn btn-secondary" disabled={!hist.past.length} onClick={undo} title="Отменить (Ctrl+Z)">↶</button>
+        <button className="btn btn-secondary" disabled={!hist.future.length} onClick={redo} title="Вернуть (Ctrl+Shift+Z)">↷</button>
+        <button className="btn btn-primary" onClick={async () => {
+          const problems = await window.api.montageValidate(project);
+          if (problems.length) return setError(problems.join("\n"));
+          setPlaying(false);
+          setExporting(true);
+        }}>⬇ Экспорт</button>
       </div>
 
-      {(error || notice || busy || render || result) && (
+      {(error || notice || busy) && (
         <div className="mt-status">
           {busy && <span>{busy}</span>}
-          {render && (
-            <span>
-              Сборка: {render.stage === "pieces" ? "куски" : render.stage === "join" ? "склейка" : render.stage === "encode" ? "кодирование" : render.stage}
-              {render.progress !== undefined ? ` ${Math.round(render.progress * 100)}%` : ""}
-              <button className="link-btn" onClick={() => window.api.montageStop()}>остановить</button>
-            </span>
-          )}
-          {result && (
-            <span className="mt-ok">
-              Готово: {fileName(result)}
-              <button className="link-btn" onClick={() => window.api.montageShowItem(result)}>показать в папке</button>
-              <button className="link-btn" onClick={() => window.api.montageOpenPath(result)}>открыть</button>
-              <button
-                className="link-btn"
-                onClick={() =>
-                  onMotionDesign({
-                    sourcePath: result,
-                    text: words.map((w) => w.w).join(" "),
-                    designDir: project.design?.dir || config.designDir || undefined,
-                    preset: project.canvas.preset,
-                    title: project.title,
-                  })
-                }
-              >
-                ✨ моушн-дизайн поверх →
-              </button>
-            </span>
-          )}
           {notice && <span>{notice} <button className="link-btn" onClick={() => setNotice("")}>×</button></span>}
           {error && <span className="mt-error-inline">{error} <button className="link-btn" onClick={() => setError(null)}>×</button></span>}
         </div>
       )}
 
       <div className="mt-work">
+        <nav className="mt-rail">
+          {LEFT_TABS.map((t) => (
+            <button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)} title={t.label}>
+              <b>{t.icon}</b>
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </nav>
         <aside className="mt-left">
-          <div className="mt-tabs small">
-            {LEFT_TABS.map((t) => (
-              <button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>{t.label}</button>
-            ))}
-          </div>
           <div className="mt-left-body">
-            {tab === "media" && (
-              <>
-                <button className="btn btn-secondary btn-block" onClick={importMedia}>+ Импорт файлов</button>
-                {!bin.length && <p className="mt-hint">Видео, картинки и музыка этого проекта. Нажмите на файл — он встанет на дорожку.</p>}
-                <div className="mt-bin">
-                  {bin.map((b) => (
-                    <BinCard key={b.path} item={b} onAdd={() => addToTimeline(b)} onRemove={() => commit((p) => ({ ...p, meta: { ...p.meta, bin: bin.filter((x) => x.path !== b.path) } as MontageProject["meta"] }))} />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {tab === "text" && (
-              <>
-                <p className="mt-hint">Надпись встаёт под бегунок. Стиль, цвет и анимация — справа, когда надпись выбрана.</p>
-                {options.textStyles.map((s) => (
-                  <button key={s.id} className={`mt-text-preset s-${s.id}`} onClick={() => addText(s.id, s.id === "hook" ? "Хук ролика" : s.id === "lower" ? "Имя · должность" : s.name)}>
-                    {s.name}
-                  </button>
-                ))}
-              </>
-            )}
-
-            {tab === "captions" && (
-              <CaptionsPanel project={project} options={options} commit={commit} transcribed={sources.filter((s) => transcripts[s]).length} total={sources.length} onTranscribe={transcribeSources} busy={!!busy} />
-            )}
-
-            {tab === "audio" && (
-              <>
-                <label className="mt-check">
-                  <input type="checkbox" checked={project.audioFx.loudnorm} onChange={(e) => commit((p) => ({ ...p, audioFx: { ...p.audioFx, loudnorm: e.target.checked } }))} />
-                  Громкость под соцсети (−14 LUFS)
-                </label>
-                <label className="mt-check">
-                  <input type="checkbox" checked={project.audioFx.denoise} onChange={(e) => commit((p) => ({ ...p, audioFx: { ...p.audioFx, denoise: e.target.checked } }))} />
-                  Убрать шум (гул, шипение)
-                </label>
-                <button
-                  className="btn btn-secondary btn-block"
-                  onClick={async () => {
-                    const f = await window.api.montagePickFile("audio");
-                    if (!f) return;
-                    const d = (await window.api.montageProbe(f).catch(() => ({ duration: 30 }))).duration || 30;
-                    addToTimeline({ path: f, kind: "audio", duration: d });
-                  }}
-                >
-                  + Музыка
-                </button>
-                <p className="mt-hint">Музыка сама приседает, пока звучит голос, — снимите галочку у дорожки, если не нужно.</p>
-              </>
-            )}
-
-            {tab === "design" && (
-              <>
-                <button
-                  className="btn btn-secondary btn-block"
-                  onClick={async () => {
-                    const dir = await window.api.montagePickFolder("Папка дизайн-системы");
-                    if (dir) commit((p) => ({ ...p, design: { dir } }));
-                  }}
-                >
-                  {project.design ? "Сменить дизайн-систему" : "Подключить дизайн-систему"}
-                </button>
-                {design && (
-                  <>
-                    <div className="mt-swatches">
-                      {design.colours.slice(0, 12).map((c) => (
-                        <span key={c} style={{ background: c }} title={`${c} — нажмите, чтобы сделать акцентом субтитров`} onClick={() => commit((p) => ({ ...p, captions: { ...p.captions, highlight: c } }))} />
-                      ))}
-                    </div>
-                    <p className="mt-hint">
-                      {design.fontFiles.length ? `Шрифты: ${design.fontFiles.map((f) => f.family).join(", ")}` : "Файлов шрифтов в системе нет."}
-                      {design.logoFiles?.length ? ` Логотипы: ${design.logoFiles.map((l) => l.name).join(", ")}.` : ""}
-                    </p>
-                    <button className="btn btn-primary btn-block" onClick={() => applyDesign(design)}>Применить к ролику</button>
-                  </>
-                )}
-                <h4>Логотип</h4>
-                <div className="mt-row">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={async () => {
-                      const f = await window.api.montagePickFile("image");
-                      if (f) commit((p) => ({ ...p, logo: { path: f, corner: p.logo?.corner || "top-right", size: p.logo?.size || 0.14, opacity: 1 } }));
-                    }}
-                  >
-                    {project.logo ? "Другой файл" : "Выбрать файл"}
-                  </button>
-                  {project.logo && <button className="link-btn" onClick={() => commit((p) => ({ ...p, logo: null }))}>убрать</button>}
-                </div>
-                {project.logo && (
-                  <>
-                    <Field label="Угол">
-                      <select value={project.logo.corner} onChange={(e) => commit((p) => ({ ...p, logo: { ...p.logo!, corner: e.target.value } }))}>
-                        <option value="top-left">сверху слева</option>
-                        <option value="top-right">сверху справа</option>
-                        <option value="bottom-left">снизу слева</option>
-                        <option value="bottom-right">снизу справа</option>
-                      </select>
-                    </Field>
-                    <Slider label="Размер" value={project.logo.size} min={0.04} max={0.4} step={0.01} fmt={(v) => `${Math.round(v * 100)}% ширины`} onChange={(v) => commit((p) => ({ ...p, logo: { ...p.logo!, size: v } }))} />
-                    <Slider label="Непрозрачность" value={project.logo.opacity} min={0.1} max={1} step={0.05} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => commit((p) => ({ ...p, logo: { ...p.logo!, opacity: v } }))} />
-                  </>
-                )}
-              </>
-            )}
-
-            {tab === "ai" && (
-              <>
-                <h4>Паузы и паразиты</h4>
-                {stats && (
-                  <p className="mt-hint">
-                    Сейчас {fmtTime(stats.before)} → станет {fmtTime(stats.after)}. Звуков «э-э»: {stats.removedSounds}, паразитов: {stats.removedWords}, запинок: {stats.removedRepeats}.
-                    {stats.untranscribed ? ` Без расшифровки кусков: ${stats.untranscribed} — их чистка не тронет.` : ""}
-                  </p>
-                )}
-                {sources.some((s) => !transcripts[s]) && (
-                  <button className="btn btn-secondary btn-block" disabled={!!busy} onClick={transcribeSources}>Расшифровать записи проекта</button>
-                )}
-                <button className="btn btn-primary btn-block" disabled={!!busy} onClick={() => cleanup(false)}>🧹 Почистить весь ролик</button>
-                <button className="btn btn-secondary btn-block" disabled={!!busy || !selClip} onClick={() => cleanup(true)}>Только выбранный кусок</button>
-                <p className="mt-hint">
-                  Режется по словам: «э-э» и «м-м» всегда, паузы — до короткого вдоха, запинки «я я», паразиты — по настройке во вкладке «ИИ-монтажёр».
-                  Каждый второй кусок слегка приближается, чтобы рез не выглядел прыжком.
-                </p>
-                <h4>Моушн-дизайн</h4>
-                <p className="mt-hint">
-                  Соберите ролик (⬇ Экспорт) и нажмите «моушн-дизайн поверх» — он уйдёт в «Видео-сторис» вместе с текстом и дизайн-системой:
-                  плашки, инфографика, иконки, сцены со швами.
-                </p>
-              </>
-            )}
+            {tab === "media" && <MediaPanel ctx={ctx} />}
+            {tab === "stock" && <StockPanel ctx={ctx} />}
+            {tab === "audio" && <AudioPanel ctx={ctx} />}
+            {tab === "text" && <TextPanel ctx={ctx} />}
+            {tab === "captions" && <CaptionsPanel ctx={ctx} />}
+            {tab === "effects" && <EffectsPanel ctx={ctx} />}
+            {tab === "filters" && <FiltersPanel ctx={ctx} />}
+            {tab === "transitions" && <TransitionsPanel ctx={ctx} />}
+            {tab === "design" && <DesignPanel ctx={ctx} />}
+            {tab === "ai" && <AIPanel ctx={ctx} onMotion={motion} />}
           </div>
         </aside>
 
@@ -587,33 +475,37 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
             <MontagePreview
               project={project}
               scheme={scheme}
+              options={options}
               time={time}
               playing={playing}
               words={words}
+              selection={selection}
               onTime={setTime}
               onEnded={() => setPlaying(false)}
+              onSelect={setSelection}
+              onLayerTransform={onLayerTransform}
+              onTextMove={onTextMove}
             />
           </div>
           <div className="mt-transport">
-            <button className="btn btn-secondary" onClick={() => setTime(0)} title="В начало">⏮</button>
+            <button className="btn btn-secondary" onClick={() => setTime(0)} title="В начало (Home)">⏮</button>
             <button className="btn btn-primary mt-play" onClick={() => setPlaying((v) => !v)} title="Пробел">{playing ? "⏸" : "▶"}</button>
             <span className="mt-clock">{fmtTime(time, true)} / {fmtTime(duration, true)}</span>
-            <span className="mt-dim">{preset ? `${project.canvas.width}×${project.canvas.height}` : ""}</span>
+            <span className="mt-dim">{project.canvas.width}×{project.canvas.height}</span>
           </div>
         </section>
 
         <aside className="mt-right">
-          {selClip && (
-            <ClipInspector clip={selClip} options={options} srcDuration={durations[selClip.src] || 0} patch={(p) => patchClip(selClip.id, p)} transcribed={!!transcripts[selClip.src]} onClean={() => cleanup(true)} />
-          )}
-          {selText && <TextInspector text={selText} options={options} patch={(p) => patchText(selText.id, p)} />}
-          {selAudio && <AudioInspector audio={selAudio} patch={(p) => patchAudio(selAudio.id, p)} />}
+          {selClip && <ClipInspector ctx={ctx} clip={selClip} />}
+          {selLayer && <LayerInspector ctx={ctx} layer={selLayer} seek={(t) => setTime(t)} />}
+          {selText && <TextInspector ctx={ctx} text={selText} />}
+          {selAudio && <AudioInspector ctx={ctx} audio={selAudio} />}
           {!selection && (
             <div className="mt-transcript">
               <h4>Текст ролика</h4>
               {!words.length && (
                 <p className="mt-hint">
-                  {sources.length ? "Записи не расшифрованы — расшифруйте во вкладке «ИИ» слева, и здесь можно будет резать по тексту." : "Пока пусто."}
+                  {sources.length ? "Записи не расшифрованы — вкладка «ИИ» слева, и здесь можно будет резать по тексту." : "Выберите кусок, слой, надпись или звук — здесь появятся их настройки."}
                 </p>
               )}
               {words.length > 0 && <p className="mt-hint">Щелчок — перейти к слову. Shift+щелчок — выделить кусок, Delete — вырезать его из ролика.</p>}
@@ -653,8 +545,16 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
       <div className="mt-toolbar">
         <button className="btn btn-secondary" onClick={split} title="Разрезать под бегунком (S)">✂ Разрезать</button>
         <button className="btn btn-secondary" disabled={!selection} onClick={remove} title="Удалить (Delete)">🗑 Удалить</button>
-        <button className="btn btn-secondary" disabled={!selection || selection.kind === "audio"} onClick={duplicate}>⧉ Копия</button>
-        <button className="btn btn-secondary" onClick={() => addText("title", "Текст")}>+ Текст</button>
+        <button className="btn btn-secondary" disabled={!selection} onClick={duplicate} title="Копия (Ctrl+D)">⧉ Копия</button>
+        <button className="btn btn-secondary" onClick={() => { setTab("text"); }}>+ Текст</button>
+        <button className="btn btn-secondary" onClick={async () => {
+          const f = await window.api.montagePickFile("overlay");
+          if (!f) return;
+          const probe = await window.api.montageProbe(f).catch(() => null);
+          const item: BinItem = { path: f, kind: /\.(png|jpe?g|webp|gif)$/i.test(f) ? "image" : "video", duration: probe?.duration || 3 };
+          addToBin([item]);
+          place(item, "layer");
+        }} title="Картинка в картинке, стикер, логотип, перебивка">▣ Слой</button>
         <button className="btn btn-secondary" disabled={!!busy || !project.clips.length} onClick={() => cleanup(false)} title="Убрать паузы, «э-э», паразиты и запинки">🧹 Почистить</button>
         <div className="mt-spacer" />
         <span className="mt-dim">Масштаб</span>
@@ -676,300 +576,8 @@ export default function MontageEditor({ options, config, initial, onSaved, onClo
         onLive={onLive}
         onCommit={onCommit}
       />
-    </div>
-  );
-}
 
-// ---------- мелкие части ----------
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="mt-field">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function Slider({ label, value, min, max, step, fmt, onChange }: { label: string; value: number; min: number; max: number; step: number; fmt?: (v: number) => string; onChange: (v: number) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  return (
-    <label className="mt-field">
-      <span>
-        {label} <b>{fmt ? fmt(draft) : draft}</b>
-      </span>
-      {/* Значение уходит в историю правок по отпусканию: иначе каждый пиксель ползунка — отдельная отмена. */}
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={draft}
-        onChange={(e) => setDraft(Number(e.target.value))}
-        onMouseUp={() => draft !== value && onChange(draft)}
-        onKeyUp={() => draft !== value && onChange(draft)}
-        onBlur={() => draft !== value && onChange(draft)}
-      />
-    </label>
-  );
-}
-
-function NumberField({ label, value, step = 0.1, min, max, onChange }: { label: string; value: number; step?: number; min?: number; max?: number; onChange: (v: number) => void }) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const done = () => {
-    const v = Number(draft.replace(",", "."));
-    if (!Number.isFinite(v)) return setDraft(String(value));
-    const c = clamp(v, min ?? -Infinity, max ?? Infinity);
-    if (c !== value) onChange(round3(c));
-    else setDraft(String(value));
-  };
-  return (
-    <label className="mt-field mt-num">
-      <span>{label}</span>
-      <input type="number" step={step} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={done} onKeyDown={(e) => e.key === "Enter" && done()} />
-    </label>
-  );
-}
-
-function BinCard({ item, onAdd, onRemove }: { item: BinItem; onAdd: () => void; onRemove: () => void }) {
-  const [thumb, setThumb] = useState("");
-  useEffect(() => {
-    if (item.kind === "audio") return;
-    window.api.montageThumbs(item.path, { count: 1, height: 90 }).then(setThumb).catch(() => {});
-  }, [item.path, item.kind]);
-  return (
-    <div className="mt-bin-card" onClick={onAdd} title={`${item.path}\nНажмите — добавить на дорожку`}>
-      <div className="mt-bin-thumb" style={thumb ? { backgroundImage: `url(${thumb})` } : undefined}>
-        {item.kind === "audio" ? "♪" : !thumb ? "…" : ""}
-        {item.duration > 0 && <i>{fmtTime(item.duration)}</i>}
-      </div>
-      <span>{fileName(item.path)}</span>
-      <button
-        className="mt-bin-x"
-        title="Убрать из проекта (файл останется на диске)"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-function CaptionsPanel({ project, options, commit, transcribed, total, onTranscribe, busy }: {
-  project: MontageProject;
-  options: MontageOptions;
-  commit: (fn: (p: MontageProject) => MontageProject) => void;
-  transcribed: number;
-  total: number;
-  onTranscribe: () => void;
-  busy: boolean;
-}) {
-  const cap = project.captions;
-  const set = (patch: Partial<MontageProject["captions"]>) => commit((p) => ({ ...p, captions: { ...p.captions, ...patch } }));
-  return (
-    <>
-      <label className="mt-check">
-        <input type="checkbox" checked={cap.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
-        Субтитры по словам
-      </label>
-      {total > transcribed && (
-        <>
-          <p className="mt-hint">Расшифровано записей: {transcribed} из {total}. Субтитры берутся из расшифровки.</p>
-          <button className="btn btn-secondary btn-block" disabled={busy} onClick={onTranscribe}>Расшифровать</button>
-        </>
-      )}
-      <div className="mt-cap-styles">
-        {options.captionStyles.map((s) => (
-          <button key={s.id} className={`mt-cap-style ${cap.style === s.id ? "on" : ""}`} onClick={() => set({ style: s.id, enabled: true })} title={s.hint}>
-            <b className={`demo s-${s.id}`} style={{ ["--hl" as string]: cap.highlight }}>
-              {s.id === "pop" ? "СЛОВО" : <>это <i>слово</i></>}
-            </b>
-            <small>{s.name}</small>
-          </button>
-        ))}
-      </div>
-      <Field label="Шрифт">
-        <div className="mt-row">
-          <button
-            className="btn btn-secondary"
-            onClick={async () => {
-              const f = await window.api.montagePickFile("font");
-              if (f) set({ fontPath: f, font: fileName(f).replace(/\.[^.]+$/, "") });
-            }}
-          >
-            {cap.fontPath ? fileName(cap.fontPath) : "Файл шрифта…"}
-          </button>
-          {cap.fontPath && <button className="link-btn" onClick={() => set({ fontPath: "", font: "" })}>системный</button>}
-        </div>
-      </Field>
-      <Slider label="Размер" value={cap.size} min={36} max={160} step={2} onChange={(v) => set({ size: v })} />
-      <div className="mt-row">
-        <Field label="Цвет"><input type="color" value={cap.color} onChange={(e) => set({ color: e.target.value })} /></Field>
-        <Field label="Акцент"><input type="color" value={cap.highlight} onChange={(e) => set({ highlight: e.target.value })} /></Field>
-        <Field label="Обводка"><input type="color" value={cap.outline} onChange={(e) => set({ outline: e.target.value })} /></Field>
-      </div>
-      <Field label="Где">
-        <select value={cap.position} onChange={(e) => set({ position: e.target.value as MontageProject["captions"]["position"] })}>
-          <option value="bottom">снизу</option>
-          <option value="center">по центру</option>
-          <option value="top">сверху</option>
-        </select>
-      </Field>
-      <Slider label="Слов в строке" value={cap.wordsPerLine} min={1} max={8} step={1} onChange={(v) => set({ wordsPerLine: v })} />
-      <label className="mt-check">
-        <input type="checkbox" checked={cap.upper} onChange={(e) => set({ upper: e.target.checked })} />
-        ЗАГЛАВНЫМИ
-      </label>
-    </>
-  );
-}
-
-function ClipInspector({ clip, options, srcDuration, patch, transcribed, onClean }: {
-  clip: MontageClip;
-  options: MontageOptions;
-  srcDuration: number;
-  patch: (p: Partial<MontageClip>) => void;
-  transcribed: boolean;
-  onClean: () => void;
-}) {
-  return (
-    <div className="mt-inspector">
-      <h4 title={clip.src}>{clip.kind === "image" ? "🖼" : "🎬"} {fileName(clip.src)}</h4>
-      <div className="mt-row">
-        <NumberField label="С (сек исходника)" value={clip.in} min={0} max={clip.out - 0.05} onChange={(v) => patch({ in: v })} />
-        <NumberField label="По" value={clip.out} min={clip.in + 0.05} max={srcDuration || undefined} onChange={(v) => patch({ out: v })} />
-      </div>
-      <Slider label="Скорость" value={clip.speed} min={0.25} max={4} step={0.05} fmt={(v) => `×${v}`} onChange={(v) => patch({ speed: v })} />
-      {clip.kind !== "image" && (
-        <>
-          <Slider label="Громкость" value={clip.volume} min={0} max={3} step={0.05} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ volume: v })} />
-          <label className="mt-check">
-            <input type="checkbox" checked={clip.muted} onChange={(e) => patch({ muted: e.target.checked })} /> Без звука
-          </label>
-        </>
-      )}
-      <div className="mt-row">
-        <NumberField label="Появление, с" value={clip.fadeIn} min={0} max={5} onChange={(v) => patch({ fadeIn: v })} />
-        <NumberField label="Затухание, с" value={clip.fadeOut} min={0} max={5} onChange={(v) => patch({ fadeOut: v })} />
-      </div>
-      <h4>Переход в этот кусок</h4>
-      <div className="mt-row">
-        <select value={clip.transition.kind} onChange={(e) => patch({ transition: { ...clip.transition, kind: e.target.value } })}>
-          {options.transitions.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
-        {clip.transition.kind !== "none" && (
-          <NumberField label="с" value={clip.transition.duration} min={0.1} max={2} onChange={(v) => patch({ transition: { ...clip.transition, duration: v } })} />
-        )}
-      </div>
-      <h4>Кадр</h4>
-      <Field label="Вписать">
-        <select value={clip.fit} onChange={(e) => patch({ fit: e.target.value })}>
-          <option value="">как у проекта</option>
-          {options.fits.map((f) => (
-            <option key={f.id} value={f.id}>{f.name}</option>
-          ))}
-        </select>
-      </Field>
-      <Slider label="Приближение" value={clip.zoom} min={1} max={2.5} step={0.02} fmt={(v) => `×${v.toFixed(2)}`} onChange={(v) => patch({ zoom: v })} />
-      <Slider label="Центр по горизонтали" value={clip.focusX} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ focusX: v })} />
-      <Slider label="Центр по вертикали" value={clip.focusY} min={0} max={1} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ focusY: v })} />
-      <h4>Цвет</h4>
-      <Field label="Фильтр">
-        <select value={clip.adjust.filter} onChange={(e) => patch({ adjust: { ...clip.adjust, filter: e.target.value } })}>
-          {options.filters.map((f) => (
-            <option key={f.id} value={f.id}>{f.name}</option>
-          ))}
-        </select>
-      </Field>
-      <Slider label="Яркость" value={clip.adjust.brightness} min={-0.5} max={0.5} step={0.01} onChange={(v) => patch({ adjust: { ...clip.adjust, brightness: v } })} />
-      <Slider label="Контраст" value={clip.adjust.contrast} min={0.5} max={2} step={0.01} onChange={(v) => patch({ adjust: { ...clip.adjust, contrast: v } })} />
-      <Slider label="Насыщенность" value={clip.adjust.saturation} min={0} max={3} step={0.01} onChange={(v) => patch({ adjust: { ...clip.adjust, saturation: v } })} />
-      {clip.kind === "video" && (
-        <button className="btn btn-secondary btn-block" disabled={!transcribed} onClick={onClean} title={transcribed ? "" : "Сначала расшифруйте запись"}>
-          🧹 Убрать паузы в этом куске
-        </button>
-      )}
-    </div>
-  );
-}
-
-function TextInspector({ text, options, patch }: { text: MontageText; options: MontageOptions; patch: (p: Partial<MontageText>) => void }) {
-  const [draft, setDraft] = useState(text.text);
-  useEffect(() => setDraft(text.text), [text.id, text.text]);
-  return (
-    <div className="mt-inspector">
-      <h4>Надпись</h4>
-      <textarea rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={() => draft !== text.text && patch({ text: draft })} />
-      <div className="mt-row">
-        <NumberField label="С, сек" value={text.start} min={0} max={text.end - 0.1} onChange={(v) => patch({ start: v })} />
-        <NumberField label="По" value={text.end} min={text.start + 0.1} onChange={(v) => patch({ end: v })} />
-      </div>
-      <Field label="Стиль">
-        <select value={text.style} onChange={(e) => patch({ style: e.target.value })}>
-          {options.textStyles.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Анимация">
-        <select value={text.animation} onChange={(e) => patch({ animation: e.target.value })}>
-          {options.textAnimations.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Где">
-        <select value={text.position} onChange={(e) => patch({ position: e.target.value as MontageText["position"] })}>
-          <option value="">по стилю</option>
-          <option value="top">сверху</option>
-          <option value="center">по центру</option>
-          <option value="bottom">снизу</option>
-        </select>
-      </Field>
-      <Slider label="Размер" value={text.size || 0} min={0} max={220} step={2} fmt={(v) => (v ? String(v) : "по стилю")} onChange={(v) => patch({ size: v })} />
-      <div className="mt-row">
-        <Field label="Цвет букв">
-          <input type="color" value={text.color || "#ffffff"} onChange={(e) => patch({ color: e.target.value })} />
-        </Field>
-        <Field label="Подложка">
-          <input type="color" value={text.bg || "#000000"} onChange={(e) => patch({ bg: e.target.value })} />
-        </Field>
-        {(text.color || text.bg) && <button className="link-btn" onClick={() => patch({ color: "", bg: "" })}>как в стиле</button>}
-      </div>
-      <label className="mt-check">
-        <input type="checkbox" checked={text.upper} onChange={(e) => patch({ upper: e.target.checked })} /> ЗАГЛАВНЫМИ
-      </label>
-    </div>
-  );
-}
-
-function AudioInspector({ audio, patch }: { audio: MontageAudio; patch: (p: Partial<MontageAudio>) => void }) {
-  return (
-    <div className="mt-inspector">
-      <h4>♪ {fileName(audio.src)}</h4>
-      <div className="mt-row">
-        <NumberField label="Старт в ролике" value={audio.start} min={0} onChange={(v) => patch({ start: v })} />
-        <NumberField label="С (в файле)" value={audio.in} min={0} max={audio.out - 0.2} onChange={(v) => patch({ in: v })} />
-        <NumberField label="По" value={audio.out} min={audio.in + 0.2} onChange={(v) => patch({ out: v })} />
-      </div>
-      <Slider label="Громкость" value={audio.volume} min={0} max={2} step={0.01} fmt={(v) => `${Math.round(v * 100)}%`} onChange={(v) => patch({ volume: v })} />
-      <div className="mt-row">
-        <NumberField label="Появление, с" value={audio.fadeIn} min={0} max={10} onChange={(v) => patch({ fadeIn: v })} />
-        <NumberField label="Затухание, с" value={audio.fadeOut} min={0} max={10} onChange={(v) => patch({ fadeOut: v })} />
-      </div>
-      <label className="mt-check">
-        <input type="checkbox" checked={audio.duck} onChange={(e) => patch({ duck: e.target.checked })} /> Приглушать под голос
-      </label>
-      <label className="mt-check">
-        <input type="checkbox" checked={audio.loop} onChange={(e) => patch({ loop: e.target.checked })} /> Повторять по кругу
-      </label>
+      {exporting && <MontageExport options={options} project={project} onClose={() => setExporting(false)} onDone={() => setNotice("Экспорт готов — файлы в папке готовых роликов.")} />}
     </div>
   );
 }

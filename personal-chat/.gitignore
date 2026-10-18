@@ -33,3 +33,6 @@ licence-config.json
 # Предустановленные навыки и ключ конкретной сборки — не код, а материалы автора.
 bundled-skills/
 managed-config.json
+
+# Сборка отдельной программы «Монтаж».
+release-montage

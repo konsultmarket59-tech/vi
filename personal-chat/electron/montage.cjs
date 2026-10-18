@@ -17,6 +17,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const fx = require("./montagefx.cjs");
 
 // ---------- холст, фильтры, переходы ----------
 
@@ -39,48 +40,11 @@ const FIT_MODES = [
   { id: "fit", name: "Вписать с полями" },
 ];
 
-/** Фильтры — именованные наборы цветокоррекции, как в CapCut. */
-const FILTERS = [
-  { id: "none", name: "Без фильтра", vf: "" },
-  { id: "vivid", name: "Сочный", vf: "eq=saturation=1.3:contrast=1.06" },
-  { id: "warm", name: "Тёплый", vf: "colorbalance=rs=0.07:gs=0.02:bs=-0.07:rm=0.04:bm=-0.04" },
-  { id: "cold", name: "Холодный", vf: "colorbalance=rs=-0.06:bs=0.08:rm=-0.03:bm=0.05" },
-  { id: "film", name: "Плёнка", vf: "curves=preset=vintage" },
-  { id: "contrast", name: "Контраст", vf: "curves=preset=medium_contrast" },
-  { id: "soft", name: "Мягкий", vf: "curves=preset=lighter,eq=saturation=0.9" },
-  { id: "bw", name: "Чёрно-белый", vf: "hue=s=0,eq=contrast=1.1" },
-  { id: "cinema", name: "Кино (бирюза и оранж)", vf: "colorbalance=rs=0.05:bs=-0.05:rh=-0.04:bh=0.06,eq=contrast=1.05:saturation=1.1" },
-];
-
-/** Переходы — имена фильтра xfade, подписанные по-человечески. */
-const TRANSITIONS = [
-  { id: "none", name: "Склейка (без перехода)" },
-  { id: "fade", name: "Растворение" },
-  { id: "fadeblack", name: "Через чёрный" },
-  { id: "fadewhite", name: "Через белый (вспышка)" },
-  { id: "slideleft", name: "Сдвиг влево" },
-  { id: "slideright", name: "Сдвиг вправо" },
-  { id: "slideup", name: "Сдвиг вверх" },
-  { id: "smoothleft", name: "Плавный сдвиг" },
-  { id: "zoomin", name: "Наезд" },
-  { id: "circleopen", name: "Круг" },
-  { id: "wipeleft", name: "Шторка" },
-  { id: "dissolve", name: "Зерно" },
-  { id: "radial", name: "Радар" },
-];
-
-/**
- * Стили субтитров.
- * Подсветка активного слова — то, ради чего субтитры по словам вообще делают:
- * взгляд держится за подсвеченное слово и успевает за речью.
- */
-const CAPTION_STYLES = [
-  { id: "karaoke", name: "Подсветка слова", hint: "Строка целиком, говорящееся слово — акцентом и чуть крупнее." },
-  { id: "bold", name: "Крупно, по 2–3 слова", hint: "ЗАГЛАВНЫМИ, толстая обводка, активное слово акцентом — как у блогеров." },
-  { id: "pop", name: "По одному слову", hint: "Одно слово в центре, выпрыгивает. Для динамичных роликов." },
-  { id: "box", name: "Плашка", hint: "Строка на подложке, активное слово акцентом. Читается на любом фоне." },
-  { id: "clean", name: "Простые", hint: "Белые с обводкой, без подсветки. Для интервью и обучающих." },
-];
+// Фильтры, переходы и стили субтитров живут в montagefx.cjs вместе с тем, как
+// их показывает предпросмотр: одна таблица на сборку и на окно.
+const FILTERS = fx.FILTERS;
+const TRANSITIONS = fx.TRANSITIONS;
+const CAPTION_STYLES = fx.CAPTION_STYLES;
 
 /** Стили надписей поверх ролика. */
 const TEXT_STYLES = [
@@ -432,12 +396,30 @@ function defaultCaptions() {
   };
 }
 
+function normalizeEffects(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((e) => e && fx.EFFECTS.some((x) => x.id === e.kind))
+    .map((e) => ({ id: e.id || uid("fx"), kind: e.kind, amount: clamp(num(e.amount, 0.5), 0, 1) }));
+}
+
+function normalizeAdjust(adj = {}) {
+  return {
+    brightness: clamp(num(adj.brightness, 0), -0.5, 0.5),
+    contrast: clamp(num(adj.contrast, 1), 0.5, 2),
+    saturation: clamp(num(adj.saturation, 1), 0, 3),
+    filter: FILTERS.some((f) => f.id === adj.filter) ? adj.filter : "none",
+    // Сила фильтра: 1 — как задуман, меньше — смешан с исходником.
+    filterAmount: clamp(num(adj.filterAmount, 1), 0, 1),
+    lut: typeof adj.lut === "string" ? adj.lut : "",
+  };
+}
+
 function normalizeClip(raw = {}) {
   const kind = raw.kind || mediaKind(raw.src) || "video";
   const inn = Math.max(0, num(raw.in, 0));
   const out = Math.max(inn + 0.05, num(raw.out, inn + (kind === "image" ? 3 : 1)));
   const tr = raw.transition || {};
-  const adj = raw.adjust || {};
   return {
     id: raw.id || uid("clip"),
     src: String(raw.src || ""),
@@ -455,14 +437,59 @@ function normalizeClip(raw = {}) {
     focusX: clamp(num(raw.focusX, 0.5), 0, 1),
     focusY: clamp(num(raw.focusY, 0.5), 0, 1),
     zoom: clamp(num(raw.zoom, 1), 1, 3),
-    adjust: {
-      brightness: clamp(num(adj.brightness, 0), -0.5, 0.5),
-      contrast: clamp(num(adj.contrast, 1), 0.5, 2),
-      saturation: clamp(num(adj.saturation, 1), 0, 3),
-      filter: FILTERS.some((f) => f.id === adj.filter) ? adj.filter : "none",
+    adjust: normalizeAdjust(raw.adjust),
+    effects: normalizeEffects(raw.effects),
+    // Положение, масштаб, поворот и прозрачность кадра — и их ключевые точки
+    // (время — от начала куска на выходе).
+    transform: fx.normalizeTransform(raw.transform),
+    keyframes: fx.normalizeKeyframes(raw.keyframes),
+    reverse: !!raw.reverse,
+    audioEffect: fx.AUDIO_FX.some((a) => a.id === raw.audioEffect) ? raw.audioEffect : "none",
+    label: String(raw.label || ""),
+  };
+}
+
+const LAYER_TRANSFORM = { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, opacity: 1 };
+
+/**
+ * Слой поверх главной дорожки — картинка в картинке, стикер, логотип,
+ * перебивка с хромакеем. scale — ширина слоя в долях ширины кадра.
+ */
+function normalizeLayer(raw = {}) {
+  const kind = raw.kind || mediaKind(raw.src) || "video";
+  const inn = Math.max(0, num(raw.in, 0));
+  const out = Math.max(inn + 0.1, num(raw.out, inn + (kind === "image" ? 3 : 5)));
+  const ch = raw.chroma || {};
+  return {
+    id: raw.id || uid("layer"),
+    src: String(raw.src || ""),
+    kind,
+    track: clamp(Math.round(num(raw.track, 1)), 1, 8),
+    start: round3(Math.max(0, num(raw.start, 0))),
+    in: round3(inn),
+    out: round3(out),
+    speed: clamp(num(raw.speed, 1), SPEED_MIN, SPEED_MAX),
+    volume: clamp(num(raw.volume, 1), 0, 4),
+    muted: raw.muted === undefined ? false : !!raw.muted,
+    fadeIn: clamp(num(raw.fadeIn, 0), 0, 5),
+    fadeOut: clamp(num(raw.fadeOut, 0), 0, 5),
+    transform: fx.normalizeTransform(raw.transform, LAYER_TRANSFORM),
+    keyframes: fx.normalizeKeyframes(raw.keyframes, LAYER_TRANSFORM),
+    effects: normalizeEffects(raw.effects),
+    adjust: normalizeAdjust(raw.adjust),
+    mask: ["none", "circle", "rounded"].includes(raw.mask) ? raw.mask : "none",
+    chroma: {
+      enabled: !!ch.enabled,
+      color: /^#[0-9a-f]{6}$/i.test(ch.color || "") ? ch.color : "#00FF00",
+      similarity: clamp(num(ch.similarity, 0.18), 0.01, 0.6),
+      blend: clamp(num(ch.blend, 0.08), 0, 0.5),
     },
     label: String(raw.label || ""),
   };
+}
+
+function layerDuration(layer) {
+  return Math.max(0.04, (layer.out - layer.in) / (layer.speed || 1));
 }
 
 function normalizeText(raw = {}) {
@@ -479,22 +506,29 @@ function normalizeText(raw = {}) {
     color: raw.color || "",
     bg: raw.bg || "",
     upper: raw.upper === undefined ? true : !!raw.upper,
+    // Своё место в кадре (доли), если надпись перетащили мышью в предпросмотре.
+    x: Number.isFinite(Number(raw.x)) && raw.x !== null && raw.x !== "" ? clamp(Number(raw.x), 0, 1) : null,
+    y: Number.isFinite(Number(raw.y)) && raw.y !== null && raw.y !== "" ? clamp(Number(raw.y), 0, 1) : null,
   };
 }
 
 function normalizeAudio(raw = {}) {
   const inn = Math.max(0, num(raw.in, 0));
+  // Звуковой эффект — короткий и громкий, под голос не приседает; музыка — фоном.
+  const kind = ["music", "sfx", "voice"].includes(raw.kind) ? raw.kind : "music";
   return {
+    kind,
+    effect: fx.AUDIO_FX.some((a) => a.id === raw.effect) ? raw.effect : "none",
     id: raw.id || uid("audio"),
     src: String(raw.src || ""),
     start: round3(Math.max(0, num(raw.start, 0))),
     in: round3(inn),
     out: round3(Math.max(inn + 0.1, num(raw.out, inn + 30))),
-    volume: clamp(num(raw.volume, 0.25), 0, 4),
-    fadeIn: clamp(num(raw.fadeIn, 0.5), 0, 10),
-    fadeOut: clamp(num(raw.fadeOut, 1.5), 0, 10),
+    volume: clamp(num(raw.volume, kind === "music" ? 0.25 : 1), 0, 4),
+    fadeIn: clamp(num(raw.fadeIn, kind === "music" ? 0.5 : 0), 0, 10),
+    fadeOut: clamp(num(raw.fadeOut, kind === "music" ? 1.5 : 0.05), 0, 10),
     // Приглушать музыку, пока звучит голос.
-    duck: raw.duck === undefined ? true : !!raw.duck,
+    duck: raw.duck === undefined ? kind === "music" : !!raw.duck,
     loop: !!raw.loop,
   };
 }
@@ -519,6 +553,7 @@ function normalizeProject(raw = {}) {
     clips: (raw.clips || []).map(normalizeClip).filter((c) => c.src),
     texts: (raw.texts || []).map(normalizeText),
     audio: (raw.audio || []).map(normalizeAudio).filter((a) => a.src),
+    layers: (raw.layers || []).map(normalizeLayer).filter((l) => l.src),
     captions: { ...defaultCaptions(), ...(raw.captions || {}) },
     logo: raw.logo && raw.logo.path
       ? { path: String(raw.logo.path), corner: raw.logo.corner || "top-right", size: clamp(num(raw.logo.size, 0.14), 0.03, 0.5), opacity: clamp(num(raw.logo.opacity, 1), 0.1, 1) }
@@ -561,7 +596,10 @@ function layout(clips) {
 
 function projectDuration(project) {
   const main = layout(project.clips).duration;
-  const texts = project.texts.reduce((a, t) => Math.max(a, t.end), 0);
+  const texts = Math.max(
+    project.texts.reduce((a, t) => Math.max(a, t.end), 0),
+    (project.layers || []).reduce((a, l) => Math.max(a, l.start + layerDuration(l)), 0)
+  );
   // Музыка ролик не удлиняет: дорожка звука под ролик, а не ролик под музыку.
   return main || texts;
 }
@@ -744,11 +782,6 @@ function captionLines(words, { wordsPerLine = 4, maxChars = 28 } = {}) {
   return lines;
 }
 
-function captionText(word, upper) {
-  const t = upper ? word.toUpperCase() : word;
-  return assEscape(t);
-}
-
 /**
  * Файл субтитров и надписей.
  * @param {object} project
@@ -765,13 +798,23 @@ function buildAss(project, words, fonts = {}) {
   const style = cap.style;
   const posAlign = cap.position === "top" ? 8 : cap.position === "center" ? 5 : 2;
   const marginV = cap.position === "center" ? 0 : Math.round(H * (cap.position === "top" ? 0.12 : 0.16));
-  const outline = style === "bold" ? Math.round(7 * scale) : style === "box" ? Math.round(14 * scale) : Math.round(4 * scale);
-  const borderStyle = style === "box" ? 3 : 1;
-  const boxColor = style === "box" ? assColor("#000000", 0.35) : assColor(cap.outline || "#000000");
   const accent = cap.highlight || "#FFD400";
 
+  const st = CAPTION_STYLES.find((x) => x.id === style) || CAPTION_STYLES[0];
+  const colorOf = (c, fallback = "#FFFFFF") => (c === "accent" ? accent : c === "user" ? cap.color || "#FFFFFF" : c === "transparent" ? null : c || fallback);
+  const sc = (v) => Math.max(0, Math.round(v * scale));
+  const fill = colorOf(st.color);
+  const capFamily = fonts.family ? family : (st.font || cap.font || "Arial").replace(/,/g, " ");
+  const capSizeStyled = Math.round(capSize * (st.sizeMul || 1));
+  const stAlign = st.align === "left" ? (cap.position === "top" ? 7 : cap.position === "center" ? 4 : 1) : st.position === "center" ? 5 : posAlign;
+  const stMarginV = st.position === "center" ? 0 : marginV;
+  const boxed = !!st.box;
+  const boxCol = boxed ? assColor(colorOf(st.box, "#000000"), st.boxAlpha ?? 0.35) : null;
+  const outCol = assColor(colorOf(st.outline, "#000000"));
+  const shadowCol = assColor(colorOf(st.shadowColor, "#000000"), st.shadowColor ? 0 : 0.45);
+
   const styles = [
-    `Style: Caption,${family},${capSize},${assColor(cap.color)},${assColor(accent)},${boxColor},${style === "box" ? boxColor : assColor("#000000", 0.6)},1,0,0,0,100,100,0,0,${borderStyle},${outline},${style === "box" ? 0 : Math.round(2 * scale)},${posAlign},${Math.round(W * 0.07)},${Math.round(W * 0.07)},${marginV},1`,
+    `Style: Caption,${capFamily},${capSizeStyled},${fill ? assColor(fill) : assColor("#FFFFFF", 1)},${assColor(accent)},${boxed ? boxCol : outCol},${boxed ? boxCol : shadowCol},${st.bold === false ? 0 : 1},${st.italic ? 1 : 0},0,0,100,100,0,${-(st.rotate || 0)},${boxed ? 3 : 1},${boxed ? sc(14) : sc(st.outlineW ?? 4)},${boxed ? 0 : sc(st.shadow ?? 2)},${stAlign},${Math.round(W * 0.07)},${Math.round(W * 0.07)},${stMarginV},1`,
   ];
   const textStyles = {
     hook: { size: 76, align: 8, marginV: 0.1, box: true },
@@ -793,34 +836,69 @@ function buildAss(project, words, fonts = {}) {
     events.push(`Dialogue: ${layer},${assTime(start)},${assTime(end)},${styleName},,0,0,0,,${text}`);
 
   if (cap.enabled && words.length) {
-    const upper = !!cap.upper || style === "bold";
-    const accentTag = `{\\c${assColor(accent)}}`;
-    const reset = "{\\r}";
-    if (style === "pop") {
+    const upper = !!cap.upper || !!st.upper;
+    const caseOf = (w, forceUpper) => {
+      const t = forceUpper || upper ? w.toUpperCase() : st.lower ? w.toLowerCase() : w;
+      return assEscape(t);
+    };
+    const act = st.active || {};
+    const S = Math.round((act.scale || 1) * 100);
+    const activeTags = () => {
+      const t = [];
+      const c = colorOf(act.color, "");
+      if (c) t.push(`\\c${assColor(c)}\\1a&H00&`);
+      if (act.box) t.push(`\\3c${assColor(colorOf(act.box))}\\4c${assColor(colorOf(act.box))}\\bord${sc(16)}\\shad0\\blur0`);
+      if (act.underline) t.push("\\u1");
+      if (act.anim === "pop") t.push(`\\fscx${Math.round(S * 0.7)}\\fscy${Math.round(S * 0.7)}\\t(0,90,\\fscx${Math.round(S * 1.08)}\\fscy${Math.round(S * 1.08)})\\t(90,170,\\fscx${S}\\fscy${S})`);
+      else if (act.anim === "bounce") t.push(`\\fscx${S}\\fscy${S}\\t(0,90,\\fscy${Math.round(S * 1.28)})\\t(90,190,\\fscy${S})`);
+      else if (act.anim === "fade") t.push("\\alpha&HFF&\\t(0,200,\\alpha&H00&)");
+      else if (act.anim === "jitter") t.push(`\\xshad${sc(-5)}\\yshad${sc(2)}\\4c${assColor("#FF0040")}`);
+      else if (S !== 100) t.push(`\\fscx${S}\\fscy${S}`);
+      return t.join("");
+    };
+    // Свечение — отдельным слоем под буквами: размытая обводка без заливки.
+    // Размой ту же заливку — и буквы станут мутными, а не светящимися.
+    const glowCopy = (start, end, text) => {
+      if (!st.glow) return;
+      const g = colorOf(st.outline, accent);
+      ev(0, start, end, "Caption", `{\\1a&HFF&\\3c${assColor(g)}\\bord${sc((st.outlineW || 4) + st.glow)}\\blur${sc(st.glow)}\\shad0}${text.replace(/\{[^}]*\}/g, "")}`);
+    };
+    const emit = (start, end, text) => {
+      if (end - start < 0.01) return;
+      glowCopy(start, end, text);
+      ev(1, start, end, "Caption", text);
+    };
+    const quiet = !act.color && !act.box && !act.underline && !act.anim && !act.scale && st.reveal === "line";
+    if (st.reveal === "word") {
       for (let i = 0; i < words.length; i++) {
         const w = words[i];
         const next = words[i + 1];
         const end = next ? Math.min(next.s, w.e + 0.5) : w.e + 0.4;
-        ev(1, w.s, Math.max(end, w.s + 0.12), "Caption", `{\\an5\\fscx70\\fscy70\\t(0,90,\\fscx108\\fscy108)\\t(90,160,\\fscx100\\fscy100)}${captionText(w.w, upper)}`);
+        emit(w.s, Math.max(end, w.s + 0.12), `{${activeTags()}}${caseOf(w.w, act.upper)}`);
       }
     } else {
-      const per = style === "bold" ? Math.min(3, cap.wordsPerLine || 3) : cap.wordsPerLine || 4;
-      for (const line of captionLines(words, { wordsPerLine: per, maxChars: style === "bold" ? 20 : 30 })) {
-        if (style === "clean") {
-          ev(1, line.start, line.end, "Caption", line.words.map((w) => captionText(w.w, upper)).join(" "));
+      const per = Math.max(1, Math.min(st.per || 4, cap.wordsPerLine || st.per || 4));
+      const maxChars = per <= 3 ? 20 : per >= 6 ? 40 : 30;
+      for (const line of captionLines(words, { wordsPerLine: per, maxChars })) {
+        if (quiet) {
+          emit(line.start, line.end, line.words.map((w) => caseOf(w.w)).join(" "));
           continue;
         }
-        // По событию на каждое слово: строка та же, подсвечено говорящееся.
+        // По событию на каждое слово: строка та же, меняется говорящееся.
         line.words.forEach((w, k) => {
           const start = k === 0 ? line.start : w.s;
           const end = k === line.words.length - 1 ? line.end : line.words[k + 1].s;
-          if (end - start < 0.01) return;
-          const pop = style === "bold" || style === "karaoke" ? "\\fscx112\\fscy112" : "";
           const text = line.words
-            .map((x, j) => (j === k ? `${accentTag}{${pop}}${captionText(x.w, upper)}${reset}` : captionText(x.w, upper)))
+            .map((x, j) => {
+              if (j === k) return `{${activeTags()}}${caseOf(x.w, act.upper)}{\\r}`;
+              // Будущие слова при накоплении нарисованы прозрачными — строка
+              // сразу встаёт на своё место и не прыгает с каждым новым словом.
+              if (st.reveal === "accumulate" && j > k) return `{\\alpha&HFF&}${caseOf(x.w)}{\\r}`;
+              return caseOf(x.w);
+            })
             .join(" ")
-            .replace(/\}\{/g, "");
-          ev(1, start, end, "Caption", text);
+            .replace(/\{\}/g, "");
+          emit(start, end, text);
         });
       }
     }
@@ -828,7 +906,8 @@ function buildAss(project, words, fonts = {}) {
 
   for (const t of project.texts) {
     const tags = [];
-    if (t.position) tags.push(`\\an${t.position === "top" ? 8 : t.position === "center" ? 5 : 2}`);
+    if (t.x !== null && t.x !== undefined && t.y !== null && t.y !== undefined) tags.push(`\\an5\\pos(${Math.round(t.x * W)},${Math.round(t.y * H)})`);
+    else if (t.position) tags.push(`\\an${t.position === "top" ? 8 : t.position === "center" ? 5 : 2}`);
     if (t.size) tags.push(`\\fs${Math.round(t.size * scale)}`);
     if (t.color) tags.push(`\\c${assColor(t.color)}`);
     if (t.bg) tags.push(`\\3c${assColor(t.bg)}\\4c${assColor(t.bg)}`);
@@ -893,35 +972,71 @@ function atempoChain(speed) {
   return parts;
 }
 
-/** Цепочка видео для куска: кадрирование под холст, цвет, скорость. */
-function clipVideoFilter(clip, canvas) {
+/**
+ * Цвет куска: яркость/контраст/насыщенность, фильтр с силой и свой LUT.
+ * n — уникальная метка: внутри одного графа несколько слоёв.
+ */
+function colorChain(adj, n, lutName) {
+  const out = [];
+  const a = adj || {};
+  if (a.brightness || (a.contrast ?? 1) !== 1 || (a.saturation ?? 1) !== 1) {
+    out.push(`eq=brightness=${round3(a.brightness || 0)}:contrast=${round3(a.contrast ?? 1)}:saturation=${round3(a.saturation ?? 1)}`);
+  }
+  const preset = FILTERS.find((f) => f.id === a.filter);
+  const looks = [];
+  if (preset && preset.vf) looks.push(preset.vf);
+  if (lutName) looks.push(`lut3d=file=${lutName}`);
+  if (looks.length) {
+    const amount = a.filterAmount ?? 1;
+    // Сила фильтра меньше полной — смешиваем с исходником, как ползунок в CapCut.
+    if (amount < 0.99) out.push(`split[fa${n}][fb${n}];[fb${n}]${looks.join(",")}[fc${n}];[fa${n}][fc${n}]blend=all_mode=normal:all_opacity=${round3(amount)}`);
+    else out.push(...looks);
+  }
+  return out;
+}
+
+function hasTransform(item, def = fx.TRANSFORM_DEFAULT) {
+  if (item.keyframes && item.keyframes.length) return true;
+  const t = item.transform || def;
+  return Object.keys(def).some((k) => Math.abs((t[k] ?? def[k]) - def[k]) > 1e-4);
+}
+
+/** Цепочка видео для куска: кадрирование под холст, цвет, эффекты, движение. */
+function clipVideoFilter(clip, canvas, { lutName = "" } = {}) {
   const { width: W, height: H, fps } = canvas;
   const fit = clip.fit || canvas.fit || "crop";
   const z = clip.zoom || 1;
   const zw = Math.round((W * z) / 2) * 2;
   const zh = Math.round((H * z) / 2) * 2;
-  const color = [];
-  const a = clip.adjust || {};
-  if (a.brightness || a.contrast !== 1 || a.saturation !== 1) {
-    color.push(`eq=brightness=${round3(a.brightness || 0)}:contrast=${round3(a.contrast ?? 1)}:saturation=${round3(a.saturation ?? 1)}`);
-  }
-  const preset = FILTERS.find((f) => f.id === a.filter);
-  if (preset && preset.vf) color.push(preset.vf);
+  const dur = clipDuration(clip);
+  const color = colorChain(clip.adjust, "c", lutName);
+  const effects = fx.effectsChain(clip.effects, { W, H, dur, n: "c" });
   const head = [`setpts=(PTS-STARTPTS)/${clip.speed || 1}`, `fps=${fps}`];
+  // Реверс — после обрезки входа: в память ложится только сам кусок.
+  if (clip.reverse) head.unshift("reverse");
   const crop = `crop=${W}:${H}:(iw-${W})*${round3(clip.focusX ?? 0.5)}:(ih-${H})*${round3(clip.focusY ?? 0.5)}`;
+  const look = [...color, ...(effects ? [effects] : [])];
   let graph;
   if (fit === "fit") {
-    graph = [...head, `scale=${zw}:${zh}:force_original_aspect_ratio=decrease`, `pad=${Math.max(W, zw)}:${Math.max(H, zh)}:(ow-iw)/2:(oh-ih)/2:color=${canvas.background || "black"}`, crop, ...color].join(",");
+    graph = [...head, `scale=${zw}:${zh}:force_original_aspect_ratio=decrease`, `pad=${Math.max(W, zw)}:${Math.max(H, zh)}:(ow-iw)/2:(oh-ih)/2:color=${canvas.background || "black"}`, crop, ...look].join(",");
   } else if (fit === "blur") {
     graph =
       `${head.join(",")},split=2[bgsrc][fgsrc];` +
       `[bgsrc]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=40:6,eq=brightness=-0.08[bg];` +
       `[fgsrc]scale=${zw}:${zh}:force_original_aspect_ratio=decrease,crop='min(iw,${W})':'min(ih,${H})'[fg];` +
-      `[bg][fg]overlay=(W-w)/2:(H-h)/2${color.length ? "," + color.join(",") : ""}`;
+      `[bg][fg]overlay=(W-w)/2:(H-h)/2${look.length ? "," + look.join(",") : ""}`;
   } else {
-    graph = [...head, `scale=${zw}:${zh}:force_original_aspect_ratio=increase`, crop, ...color].join(",");
+    graph = [...head, `scale=${zw}:${zh}:force_original_aspect_ratio=increase`, crop, ...look].join(",");
   }
-  const dur = clipDuration(clip);
+  // Положение, масштаб, поворот, прозрачность — кадр накладывается на фон
+  // холста уже преобразованным. Время ключевых точек — от начала куска.
+  if (hasTransform(clip)) {
+    const t = fx.transformChain(clip.transform, clip.keyframes, { offset: 0, widthPx: W });
+    const xy = fx.overlayXY(clip.transform, clip.keyframes, { offset: 0 });
+    graph =
+      `${graph},setsar=1[pre];color=c=${canvas.background || "black"}:s=${W}x${H}:r=${fps}:d=${round3(dur + 1)}[cv];` +
+      `[pre]${t}[tx];[cv][tx]overlay=x='${xy.x}':y='${xy.y}':eval=${xy.dynamic ? "frame" : "init"}:shortest=1`;
+  }
   const tail = ["setsar=1", "format=yuv420p"];
   if (clip.fadeIn > 0) tail.push(`fade=t=in:st=0:d=${round3(Math.min(clip.fadeIn, dur / 2))}`);
   if (clip.fadeOut > 0) tail.push(`fade=t=out:st=${round3(Math.max(0, dur - clip.fadeOut))}:d=${round3(Math.min(clip.fadeOut, dur / 2))}`);
@@ -931,11 +1046,19 @@ function clipVideoFilter(clip, canvas) {
   return `${graph},${tail.join(",")}`;
 }
 
+function audioEffect(id) {
+  const e = fx.AUDIO_FX.find((x) => x.id === id);
+  return e && e.af ? [e.af] : [];
+}
+
 function clipAudioFilter(clip, { denoise = false } = {}) {
   const dur = clipDuration(clip);
-  const parts = ["asetpts=PTS-STARTPTS", ...atempoChain(clip.speed || 1)];
+  const parts = ["asetpts=PTS-STARTPTS"];
+  if (clip.reverse) parts.push("areverse");
+  parts.push(...atempoChain(clip.speed || 1));
   parts.push(`volume=${clip.muted ? 0 : round3(clip.volume ?? 1)}`);
   if (denoise) parts.push("afftdn=nf=-25");
+  parts.push(...audioEffect(clip.audioEffect));
   // Микро-затухание на каждом краю: рез посреди волны звучит щелчком.
   const edge = 0.012;
   parts.push(`afade=t=in:st=0:d=${Math.max(edge, round3(Math.min(clip.fadeIn || 0, dur / 2)))}`);
@@ -959,7 +1082,7 @@ function frameDuration(seconds, fps) {
  * без перекодирования. Звук внутри кусков — PCM: у AAC на каждом стыке
  * добавляется своя задержка, и на сотне резов голос уезжал бы от губ.
  */
-function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false } = {}) {
+function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false, lutName = "" } = {}) {
   const dur = frameDuration(clipDuration(clip), canvas.fps);
   const srcDur = round3(dur * (clip.speed || 1) + 0.1);
   const args = ["-y", "-hide_banner", "-loglevel", "error"];
@@ -970,14 +1093,14 @@ function buildClipArgs(clip, canvas, outPath, { hasAudio = true, denoise = false
   }
   const silent = clip.kind === "image" || !hasAudio;
   if (silent) args.push("-f", "lavfi", "-t", String(round3(dur + 0.1)), "-i", "anullsrc=r=48000:cl=stereo");
-  const vf = clipVideoFilter(clip, canvas);
+  const vf = clipVideoFilter(clip, canvas, { lutName });
   const af = clipAudioFilter(clip, { denoise });
   args.push(
     "-filter_complex",
     `[0:v]${vf}[v];[${silent ? 1 : 0}:a]${af}[a]`,
     "-map", "[v]", "-map", "[a]",
     "-t", String(round3(dur)),
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
     "-r", String(canvas.fps),
     "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
     outPath
@@ -1003,11 +1126,61 @@ function concatList(files) {
   return files.map((f) => `file '${String(f).replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n") + "\n";
 }
 
+/** Маска слоя: круг или скруглённый прямоугольник — альфой, до масштаба. */
+function maskChain(mask) {
+  if (mask === "circle") {
+    return "crop='min(iw,ih)':'min(iw,ih)',geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*lte(hypot(X-W/2,Y-H/2),W/2)'";
+  }
+  if (mask === "rounded") {
+    const R = "(min(W,H)*0.12)";
+    return `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*if(gt(abs(X-W/2),W/2-${R})*gt(abs(Y-H/2),H/2-${R}),lte(hypot(abs(X-W/2)-(W/2-${R}),abs(Y-H/2)-(H/2-${R})),${R}),1)'`;
+  }
+  return "";
+}
+
 /**
- * Итоговый граф: переходы между группами, субтитры, логотип, музыка, громкость.
- * @param {{groups:{file:string,duration:number,transition:any}[], project:object, assFile?:string, fontsDir?:string, music:{src:string}[]}} plan
+ * Слой поверх видео: вход, цвет, эффекты, хромакей, маска, появление,
+ * преобразование по ключевым точкам. Время слоя — время ролика: кадры
+ * слоя сдвинуты на его начало, и выражения ключевых точек считают от него же.
  */
-function buildFinalArgs({ groups, project, assFile, fontsDir, outPath }) {
+function layerInput(layer, canvas) {
+  const dur = layerDuration(layer);
+  const srcDur = round3(dur * layer.speed + 0.1);
+  if (layer.kind === "image") {
+    if (/\.gif$/i.test(layer.src)) return ["-ignore_loop", "0", "-t", String(round3(dur + 0.1)), "-i", layer.src];
+    return ["-loop", "1", "-framerate", String(canvas.fps), "-t", String(round3(dur + 0.1)), "-i", layer.src];
+  }
+  return ["-ss", String(layer.in), "-t", String(srcDur), "-i", layer.src];
+}
+
+function layerFilter(layer, idx, inputIndex, canvas, lutName) {
+  const { width: W, height: H, fps } = canvas;
+  const dur = layerDuration(layer);
+  const start = layer.start;
+  const parts = [`setpts=(PTS-STARTPTS)/${layer.speed}+${start}/TB`, `fps=${fps}`];
+  parts.push(...colorChain(layer.adjust, `l${idx}`, lutName));
+  const eff = fx.effectsChain(layer.effects, { W, H, dur, n: `l${idx}` });
+  if (eff) parts.push(eff);
+  if (layer.chroma.enabled) parts.push(`chromakey=color=0x${layer.chroma.color.slice(1)}:similarity=${layer.chroma.similarity}:blend=${layer.chroma.blend}`);
+  parts.push("format=rgba");
+  const mask = maskChain(layer.mask);
+  if (mask) parts.push(mask);
+  if (layer.fadeIn > 0) parts.push(`fade=t=in:st=${start}:d=${round3(Math.min(layer.fadeIn, dur / 2))}:alpha=1`);
+  if (layer.fadeOut > 0) parts.push(`fade=t=out:st=${round3(start + dur - layer.fadeOut)}:d=${round3(Math.min(layer.fadeOut, dur / 2))}:alpha=1`);
+  parts.push(fx.transformChain(layer.transform, layer.keyframes, { offset: start, widthPx: W }));
+  const xy = fx.overlayXY(layer.transform, layer.keyframes, { offset: start });
+  return {
+    chain: `[${inputIndex}:v]${parts.join(",")}[ly${idx}]`,
+    overlay: (from, to) =>
+      `${from}[ly${idx}]overlay=x='${xy.x}':y='${xy.y}':eval=${xy.dynamic ? "frame" : "init"}:enable='between(t,${start},${round3(start + dur)})':eof_action=pass${to}`,
+  };
+}
+
+/**
+ * Итоговый граф: переходы между группами, слои, логотип, субтитры и надписи,
+ * музыка и звуковые эффекты, громкость.
+ */
+function buildFinalArgs({ groups, project, assFile, fontsDir, outPath, codec, layerInfo = {}, layerLuts = {} }) {
   const { canvas } = project;
   const args = ["-y", "-hide_banner", "-loglevel", "error", "-progress", "pipe:1", "-nostats"];
   groups.forEach((g) => args.push("-i", g.file));
@@ -1033,6 +1206,29 @@ function buildFinalArgs({ groups, project, assFile, fontsDir, outPath }) {
   }
 
   let inputIndex = groups.length;
+  const extraAudio = [];
+
+  // Слои по дорожкам: верхняя дорожка рисуется последней.
+  const layers = [...(project.layers || [])].filter((l) => l.start < total).sort((x, y) => x.track - y.track || x.start - y.start);
+  layers.forEach((layer, idx) => {
+    args.push(...layerInput(layer, canvas));
+    const lf = layerFilter(layer, idx, inputIndex, canvas, layerLuts[layer.id] || "");
+    filters.push(lf.chain);
+    filters.push(lf.overlay(v, `[vl${idx}]`));
+    v = `[vl${idx}]`;
+    const info = layerInfo[layer.src];
+    if (layer.kind === "video" && info && info.hasAudio && !layer.muted && layer.volume > 0) {
+      const dur = layerDuration(layer);
+      const delay = Math.round(layer.start * 1000);
+      filters.push(
+        `[${inputIndex}:a]asetpts=PTS-STARTPTS,${[...atempoChain(layer.speed), `volume=${layer.volume}`].join(",")},` +
+          `atrim=duration=${round3(dur)},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=${delay}|${delay}[la${idx}]`
+      );
+      extraAudio.push({ label: `[la${idx}]`, duck: false });
+    }
+    inputIndex++;
+  });
+
   if (project.logo && project.logo.path) {
     args.push("-loop", "1", "-i", project.logo.path);
     const lw = Math.round(canvas.width * project.logo.size);
@@ -1053,22 +1249,23 @@ function buildFinalArgs({ groups, project, assFile, fontsDir, outPath }) {
     v = "[vsub]";
   }
 
-  const music = project.audio || [];
-  if (music.length) {
-    const labels = [];
-    music.forEach((m, k) => {
-      if (m.loop) args.push("-stream_loop", "-1");
-      args.push("-i", m.src);
-      const len = round3(Math.min(m.out - m.in, Math.max(0.1, total - m.start)));
-      const delay = Math.round(m.start * 1000);
-      filters.push(
-        `[${inputIndex}:a]atrim=start=${m.in}:duration=${len},asetpts=PTS-STARTPTS,volume=${m.volume},` +
-          `afade=t=in:st=0:d=${Math.min(m.fadeIn, len / 2)},afade=t=out:st=${round3(Math.max(0, len - m.fadeOut))}:d=${Math.min(m.fadeOut, len / 2)},` +
-          `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=${delay}|${delay}[m${k}]`
-      );
-      labels.push({ label: `[m${k}]`, duck: m.duck });
-      inputIndex++;
-    });
+  const labels = [...extraAudio];
+  (project.audio || []).forEach((m, k) => {
+    if (m.start >= total) return;
+    if (m.loop) args.push("-stream_loop", "-1");
+    args.push("-i", m.src);
+    const len = round3(Math.min(m.out - m.in, Math.max(0.1, total - m.start)));
+    const delay = Math.round(m.start * 1000);
+    filters.push(
+      `[${inputIndex}:a]atrim=start=${m.in}:duration=${len},asetpts=PTS-STARTPTS,volume=${m.volume},` +
+        [...audioEffect(m.effect), ""].join(",") +
+        `afade=t=in:st=0:d=${Math.max(0.005, Math.min(m.fadeIn, len / 2))},afade=t=out:st=${round3(Math.max(0, len - m.fadeOut))}:d=${Math.max(0.005, Math.min(m.fadeOut, len / 2))},` +
+        `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=${delay}|${delay}[m${k}]`
+    );
+    labels.push({ label: `[m${k}]`, duck: m.duck });
+    inputIndex++;
+  });
+  if (labels.length) {
     const ducked = labels.filter((l) => l.duck);
     const plain = labels.filter((l) => !l.duck);
     const voiceParts = [];
@@ -1097,9 +1294,7 @@ function buildFinalArgs({ groups, project, assFile, fontsDir, outPath }) {
     // искал бы его среди меток графа и не нашёл.
     "-map", "[vout]", "-map", /^\[\d+:a\]$/.test(a) ? a.slice(1, -1) : a,
     "-t", String(round3(total)),
-    "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p", "-r", String(canvas.fps),
-    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-    "-movflags", "+faststart",
+    ...(codec || fx.codecArgs("mp4", "normal", canvas.fps)),
     outPath
   );
   return { args, graph: filters.join(";\n"), duration: round3(total) };
@@ -1182,18 +1377,41 @@ async function probeMedia(bin, file) {
  * переходов — склейкой без перекодирования; группы — переходами, сверху
  * субтитры, надписи, логотип и музыка. Рабочая папка стирается в любом случае.
  */
-async function renderProject({ bin, project: raw, transcripts = {}, outPath, workDir, fontFiles = [], onProgress, signal }) {
+async function renderProject({ bin, project: raw, transcripts = {}, outPath, workDir, fontFiles = [], onProgress, signal, exportOptions = {} }) {
   const project = normalizeProject(raw);
   const problems = validateProject(project);
   if (problems.length) throw new Error(problems.join("\n"));
   const report = (stage, progress, extra = {}) => onProgress && onProgress({ stage, progress, ...extra });
   await fs.mkdir(workDir, { recursive: true });
 
+  // Размер и частота кадров экспорта. Надписи, субтитры, слои и логотип
+  // заданы долями кадра, поэтому сами встают на место при любом размере.
+  const format = fx.EXPORT_FORMATS.some((f) => f.id === exportOptions.format) ? exportOptions.format : "mp4";
+  const size = fx.exportSize(project.canvas, exportOptions.size);
+  project.canvas = { ...project.canvas, ...size, fps: clamp(Math.round(num(exportOptions.fps, project.canvas.fps)), 12, 60) };
+  // Подписи и тексты считались под 1080 по короткой стороне — масштаб тот же.
+
   const probes = new Map();
-  for (const c of project.clips) {
+  for (const c of [...project.clips, ...project.layers]) {
     if (c.kind === "image" || probes.has(c.src)) continue;
     probes.set(c.src, await probeMedia(bin, c.src));
   }
+
+  // LUT — файлом в рабочей папке: сборка идёт из неё, а путь Windows внутри
+  // фильтра ffmpeg пришлось бы экранировать в три слоя.
+  const lutNames = new Map();
+  const lutFor = async (lut) => {
+    if (!lut) return "";
+    if (lutNames.has(lut)) return lutNames.get(lut);
+    const name = `lut-${lutNames.size}${path.extname(lut).toLowerCase() || ".cube"}`;
+    try {
+      await fs.copyFile(lut, path.join(workDir, name));
+    } catch {
+      throw new Error(`Файл LUT не открывается: ${lut}`);
+    }
+    lutNames.set(lut, name);
+    return name;
+  };
 
   // 1. Куски.
   const segFiles = [];
@@ -1203,9 +1421,10 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
     const info = probes.get(clip.src);
     if (clip.kind !== "image" && info && !info.hasVideo) throw new Error(`«${path.basename(clip.src)}» — это звук, а не видео. Звук кладётся на звуковую дорожку.`);
     const file = path.join(workDir, `seg-${String(i).padStart(4, "0")}.mkv`);
-    const { args, duration } = buildClipArgs(clip, project.canvas, file, { hasAudio: clip.kind === "image" ? false : !!(info && info.hasAudio), denoise: project.audioFx.denoise });
+    const lutName = await lutFor(clip.adjust.lut);
+    const { args, duration } = buildClipArgs(clip, project.canvas, path.basename(file), { hasAudio: clip.kind === "image" ? false : !!(info && info.hasAudio), denoise: project.audioFx.denoise, lutName });
     report("pieces", i / project.clips.length, { index: i, total: project.clips.length });
-    await runFfmpeg(bin, args, { signal });
+    await runFfmpeg(bin, args, { cwd: workDir, signal });
     segFiles.push({ file, duration });
   }
 
@@ -1253,11 +1472,23 @@ async function renderProject({ bin, project: raw, transcripts = {}, outPath, wor
     await fs.writeFile(path.join(workDir, assFile), buildAss(project, words, fonts), "utf-8");
   }
 
-  const final = buildFinalArgs({ groups, project, assFile, fontsDir, outPath: path.resolve(outPath) });
+  const layerLuts = {};
+  for (const l of project.layers) layerLuts[l.id] = await lutFor(l.adjust.lut);
+  const layerInfo = Object.fromEntries(probes);
+  const def = fx.EXPORT_FORMATS.find((f) => f.id === format);
+  // GIF и звук делаются из готового ролика: так в них ровно то же, что в mp4.
+  const direct = def.kind === "video";
+  const master = direct ? path.resolve(outPath) : path.join(workDir, "master.mp4");
+  const codec = fx.codecArgs(direct ? format : "mp4", exportOptions.quality || "normal", project.canvas.fps);
+  const final = buildFinalArgs({ groups, project, assFile, fontsDir, outPath: master, codec, layerInfo, layerLuts });
   await fs.writeFile(path.join(workDir, "graph.txt"), final.graph, "utf-8");
   await runFfmpeg(bin, final.args, { cwd: workDir, total: final.duration, onProgress: (p) => report("encode", p), signal });
+  if (!direct) {
+    report("convert", 0);
+    await runFfmpeg(bin, fx.derivedArgs(format, master, path.resolve(outPath), { gifWidth: exportOptions.gifWidth, gifFps: exportOptions.gifFps }), { signal });
+  }
   report("done", 1);
-  return { path: outPath, duration: final.duration, captions: words.length };
+  return { path: outPath, duration: final.duration, captions: words.length, format, width: project.canvas.width, height: project.canvas.height };
 }
 
 // ---------- ИИ-монтажёр ----------
@@ -1514,6 +1745,9 @@ function validateProject(project) {
   project.clips.forEach((c, i) => {
     if (c.out - c.in < 0.05) problems.push(`Кусок ${i + 1} короче кадра.`);
   });
+  for (const l of project.layers || []) {
+    if (l.start >= total) problems.push(`Слой «${path.basename(l.src)}» начинается после конца ролика.`);
+  }
   for (const a of project.audio) {
     if (a.start >= total) problems.push(`Звук «${path.basename(a.src)}» начинается после конца ролика.`);
   }
@@ -1604,6 +1838,11 @@ module.exports = {
   concatList,
   buildFinalArgs,
   runFfmpeg,
+  normalizeLayer,
+  layerDuration,
+  normalizeEffects,
+  hasTransform,
+  colorChain,
   probeMedia,
   renderProject,
   detectSilences,

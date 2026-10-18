@@ -3,7 +3,21 @@
 // electron/montage.cjs: предпросмотр обязан показывать ровно то, что соберётся,
 // иначе человек будет править одно, а получать другое.
 
-import type { MontageClip, MontageProject, MontageText, MontageWord } from "./types";
+import type { CSSProperties } from "react";
+import type {
+  MontageAudio,
+  MontageCaptionStyle,
+  MontageCaptions,
+  MontageClip,
+  MontageEffectDef,
+  MontageFilterDef,
+  MontageKeyframe,
+  MontageLayer,
+  MontageProject,
+  MontageText,
+  MontageTransform,
+  MontageWord,
+} from "./types";
 
 export const round3 = (v: number) => Math.round(v * 1000) / 1000;
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -150,22 +164,174 @@ export function fmtTime(t: number, withFrames = false) {
 
 export const fileName = (p: string) => (p ? p.split(/[\\/]/).pop() || p : "");
 
-/** CSS-фильтр для предпросмотра цветокоррекции. Сборка делает то же через eq. */
-export function cssFilter(c: MontageClip) {
-  const a = c.adjust || { brightness: 0, contrast: 1, saturation: 1, filter: "none" };
-  const parts = [`brightness(${1 + a.brightness})`, `contrast(${a.contrast})`, `saturate(${a.saturation})`];
-  const preset: Record<string, string> = {
-    vivid: "saturate(1.3) contrast(1.06)",
-    warm: "sepia(0.18) saturate(1.1)",
-    cold: "hue-rotate(-12deg) saturate(0.95)",
-    film: "sepia(0.25) contrast(0.95)",
-    contrast: "contrast(1.18)",
-    soft: "brightness(1.06) saturate(0.9) contrast(0.92)",
-    bw: "grayscale(1) contrast(1.1)",
-    cinema: "contrast(1.05) saturate(1.1) hue-rotate(-6deg)",
-  };
-  if (preset[a.filter]) parts.push(preset[a.filter]);
+// ---------- ключевые точки ----------
+
+export const TRANSFORM_DEFAULT: MontageTransform = { x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1 };
+export const LAYER_TRANSFORM: MontageTransform = { x: 0.5, y: 0.5, scale: 0.45, rotation: 0, opacity: 1 };
+const PROPS: (keyof MontageTransform)[] = ["x", "y", "scale", "rotation", "opacity"];
+
+/** То же сглаживание, что у сборки (montagefx.cjs → easeJs). */
+export function ease(kind: string, p: number) {
+  switch (kind) {
+    case "linear": return p;
+    case "in": return p * p * p;
+    case "out": return 1 - Math.pow(1 - p, 3);
+    case "back": { const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); }
+    case "hold": return 0;
+    default: return p * p * (3 - 2 * p);
+  }
+}
+
+export function sampleTransform(base: MontageTransform, kfs: MontageKeyframe[], t: number): MontageTransform {
+  if (!kfs || !kfs.length) return base;
+  const pick = (k: MontageKeyframe) => ({ x: k.x, y: k.y, scale: k.scale, rotation: k.rotation, opacity: k.opacity });
+  if (t <= kfs[0].t) return pick(kfs[0]);
+  const last = kfs[kfs.length - 1];
+  if (t >= last.t) return pick(last);
+  for (let i = 0; i < kfs.length - 1; i++) {
+    const a = kfs[i];
+    const c = kfs[i + 1];
+    if (t >= a.t && t < c.t) {
+      const e = ease(a.ease, (t - a.t) / (c.t - a.t));
+      const out = { ...base };
+      for (const p of PROPS) out[p] = a[p] + (c[p] - a[p]) * e;
+      return out;
+    }
+  }
+  return pick(last);
+}
+
+/**
+ * Изменить преобразование в момент t. Как в CapCut: пока ключевых точек нет,
+ * меняется само преобразование; если есть — правка ставит или двигает точку
+ * в этом моменте, и движение меняется только здесь.
+ */
+export function setTransformAt<T extends { transform: MontageTransform; keyframes: MontageKeyframe[] }>(item: T, t: number, patch: Partial<MontageTransform>): T {
+  if (!item.keyframes.length) return { ...item, transform: { ...item.transform, ...patch } };
+  const cur = sampleTransform(item.transform, item.keyframes, t);
+  const at = item.keyframes.findIndex((k) => Math.abs(k.t - t) < 0.04);
+  const kf: MontageKeyframe = { ...(at >= 0 ? item.keyframes[at] : { t: round3(t), ease: "smooth", ...cur }), ...patch };
+  const keyframes = at >= 0 ? item.keyframes.map((k, i) => (i === at ? kf : k)) : [...item.keyframes, kf].sort((a, b) => a.t - b.t);
+  return { ...item, keyframes };
+}
+
+export function addKeyframe<T extends { transform: MontageTransform; keyframes: MontageKeyframe[] }>(item: T, t: number): T {
+  if (item.keyframes.some((k) => Math.abs(k.t - t) < 0.04)) return item;
+  const cur = sampleTransform(item.transform, item.keyframes, t);
+  return { ...item, keyframes: [...item.keyframes, { t: round3(t), ease: "smooth", ...cur }].sort((a, b) => a.t - b.t) };
+}
+
+/** Готовые движения одной кнопкой — набор ключевых точек на весь кусок. */
+export function motionPreset(id: string, dur: number, base: MontageTransform): MontageKeyframe[] {
+  const k = (t: number, p: Partial<MontageTransform>, e = "smooth"): MontageKeyframe => ({ t: round3(t), ease: e, ...base, ...p });
+  const s = base.scale;
+  switch (id) {
+    case "zoom-in": return [k(0, { scale: s }), k(dur, { scale: s * 1.25 })];
+    case "zoom-out": return [k(0, { scale: s * 1.25 }), k(dur, { scale: s })];
+    case "pan-left": return [k(0, { x: base.x + 0.06, scale: s * 1.15 }), k(dur, { x: base.x - 0.06, scale: s * 1.15 })];
+    case "pan-right": return [k(0, { x: base.x - 0.06, scale: s * 1.15 }), k(dur, { x: base.x + 0.06, scale: s * 1.15 })];
+    case "pop-in": return [k(0, { scale: s * 0.2, opacity: 0 }, "back"), k(Math.min(0.45, dur / 2), { scale: s, opacity: 1 })];
+    case "slide-in": return [k(0, { x: base.x + 0.7 }, "out"), k(Math.min(0.5, dur / 2), { x: base.x })];
+    case "drop-in": return [k(0, { y: base.y - 0.6 }, "back"), k(Math.min(0.55, dur / 2), { y: base.y })];
+    case "spin-in": return [k(0, { scale: s * 0.3, rotation: -180, opacity: 0 }, "out"), k(Math.min(0.6, dur / 2), { scale: s, rotation: 0, opacity: 1 })];
+    case "fade-out": return [k(Math.max(0, dur - 0.5), { opacity: 1 }), k(dur, { opacity: 0 })];
+    case "tilt": return [k(0, { rotation: -4, scale: s * 1.08 }), k(dur, { rotation: 4, scale: s * 1.08 })];
+    default: return [];
+  }
+}
+
+export const MOTION_PRESETS = [
+  { id: "zoom-in", name: "Наезд" },
+  { id: "zoom-out", name: "Отъезд" },
+  { id: "pan-left", name: "Панорама влево" },
+  { id: "pan-right", name: "Панорама вправо" },
+  { id: "pop-in", name: "Выпрыгивает" },
+  { id: "slide-in", name: "Въезжает" },
+  { id: "drop-in", name: "Падает сверху" },
+  { id: "spin-in", name: "Влетает с поворотом" },
+  { id: "tilt", name: "Покачивание" },
+  { id: "fade-out", name: "Гаснет в конце" },
+];
+
+export function layerDuration(l: MontageLayer) {
+  return Math.max(0.04, (l.out - l.in) / (l.speed || 1));
+}
+
+// ---------- вид в предпросмотре ----------
+
+/** CSS-фильтр куска: цвет, фильтр (с силой) и эффекты. */
+export function lookCss(adj: MontageClip["adjust"], effects: MontageClip["effects"], filters: MontageFilterDef[], fxDefs: MontageEffectDef[]) {
+  const parts = [`brightness(${1 + (adj?.brightness || 0)})`, `contrast(${adj?.contrast ?? 1})`, `saturate(${adj?.saturation ?? 1})`];
+  const f = filters.find((x) => x.id === adj?.filter);
+  if (f && f.css && (adj?.filterAmount ?? 1) > 0.05) parts.push(f.css);
+  for (const e of effects || []) {
+    const d = fxDefs.find((x) => x.id === e.kind);
+    if (d && d.css.filter) parts.push(e.amount < 0.5 ? d.cssFilterLow || d.css.filter : e.amount > 0.5 ? d.cssFilterHigh || d.css.filter : d.css.filter);
+  }
   return parts.join(" ");
+}
+
+/** Движение эффектов (тряска, пульс, вспышки) в момент local. */
+export function motionCss(effects: MontageClip["effects"], fxDefs: MontageEffectDef[], local: number, dur: number) {
+  let tx = 0;
+  let ty = 0;
+  let sc = 1;
+  let bright = 1;
+  let mirror = false;
+  const overlays: string[] = [];
+  for (const e of effects || []) {
+    const d = fxDefs.find((x) => x.id === e.kind);
+    if (!d) continue;
+    const a = e.amount;
+    if (d.css.overlay) overlays.push(d.css.overlay);
+    if (d.css.transform === "scaleX(-1)") mirror = true;
+    switch (d.css.motion) {
+      case "shake": tx += Math.sin(local * 29) * 2.5 * a; ty += Math.cos(local * 23) * 2.5 * a; sc *= 1.09; break;
+      case "pulse": sc *= 1 + (0.03 + a * 0.08) * Math.abs(Math.sin(local * Math.PI * 2)); break;
+      case "kenburns": sc *= 1 + (0.05 + a * 0.2) * (local / Math.max(0.5, dur)); break;
+      case "flash": if (local % 0.5 > 0.42) bright *= 1.25 + a * 0.4; break;
+      case "strobe": if (local % 0.16 > 0.08) bright *= 0.4; break;
+      case "glitch": if ((local * 9) % 1 > 0.8) tx += 1.5; break;
+    }
+  }
+  const transform = `translate(${tx}%, ${ty}%) scale(${mirror ? -sc : sc}, ${sc})`;
+  return { transform, brightness: bright, overlays };
+}
+
+/** Вид субтитров по стилю — те же данные, что у сборки (montagefx.cjs). */
+export function captionCss(st: MontageCaptionStyle, cap: MontageCaptions) {
+  const color = (c?: string, d = "#FFFFFF") => (c === "accent" ? cap.highlight : c === "user" ? cap.color : c === "transparent" ? "transparent" : c || d);
+  const outline = (st.outlineW ?? 4) / 10.8;
+  const shadow = (st.shadow ?? 2) / 10.8;
+  const shadows: string[] = [];
+  if (st.glow) shadows.push(`0 0 ${st.glow / 5}cqmin ${color(st.outline)}`, `0 0 ${st.glow / 2.5}cqmin ${color(st.outline)}`);
+  if (shadow) shadows.push(`${shadow}cqmin ${shadow}cqmin 0 ${color(st.shadowColor, "rgba(0,0,0,.55)")}`);
+  const base: CSSProperties = {
+    color: color(st.color),
+    fontWeight: st.bold === false ? 500 : 800,
+    fontStyle: st.italic ? "italic" : undefined,
+    textTransform: st.upper || cap.upper ? "uppercase" : st.lower ? "lowercase" : undefined,
+    WebkitTextStroke: !st.box && outline ? `${outline}cqmin ${color(st.outline, "#000")}` : undefined,
+    paintOrder: "stroke fill",
+    textShadow: shadows.join(", ") || undefined,
+    background: st.box ? color(st.box, "#000") : undefined,
+    opacity: undefined,
+    fontFamily: st.font && !cap.fontPath ? st.font : undefined,
+    transform: st.rotate ? `rotate(${st.rotate}deg)` : undefined,
+    fontSize: `${((cap.size * (st.sizeMul || 1)) / 1080) * 100}cqmin`,
+  };
+  const a = st.active || {};
+  const active: CSSProperties = {
+    color: a.color ? color(a.color) : undefined,
+    transform: a.scale ? `scale(${a.scale})` : undefined,
+    background: a.box ? color(a.box) : undefined,
+    borderRadius: a.box ? "0.6cqmin" : undefined,
+    padding: a.box ? "0 0.8cqmin" : undefined,
+    textDecoration: a.underline ? "underline" : undefined,
+    textTransform: a.upper ? "uppercase" : undefined,
+    WebkitTextStroke: a.box ? "0" : undefined,
+  };
+  return { base, active };
 }
 
 export function newClip(src: string, kind: string, duration: number): MontageClip {
@@ -185,11 +351,48 @@ export function newClip(src: string, kind: string, duration: number): MontageCli
     focusX: 0.5,
     focusY: 0.5,
     zoom: 1,
-    adjust: { brightness: 0, contrast: 1, saturation: 1, filter: "none" },
+    adjust: { brightness: 0, contrast: 1, saturation: 1, filter: "none", filterAmount: 1, lut: "" },
+    effects: [],
+    transform: { ...TRANSFORM_DEFAULT },
+    keyframes: [],
+    reverse: false,
+    audioEffect: "none",
     label: "",
   };
 }
 
+export function newLayer(src: string, kind: string, duration: number, start: number, track = 1): MontageLayer {
+  return {
+    id: uid("layer"),
+    src,
+    kind,
+    track,
+    start: round3(start),
+    in: 0,
+    out: round3(kind === "image" ? 3 : Math.max(0.2, Math.min(duration || 5, 60))),
+    speed: 1,
+    volume: 1,
+    muted: true,
+    fadeIn: 0,
+    fadeOut: 0,
+    transform: { ...LAYER_TRANSFORM },
+    keyframes: [],
+    effects: [],
+    adjust: { brightness: 0, contrast: 1, saturation: 1, filter: "none", filterAmount: 1, lut: "" },
+    mask: "none",
+    chroma: { enabled: false, color: "#00FF00", similarity: 0.18, blend: 0.08 },
+    label: "",
+  };
+}
+
+export function newAudio(src: string, kind: MontageAudio["kind"], start: number, duration: number): MontageAudio {
+  const music = kind === "music";
+  return {
+    id: uid("audio"), kind, effect: "none", src, start: round3(start), in: 0, out: round3(Math.max(0.1, duration || 3)),
+    volume: music ? 0.25 : 1, fadeIn: music ? 0.5 : 0, fadeOut: music ? 1.5 : 0.05, duck: music, loop: false,
+  };
+}
+
 export function newText(start: number, text = "Текст", style = "title"): MontageText {
-  return { id: uid("text"), text, start: round3(start), end: round3(start + 2.5), style, animation: "pop", position: "", size: 0, color: "", bg: "", upper: true };
+  return { id: uid("text"), text, start: round3(start), end: round3(start + 2.5), style, animation: "pop", position: "", size: 0, color: "", bg: "", upper: true, x: null, y: null };
 }

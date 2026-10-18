@@ -87,13 +87,26 @@ const COPY_NAME = (() => {
     return "";
   }
 })();
+// Отдельная программа «Монтаж» — тот же код, но своё окно, своё имя и свои
+// папки: её ставят как самостоятельный видеоредактор, и проекты чата ей не
+// нужны. Запускается через electron/montage-main.cjs.
+const APP_MODE = process.env.LICHNY_APP_MODE === "montage" ? "montage" : "chat";
+const MODE_NAME = APP_MODE === "montage" ? "Монтаж" : "";
+
 // setName обязательно до первого обращения к getPath("userData"): служебная
 // папка складывается из имени приложения.
 if (COPY_NAME) app.setName(COPY_NAME);
+else if (MODE_NAME) {
+  app.setName(MODE_NAME);
+  // Служебная папка вычисляется при запуске, до setName, — одного имени мало:
+  // «Монтаж» иначе делил бы настройки и ключи с «Личным чатом» (или, в
+  // собранном виде, писал бы прямо в общую папку настроек системы).
+  app.setPath("userData", path.join(app.getPath("appData"), MODE_NAME));
+}
 
 const USER_DATA_PATH = stripWindowsExtendedPrefix(app.getPath("userData"));
 const APP_CONFIG_PATH = path.join(USER_DATA_PATH, "config.json");
-const DEFAULT_ROOT = path.join(stripWindowsExtendedPrefix(app.getPath("documents")), COPY_NAME || "Личный чат");
+const DEFAULT_ROOT = path.join(stripWindowsExtendedPrefix(app.getPath("documents")), COPY_NAME || MODE_NAME || "Личный чат");
 const FALLBACK_ROOT = path.join(USER_DATA_PATH, "data");
 
 const DEFAULT_SETTINGS = {
@@ -1482,8 +1495,10 @@ async function exportHtmlToPng({ html, defaultName, projectId }) {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    // Видеоредактору нужна ширина: колонка инструментов, кадр, настройки и таймлайн.
+    width: APP_MODE === "montage" ? 1480 : 1280,
+    height: APP_MODE === "montage" ? 920 : 820,
+    title: APP_MODE === "montage" ? "Монтаж" : undefined,
     minWidth: 900,
     minHeight: 600,
     autoHideMenuBar: true,
@@ -1528,10 +1543,11 @@ function createWindow() {
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
+  const page = APP_MODE === "montage" ? "montage.html" : "index.html";
   if (devUrl) {
-    win.loadURL(devUrl);
+    win.loadURL(APP_MODE === "montage" ? `${devUrl.replace(/\/$/, "")}/montage.html` : devUrl);
   } else {
-    win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    win.loadFile(path.join(__dirname, "..", "dist", page));
   }
 }
 

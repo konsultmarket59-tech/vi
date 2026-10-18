@@ -1958,12 +1958,88 @@ export interface MontageCleanup {
   punchIn?: number;
 }
 
+export interface MontageEffectDef {
+  id: string;
+  name: string;
+  group: string;
+  css: { filter: string; overlay: string; motion: string; transform: string };
+  cssFilterLow: string;
+  cssFilterHigh: string;
+}
+
+export interface MontageFilterDef {
+  id: string;
+  name: string;
+  group: string;
+  css: string;
+}
+
+export interface MontageCaptionStyle {
+  id: string;
+  name: string;
+  hint?: string;
+  upper?: boolean;
+  lower?: boolean;
+  italic?: boolean;
+  bold?: boolean;
+  font?: string;
+  color?: string;
+  outline?: string;
+  outlineW?: number;
+  shadow?: number;
+  shadowColor?: string;
+  glow?: number;
+  box?: string;
+  boxAlpha?: number;
+  rotate?: number;
+  sizeMul?: number;
+  position?: string;
+  align?: string;
+  per?: number;
+  reveal: "line" | "accumulate" | "word";
+  active: { color?: string; scale?: number; box?: string; glow?: number; underline?: boolean; upper?: boolean; anim?: string };
+}
+
+export interface MontageStockItem {
+  provider: string;
+  kind: "video" | "image" | "music" | "sfx";
+  id: string;
+  title: string;
+  thumb: string;
+  url: string;
+  author: string;
+  license: string;
+  licenseUrl?: string;
+  page: string;
+  duration: number;
+  ext: string;
+  width?: number;
+  height?: number;
+}
+
+export interface MontageExportOptions {
+  format: string;
+  size?: string;
+  fps?: number;
+  quality?: "high" | "normal" | "small";
+  gifWidth?: number;
+  gifFps?: number;
+  suffix?: string;
+}
+
 export interface MontageOptions {
   presets: MontagePreset[];
   fits: MontageNamed[];
-  filters: MontageNamed[];
-  transitions: MontageNamed[];
-  captionStyles: MontageNamed[];
+  filters: MontageFilterDef[];
+  transitions: (MontageNamed & { css: string })[];
+  captionStyles: MontageCaptionStyle[];
+  effects: MontageEffectDef[];
+  sfx: { id: string; name: string; group: string }[];
+  audioFx: MontageNamed[];
+  eases: MontageNamed[];
+  exportFormats: { id: string; name: string; ext: string; kind: string }[];
+  exportSizes: { id: string; name: string; short: number }[];
+  stockProviders: { id: string; name: string; kinds: string[]; key: string; keyUrl: string }[];
   textStyles: MontageNamed[];
   textAnimations: MontageNamed[];
   cleanup: MontageCleanup;
@@ -2036,6 +2112,57 @@ export interface MontageTranscript {
   silences: { start: number; end: number }[];
 }
 
+export interface MontageTransform {
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  opacity: number;
+}
+
+export interface MontageKeyframe extends MontageTransform {
+  /** Секунды от начала куска или слоя. */
+  t: number;
+  ease: string;
+}
+
+export interface MontageEffect {
+  id: string;
+  kind: string;
+  amount: number;
+}
+
+export interface MontageAdjust {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  filter: string;
+  filterAmount: number;
+  lut: string;
+}
+
+export interface MontageLayer {
+  id: string;
+  src: string;
+  kind: "video" | "image" | string;
+  track: number;
+  start: number;
+  in: number;
+  out: number;
+  speed: number;
+  volume: number;
+  muted: boolean;
+  fadeIn: number;
+  fadeOut: number;
+  transform: MontageTransform;
+  keyframes: MontageKeyframe[];
+  effects: MontageEffect[];
+  adjust: MontageAdjust;
+  mask: "none" | "circle" | "rounded";
+  chroma: { enabled: boolean; color: string; similarity: number; blend: number };
+  label: string;
+}
+
 export interface MontageClip {
   id: string;
   src: string;
@@ -2052,7 +2179,12 @@ export interface MontageClip {
   focusX: number;
   focusY: number;
   zoom: number;
-  adjust: { brightness: number; contrast: number; saturation: number; filter: string };
+  adjust: MontageAdjust;
+  effects: MontageEffect[];
+  transform: MontageTransform;
+  keyframes: MontageKeyframe[];
+  reverse: boolean;
+  audioEffect: string;
   label: string;
 }
 
@@ -2068,10 +2200,14 @@ export interface MontageText {
   color: string;
   bg: string;
   upper: boolean;
+  x: number | null;
+  y: number | null;
 }
 
 export interface MontageAudio {
   id: string;
+  kind: "music" | "sfx" | "voice";
+  effect: string;
   src: string;
   start: number;
   in: number;
@@ -2092,6 +2228,7 @@ export interface MontageProject {
   clips: MontageClip[];
   texts: MontageText[];
   audio: MontageAudio[];
+  layers: MontageLayer[];
   captions: MontageCaptions;
   logo: { path: string; corner: string; size: number; opacity: number } | null;
   audioFx: { denoise: boolean; loudnorm: boolean };
@@ -2160,6 +2297,10 @@ export interface MontageAvatarKeys {
   eleven: boolean;
   fal: boolean;
   heygen: boolean;
+  pexels: boolean;
+  pixabay: boolean;
+  freesound: boolean;
+  jamendo: boolean;
   voices: number;
 }
 
@@ -2719,7 +2860,7 @@ export interface ElectronAPI {
   montageSaveConfig(patch: Partial<MontageConfig>): Promise<MontageConfig>;
   montagePickMedia(): Promise<string[]>;
   montagePickFolder(title?: string): Promise<string | null>;
-  montagePickFile(kind: "font" | "image" | "audio" | "video"): Promise<string | null>;
+  montagePickFile(kind: "font" | "image" | "audio" | "video" | "lut" | "overlay"): Promise<string | null>;
   montageScan(sources: string[]): Promise<{ files: MontageMediaFile[]; missing: string[]; seen: number }>;
   montageProbe(file: string): Promise<MontageProbe>;
   montageThumbs(file: string, opts?: { count?: number; height?: number; from?: number; to?: number }): Promise<string>;
@@ -2749,10 +2890,15 @@ export interface ElectronAPI {
   montageReadDesign(dir: string): Promise<StoriesDesign>;
   montageShowItem(p: string): Promise<void>;
   montageOpenPath(p: string): Promise<string>;
-  montageRender(project: MontageProject): Promise<{ path: string; duration: number; captions: number }>;
-  montageRenderMany(ids: string[]): Promise<{ id: string; path?: string; error?: string }[]>;
+  montageRender(project: MontageProject, exportOptions?: MontageExportOptions): Promise<{ path: string; duration: number; captions: number }>;
+  montageRenderMany(ids: string[], exportOptions?: MontageExportOptions): Promise<{ id: string; path?: string; error?: string }[]>;
+  montageExportMany(project: MontageProject, targets: MontageExportOptions[]): Promise<{ target: MontageExportOptions; path?: string; error?: string }[]>;
+  montageSfx(id: string): Promise<string>;
+  montageStockSearch(request: { provider: string; kind: string; query: string; orientation?: string; page?: number }): Promise<MontageStockItem[]>;
+  montageStockDownload(item: MontageStockItem): Promise<string>;
+  onMontageStock(cb: (data: { id: string; provider: string; progress: number }) => void): () => void;
   montageAvatarKeys(): Promise<MontageAvatarKeys>;
-  montageSaveAvatarKeys(patch: { eleven?: string; fal?: string; heygen?: string; forgetVoices?: boolean }): Promise<MontageAvatarKeys>;
+  montageSaveAvatarKeys(patch: { eleven?: string; fal?: string; heygen?: string; pexels?: string; pixabay?: string; freesound?: string; jamendo?: string; forgetVoices?: boolean }): Promise<MontageAvatarKeys>;
   montageHeygenList(): Promise<{ avatars: { id: string; name: string; preview: string; photo?: boolean }[]; voices: { id: string; name: string; language: string }[] }>;
   montageAvatarRun(request: MontageAvatarRequest): Promise<{ path: string; audio?: string }>;
   onMontageProgress(cb: (data: MontageProgress) => void): () => void;
