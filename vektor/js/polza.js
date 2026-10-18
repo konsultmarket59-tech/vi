@@ -105,6 +105,8 @@ const Polza = {
     }
     const blob = await Polza.download(result, type);
     Polza.setPending(Polza.pending().filter(p => p.id !== created.id));
+    const cost = result.usage && (result.usage.cost_rub || result.usage.cost);
+    if (signal && cost) try { signal.vkCost = (signal.vkCost || 0) + (+cost || 0); } catch (e) { } // «Ноды» показывают стоимость
     return { blob, id: created.id, cost: result.usage && (result.usage.cost_rub || result.usage.cost), raw: result };
   },
   async collect(id, type = 'image') {
