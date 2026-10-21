@@ -259,9 +259,67 @@ def mm(plan):
     return out
 
 
-def plans_json():
-    # 'hidden': True — план есть в данных, но в блоке не показывается
-    return json.dumps([mm(p) for p in PLANS if not p.get('hidden')], ensure_ascii=False, separators=(',', ':'))
+def _aabb(f):
+    import math
+    a = math.radians(f['rot']); c, s_ = abs(math.cos(a)), abs(math.sin(a))
+    hw, hd = (f['w'] * c + f['d'] * s_) / 2, (f['w'] * s_ + f['d'] * c) / 2
+    return [f['x'] - hw, f['y'] - hd, f['x'] + hw, f['y'] + hd]
+
+
+def _without_fixed(furn, fixed):
+    """Из рекомендованной расстановки убираем то, что уже стоит по проекту (котельная)."""
+    boxes = [_aabb(f) for f in fixed]
+    return [f for f in furn if not any(b[0] - 200 <= f['x'] <= b[2] + 200 and b[1] - 200 <= f['y'] <= b[3] + 200 for b in boxes)]
+
+
+def classic():
+    """Дома КЛАССИК: стены отсюда, рекомендованная расстановка — из plans3d.py (те же стены)."""
+    import plans3d
+    rec = {p['id']: plans3d.mm(p)['furn'] for p in plans3d.PLANS}
+    out = []
+    for p in PLANS:
+        if p.get('hidden'):
+            continue
+        m = mm(p)
+        m['title'] = 'КЛАССИК %d м²' % p['area']
+        m['group'] = m['id']
+        m['rec'] = _without_fixed(rec.get(p['id'], []), m['fixed'])
+        out.append(m)
+    return out
+
+
+CATALOG = 'https://newland59.ru/katalog'
+# Дома СМАРТ: группа — одна планировка, внутри варианты
+SMART = [
+    ('p68', ['p68']),
+    ('slate85', ['slate85-1', 'slate85-2']),
+    ('slate100', ['slate100-1', 'slate100-2', 'slate100-3', 'slate100-4', 'slate100-5']),
+    ('dom100', ['dom100-1', 'dom100-2', 'dom100-3']),
+]
+
+
+def smart():
+    """Дома СМАРТ из plans3d.py. Площадь в названии — вместе с террасами (без крыльца)."""
+    import plans3d
+    src = {p['id']: p for p in plans3d.PLANS}
+    out = []
+    for gid, ids in SMART:
+        for i, pid in enumerate(ids):
+            m = plans3d.mm(src[pid])
+            area = round(sum(r['a'] for r in m['rooms'] if r['n'] != 'Крыльцо'))
+            out.append({
+                'id': pid, 'area': area, 'title': 'СМАРТ %d м²' % area, 'note': m['note'], 'link': CATALOG,
+                'group': gid, 'variant': 'Вариант %d' % (i + 1) if len(ids) > 1 else '',
+                'walls': m['walls'], 'windows': m['windows'], 'doors': m['doors'], 'rooms': m['rooms'],
+                'zones': [], 'decks': [{'k': 'porch', 'r': r} for r in m['decks']], 'posts': m['posts'],
+                'roof': [], 'fixed': [], 'box': m['box'], 'rec': m['furn'],
+            })
+    return out
+
+
+def plans_json(series='classic'):
+    data = classic() if series == 'classic' else smart()
+    return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
 
 
 if __name__ == '__main__':
