@@ -104,6 +104,10 @@ body:not(.tab-nodes) [data-only="nodes"], body.tab-nodes [data-only="plan"]{disp
 #ov2{pointer-events:none}
 .nlegend ol{margin:4px 0 8px;padding-left:20px;display:grid;gap:4px;font-size:12.5px}
 .nlegend .muted{line-height:1.4}
+.nedit{width:100%;border:1px solid transparent;border-radius:6px;background:none;font:12.5px/1.35 var(--text);color:var(--ink);resize:none;padding:2px 4px;overflow:hidden}
+.nedit:hover{border-color:var(--line)}
+.nedit:focus{border-color:var(--accent);background:#fff;outline:0}
+.nlegend .lnk{margin:0 0 8px}
 .info b#nodeTitle{font-size:22px}
 .toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow)}
 
@@ -1517,7 +1521,10 @@ function nFoundation(nd, labels) {
   const yC = -above.reduce((s, l) => s + Math.max(l.t, 3), 0), yCb = yC - conc.t;
   const block = wall.find((l) => l.m === 'aerated' || l.m === 'brick'), blockIn = wall.slice(0, wall.indexOf(block)).reduce((s, l) => s + Math.max(l.t, 3), 0);
   const xBlockIn = 0, xOut = wallT;                         // внутренняя грань стены — 0
-  const ribOut = xBlockIn + blockIn + block.t + (nd.xpsV ? 0 : 0), ribIn = ribOut - nd.rib.w, ribB = yCb - nd.rib.d;
+  // ребро — под всей кладкой: наружная грань ребра совпадает с наружной гранью самого внешнего каменного слоя (кирпич или блок),
+  // как на разрезах проекта; навесная облицовка (сайдинг, планкен, фальц) держится на обрешётке
+  const mIdx = wall.reduce((m, l, i) => (l.m === 'aerated' || l.m === 'brick' ? i : m), 0);
+  const ribOut = wall.slice(0, mIdx + 1).reduce((s, l) => s + Math.max(l.t, 3), 0), ribIn = Math.min(ribOut - nd.rib.w, 0), ribB = yCb - nd.rib.d;
   const L = 1500, inner = -L;
   // слои пола внутри — ступенькой у дальнего края
   let y = 0;
@@ -1525,7 +1532,7 @@ function nFoundation(nd, labels) {
   // плита с ребром под стеной
   nBox(g, 'concrete', inner, ribOut, yCb, yC, w1, w2);
   nBox(g, 'concrete', ribIn, ribOut, ribB, yCb, w1, w2);
-  labels.push({ n: conc.n + ' с ребром под стеной', t: conc.t, at: [inner + 60, yC, D * .2] });
+  labels.push({ n: conc.n.replace(/, сетка[^,]*$/, '') + ' с ребром под стеной', t: conc.t, at: [inner + 60, yC, D * .2] });
   // слои под плитой: внутри — до ребра, под ребром и снаружи — песок/основание
   y = yCb;
   below.forEach((l, i) => { const t = Math.max(l.t, 3); nBox(g, l.m, inner + (below.length - i) * 110 - 220, ribIn, y - t, y, w1, w2); labels.push({ n: l.n, t: l.t, a: l.a, at: [inner + (below.length - i) * 110 - 160, y, D * .2] }); y -= t; });
@@ -1554,12 +1561,34 @@ function nFoundation(nd, labels) {
   wall.forEach((l, i) => {
     const t = Math.max(l.t, 3), isBlock = l === block, y0 = isBlock ? yC : 0;
     const yTop = top - (wall.length - 1 - i) * 0;
-    const yb = l.m === 'aerated' || l.m === 'brick' || l.m === 'plaster' || l.m === 'paint' ? y0 : Math.max(yG + 120, -60);
+    const yb = i <= mIdx ? yC : Math.max(yG + 120, -60);
     if (l.m !== 'gap') nBox(g, l.m, x, x + t, yb, yTop - (i > wall.indexOf(block) ? (i - wall.indexOf(block)) * 120 : 0), w1, w2, { frame: 'x' });
     if (l.bars) { const b = l.bars, gr = NMAT[b.m] && NMAT[b.m].tex === 'grain'; if (b.dir === 'u') { for (let yy = yb + b.w / 2; yy < yTop - 140 * (i - wall.indexOf(block)); yy += b.step) nBox(g, b.m, x, x + t, yy - b.w / 2, yy + b.w / 2, w1, w2, gr ? { grain: 'w' } : { frame: 'x' }); } else for (let w = w1 + 60; w < w2; w += b.step) nBox(g, b.m, x, x + t, yb, yTop - (i - wall.indexOf(block)) * 120, w, w + b.w, gr ? { grain: 'v' } : { frame: 'x' }); }
     if (i > wall.indexOf(block) || isBlock) labels.push({ n: l.n, t: l.t, a: l.a, at: [x + t, yTop - (i > wall.indexOf(block) ? (i - wall.indexOf(block)) * 120 : 0) - 60, D * .3] });
     x += t;
   });
+  // армирование по листу КЖ: продольная арматура и сетка выходят из среза плиты, на выпуске видны хомут и гнутый стержень
+  const rm = nodeMat('rebar'), cov = 50, out = 260, zs = w2 + 140;
+  const bar = (a, b, d) => {
+    const A = new THREE.Vector3(...a).divideScalar(1000), B = new THREE.Vector3(...b).divideScalar(1000), len = A.distanceTo(B);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(d / 2000, d / 2000, len + d / 1000, 10), rm);
+    c.position.copy(A).add(B).multiplyScalar(.5); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize()); c.castShadow = true; g.add(c);
+  };
+  const ms = (conc.mesh && conc.mesh.step) || 400, yTop = yC - 40, yBot = ribB + cov, rx1 = ribIn + cov, rx2 = ribOut - cov, rxm = (rx1 + rx2) / 2;
+  // ребро: продольные Ø12 — 3 сверху и 3 снизу
+  for (const x of [rx1, rxm, rx2]) for (const y of [yTop, yBot]) bar([x, y, w1 + 30], [x, y, w2 + out], 12);
+  // хомуты Ø6 с шагом 400 — один на выпуске, остальные внутри бетона
+  for (const z of [zs]) { bar([rx1, yBot, z], [rx2, yBot, z], 6); bar([rx2, yBot, z], [rx2, yTop, z], 6); bar([rx2, yTop, z], [rx1, yTop, z], 6); bar([rx1, yTop, z], [rx1, yBot, z], 6); }
+  // сетка плиты Ø12: стержни вдоль стены выходят из среза, поперечный — на выпуске
+  for (let x = rx1 - ms; x > inner + 60; x -= ms) bar([x, yTop, w1 + 30], [x, yTop, w2 + out], 12);
+  bar([inner + 60, yTop + 12, zs], [rx2, yTop + 12, zs], 12);
+  // гнутый стержень П: верхняя ветвь в плиту на 1000, вертикаль у наружной грани ребра, нижняя — по низу ребра
+  const zp = zs + 70;
+  bar([rx2 - 1000, yTop - 12, zp], [rx2 + 8, yTop - 12, zp], 12); bar([rx2 + 8, yTop - 12, zp], [rx2 + 8, yBot + 12, zp], 12); bar([rx2 + 8, yBot + 12, zp], [rx1, yBot + 12, zp], 12);
+  labels.push({ n: 'Армирование ребра: продольная арматура Ø12 А500С — 3 сверху, 3 снизу', at: [rx1, yBot, w2 + out] });
+  labels.push({ n: 'Хомуты Ø6 А500С с шагом 400 мм', at: [rx2, (yTop + yBot) / 2, zs] });
+  labels.push({ n: `Сетка плиты Ø12 А500С ${ms}×${ms} мм`, at: [inner + 400, yTop, w2 + out] });
+  labels.push({ n: 'Гнутый стержень П Ø12 А500С — связь плиты и ребра', at: [rx2 - 600, yTop - 12, zp] });
   // отсечная гидроизоляция под стеной
   nBox(g, 'planter', xBlockIn + blockIn, xBlockIn + blockIn + block.t, yC, yC + 4, w1, w2);
   labels.push({ n: 'Отсечная гидроизоляция', at: [xBlockIn + blockIn + block.t / 2, yC + 4, D / 2] });
@@ -1589,7 +1618,7 @@ function buildNode() {
   group.position.set(-c.x, -bb.min.y, -c.z); group.updateMatrixWorld(true);
   N.box = new THREE.Box3().setFromObject(group);
   const inner = g.children[0] && g.children[0].isGroup ? g.children[0] : g;
-  N.labels = labels.map((l, i) => ({ ...l, i: i + 1, w: new THREE.Vector3(l.at[0] / 1000, l.at[1] / 1000, l.at[2] / 1000).applyMatrix4(inner.matrixWorld) }));
+  N.labels = labels.map((l, i) => ({ ...l, n0: l.n, i: i + 1, w: new THREE.Vector3(l.at[0] / 1000, l.at[1] / 1000, l.at[2] / 1000).applyMatrix4(inner.matrixWorld) }));
   nodeLight(); nodeFit(); orderLabels(); renderNodeLegend();
 }
 /* номера слоёв — сверху вниз, как точки выносок видны в исходном ракурсе */
@@ -1601,14 +1630,37 @@ function orderLabels() {
 }
 const tSuffix = (l) => (l.t && !l.n.includes(fmtT(l.t) + ' мм') ? ` — ${fmtT(l.t)} мм` : '') + (l.a ? '*' : '');
 const fmtT = (t) => (t < 1 ? String(t).replace('.', ',') : t % 1 ? String(t).replace('.', ',') : fmtMM(t));
+/* свой текст подписи: ключ — проект/узел/исходный текст, пусто — вернуть исходный */
+const ntKey = (l) => curSet().id + '/' + curNode().id + '/' + l.n0;
+const ntext = (l) => (S.ntext && S.ntext[ntKey(l)]) ?? null;
+function setNtext(l, v) {
+  S.ntext = S.ntext || {}; const k = ntKey(l), d = l.n0 + tSuffix({ ...l, n: l.n0 });
+  if (!v || v.trim() === d) delete S.ntext[k]; else S.ntext[k] = v.trim();
+  save(); renderNodeLegend(); ndirty();
+}
+const labelText = (l) => ntext(l) ?? (l.n0 + tSuffix({ ...l, n: l.n0 }));
+function editLabel(l) {
+  const v = prompt('Текст подписи (пусто — вернуть исходный):', labelText(l));
+  if (v !== null) setNtext(l, v);
+}
 function renderNodeLegend() {
   const nd = curNode(), set = curSet(), el = $('#nlegend'); el.innerHTML = '';
   const ol = document.createElement('ol');
-  for (const l of N.labels) { const li = document.createElement('li'); li.textContent = l.n + tSuffix(l); ol.append(li); }
+  for (const l of N.labels.slice().sort((a, b) => a.i - b.i)) {
+    const li = document.createElement('li'), inp = document.createElement('textarea');
+    inp.className = 'nedit'; inp.rows = 1; inp.value = labelText(l); inp.title = 'Можно исправить текст подписи';
+    const fit = () => { inp.style.height = 'auto'; inp.style.height = inp.scrollHeight + 'px'; };
+    inp.oninput = () => { fit(); S.ntext = S.ntext || {}; S.ntext[ntKey(l)] = inp.value; save(); ndirty(); };
+    inp.onchange = () => setNtext(l, inp.value);
+    li.append(inp); ol.append(li); requestAnimationFrame(fit);
+  }
   el.append(ol);
+  const rs = document.createElement('button'); rs.className = 'lnk'; rs.textContent = 'Вернуть исходные подписи';
+  rs.onclick = () => { for (const l of N.labels) delete (S.ntext || {})[ntKey(l)]; save(); renderNodeLegend(); ndirty(); };
+  el.append(rs);
   const any = N.labels.some((l) => l.a);
   const p = document.createElement('div'); p.className = 'muted';
-  p.textContent = (any ? '* Толщина в проекте не указана — принята типовая. ' : '') + (set.note ? set.note + ' ' : '') + 'Источник: ' + set.src + '.';
+  p.textContent = 'Подписи можно исправить в списке или двойным щелчком по подписи на рисунке. ' + (any ? '* Толщина в проекте не указана — принята типовая. ' : '') + (set.note ? set.note + ' ' : '') + 'Источник: ' + set.src + '.';
   el.append(p);
   $('#nodeTitle').textContent = set.n + ' · ' + nd.n;
 }
@@ -1691,6 +1743,7 @@ function nrender() {
 /* подписи слоёв: точка на слое, выноска в колонку справа от узла */
 function drawNodeLabels(c, W, H, k) {
   if (!S.labels || !N.labels.length) return;
+  N.hits = [];
   const v = new THREE.Vector3(), pts = N.labels.map((l) => { v.copy(l.w).project(N.cam); return { l, x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H }; });
   // правый край узла на экране
   const bb = N.box, corners = []; for (const x of [bb.min.x, bb.max.x]) for (const y of [bb.min.y, bb.max.y]) for (const z of [bb.min.z, bb.max.z]) { v.set(x, y, z).project(N.cam); corners.push((v.x + 1) / 2 * W); }
@@ -1699,7 +1752,7 @@ function drawNodeLabels(c, W, H, k) {
   const colX = Math.min(Math.max(...corners) + 30 * k, W * .62), maxW = W - colX - 14 * k;
   // длинные подписи переносятся по словам
   for (const p of pts) {
-    const words = (`${p.l.i}. ${p.l.n}` + tSuffix(p.l)).split(' '), lines = [''];
+    const words = (`${p.l.i}. ` + labelText(p.l)).split(' '), lines = [''];
     for (const wd of words) { const t = lines[lines.length - 1] ? lines[lines.length - 1] + ' ' + wd : wd; if (c.measureText(t).width > maxW && lines[lines.length - 1]) lines.push(wd); else lines[lines.length - 1] = t; }
     p.lines = lines;
   }
@@ -1715,6 +1768,7 @@ function drawNodeLabels(c, W, H, k) {
     c.beginPath(); c.arc(p.x, p.y, 3 * k, 0, 7); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 1.6 * k; c.stroke();
     c.fillStyle = S.nlabelColor;
     p.lines.forEach((t, j) => c.fillText(t, colX + (j ? 14 * k : 0), p.ly + j * lh2));
+    N.hits.push({ l: p.l, x1: (colX - 6 * k) / k, x2: (colX + Math.max(...p.lines.map((t) => c.measureText(t).width)) + 14 * k) / k, y1: (p.ly - lh / 2) / k, y2: (p.ly + (p.lines.length - 1) * lh2 + lh / 2) / k });
   }
   c.restore();
 }
@@ -1732,7 +1786,11 @@ function bindNodeControls(dom) {
   const up = (e) => { if (pts.delete(e.pointerId)) save(); pinch = 0; };
   dom.addEventListener('pointerup', up); dom.addEventListener('pointercancel', up);
   dom.addEventListener('wheel', (e) => { e.preventDefault(); N.dist = clamp(N.dist * Math.pow(1.0012, e.deltaY), .3, 30); ncam(); }, { passive: false });
-  dom.addEventListener('dblclick', () => nodeFit());
+  dom.addEventListener('dblclick', (e) => {
+    const r = dom.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const h = S.labels && (N.hits || []).find((q) => x >= q.x1 && x <= q.x2 && y >= q.y1 && y <= q.y2);
+    if (h) editLabel(h.l); else nodeFit();
+  });
 }
 async function nodeSnapshot(transparent) {
   const sc = +$('#shotScale').value || 2, r = N.renderer, st = $('#stage'), w = st.clientWidth, h = st.clientHeight, pr0 = r.getPixelRatio();
@@ -1740,7 +1798,7 @@ async function nodeSnapshot(transparent) {
   const bg = N.scene.background; if (transparent) { N.scene.background = null; r.setClearColor(0x000000, 0); }
   r.render(N.scene, N.cam);
   const out = document.createElement('canvas'); out.width = Math.round(w * sc); out.height = Math.round(h * sc);
-  const c = out.getContext('2d'); c.drawImage(r.domElement, 0, 0, out.width, out.height); drawNodeLabels(c, out.width, out.height, sc);
+  const c = out.getContext('2d'); c.drawImage(r.domElement, 0, 0, out.width, out.height); const hs = N.hits; drawNodeLabels(c, out.width, out.height, sc); N.hits = hs;
   N.scene.background = bg; r.setPixelRatio(pr0); r.setSize(w, h, false); ndirty();
   let res = transparent ? cropAlpha(out, Math.round(24 * sc)) : out;
   if ($('#shotCap').checked) {
