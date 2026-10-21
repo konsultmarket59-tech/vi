@@ -139,7 +139,7 @@ body:not(.tab-nodes) [data-only="nodes"], body.tab-nodes [data-only="plan"]{disp
       </div>
       <div class="grp" data-only="nodes">
         <h3>Подписи слоёв</h3>
-        <div class="tgl"><button class="btn" id="nlab">Показать подписи</button></div>
+        <div class="tgl"><button class="btn" id="nlab">Показать подписи</button><button class="btn" id="nair">Движение воздуха</button></div>
         <label class="chk">Цвет подписей <input type="color" id="nlabColor"></label>
         <div class="muted">Тяните — вращение по горизонтали и вертикали, правая кнопка или Shift — сдвиг, колёсико — масштаб.</div>
       </div>
@@ -1186,7 +1186,7 @@ $('#shotAlpha').onclick = () => snapshot(true);
    Стопка строится сверху вниз (у стены — снаружи внутрь), каждый следующий слой длиннее на шаг — так видно все слои. */
 const WALL60 = [
   { n: 'Виниловый сайдинг ТЕХНОНИКОЛЬ', t: 12, m: 'siding' },
-  { n: 'Контробрешётка с шагом 400 мм — вентзазор', t: 40, m: 'gap', a: 1, bars: { w: 50, step: 400, dir: 'w', m: 'wood' } },
+  { n: 'Контробрешётка с шагом 400 мм — вентзазор', t: 40, m: 'gap', a: 1, air: 'w', bars: { w: 50, step: 400, dir: 'w', m: 'wood' } },
   { n: 'Плёнка ТЕХНОНИКОЛЬ АЛЬФА ВЕНТ ТПУ', t: 0, m: 'membrane' },
   { n: 'Плиты из каменной ваты ТЕХНОБЛОК СТАНДАРТ', t: 100, m: 'wool', a: 1 },
   { n: 'Несущая стена — блоки Твинблок ТБ300-4п', t: 300, m: 'aerated' },
@@ -1197,7 +1197,7 @@ const ROOF_TILE = [
   { n: 'Кровля — металлочерепица «Каскад»', t: 0.5, m: 'mtile' },
   { n: 'Вентиляционный зазор', t: 0, m: 'gap' },
   { n: 'Разреженная обрешётка 30×150 с шагом 250 мм', t: 30, m: 'gap', bars: { w: 150, step: 250, dir: 'w', m: 'woodfr' } },
-  { n: 'Контробрешётка 50×50 с шагом 600 мм', t: 50, m: 'gap', bars: { w: 50, step: 600, dir: 'u', m: 'woodfr' } },
+  { n: 'Контробрешётка 50×50 с шагом 600 мм — вентзазор', t: 50, m: 'gap', air: 'u', bars: { w: 50, step: 600, dir: 'u', m: 'woodfr' } },
   { n: 'Стропильная нога — 2 спаренные доски 50×200', t: 200, m: 'gap', bars: { w: 100, step: 600, dir: 'u', m: 'woodfr' } },
 ];
 const CEIL60 = [
@@ -1227,14 +1227,14 @@ const OTM_TYPE = [
 ];
 const WALL510 = [
   { n: 'Облицовочный кирпич', t: 120, m: 'brick' },
-  { n: 'Вентилируемый зазор', t: 20, m: 'gap', a: 1 },
+  { n: 'Вентилируемый зазор', t: 20, m: 'gap', a: 1, air: 'w' },
   { n: 'Утеплитель — плиты из каменной ваты', t: 50, m: 'wool', a: 1 },
   { n: 'Газобетонный блок', t: 300, m: 'aerated', a: 1 },
   { n: 'Штукатурка', t: 20, m: 'plaster', a: 1 },
 ];
 const WALL_SIDING = [
-  { n: 'Виниловый сайдинг', t: 12, m: 'siding', reveal: { u: 0, w: 420, row: 230 } },
-  { n: 'Металлическая обрешётка: вертикальные и горизонтальные профили, вентзазор', t: 40, m: 'gap', frame: { step: 600, hstep: 500, w: 60 } },
+  { n: 'Виниловый сайдинг', t: 12, m: 'siding' },
+  { n: 'Металлическая обрешётка: вертикальные и горизонтальные профили, вентзазор', t: 40, m: 'gap', air: 'w', frame: { step: 600, hstep: 500, w: 60 } },
   { n: 'Гидро-ветрозащита Ондутис', t: 0, m: 'ondutis' },
   { n: 'Утеплитель Эковер Лайт Вент Фасад', t: 50, m: 'wool' },
   { n: 'Газобетон Твинблок D400', t: 300, m: 'aerated' },
@@ -1277,7 +1277,7 @@ const SLATE_OTM = [
 const slateWall = (cladding) => [
   cladding,
   // под вертикальный планкен обрешётка горизонтальная, под фальц-панели — вертикальная
-  { n: 'Деревянная обрешётка', t: 50, m: 'gap', bars: { w: 50, step: 600, dir: cladding.bars && cladding.bars.dir === 'w' ? 'u' : 'w', m: 'wood' } },
+  { n: 'Деревянная обрешётка — вентзазор', t: 50, m: 'gap', air: 'w', bars: { w: 50, step: 600, dir: cladding.bars && cladding.bars.dir === 'w' ? 'u' : 'w', m: 'wood' } },
   { n: 'Супердиффузионная мембрана', t: 0, m: 'membrane' },
   { n: 'Газобетонные блоки D400, B3.5 — 400 мм', t: 400, m: 'aerated' },
 ];
@@ -1285,7 +1285,7 @@ const slateRoof = (osb) => [
   { n: 'Фальцевая кровля Falz Lock 0,5 мм', t: 0.5, m: 'falz' },
   { n: 'Плёнка ТЕХНОНИКОЛЬ АЛЬФА ТОП', t: 0, m: 'membrane' },
   ...(osb ? [{ n: 'OSB', t: 12, m: 'osb' }] : []),
-  { n: 'Обрешётка', t: 45, m: 'gap', bars: { w: 100, step: 300, dir: 'w', m: 'woodfr' } },
+  { n: 'Обрешётка — вентзазор', t: 45, m: 'gap', air: 'u', bars: { w: 100, step: 300, dir: 'w', m: 'woodfr' } },
   { n: 'Стропильная система — фермы (раздел КД)', t: 150, m: 'gap', a: 1, bars: { w: 50, step: 600, dir: 'u', m: 'woodfr' } },
 ];
 const NODESETS = [
@@ -1356,7 +1356,7 @@ const NMAT = {
   metal: { c: '#dfe3e7', m: .15, r: .35 }, glue: { c: '#8f8c87', tex: 'comb', ts: .3 }, fmesh: { c: '#e9eef2', tex: 'mesh', ts: .15 },
   dplaster: { c: '#f3efe6', tex: 'rough', ts: .4 }, pipe: { c: '#e5532f', r: .5 }, rebar: { c: '#6d6052', m: .6, r: .5 },
 };
-const NODE_DEF = { nset: '', nnode: 'wall', labels: true, nlabelColor: '#261A7E', naz: .75, nel: .5, tab: 'plan' };
+const NODE_DEF = { nair: true, nset: '', nnode: 'wall', labels: true, nlabelColor: '#261A7E', naz: .75, nel: .5, tab: 'plan' };
 
 let N = null;
 const nsets = () => NODESETS;
@@ -1456,7 +1456,9 @@ function nBox(parent, m, u1, u2, v1, v2, w1, w2, opt = {}) {
     mats = [f, f, sw, sw, su, su];
   } else { const f = nodeMat(m, 'f'), su = nodeMat(m, 'su'), sw = nodeMat(m, 'sw'); mats = [su, su, f, f, sw, sw]; }
   // у BoxGeometry по 4 вершины на грань в порядке +x, −x, +y, −y, +z, −z; начало развёртки — угол куска
-  const g = worldUV(new THREE.BoxGeometry(sx, sy, sz), (i) => mats[i >> 2].userData.ts, [sx / 2, sy / 2, sz / 2]);
+  // opt.abs — развёртка от общего начала стопки: соседние полоски одного слоя продолжают рисунок
+  const org = opt.abs ? [(u1 + u2) / 2000 + 5, (v1 + v2) / 2000 + 5, (w1 + w2) / 2000 + 5] : [sx / 2, sy / 2, sz / 2];
+  const g = worldUV(new THREE.BoxGeometry(sx, sy, sz), (i) => mats[i >> 2].userData.ts, org);
   const me = new THREE.Mesh(g, mats); me.position.set((u1 + u2) / 2000, (v1 + v2) / 2000, (w1 + w2) / 2000);
   me.castShadow = !mats[2].transparent; me.receiveShadow = true; parent.add(me); return me;
 }
@@ -1481,8 +1483,11 @@ function nSheet(parent, m, u1, u2, v0, w1, w2, kind) {
   return me;
 }
 /* стопка слоёв; L — длина, D — глубина, s — шаг выступа каждого следующего слоя */
-function nStack(layers, L, D, s, labels, spread) {
+function nStack(layers, L, D, s, labels, spread, diag) {
   const g = new THREE.Group(), n = layers.length;
+  // линия диагонального среза лицевого слоя: от нижнего угла у ступеньки слоёв до верхнего угла на дальнем краю —
+  // остаётся треугольник, выше диагонали видно обрешётку и слои под облицовкой
+  const du1 = -L / 2, du2 = L / 2 - (n - 1) * s, diagTop = (u) => -D / 2 + D * Math.min(1, Math.max(0, (du2 - u) / (du2 - du1)));
   let v = 0;
   const visOf = (l) => (l.m === 'mtile' || l.m === 'falz' ? 20 : l.t === 0 ? 3 : Math.max(l.t, 3));
   // наружная грань несущего слоя — к ней крепятся кронштейны подсистемы
@@ -1491,9 +1496,12 @@ function nStack(layers, L, D, s, labels, spread) {
     const vis = visOf(l);
     const v2 = v, v1 = v - vis, u1 = -L / 2, u2 = L / 2 - (n - 1 - i) * s, w1 = -D / 2, w2 = D / 2;
     // у стены точки выносок расходятся по высоте, чтобы линии не перекрещивались
-    const mid = [(u2 - s * .55), v2, spread ? D * (.36 - .72 * i / Math.max(1, n - 1)) : D * .18];
+    const mid = diag && i === 0 ? [u1 + (u2 - u1) * .25, v2, -D * .3] : [(u2 - s * .55), v2, spread ? D * (.36 - .72 * i / Math.max(1, n - 1)) : D * .18];
     if (l.m === 'mtile' || l.m === 'falz') nSheet(g, l.m, u1, u2, v1, w1, w2, l.m === 'falz' ? 'falz' : 'tile');
-    else if (l.reveal) {
+    else if (diag && i === 0 && l.m !== 'gap') {
+      // лицевой слой срезан по диагонали: остаётся треугольник ниже линии от низа до верхнего угла
+      for (let u = u1; u < u2 - 1; u += 15) { const ue = Math.min(u + 15, u2), top = diagTop((u + ue) / 2); if (top > w1 + 5) nBox(g, l.m, u, ue, v1, v2, w1, top, { abs: 1 }); }
+    } else if (l.reveal) {
       // облицовка снята уступами по рядам, чтобы был виден каркас под ней
       const R = l.reveal; let k = 0;
       for (let w = w1; w < w2 - R.w; w += R.row, k++) nBox(g, l.m, u1 + 330 + (k % 2) * 120 + k * 20, u2 + s - 30, v1, v2, w, Math.min(w + R.row - 2, w2 - R.w));
@@ -1515,7 +1523,7 @@ function nStack(layers, L, D, s, labels, spread) {
       const b = l.bars, bm = b.m || 'wood';
       const gr = NMAT[bm] && NMAT[bm].tex === 'grain' ? 1 : 0;
       if (b.dir === 'u') { for (let w = w1 + b.w / 2 + 40; w < w2 - b.w / 2; w += b.step) nBox(g, bm, u1, u2, v1 - .5, v2 + .5, w - b.w / 2, w + b.w / 2, gr ? { grain: 'u' } : {}); }
-      else if (b.ws) { let u = u2 - 10, k = 0; while (u - b.ws[k % b.ws.length] > u1) { const bw = b.ws[k++ % b.ws.length]; nBox(g, bm, u - bw, u, v1 - .5, v2 + .5, w1, w2, gr ? { grain: 'w' } : {}); u -= bw + b.gap; } }
+      else if (b.ws) { let u = u2 - 10, k = 0; while (u - b.ws[k % b.ws.length] > u1) { const bw = b.ws[k++ % b.ws.length], top = diag && i === 0 ? diagTop(u - bw / 2) : w2; if (top > w1 + 5) nBox(g, bm, u - bw, u, v1 - .5, v2 + .5, w1, top, gr ? { grain: 'w' } : {}); u -= bw + b.gap; } }
       else { for (let u = u2 - b.w / 2 - 20; u > u1 + b.w / 2; u -= b.step) nBox(g, bm, u - b.w / 2, u + b.w / 2, v1 - .5, v2 + .5, w1, w2, gr ? { grain: 'w' } : {}); }
       if (b.n) labels.push({ n: b.n, at: b.dir === 'u' ? [u2 - s * .3, v2, w1 + b.w / 2 + 40] : [u2 - b.w / 2 - 20, v2, D * .3] });
     }
@@ -1529,10 +1537,28 @@ function nStack(layers, L, D, s, labels, spread) {
       const p = l.mesh, rm = nodeMat('rebar'), y = (v1 + vis * .5) / 1000;
       for (let w = w1 + p.step / 2; w < w2; w += p.step) { const c = new THREE.Mesh(new THREE.CylinderGeometry(p.d / 2000, p.d / 2000, (u2 - u1 + 90) / 1000, 8), rm); c.rotation.z = Math.PI / 2; c.position.set((u1 + u2 + 90) / 2000, y, w / 1000); g.add(c); }
     }
+    if (l.air && S.nair) nAir(g, l.air, u1, u2, (v1 + v2) / 2, w1, w2);
     labels.push({ n: l.n, t: l.t, a: l.a, at: l.m === 'gap' && !l.bars ? [u2 - s * .5, v2 - vis / 2, D / 2] : mid });
     v = v1;
   });
   return g;
+}
+/* полупрозрачные стрелки движения воздуха в вентзазоре: dir 'w' — снизу вверх по стене, 'u' — вдоль ската к коньку */
+function nAir(g, dir, u1, u2, v, w1, w2) {
+  if (!N.airMat) N.airMat = new THREE.MeshStandardMaterial({ color: new THREE.Color('#38b6f0').convertSRGBToLinear(), emissive: new THREE.Color('#2a8fd0').convertSRGBToLinear(), emissiveIntensity: .35, transparent: true, opacity: .55, depthWrite: false, roughness: .4 });
+  const P = (a, b) => (dir === 'w' ? new THREE.Vector3(a / 1000, v / 1000, b / 1000) : new THREE.Vector3(b / 1000, v / 1000, a / 1000));
+  const along = dir === 'w' ? [w1 + 80, w2 - 140] : [u1 + 120, u2 - 160], across = dir === 'w' ? [u1, u2] : [w1, w2];
+  const n = Math.max(2, Math.round((across[1] - across[0]) / 420));
+  for (let k = 0; k < n; k++) {
+    const c = across[0] + (across[1] - across[0]) * (k + .5) / n, A = along[0], B = along[1], L = B - A, sw = 60 * (k % 2 ? 1 : -1);
+    for (const [a0, a1] of [[A, A + L * .44], [A + L * .52, B]]) {
+      const pts = [0, .33, .66, 1].map((t) => P(c + Math.sin(t * Math.PI * 1.4) * sw, a0 + (a1 - a0) * t));
+      const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, .011, 8, false), N.airMat);
+      tube.renderOrder = 5; g.add(tube);
+      const end = curve.getPoint(1), tan = curve.getTangent(1), head = new THREE.Mesh(new THREE.ConeGeometry(.03, .08, 14), N.airMat);
+      head.position.copy(end).addScaledVector(tan, .03); head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan); head.renderOrder = 5; g.add(head);
+    }
+  }
 }
 /* узел «фундамент и цоколь»: разрез по краю плиты с ребром, стеной и отмосткой (x — наружу, y — вверх, z — вдоль стены) */
 function nFoundation(nd, labels) {
@@ -1624,7 +1650,7 @@ function buildNode() {
   if (nd.type === 'fnd') g = nFoundation(nd, labels);
   else {
     const L = nd.type === 'wall' ? 1300 : 1500, D = nd.type === 'wall' ? 1100 : 1000;
-    g = nStack(nd.layers, L, D, nd.type === 'wall' ? 110 : 120, labels, nd.type === 'wall');
+    g = nStack(nd.layers, L, D, nd.type === 'wall' ? 110 : 120, labels, nd.type === 'wall', nd.type === 'wall');
     const outer = new THREE.Group(); outer.add(g);
     if (nd.type === 'wall') {
       // стопка: u — вдоль стены, v — наружу, w — вверх; основание матрицы с определителем +1
@@ -1698,9 +1724,10 @@ function renderNodeUI() {
     const b = document.createElement('button'); b.className = 'btn'; b.textContent = n.n; b.setAttribute('aria-pressed', n.id === curNode().id);
     b.onclick = () => { S.nnode = n.id; save(); renderNodeUI(); buildNode(); }; ne.append(b);
   }
-  $('#nlab').setAttribute('aria-pressed', !!S.labels); $('#nlabColor').value = S.nlabelColor;
+  $('#nlab').setAttribute('aria-pressed', !!S.labels); $('#nair').setAttribute('aria-pressed', !!S.nair); $('#nlabColor').value = S.nlabelColor;
   for (const k of Object.keys(NCOL)) $('#ncol_' + k).value = ncolor(k);
 }
+$('#nair').onclick = () => { S.nair = !S.nair; save(); renderNodeUI(); if (N) buildNode(); };
 $('#nlab').onclick = () => { S.labels = !S.labels; save(); renderNodeUI(); if (N) nodeFit(); };
 $('#nlabColor').oninput = (e) => { S.nlabelColor = e.target.value; save(); ndirty(); };
 for (const k of Object.keys(NCOL)) $('#ncol_' + k).oninput = (e) => { S.ncol = S.ncol || {}; S.ncol[k] = e.target.value; save(); if (N) buildNode(); };
