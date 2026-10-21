@@ -139,6 +139,14 @@ body:not(.tab-nodes) [data-only="nodes"], body.tab-nodes [data-only="plan"]{disp
         <label class="chk">Цвет подписей <input type="color" id="nlabColor"></label>
         <div class="muted">Тяните — вращение по горизонтали и вертикали, правая кнопка или Shift — сдвиг, колёсико — масштаб.</div>
       </div>
+      <div class="grp" data-only="nodes">
+        <h3>Цвет облицовки <button class="lnk" id="ncolReset">Сбросить</button></h3>
+        <div class="fcols">
+          <span>Облицовочный кирпич</span><input type="color" id="ncol_brick">
+          <span>Сайдинг</span><input type="color" id="ncol_siding">
+          <span>Декоративная штукатурка</span><input type="color" id="ncol_dplaster">
+        </div>
+      </div>
       <div class="grp" data-only="plan">
         <h3>Вид</h3>
         <div class="seg" id="views" role="group" aria-label="Вид">
