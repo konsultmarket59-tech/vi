@@ -95,6 +95,14 @@ h1,h2,h3,p{margin:0}
 .pick-rot button{width:30px;height:28px;border:1.5px solid var(--brand);border-radius:9px;background:var(--panel);color:var(--brand);font:700 15px/1 var(--text)}
 .pick-rot button:hover{background:var(--brand-soft)}
 .pick-x{border:0;background:none;font:400 20px/1 var(--text);color:var(--muted);padding:0 2px}
+.tabs{flex:none}
+.tabs button{padding:7px 14px;font-size:13px}
+body:not(.tab-nodes) [data-only="nodes"], body.tab-nodes [data-only="plan"]{display:none!important}
+#gl2{touch-action:none}
+#ov2{pointer-events:none}
+.nlegend ol{margin:4px 0 8px;padding-left:20px;display:grid;gap:4px;font-size:12.5px}
+.nlegend .muted{line-height:1.4}
+.info b#nodeTitle{font-size:22px}
 .toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow)}
 
 @media (max-width:860px){
@@ -113,11 +121,23 @@ h1,h2,h3,p{margin:0}
 <div id="app">
   <header class="top">
     <div class="brand"><small>Новая Земля</small><h1>Планировки в 3D</h1></div>
-    <nav class="plans" id="plans" aria-label="Планировка"></nav>
+    <div class="seg tabs" id="tabs" role="group" aria-label="Раздел"><button data-tab="plan">Планировки</button><button data-tab="nodes">Узлы</button></div>
+    <nav class="plans" id="plans" aria-label="Планировка" data-only="plan"></nav>
+    <nav class="plans" id="nprojects" aria-label="Проект" data-only="nodes"></nav>
   </header>
   <div class="work">
     <aside class="side">
-      <div class="grp">
+      <div class="grp" data-only="nodes">
+        <h3>Узел</h3>
+        <div class="tgl" id="nnodes"></div>
+      </div>
+      <div class="grp" data-only="nodes">
+        <h3>Подписи слоёв</h3>
+        <div class="tgl"><button class="btn" id="nlab">Показать подписи</button></div>
+        <label class="chk">Цвет подписей <input type="color" id="nlabColor"></label>
+        <div class="muted">Тяните — вращение по горизонтали и вертикали, правая кнопка или Shift — сдвиг, колёсико — масштаб.</div>
+      </div>
+      <div class="grp" data-only="plan">
         <h3>Вид</h3>
         <div class="seg" id="views" role="group" aria-label="Вид">
           <button data-v="3d">3D</button><button data-v="top">Сверху</button><button data-v="iso">Изометрия</button>
@@ -125,13 +145,13 @@ h1,h2,h3,p{margin:0}
         <label class="rng" id="tiltRow"><span>Наклон</span><input type="range" id="tilt" min="10" max="89" step="1"><output id="tiltV"></output></label>
         <label class="rng" id="perspRow"><span>Перспектива</span><input type="range" id="persp" min="0" max="50" step="1"><output id="perspV"></output></label>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Стиль</h3>
         <div class="seg" id="styles" role="group" aria-label="Стиль">
           <button data-s="nz">Новая Земля</button><button data-s="real">Реалистичный</button>
         </div>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Подписи</h3>
         <div class="tgl">
           <button class="btn" data-t="names">Назначения</button>
@@ -145,31 +165,31 @@ h1,h2,h3,p{margin:0}
         <label class="rng"><span>Высота солнца</span><input type="range" id="sunEl" min="8" max="85" step="1"><output id="sunElV"></output></label>
         <label class="rng"><span>Яркость</span><input type="range" id="sunPow" min="40" max="160" step="5"><output id="sunPowV"></output></label>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Цвет среза стен <button class="lnk" id="wallReset">Сбросить</button></h3>
         <div class="fcols">
           <span>Срез наружных стен</span><input type="color" id="capOut" title="Верх наружных стен">
           <span>Срез перегородок</span><input type="color" id="capIn" title="Верх внутренних стен">
         </div>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Цвет мебели <button class="lnk" id="fcolReset">Сбросить</button></h3>
         <div class="fcols" id="fcols"></div>
         <div class="muted">Нажмите на предмет, чтобы перекрасить или повернуть только его.</div>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Пол</h3>
         <div class="sw" id="floors"></div>
         <label class="chk">Свой оттенок <input type="color" id="floorCustom"></label>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Размеры, мм</h3>
         <div class="tgl">
           <button class="btn" data-t="dimOut">Наружные</button>
           <button class="btn" data-t="dimIn">Внутренние</button>
         </div>
       </div>
-      <div class="grp">
+      <div class="grp" data-only="plan">
         <h3>Стены</h3>
         <div class="tgl">
           <button class="btn" data-t="cut">Срезать стены</button>
@@ -187,11 +207,14 @@ h1,h2,h3,p{margin:0}
         <label class="chk"><input type="checkbox" id="shotCap">Подпись: дом, площадь, габариты</label>
         <label class="chk">Размер <select id="shotScale"><option value="1">как на экране</option><option value="2" selected>×2</option><option value="3">×3</option></select></label>
       </div>
-      <div class="info" id="info"></div>
+      <div class="info" id="info" data-only="plan"></div>
+      <div class="info" data-only="nodes"><b id="nodeTitle"></b><div id="nlegend" class="nlegend"></div></div>
     </aside>
     <section class="stage" id="stage">
-      <canvas id="gl"></canvas>
-      <canvas id="ov"></canvas>
+      <canvas id="gl" data-only="plan"></canvas>
+      <canvas id="ov" data-only="plan"></canvas>
+      <canvas id="gl2" data-only="nodes"></canvas>
+      <canvas id="ov2" data-only="nodes"></canvas>
       <div class="hud">
         <button id="rotL" title="Повернуть на 90° влево"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a8 8 0 1 1 2.3 5.7"/><path d="M4 4v7h7"/></svg></button>
         <button id="rotR" title="Повернуть на 90° вправо"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
@@ -492,7 +515,7 @@ $('#labelColor').oninput = (e) => { S.labelColor = e.target.value; save(); dirty
 function syncLight() {
   for (const k of ['sunAz', 'sunEl', 'sunPow']) { $('#' + k).value = S[k]; $('#' + k + 'V').textContent = S[k] + (k === 'sunPow' ? '%' : '°'); }
 }
-for (const k of ['sunAz', 'sunEl', 'sunPow']) $('#' + k).oninput = (e) => { S[k] = +e.target.value; save(); syncLight(); if (G) applyLight(); };
+for (const k of ['sunAz', 'sunEl', 'sunPow']) $('#' + k).oninput = (e) => { S[k] = +e.target.value; save(); syncLight(); if (G) applyLight(); if (typeof nodeLight === 'function') nodeLight(); };
 $('#tilt').oninput = (e) => { S.tilt = +e.target.value; save(); if (G) { G.ctl.el = S.tilt * Math.PI / 180; fitView(); } };
 /* перспектива в изометрии: 0 — строгая изометрия (ортогональная), больше — сильнее сходятся линии */
 $('#persp').oninput = (e) => { S.persp = +e.target.value; save(); syncUI(); if (G) fitView(); };
@@ -714,11 +737,12 @@ function bindControls(dom) {
   };
   dom.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.pow(1.0012, e.deltaY)); }, { passive: false });
   dom.addEventListener('dblclick', () => fitView());
-  $('#rotL').onclick = () => rotateBy(Math.PI / 2);
-  $('#rotR').onclick = () => rotateBy(-Math.PI / 2);
-  $('#zIn').onclick = () => zoom(1 / 1.25);
-  $('#zOut').onclick = () => zoom(1.25);
-  $('#fit').onclick = () => fitView();
+  const nz = (f) => { N.dist = clamp(N.dist * f, .3, 30); ncam(); };
+  $('#rotL').onclick = () => (S.tab === 'nodes' && N ? (S.naz += Math.PI / 4, ncam()) : rotateBy(Math.PI / 2));
+  $('#rotR').onclick = () => (S.tab === 'nodes' && N ? (S.naz -= Math.PI / 4, ncam()) : rotateBy(-Math.PI / 2));
+  $('#zIn').onclick = () => (S.tab === 'nodes' && N ? nz(1 / 1.25) : zoom(1 / 1.25));
+  $('#zOut').onclick = () => (S.tab === 'nodes' && N ? nz(1.25) : zoom(1.25));
+  $('#fit').onclick = () => (S.tab === 'nodes' && N ? nodeFit() : fitView());
 }
 
 /* ---------- сборка сцены ---------- */
@@ -1079,6 +1103,7 @@ function drawLabels(c, pr, k, hits) {
 
 /* ---------- снимок PNG ---------- */
 async function snapshot(transparent) {
+  if (S.tab === 'nodes') { if (N) nodeSnapshot(transparent); return; }
   if (!G) return;
   const sc = +$('#shotScale').value || 2, r = G.renderer, st = $('#stage'), w = st.clientWidth, h = st.clientHeight, pr0 = r.getPixelRatio();
   const W = Math.round(w * sc), Hh = Math.round(h * sc);
@@ -1126,6 +1151,8 @@ function withCaption(cv, k, transparent) {
 $('#shotBg').onclick = () => snapshot(false);
 $('#shotAlpha').onclick = () => snapshot(true);
 
+/*NODES*/
+
 /* ---------- запуск ---------- */
 renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols(); syncWalls();
 (async () => {
@@ -1133,6 +1160,7 @@ renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols(
   $('#loading').hidden = true;
   build(); setCamera(true);
   if (document.fonts) document.fonts.ready.then(dirty);
+  if (S.tab === 'nodes') setTab('nodes');
 })();
 window.addEventListener('hashchange', () => { const id = decodeURIComponent(location.hash.slice(1)); if (id !== S.plan && PLANS.some((p) => p.id === id)) openPlan(id); });
 })();
