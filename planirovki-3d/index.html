@@ -107,6 +107,8 @@ h1,h2,h3,p{margin:0}
         <div class="seg" id="views" role="group" aria-label="Вид">
           <button data-v="3d">3D</button><button data-v="top">Сверху</button><button data-v="iso">Изометрия</button>
         </div>
+        <label class="rng" id="tiltRow"><span>Наклон</span><input type="range" id="tilt" min="10" max="89" step="1"><output id="tiltV"></output></label>
+        <label class="rng" id="perspRow"><span>Перспектива</span><input type="range" id="persp" min="0" max="50" step="1"><output id="perspV"></output></label>
       </div>
       <div class="grp">
         <h3>Стиль</h3>
@@ -299,7 +301,7 @@ function doorGeom(dr) {
 
 /* ---------- состояние ---------- */
 const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true,
-  sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E' };
+  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E' };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(lsGet('pl3d') || '{}')); } catch (e) { }
 const hashId = decodeURIComponent(location.hash.slice(1));
@@ -340,11 +342,13 @@ function syncUI() {
   $$('#styles button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.s === S.style));
   $$('[data-t]').forEach((b) => b.setAttribute('aria-pressed', !!S[b.dataset.t]));
   $$('#plans .plan').forEach((b, i) => b.setAttribute('aria-pressed', PLANS[i].id === S.plan));
+  $('#tiltRow').hidden = S.view === 'top'; $('#perspRow').hidden = S.view !== 'iso';
+  $('#persp').value = S.persp; $('#perspV').textContent = S.persp ? S.persp + '°' : 'нет';
   const touch = matchMedia('(pointer:coarse)').matches;
   $('#hint').textContent = S.view === 'top'
     ? (touch ? 'Палец — сдвиг, два пальца — масштаб' : 'Тяните — сдвиг, колёсико — масштаб, кнопки справа — поворот')
     : S.view === 'iso'
-      ? (touch ? 'Палец — поворот, два пальца — масштаб' : 'Тяните — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб')
+      ? (touch ? 'Палец: влево-вправо — поворот, вверх-вниз — наклон; два пальца — масштаб' : 'Тяните: влево-вправо — поворот, вверх-вниз — наклон; правая кнопка или Shift — сдвиг, колёсико — масштаб')
       : (touch ? 'Палец — вращение, два пальца — масштаб' : 'Тяните — вращение, правая кнопка или Shift — сдвиг, колёсико — масштаб');
 }
 $$('#views button').forEach((b) => { b.onclick = () => { S.view = b.dataset.v; save(); syncUI(); if (G) setCamera(false); }; });
@@ -372,6 +376,9 @@ function syncLight() {
   for (const k of ['sunAz', 'sunEl', 'sunPow']) { $('#' + k).value = S[k]; $('#' + k + 'V').textContent = S[k] + (k === 'sunPow' ? '%' : '°'); }
 }
 for (const k of ['sunAz', 'sunEl', 'sunPow']) $('#' + k).oninput = (e) => { S[k] = +e.target.value; save(); syncLight(); if (G) applyLight(); };
+$('#tilt').oninput = (e) => { S.tilt = +e.target.value; save(); if (G) { G.ctl.el = S.tilt * Math.PI / 180; fitView(); } };
+/* перспектива в изометрии: 0 — строгая изометрия (ортогональная), больше — сильнее сходятся линии */
+$('#persp').oninput = (e) => { S.persp = +e.target.value; save(); syncUI(); if (G) fitView(); };
 function openPlan(id) {
   S.plan = id; P = PLANS.find((p) => p.id === id); save();
   history.replaceState(null, '', '#' + id);
@@ -420,18 +427,25 @@ function renderFrame() {
 }
 
 /* камера: орбита вокруг цели. 3D — перспектива, «сверху» и «изометрия» — ортографические */
-const ISO_EL = Math.atan(1 / Math.SQRT2);
+/* перспективная камера — в 3D и в изометрии с перспективой; ортогональная — сверху и в строгой изометрии */
+const isPersp = () => S.view === '3d' || (S.view === 'iso' && S.persp > 0);
+const fovOf = () => (S.view === '3d' ? 40 : S.persp);
 function applyCamera() {
   if (!G) return;
   const { ctl, persp, ortho } = G, st = $('#stage'), asp = (st.clientWidth / st.clientHeight) || 1;
-  if (S.view === '3d') {
-    ctl.el = clamp(ctl.el, .05, Math.PI / 2 - .02); ctl.dist = clamp(ctl.dist, 2, 120);
+  if (S.view !== 'top') {
+    ctl.el = clamp(ctl.el, 10 * Math.PI / 180, 89 * Math.PI / 180);
+    const deg = Math.round(ctl.el * 180 / Math.PI); $('#tilt').value = deg; $('#tiltV').textContent = deg + '°';
+  }
+  if (isPersp()) {
+    ctl.dist = clamp(ctl.dist, 2, 400);
     const ce = Math.cos(ctl.el);
     persp.position.set(ctl.target.x + ctl.dist * ce * Math.sin(ctl.az), ctl.target.y + ctl.dist * Math.sin(ctl.el), ctl.target.z + ctl.dist * ce * Math.cos(ctl.az));
+    persp.fov = fovOf(); persp.near = Math.max(.05, ctl.dist / 200); persp.far = ctl.dist * 4 + 50;
     persp.up.set(0, 1, 0); persp.aspect = asp; persp.updateProjectionMatrix(); persp.lookAt(ctl.target);
     G.cam = persp;
   } else {
-    const el = S.view === 'top' ? Math.PI / 2 : ISO_EL, D = 120, ce = Math.cos(el);
+    const el = S.view === 'top' ? Math.PI / 2 : ctl.el, D = 120, ce = Math.cos(el);
     ctl.zoom = clamp(ctl.zoom, 1.2, 80);
     ortho.position.set(ctl.target.x + D * ce * Math.sin(ctl.az), ctl.target.y + D * Math.sin(el), ctl.target.z + D * ce * Math.cos(ctl.az));
     if (S.view === 'top') ortho.up.set(-Math.sin(ctl.az), 0, -Math.cos(ctl.az)); else ortho.up.set(0, 1, 0);
@@ -448,26 +462,35 @@ const DEF_AZ = { '3d': -.62, top: 0, iso: -Math.PI / 4 };
 const snapAz = (a) => Math.round((a - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) + Math.PI / 4;
 function setCamera(reset) {
   const c = G.ctl;
-  if (reset || !c.view) { c.az = DEF_AZ[S.view]; c.el = .62; }
+  if (reset || !c.view) c.az = DEF_AZ[S.view];
   else if (c.view !== S.view) {
     if (S.view === 'iso') c.az = snapAz(c.az);
     else if (S.view === 'top') c.az = Math.round(c.az / (Math.PI / 2)) * (Math.PI / 2);
-    else c.el = .62;
   }
+  c.el = S.tilt * Math.PI / 180;
   c.view = S.view;
   fitView();
 }
 const fwdOf = (az) => new THREE.Vector3(-Math.sin(az), 0, -Math.cos(az));
-const elOf = () => (S.view === 'top' ? Math.PI / 2 : S.view === 'iso' ? ISO_EL : G.ctl.el);
+const elOf = () => (S.view === 'top' ? Math.PI / 2 : G.ctl.el);
 function fitView() {
   const e = extent(P), pad = S.dimOut ? 2200 : 600, H = wallH() / 1000;
   const xs = [(e[0] - pad) / 1000, (e[2] + pad) / 1000], zs = [(e[1] - pad) / 1000, (e[3] + pad) / 1000];
   const c = G.ctl;
   c.target.set((xs[0] + xs[1]) / 2, 0, (zs[0] + zs[1]) / 2);
-  if (S.view === '3d') {
-    const r = Math.hypot(xs[1] - xs[0], zs[1] - zs[0]) / 2, asp = G.persp.aspect || 1;
-    const half = Math.atan(Math.tan(G.persp.fov * Math.PI / 360) * Math.min(1, asp));
-    c.dist = r / Math.sin(half) * .68;
+  if (isPersp()) {
+    // подбираем расстояние и центр по углам габарита в кадре — за несколько шагов
+    const r = Math.hypot(xs[1] - xs[0], zs[1] - zs[0]) / 2, v = new THREE.Vector3();
+    c.dist = r / Math.sin(fovOf() * Math.PI / 360) * .7;
+    for (let it = 0; it < 6; it++) {
+      applyCamera();
+      const cam = G.persp; let x1 = Infinity, x2 = -Infinity, y1 = Infinity, y2 = -Infinity;
+      for (const x of xs) for (const z of zs) for (const y of [0, H]) { v.set(x, y, z).project(cam); x1 = Math.min(x1, v.x); x2 = Math.max(x2, v.x); y1 = Math.min(y1, v.y); y2 = Math.max(y2, v.y); }
+      const half = c.dist * Math.tan(cam.fov * Math.PI / 360);
+      const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0); right.y = 0; right.normalize();
+      c.target.addScaledVector(right, (x1 + x2) / 2 * half * cam.aspect).addScaledVector(fwdOf(c.az), (y1 + y2) / 2 * half / Math.sin(elOf()));
+      c.dist *= Math.max((x2 - x1) / 2, (y2 - y1) / 2) / .94;
+    }
     applyCamera(); return;
   }
   c.zoom = 10; applyCamera();
@@ -490,12 +513,12 @@ function bindControls(dom) {
   const pts = new Map(); let pinch = 0;
   const pan = (dx, dy) => {
     const c = G.ctl, cam = G.cam, H = $('#stage').clientHeight || 1;
-    const k = S.view === '3d' ? 2 * c.dist * Math.tan(G.persp.fov * Math.PI / 360) / H : 2 * c.zoom / H;
+    const k = isPersp() ? 2 * c.dist * Math.tan(G.persp.fov * Math.PI / 360) / H : 2 * c.zoom / H;
     const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0); right.y = 0; right.normalize();
     c.target.addScaledVector(right, -dx * k).addScaledVector(fwdOf(c.az), dy * k / Math.max(.35, Math.sin(elOf())));
     applyCamera();
   };
-  const zoom = (f) => { const c = G.ctl; if (S.view === '3d') c.dist *= f; else c.zoom *= f; applyCamera(); };
+  const zoom = (f) => { const c = G.ctl; if (isPersp()) c.dist *= f; else c.zoom *= f; applyCamera(); };
   dom.addEventListener('contextmenu', (e) => e.preventDefault());
   dom.addEventListener('pointerdown', (e) => { dom.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey }); pinch = 0; });
   dom.addEventListener('pointermove', (e) => {
@@ -507,10 +530,9 @@ function bindControls(dom) {
     }
     const c = G.ctl;
     if (p.pan || S.view === 'top') pan(dx, dy);
-    else if (S.view === 'iso') { c.az -= dx * .006; applyCamera(); }
-    else { c.az -= dx * .006; c.el += dy * .006; applyCamera(); }
+    else { c.az -= dx * .006; c.el += dy * .006; S.tilt = Math.round(clamp(c.el, .17, 1.55) * 180 / Math.PI); applyCamera(); }
   });
-  const up = (e) => { pts.delete(e.pointerId); pinch = 0; };
+  const up = (e) => { if (pts.has(e.pointerId)) save(); pts.delete(e.pointerId); pinch = 0; };
   dom.addEventListener('pointerup', up); dom.addEventListener('pointercancel', up);
   dom.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.pow(1.0012, e.deltaY)); }, { passive: false });
   dom.addEventListener('dblclick', () => fitView());
