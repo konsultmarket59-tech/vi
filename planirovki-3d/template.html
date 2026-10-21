@@ -209,6 +209,8 @@ const CAT = {
   khob: { n: 'Варочная', c3: '#f2f0eb', h: 860 },
   dishwasher: { n: 'Посудомойка', c3: '#f2f0eb', h: 860 },
   ktall: { n: 'Пенал', c3: '#f2f0eb', h: 2100 },
+  island: { n: 'Кухонный остров', c3: '#f2f0eb', h: 900 },
+  barstool: { n: 'Барный стул', c3: '#c89467', h: 780 },
   fridge: { n: 'Холодильник', c3: '#e9e9e7', h: 1900 },
   table: { n: 'Стол', c3: '#c89467', h: 760 },
   table6: { n: 'Стол на 6', base: 'table', c3: '#c89467', h: 760 },
@@ -547,7 +549,9 @@ function build() {
   const decks = [...P.decks, ...P.rooms.filter((r) => r.k === 'terrace').flatMap((r) => r.r)];
   for (const r of decks) {
     add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]), .16, mm(r[3] - r[1])), mat(st.deckSide)), false).position.set(mm(r[0] + r[2]) / 2, -.1, mm(r[1] + r[3]) / 2);
-    group.add(floorMesh(r, 'deck', -.018));
+    // настил внутри габарита дома лежит на цоколе, снаружи — чуть ниже пола
+    const inBox = r[0] >= b[0] - 5 && r[2] <= b[2] + 5 && r[1] >= b[1] - 5 && r[3] <= b[3] + 5;
+    group.add(floorMesh(r, 'deck', inBox ? .003 : -.018));
   }
   for (const room of P.rooms) if (room.k !== 'terrace') for (const r of room.r) group.add(floorMesh(r, FLOOR_OF[room.k] === 'tile' ? 'tile' : FLOOR_OF[room.k] || 'wood', .002));
   // стены: окна и двери закрыты перемычкой, у окон ещё подоконная часть
@@ -626,6 +630,8 @@ function furn3D(f, st) {
       if (baseOf(f.type) === 'ksink') { B(Math.min(w * .62, .7), .02, d * .5, '#b9bec2', 0, .855, .02, { m: .6, r: .3 }); Cy(.015, .25, '#b9bec2', 0, .97, Z + .07, 1, 1, { m: .8, r: .2 }); }
       if (baseOf(f.type) === 'khob') B(Math.min(w * .9, .58), .01, d * .85, '#111', 0, .865, 0, { r: .2 });
       if (baseOf(f.type) === 'dishwasher') B(w * .9, .02, .01, '#999', 0, .74, d / 2); break;
+    case 'island': B(w, .86, d - .06, col, 0, .43, 0); B(w + .04, .04, d + .02, top, 0, .88, 0); B(Math.min(w * .5, .58), .01, d * .6, '#111', -w / 4, .905, 0, { r: .2 }); break;
+    case 'barstool': Cy(w * .45, .05, col, 0, .76, 0); Cy(.02, .74, '#777', 0, .37, 0, 1, 1, { m: .6 }); Cy(w * .35, .02, '#777', 0, .01, 0); break;
     case 'fridge': B(w, hh, d, col, 0, hh / 2, 0, { r: .4 }); B(.02, .5, .02, '#888', X0 + .06, 1.3, d / 2 + .01); break;
     case 'ktall': B(w, hh, d, col, 0, hh / 2, 0); B(w * .85, .5, .01, '#222', 0, 1.05, d / 2 + .003, { r: .2 }); break;
     case 'table': B(w, .04, d, col, 0, .74, 0); legs(.72, .06, col, .025); break;
