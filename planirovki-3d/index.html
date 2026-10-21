@@ -54,6 +54,13 @@ h1,h2,h3,p{margin:0}
 .chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}
 .chk input{accent-color:var(--brand);width:16px;height:16px;margin:0}
 .chk select{border:1px solid var(--line);border-radius:8px;padding:3px 6px;background:var(--sheet);color:var(--ink)}
+.chk input[type=color],.sw input{width:30px;height:22px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer}
+.rng{display:grid;grid-template-columns:96px 1fr 40px;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.rng input{accent-color:var(--brand);width:100%;margin:0}
+.rng output{font:500 11.5px var(--mono);color:var(--ink);text-align:right}
+.sw{display:flex;flex-wrap:wrap;gap:6px}
+.sw button{width:30px;height:30px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.5px var(--line);padding:0}
+.sw button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--brand)}
 .info{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:6px}
 .info b{font:800 26px/1 var(--display);color:var(--brand);text-transform:uppercase}
 .info .nt{color:var(--muted);font-size:12.5px}
@@ -113,6 +120,18 @@ h1,h2,h3,p{margin:0}
           <button class="btn" data-t="names">Назначения</button>
           <button class="btn" data-t="areas">Площади, м²</button>
         </div>
+        <label class="chk">Цвет подписей <input type="color" id="labelColor"></label>
+      </div>
+      <div class="grp">
+        <h3>Свет</h3>
+        <label class="rng"><span>Направление</span><input type="range" id="sunAz" min="0" max="359" step="1"><output id="sunAzV"></output></label>
+        <label class="rng"><span>Высота солнца</span><input type="range" id="sunEl" min="8" max="85" step="1"><output id="sunElV"></output></label>
+        <label class="rng"><span>Яркость</span><input type="range" id="sunPow" min="40" max="160" step="5"><output id="sunPowV"></output></label>
+      </div>
+      <div class="grp">
+        <h3>Пол</h3>
+        <div class="sw" id="floors"></div>
+        <label class="chk">Свой оттенок <input type="color" id="floorCustom"></label>
       </div>
       <div class="grp">
         <h3>Размеры, мм</h3>
@@ -181,15 +200,15 @@ const CAT = {
   bed18: { n: 'Кровать 180', base: 'bed2', c3: '#d6cfc4', h: 1100 },
   bed14: { n: 'Кровать 140', base: 'bed2', c3: '#e3ddd4', h: 1050 },
   bed1: { n: 'Кровать 90', c3: '#ddd6cc', h: 1050 },
-  nightstand: { n: 'Тумба', c3: '#b98559', h: 500 },
-  wardrobe: { n: 'Шкаф', c3: '#c89467', h: 2200 },
-  wardrobe2: { n: 'Шкаф', base: 'wardrobe', c3: '#c89467', h: 2300 },
-  hallwardrobe: { n: 'Шкаф-купе', base: 'wardrobe', c3: '#c89467', h: 2300 },
-  dresser: { n: 'Комод', c3: '#c08a5e', h: 850 },
-  shoe: { n: 'Обувница', base: 'dresser', c3: '#c89467', h: 600 },
+  nightstand: { n: 'Тумба', c3: '#946342', h: 500 },
+  wardrobe: { n: 'Шкаф', c3: '#a5714d', h: 2200 },
+  wardrobe2: { n: 'Шкаф', base: 'wardrobe', c3: '#a5714d', h: 2300 },
+  hallwardrobe: { n: 'Шкаф-купе', base: 'wardrobe', c3: '#a5714d', h: 2300 },
+  dresser: { n: 'Комод', c3: '#946342', h: 850 },
+  shoe: { n: 'Обувница', base: 'dresser', c3: '#a5714d', h: 600 },
   bench: { n: 'Банкетка', c3: '#d9d2c6', h: 450 },
   hallbench: { n: 'Банкетка', base: 'bench', c3: '#b98559', h: 450 },
-  desk: { n: 'Письменный стол', c3: '#c89467', h: 750 },
+  desk: { n: 'Письменный стол', c3: '#a5714d', h: 750 },
   ochair: { n: 'Рабочее кресло', c3: '#5a5552', h: 1000 },
   sofa: { n: 'Диван', c3: '#e9e6e1', h: 870 },
   sofa3: { n: 'Диван', base: 'sofa', c3: '#dcd6cc', h: 870 },
@@ -199,10 +218,10 @@ const CAT = {
   gchair: { n: 'Садовое кресло', base: 'armchair', c3: '#a77d55', h: 800 },
   ottoman: { n: 'Оттоманка', c3: '#dcd6cc', h: 420 },
   pouf: { n: 'Пуф', c3: '#c9a27e', h: 450 },
-  coffee: { n: 'Журнальный столик', c3: '#b98559', h: 440 },
-  tv: { n: 'ТВ-тумба', c3: '#c89467', h: 1370 },
+  coffee: { n: 'Журнальный столик', c3: '#8a5d3e', h: 440 },
+  tv: { n: 'ТВ-тумба', c3: '#a5714d', h: 1370 },
   tvwall: { n: 'Телевизор', c3: '#1b1c1e', h: 1600 },
-  shelf: { n: 'Стеллаж', c3: '#c89467', h: 2000 },
+  shelf: { n: 'Стеллаж', c3: '#a5714d', h: 2000 },
   rug: { n: 'Ковёр', c3: '#e2d6c4', h: 12 },
   kbase: { n: 'Тумба кухни', c3: '#f2f0eb', h: 860 },
   ksink: { n: 'Мойка', c3: '#f2f0eb', h: 860 },
@@ -212,8 +231,8 @@ const CAT = {
   island: { n: 'Кухонный остров', c3: '#f2f0eb', h: 900 },
   barstool: { n: 'Барный стул', c3: '#c89467', h: 780 },
   fridge: { n: 'Холодильник', c3: '#e9e9e7', h: 1900 },
-  table: { n: 'Стол', c3: '#c89467', h: 760 },
-  table6: { n: 'Стол на 6', base: 'table', c3: '#c89467', h: 760 },
+  table: { n: 'Стол', c3: '#a5714d', h: 760 },
+  table6: { n: 'Стол на 6', base: 'table', c3: '#a5714d', h: 760 },
   gtable: { n: 'Садовый стол', base: 'table', c3: '#a77d55', h: 740 },
   roundtable: { n: 'Круглый стол', c3: '#f0ede8', h: 760 },
   chair: { n: 'Стул', c3: '#e9e6e1', h: 920 },
@@ -247,7 +266,7 @@ const STYLES = {
     bg: '#E9EBF2', ground: '#E1E4EE', plinth: '#C9CEE6', wall: '#FBFBFC', facade: '#F4F5FA', cap: '#261A7E',
     floor: { wood: 'tex', tile: 'tex', deck: 'tex' }, deckSide: '#b9a896', post: '#261A7E',
     glass: '#b9d4e6', frame: '#FFFFFF', extDoor: '#261A7E', door: '#f4f1ec',
-    white: '#f6f4f0', dark: '#4a4440', wood: '#b98559', top: '#e6e1d8', ink: '#261A7E', label: '#261A7E', halo: 'rgba(250,250,252,.94)',
+    white: '#f6f4f0', dark: '#4a4440', wood: '#946342', top: '#e6e1d8', ink: '#261A7E', label: '#261A7E', halo: 'rgba(250,250,252,.94)',
   },
 };
 
@@ -279,7 +298,8 @@ function doorGeom(dr) {
 }
 
 /* ---------- состояние ---------- */
-const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true };
+const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true,
+  sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E' };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(lsGet('pl3d') || '{}')); } catch (e) { }
 const hashId = decodeURIComponent(location.hash.slice(1));
@@ -287,6 +307,11 @@ if (PLANS.some((p) => p.id === hashId)) S.plan = hashId;
 if (!PLANS.some((p) => p.id === S.plan)) S.plan = PLANS[0].id;
 let P = PLANS.find((p) => p.id === S.plan);
 const save = () => lsSet('pl3d', JSON.stringify(S));
+/* оттенки пола: доска одной породы, меняется тон */
+const FLOORS = [
+  { n: 'Светлый дуб', c: '#dcbc96' }, { n: 'Натуральный дуб', c: '#c49a6c' }, { n: 'Медовый дуб', c: '#b07c4a' },
+  { n: 'Орех', c: '#82583a' }, { n: 'Серый дуб', c: '#a39686' }, { n: 'Венге', c: '#55402f' },
+];
 
 /* ---------- интерфейс ---------- */
 function renderPlans() {
@@ -331,6 +356,22 @@ $$('[data-t]').forEach((b) => {
     if (k === 'cut' || k === 'furn') build(); else if (k === 'dimOut') fitView(); else dirty();
   };
 });
+function renderFloors() {
+  const el = $('#floors'); el.innerHTML = '';
+  for (const f of FLOORS) {
+    const b = document.createElement('button'); b.title = f.n; b.style.background = f.c; b.setAttribute('aria-pressed', f.c === S.floor);
+    b.onclick = () => setFloor(f.c); el.append(b);
+  }
+  $('#floorCustom').value = S.floor;
+}
+function setFloor(c) { S.floor = c; save(); renderFloors(); if (G) build(); }
+$('#floorCustom').oninput = (e) => setFloor(e.target.value);
+$('#labelColor').value = S.labelColor;
+$('#labelColor').oninput = (e) => { S.labelColor = e.target.value; save(); dirty(); };
+function syncLight() {
+  for (const k of ['sunAz', 'sunEl', 'sunPow']) { $('#' + k).value = S[k]; $('#' + k + 'V').textContent = S[k] + (k === 'sunPow' ? '%' : '°'); }
+}
+for (const k of ['sunAz', 'sunEl', 'sunPow']) $('#' + k).oninput = (e) => { S[k] = +e.target.value; save(); syncLight(); if (G) applyLight(); };
 function openPlan(id) {
   S.plan = id; P = PLANS.find((p) => p.id === id); save();
   history.replaceState(null, '', '#' + id);
@@ -489,7 +530,8 @@ function mat(color, o = {}) {
   return G.mats.get(key);
 }
 function texture(kind) {
-  const light = S.style === 'nz', key = kind + (light ? '-l' : '');
+  const base = new THREE.Color(S.floor), key = kind === 'wood' ? 'wood' + S.floor : kind;
+  const [br, bg, bb] = [base.r * 255, base.g * 255, base.b * 255];
   if (G.texs.has(key)) return G.texs.get(key);
   const cv = document.createElement('canvas'); cv.width = cv.height = 256; const c = cv.getContext('2d');
   const hash = (n) => { n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3); n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return (n >>> 0) / 4294967295; };
@@ -502,11 +544,11 @@ function texture(kind) {
       const off = deck ? 0 : (y * 97) % 256;
       for (let x = -1; x < 2; x++) {
         const v = hash(y * 31 + x * 977 + (deck ? 5 : 0)) * 26 - 13;
-        c.fillStyle = deck ? `rgb(${150 + v},${112 + v * .8},${80 + v * .6})` : light ? `rgb(${226 + v * .6},${196 + v * .6},${166 + v * .5})` : `rgb(${200 + v},${164 + v * .8},${122 + v * .6})`;
+        c.fillStyle = deck ? `rgb(${150 + v},${112 + v * .8},${80 + v * .6})` : `rgb(${br + v * .8},${bg + v * .7},${bb + v * .55})`;
         c.fillRect(x * 256 + off, y * 32, 256, 32);
-        c.fillStyle = light ? 'rgba(90,50,20,.10)' : 'rgba(0,0,0,.18)'; c.fillRect(x * 256 + off, y * 32, deck ? 0 : 2, 32);
+        c.fillStyle = 'rgba(40,20,5,.16)'; c.fillRect(x * 256 + off, y * 32, deck ? 0 : 2, 32);
       }
-      c.fillStyle = light && !deck ? 'rgba(90,50,20,.13)' : 'rgba(0,0,0,.22)'; c.fillRect(0, y * 32, 256, deck ? 3 : 1.5);
+      c.fillStyle = 'rgba(40,20,5,.2)'; c.fillRect(0, y * 32, 256, deck ? 3 : 1.5);
     }
   }
   const t = new THREE.CanvasTexture(cv); t.encoding = THREE.sRGBEncoding; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
@@ -526,16 +568,26 @@ function floorMesh(r, kind, y) {
   me.rotation.x = -Math.PI / 2; me.position.set((r[0] + r[2]) / 2000, y, (r[1] + r[3]) / 2000); me.receiveShadow = true;
   return me;
 }
+/* солнце: направление — откуда светит, по часовой от севера (верх чертежа); высота — над горизонтом */
+function applyLight() {
+  const { sun, hemi } = G, e = extent(P), cx = (e[0] + e[2]) / 2000, cz = (e[1] + e[3]) / 2000, size = Math.max(e[2] - e[0], e[3] - e[1]) / 1000;
+  const az = S.sunAz * Math.PI / 180, el = S.sunEl * Math.PI / 180, R = size * 1.6, k = S.sunPow / 100;
+  sun.position.set(cx + R * Math.cos(el) * Math.sin(az), R * Math.sin(el), cz - R * Math.cos(el) * Math.cos(az));
+  sun.target.position.set(cx, 0, cz); sun.target.updateMatrixWorld();
+  sun.intensity = (S.style === 'nz' ? .66 : .74) * k;
+  hemi.intensity = (S.style === 'nz' ? .7 : .62) * (.55 + .45 * k);
+  const half = size * .95;
+  Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: .5, far: R * 2.5 }); sun.shadow.camera.updateProjectionMatrix();
+  dirty();
+}
 function inRoom(x, y) { return P.rooms.some((room) => room.k !== 'terrace' && room.r.some((r) => inR(x, y, r))); }
 function build() {
   const { group, scene, sun } = G, st = sty();
-  group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.userData && o.material.userData.own) o.material.dispose(); });
+  group.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); if (o.material && o.material.userData && o.material.userData.own) o.material.dispose(); });
   group.clear();
   scene.background = new THREE.Color(st.bg).convertSRGBToLinear();
-  G.hemi.intensity = S.style === 'nz' ? .78 : .66; G.sun.intensity = S.style === 'nz' ? .62 : .72;
   const b = P.box, e = extent(P), cx = (e[0] + e[2]) / 2000, cz = (e[1] + e[3]) / 2000, size = Math.max(e[2] - e[0], e[3] - e[1]) / 1000;
-  sun.position.set(cx - size * .5, size * 1.2, cz - size * .7); sun.target.position.set(cx, 0, cz);
-  Object.assign(sun.shadow.camera, { left: -size * .85, right: size * .85, top: size * .85, bottom: -size * .85, near: 1, far: size * 4 }); sun.shadow.camera.updateProjectionMatrix();
+  applyLight();
   const H = wallH() / 1000, mm = (v) => v / 1000;
   const add = (me, cast = true) => { me.castShadow = cast; me.receiveShadow = true; group.add(me); return me; };
   // земля и тень для снимка без фона
@@ -595,21 +647,42 @@ function build() {
   dirty();
 }
 
+/* брусок со скруглёнными гранями: выдавленный прямоугольник с фаской-дугой по всем рёбрам */
+const RB = new Map();
+function roundedBox(w, h, d, r) {
+  r = Math.min(r, w / 2 - .001, h / 2 - .001, d / 2 - .001);
+  const key = [w, h, d, r].map((v) => Math.round(v * 1000)).join('/');
+  if (RB.has(key)) return RB.get(key);
+  const iw = w / 2 - r, id = d / 2 - r, rc = .0005, sh = new THREE.Shape();
+  sh.moveTo(-iw + rc, -id); sh.lineTo(iw - rc, -id); sh.quadraticCurveTo(iw, -id, iw, -id + rc);
+  sh.lineTo(iw, id - rc); sh.quadraticCurveTo(iw, id, iw - rc, id); sh.lineTo(-iw + rc, id);
+  sh.quadraticCurveTo(-iw, id, -iw, id - rc); sh.lineTo(-iw, -id + rc); sh.quadraticCurveTo(-iw, -id, -iw + rc, -id);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: Math.max(h - 2 * r, .0001), bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 4, curveSegments: 5 });
+  g.rotateX(-Math.PI / 2); g.translate(0, -(h - 2 * r) / 2, 0);
+  g.computeVertexNormals(); g.userData.keep = true;
+  RB.set(key, g); return g;
+}
 /* мебель: w — ширина, d — глубина, спинка — к −z (вверх по чертежу при повороте 0) */
 function furn3D(f, st) {
   const g = new THREE.Group(), w = f.w / 1000, d = f.d / 1000, Z = -d / 2, X0 = -w / 2;
   const cat = CAT[f.type];
   const col = f.color || cat.c3, white = st.white, dark = st.dark, wood = st.wood, top = st.top;
   const hh = (f.h || cat.h) / 1000;
-  const B = (bw, bh, bd, c, x, y, z, o) => { const me = new THREE.Mesh(new THREE.BoxGeometry(Math.max(bw, .005), Math.max(bh, .005), Math.max(bd, .005)), mat(c, o)); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; g.add(me); return me; };
+  // мягкие детали (матрас, подушки, сиденья) скругляются сильнее, корпусная мебель — на 1–2 см
+  const B = (bw, bh, bd, c, x, y, z, o = {}) => {
+    bw = Math.max(bw, .005); bh = Math.max(bh, .005); bd = Math.max(bd, .005);
+    const m = Math.min(bw, bh, bd), r = o.soft ? Math.min(.07, m * .38) : Math.min(.018, m * .22);
+    const geo = m >= .02 && !o.sharp ? roundedBox(bw, bh, bd, r) : new THREE.BoxGeometry(bw, bh, bd);
+    const me = new THREE.Mesh(geo, mat(c, { r: o.r, m: o.m, op: o.op, ds: o.ds })); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; g.add(me); return me;
+  };
   const Cy = (r, h, c, x, y, z, sx = 1, sz = 1, o) => { const me = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), mat(c, o)); me.position.set(x, y, z); me.scale.set(sx, 1, sz); me.castShadow = true; me.receiveShadow = true; g.add(me); return me; };
   const legs = (h, inset = .04, c = dark, r = .02) => { for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(r * 2, h, r * 2, c, sx * (w / 2 - inset), h / 2, sz * (d / 2 - inset)); };
   switch (baseOf(f.type)) {
     case 'bed2': case 'bed1': {
       const hb = Math.min(1.05, hh);
-      B(w, .3, d, wood, 0, .15, 0); B(w - .04, .2, d - .08, white, 0, .4, .02); B(w, hb, .07, wood, 0, hb / 2, Z + .035);
-      const n = w >= 1.3 ? 2 : 1, pw = (w - .07 * (n + 1)) / n; for (let i = 0; i < n; i++) B(pw, .12, .32, white, X0 + .07 + pw / 2 + i * (pw + .07), .56, Z + .3);
-      B(w - .02, .05, d * .62, col, 0, .52, d / 2 - d * .31); break;
+      B(w, .3, d, wood, 0, .15, 0); B(w - .04, .2, d - .08, white, 0, .4, .02, { soft: 1, r: .95 }); B(w, hb, .07, wood, 0, hb / 2, Z + .035);
+      const n = w >= 1.3 ? 2 : 1, pw = (w - .07 * (n + 1)) / n; for (let i = 0; i < n; i++) B(pw, .13, .34, white, X0 + .07 + pw / 2 + i * (pw + .07), .57, Z + .3, { soft: 1, r: .95 });
+      B(w - .02, .06, d * .62, col, 0, .52, d / 2 - d * .31, { soft: 1, r: .95 }); break;
     }
     case 'nightstand': B(w, .5, d, col, 0, .25, 0); B(w * .9, .01, .01, dark, 0, .3, d / 2); break;
     case 'wardrobe': B(w, hh, d, col, 0, hh / 2, 0); for (let x = X0 + .5; x < w / 2 - .1; x += .5) B(.01, hh - .1, .01, '#9b7a5a', x, hh / 2, d / 2 + .003); break;
@@ -617,10 +690,15 @@ function furn3D(f, st) {
     case 'shelf': B(w, hh, d, col, 0, hh / 2, 0); for (let y = .4; y < hh; y += .4) B(w - .04, .02, .02, '#a7a196', 0, y, d / 2); break;
     case 'sofa': case 'armchair': {
       const a = Math.min(.22, w * .14), bk = Math.min(.24, d * .27), sh = Math.min(.42, hh * .48);
-      B(w, sh, d, col, 0, sh / 2, 0); B(w, hh - sh, bk, col, 0, sh + (hh - sh) / 2, Z + bk / 2); B(a, .22, d, col, X0 + a / 2, sh + .11, 0); B(a, .22, d, col, w / 2 - a / 2, sh + .11, 0);
-      B(w - 2 * a - .02, .1, d - bk - .03, col, 0, sh + .05, bk / 2, { r: 1 }); break;
+      const so = { soft: 1, r: .95 };
+      B(w, sh - .08, d, col, 0, (sh - .08) / 2 + .06, 0, so); B(w, hh - sh + .04, bk, col, 0, sh + (hh - sh) / 2 - .02, Z + bk / 2, so);
+      B(a, .3, d, col, X0 + a / 2, sh + .07, 0, so); B(a, .3, d, col, w / 2 - a / 2, sh + .07, 0, so);
+      // подушки сиденья по одной на ~70 см
+      { const iw = w - 2 * a - .02, n = Math.max(1, Math.round(iw / .7)), cw = iw / n; for (let i = 0; i < n; i++) B(cw - .015, .13, d - bk - .03, col, X0 + a + .01 + cw / 2 + i * cw, sh + .03, bk / 2, so); }
+      if (hh > .6) legs(.06, .06, dark, .02);
+      break;
     }
-    case 'ottoman': B(w, .38, d, col, 0, .19, 0); B(w - .04, .06, d - .04, col, 0, .41, 0, { r: 1 }); break;
+    case 'ottoman': B(w, .38, d, col, 0, .19, 0, { soft: 1, r: .95 }); B(w - .04, .08, d - .04, col, 0, .41, 0, { soft: 1, r: 1 }); break;
     case 'coffee': B(w, .04, d, col, 0, hh - .02, 0); legs(hh - .04); break;
     case 'tv': B(w, .5, d, col, 0, .25, 0); B(Math.min(w * .85, 1.45), .82, .04, '#1b1c1e', 0, .5 + .45, 0, { r: .3 }); break;
     case 'tvwall': { const tw = Math.min(w, 1.45), th = tw * .58; B(tw, th, .05, '#1b1c1e', 0, 1.15 + th / 2, Z + .03, { r: .3 }); break; }
@@ -647,8 +725,9 @@ function furn3D(f, st) {
     case 'washer': B(w, .85, d, white, 0, .425, 0, { r: .4 }); Cy(.2, .02, '#5b6670', 0, .45, d / 2 + .005, 1, 1).rotation.x = Math.PI / 2; break;
     case 'sofaL': {
       const d1 = Math.min(.95, d * .6), sw = Math.min(.95, w * .36), bk = Math.min(.23, d1 * .25);
-      B(w, .42, d1, col, 0, .21, Z + d1 / 2); B(sw, .42, d - d1, col, w / 2 - sw / 2, .21, Z + d1 + (d - d1) / 2);
-      B(w, .45, bk, col, 0, .64, Z + bk / 2); B(bk, .45, d, col, w / 2 - bk / 2, .64, 0); B(.2, .22, d1, col, X0 + .1, .53, Z + d1 / 2); break;
+      const so = { soft: 1, r: .95 };
+      B(w, .42, d1, col, 0, .21, Z + d1 / 2, so); B(sw, .42, d - d1, col, w / 2 - sw / 2, .21, Z + d1 + (d - d1) / 2, so);
+      B(w, .45, bk, col, 0, .64, Z + bk / 2, so); B(bk, .45, d, col, w / 2 - bk / 2, .64, 0, so); B(.2, .22, d1, col, X0 + .1, .53, Z + d1 / 2, so); break;
     }
     case 'pouf': Cy(w / 2, .42, col, 0, .21, 0, 1, d / w); break;
     case 'lounger': B(w, .32, d * .62, col, 0, .16, d / 2 - d * .31); { const bk = B(w, .06, d * .42, col, 0, .5, Z + d * .17); bk.rotation.x = .75; } break;
@@ -687,7 +766,7 @@ function drawOverlay(c, W, H, k) {
   c.lineCap = 'round'; c.lineJoin = 'round';
   if (S.dimIn) drawInnerDims(c, pr, k, hTop, st);
   if (S.dimOut) drawOuterDims(c, pr, k, hTop, st);
-  if (S.names || S.areas) drawLabels(c, pr, k, st);
+  if (S.names || S.areas) drawLabels(c, pr, k);
 }
 function label(c, text, x, y, ang, font, color, halo, k) {
   c.save(); c.translate(x, y); c.rotate(ang); c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -754,15 +833,18 @@ function drawOuterDims(c, pr, k, h, st) {
     dimLine(c, pr, k, h, P2(s.lo, l2), P2(s.hi, l2), fmtMM(s.hi - s.lo), st, { e1: P2(s.lo, arr.length > 2 ? l1 : s.at), e2: P2(s.hi, arr.length > 2 ? l1 : s.at), bold: true, fs: 13, force: true, out });
   }
 }
-function drawLabels(c, pr, k, st) {
+/* подписи помещений: Raleway, без обводки, цвет задаётся в панели */
+function drawLabels(c, pr, k) {
   const h = .05;
+  c.save(); c.fillStyle = S.labelColor; c.textAlign = 'center'; c.textBaseline = 'middle';
   for (const room of P.rooms) {
     const r = mainRect(room), lp = room.lp || [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2];
     const p = pr(lp[0], lp[1], h); if (!p.ok) continue;
-    const both = S.names && S.areas, fsN = 12.5 * k, fsA = 19 * k;
-    if (S.names) label(c, room.n, p.x, p.y - (both ? fsA * .42 : 0), 0, `700 ${fsN}px ${FONT_T}`, st.label, st.halo, k);
-    if (S.areas) label(c, fmtA(room.a) + ' м²', p.x, p.y + (both ? fsN * .78 : 0), 0, `800 ${fsA}px ${FONT_D}`, S.style === 'nz' ? '#5D74FF' : st.label, st.halo, k);
+    const both = S.names && S.areas, fsN = 12.5 * k, fsA = 15 * k;
+    if (S.names) { c.font = `600 ${fsN}px ${FONT_T}`; c.fillText(room.n, p.x, p.y - (both ? fsA * .55 : 0)); }
+    if (S.areas) { c.font = `700 ${fsA}px ${FONT_T}`; c.fillText(fmtA(room.a) + ' м²', p.x, p.y + (both ? fsN * .62 : 0)); }
   }
+  c.restore();
 }
 
 /* ---------- снимок PNG ---------- */
@@ -815,7 +897,7 @@ $('#shotBg').onclick = () => snapshot(false);
 $('#shotAlpha').onclick = () => snapshot(true);
 
 /* ---------- запуск ---------- */
-renderPlans(); syncUI(); renderInfo();
+renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight();
 (async () => {
   try { await init3D(); } catch (e) { $('#loading').textContent = 'Не удалось загрузить 3D. Проверьте подключение к интернету.'; return; }
   $('#loading').hidden = true;
