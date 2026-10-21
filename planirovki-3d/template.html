@@ -81,6 +81,16 @@ h1,h2,h3,p{margin:0}
 .hud svg{width:18px;height:18px}
 .hint{position:absolute;left:14px;bottom:12px;font:500 11.5px var(--text);color:var(--muted);background:rgba(255,255,255,.82);padding:5px 10px;border-radius:999px;max-width:calc(100% - 28px)}
 .loading{position:absolute;inset:0;display:grid;place-items:center;font:600 14px var(--text);color:var(--brand)}
+.grp h3{display:flex;justify-content:space-between;align-items:center}
+.lnk{border:0;background:none;padding:0;color:var(--brand);font:700 12px var(--text);letter-spacing:0;text-transform:none;text-decoration:underline;text-underline-offset:3px}
+.muted{color:var(--muted);font-size:12px}
+.fcols{display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:center;font-size:12.5px;color:var(--muted)}
+.fcols input{width:34px;height:22px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer}
+.pick{position:absolute;left:14px;top:14px;display:flex;align-items:center;gap:12px;background:var(--panel);border:1.5px solid var(--brand);border-radius:14px;padding:9px 12px;box-shadow:var(--shadow);font-size:12.5px}
+.pick b{font:700 13px var(--text);color:var(--brand)}
+.pick label{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.pick input{width:34px;height:24px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer}
+.pick-x{border:0;background:none;font:400 20px/1 var(--text);color:var(--muted);padding:0 2px}
 .toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow)}
 
 @media (max-width:860px){
@@ -131,6 +141,11 @@ h1,h2,h3,p{margin:0}
         <label class="rng"><span>Яркость</span><input type="range" id="sunPow" min="40" max="160" step="5"><output id="sunPowV"></output></label>
       </div>
       <div class="grp">
+        <h3>Цвет мебели <button class="lnk" id="fcolReset">Сбросить</button></h3>
+        <div class="fcols" id="fcols"></div>
+        <div class="muted">Нажмите на предмет в 3D, чтобы перекрасить только его.</div>
+      </div>
+      <div class="grp">
         <h3>Пол</h3>
         <div class="sw" id="floors"></div>
         <label class="chk">Свой оттенок <input type="color" id="floorCustom"></label>
@@ -173,6 +188,12 @@ h1,h2,h3,p{margin:0}
       <div class="hint" id="hint"></div>
       <div class="loading" id="loading">Загружаю 3D…</div>
       <div class="toast" id="toast" hidden></div>
+      <div class="pick" id="pick" hidden>
+        <b id="pickName"></b>
+        <label>Цвет <input type="color" id="pickColor"></label>
+        <button class="lnk" id="pickReset">Как у группы</button>
+        <button class="pick-x" id="pickClose" aria-label="Закрыть">×</button>
+      </div>
     </section>
   </div>
 </div>
@@ -301,7 +322,7 @@ function doorGeom(dr) {
 
 /* ---------- состояние ---------- */
 const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true,
-  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E' };
+  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E', fcol: {}, icol: {} };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(lsGet('pl3d') || '{}')); } catch (e) { }
 const hashId = decodeURIComponent(location.hash.slice(1));
@@ -309,6 +330,17 @@ if (PLANS.some((p) => p.id === hashId)) S.plan = hashId;
 if (!PLANS.some((p) => p.id === S.plan)) S.plan = PLANS[0].id;
 let P = PLANS.find((p) => p.id === S.plan);
 const save = () => lsSet('pl3d', JSON.stringify(S));
+/* группы мебели для перекраски: цвет группы меняет все предметы этих типов */
+const FGROUPS = [
+  { k: 'case', n: 'Шкафы, тумбы, столы', t: ['wardrobe', 'wardrobe2', 'hallwardrobe', 'shoe', 'shelf', 'tv', 'desk', 'dresser', 'nightstand', 'coffee', 'table', 'table6', 'gtable', 'sink', 'sink2'], def: '#a5714d' },
+  { k: 'soft', n: 'Диваны и кресла', t: ['sofa', 'sofa3', 'sofaL', 'outsofa', 'armchair', 'gchair', 'ottoman', 'pouf', 'lounger'], def: '#dcd6cc' },
+  { k: 'bed', n: 'Покрывала', t: ['bed2', 'bed18', 'bed14', 'bed1'], def: '#ddd6cc' },
+  { k: 'frame', n: 'Каркас кроватей', t: [], def: '#946342' },
+  { k: 'kitchen', n: 'Кухня', t: ['kbase', 'ksink', 'khob', 'dishwasher', 'ktall', 'island'], def: '#f2f0eb' },
+  { k: 'chair', n: 'Стулья', t: ['chair', 'ochair', 'barstool'], def: '#e9e6e1' },
+  { k: 'rug', n: 'Ковры', t: ['rug'], def: '#e2d6c4' },
+];
+const groupOf = (t) => FGROUPS.find((g) => g.t.includes(t));
 /* оттенки пола: доска одной породы, меняется тон */
 const FLOORS = [
   { n: 'Светлый дуб', c: '#dcbc96' }, { n: 'Натуральный дуб', c: '#c49a6c' }, { n: 'Медовый дуб', c: '#b07c4a' },
@@ -368,6 +400,29 @@ function renderFloors() {
   }
   $('#floorCustom').value = S.floor;
 }
+function renderFcols() {
+  const el = $('#fcols'); el.innerHTML = '';
+  for (const g of FGROUPS) {
+    const l = document.createElement('span'); l.textContent = g.n;
+    const i = document.createElement('input'); i.type = 'color'; i.value = S.fcol[g.k] || g.def; i.title = g.n;
+    i.oninput = () => { S.fcol[g.k] = i.value; save(); if (G) build(); };
+    el.append(l, i);
+  }
+}
+$('#fcolReset').onclick = () => { S.fcol = {}; S.icol[P.id] = {}; save(); renderFcols(); closePick(); if (G) build(); };
+/* перекраска одного предмета: нажатие на него в 3D */
+let picked = -1;
+function openPick(i) {
+  picked = i; const f = P.furn[i], g = groupOf(f.type);
+  $('#pickName').textContent = CAT[f.type].n;
+  $('#pickColor').value = itemColor(f, i) || (g && (S.fcol[g.k] || g.def)) || CAT[f.type].c3;
+  $('#pick').hidden = false;
+}
+function closePick() { picked = -1; $('#pick').hidden = true; }
+$('#pickColor').oninput = (e) => { if (picked < 0) return; (S.icol[P.id] = S.icol[P.id] || {})[picked] = e.target.value; save(); build(); };
+$('#pickReset').onclick = () => { if (picked < 0) return; if (S.icol[P.id]) delete S.icol[P.id][picked]; save(); build(); openPick(picked); };
+$('#pickClose').onclick = closePick;
+const itemColor = (f, i) => (S.icol[P.id] || {})[i];
 function setFloor(c) { S.floor = c; save(); renderFloors(); if (G) build(); }
 $('#floorCustom').oninput = (e) => setFloor(e.target.value);
 $('#labelColor').value = S.labelColor;
@@ -380,7 +435,7 @@ $('#tilt').oninput = (e) => { S.tilt = +e.target.value; save(); if (G) { G.ctl.e
 /* перспектива в изометрии: 0 — строгая изометрия (ортогональная), больше — сильнее сходятся линии */
 $('#persp').oninput = (e) => { S.persp = +e.target.value; save(); syncUI(); if (G) fitView(); };
 function openPlan(id) {
-  S.plan = id; P = PLANS.find((p) => p.id === id); save();
+  S.plan = id; P = PLANS.find((p) => p.id === id); save(); closePick();
   history.replaceState(null, '', '#' + id);
   syncUI(); renderInfo();
   const btn = $$('#plans .plan')[PLANS.indexOf(P)]; if (btn) btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -520,7 +575,20 @@ function bindControls(dom) {
   };
   const zoom = (f) => { const c = G.ctl; if (isPersp()) c.dist *= f; else c.zoom *= f; applyCamera(); };
   dom.addEventListener('contextmenu', (e) => e.preventDefault());
-  dom.addEventListener('pointerdown', (e) => { dom.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey }); pinch = 0; });
+  let down = null;
+  dom.addEventListener('pointerdown', (e) => { dom.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey }); pinch = 0; down = { x: e.clientX, y: e.clientY, n: pts.size, b: e.button }; });
+  // щелчок без сдвига — выбор предмета мебели для перекраски
+  dom.addEventListener('pointerup', (e) => {
+    if (!down || down.n > 1 || down.b !== 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+    const r = dom.getBoundingClientRect(), m = new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+    const rc = new THREE.Raycaster(); rc.setFromCamera(m, G.cam);
+    for (const h of rc.intersectObjects(G.group.children, true)) {
+      let o = h.object; while (o && o.userData.fi === undefined && o.parent !== G.group) o = o.parent;
+      if (o && o.userData.fi !== undefined) { openPick(o.userData.fi); return; }
+      if (h.object.material && !h.object.material.transparent) break;   // попали в стену или пол
+    }
+    closePick();
+  });
   dom.addEventListener('pointermove', (e) => {
     const p = pts.get(e.pointerId); if (!p) return;
     const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
@@ -659,9 +727,10 @@ function build() {
     lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx);
   }
   for (const p of P.posts) add(new THREE.Mesh(new THREE.BoxGeometry(.15, H, .15), mat(st.post))).position.set(mm(p[0]), H / 2, mm(p[1]));
-  if (S.furn) for (const f of P.furn) {
+  if (S.furn) for (const [i, f] of P.furn.entries()) {
     if (!CAT[f.type]) continue;
-    const g = furn3D(f, st);
+    const g = furn3D(f, st, i);
+    g.userData.fi = i;
     // при срезанных стенах высокая мебель в доме срезается на той же высоте
     if (S.cut && inRoom(f.x, f.y)) { const top = new THREE.Box3().setFromObject(g).max.y; if (top > H + .02) g.scale.y = H / top; }
     group.add(g);
@@ -685,10 +754,11 @@ function roundedBox(w, h, d, r) {
   RB.set(key, g); return g;
 }
 /* мебель: w — ширина, d — глубина, спинка — к −z (вверх по чертежу при повороте 0) */
-function furn3D(f, st) {
+function furn3D(f, st, idx) {
   const g = new THREE.Group(), w = f.w / 1000, d = f.d / 1000, Z = -d / 2, X0 = -w / 2;
   const cat = CAT[f.type];
-  const col = f.color || cat.c3, white = st.white, dark = st.dark, wood = st.wood, top = st.top;
+  const grp = groupOf(f.type), col = itemColor(f, idx) || (grp && S.fcol[grp.k]) || f.color || cat.c3;
+  const white = st.white, dark = st.dark, wood = S.fcol.frame || st.wood, top = st.top;
   const hh = (f.h || cat.h) / 1000;
   // мягкие детали (матрас, подушки, сиденья) скругляются сильнее, корпусная мебель — на 1–2 см
   const B = (bw, bh, bd, c, x, y, z, o = {}) => {
@@ -919,7 +989,7 @@ $('#shotBg').onclick = () => snapshot(false);
 $('#shotAlpha').onclick = () => snapshot(true);
 
 /* ---------- запуск ---------- */
-renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight();
+renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols();
 (async () => {
   try { await init3D(); } catch (e) { $('#loading').textContent = 'Не удалось загрузить 3D. Проверьте подключение к интернету.'; return; }
   $('#loading').hidden = true;
