@@ -95,7 +95,8 @@ const SLATE_OTM = [
 ];
 const slateWall = (cladding) => [
   cladding,
-  { n: 'Деревянная обрешётка', t: 50, m: 'gap', bars: { w: 50, step: 600, dir: 'w', m: 'wood' } },
+  // под вертикальный планкен обрешётка горизонтальная, под фальц-панели — вертикальная
+  { n: 'Деревянная обрешётка', t: 50, m: 'gap', bars: { w: 50, step: 600, dir: cladding.bars && cladding.bars.dir === 'w' ? 'u' : 'w', m: 'wood' } },
   { n: 'Супердиффузионная мембрана', t: 0, m: 'membrane' },
   { n: 'Газобетонные блоки D400, B3.5 — 400 мм', t: 400, m: 'aerated' },
 ];
@@ -136,10 +137,10 @@ const NODESETS = [
   {
     id: 'slate85', n: 'SLATE 85', src: 'SLATE 85 (IT-arc): разрезы 1-1, 4-4, 5-5, 6-6', plans: ['slate85-1', 'slate85-2'],
     nodes: [
-      { id: 'wall', n: 'Стена', type: 'wall', layers: slateWall({ n: 'Планкен из лиственницы 140×20, зазор 3–5 мм', t: 20, m: 'gap', bars: { w: 140, step: 145, dir: 'u', m: 'planken' } }) },
+      { id: 'wall', n: 'Стена', type: 'wall', layers: slateWall({ n: 'Планкен из лиственницы 20 мм, вертикально, модуль 90-120-90-90-120-140, зазор 3–5 мм', t: 20, m: 'gap', bars: { ws: [90, 120, 90, 90, 120, 140], gap: 4, dir: 'w', m: 'planken' } }) },
       { id: 'roof', n: 'Кровля', type: 'roof', pitch: 20, layers: slateRoof(false) },
       { id: 'floor', n: 'Пол по грунту (УШП)', type: 'slab', layers: SLATE_FLOOR85 },
-      { id: 'fnd', n: 'Фундамент и цоколь', type: 'fnd', wall: slateWall({ n: 'Планкен из лиственницы 140×20', t: 20, m: 'gap', bars: { w: 140, step: 145, dir: 'u', m: 'planken' } }), floor: SLATE_FLOOR85, rib: { w: 570, d: 280 }, xpsV: 0, ground: -150, otm: SLATE_OTM, otmW: 1430, drain: true },
+      { id: 'fnd', n: 'Фундамент и цоколь', type: 'fnd', wall: slateWall({ n: 'Планкен из лиственницы 20 мм, вертикально', t: 20, m: 'gap', bars: { ws: [90, 120, 90, 90, 120, 140], gap: 4, dir: 'w', m: 'planken' } }), floor: SLATE_FLOOR85, rib: { w: 570, d: 280 }, xpsV: 0, ground: -150, otm: SLATE_OTM, otmW: 1430, drain: true },
       { id: 'otm', n: 'Отмостка', type: 'slab', layers: SLATE_OTM },
     ],
   },
@@ -147,7 +148,7 @@ const NODESETS = [
     id: 'slate100', n: 'SLATE 100', src: 'SLATE 100 (IT-arc): разрезы 5-5, 6-6', plans: ['slate100-1', 'slate100-2', 'slate100-3', 'slate100-4', 'slate100-5', 'dom100-1', 'dom100-2', 'dom100-3'],
     nodes: [
       { id: 'wall', n: 'Стена (фальц-панели)', type: 'wall', layers: slateWall({ n: 'Фальцевые панели (графит)', t: 13, m: 'falzwall' }) },
-      { id: 'wall2', n: 'Стена (планкен)', type: 'wall', layers: slateWall({ n: 'Планкен из лиственницы 140×20, зазор 10 мм', t: 20, m: 'gap', bars: { w: 140, step: 150, dir: 'u', m: 'planken' } }) },
+      { id: 'wall2', n: 'Стена (планкен)', type: 'wall', layers: slateWall({ n: 'Планкен из лиственницы 20 мм, вертикально, модуль 90-120-90-90-120-140, зазор 10 мм', t: 20, m: 'gap', bars: { ws: [90, 120, 90, 90, 120, 140], gap: 10, dir: 'w', m: 'planken' } }) },
       { id: 'roof', n: 'Кровля', type: 'roof', pitch: 20, layers: slateRoof(true) },
       { id: 'floor', n: 'Пол по грунту (УШП)', type: 'slab', layers: SLATE_FLOOR100 },
       { id: 'fnd', n: 'Фундамент и цоколь', type: 'fnd', wall: slateWall({ n: 'Фальцевые панели (графит)', t: 13, m: 'falzwall' }), floor: SLATE_FLOOR100, rib: { w: 570, d: 280 }, xpsV: 0, ground: -150, otm: SLATE_OTM, otmW: 1430, drain: true },
@@ -313,6 +314,7 @@ function nStack(layers, L, D, s, labels, spread) {
       const b = l.bars, bm = b.m || 'wood';
       const gr = NMAT[bm] && NMAT[bm].tex === 'grain' ? 1 : 0;
       if (b.dir === 'u') { for (let w = w1 + b.w / 2 + 40; w < w2 - b.w / 2; w += b.step) nBox(g, bm, u1, u2, v1 - .5, v2 + .5, w - b.w / 2, w + b.w / 2, gr ? { grain: 'u' } : {}); }
+      else if (b.ws) { let u = u2 - 10, k = 0; while (u - b.ws[k % b.ws.length] > u1) { const bw = b.ws[k++ % b.ws.length]; nBox(g, bm, u - bw, u, v1 - .5, v2 + .5, w1, w2, gr ? { grain: 'w' } : {}); u -= bw + b.gap; } }
       else { for (let u = u2 - b.w / 2 - 20; u > u1 + b.w / 2; u -= b.step) nBox(g, bm, u - b.w / 2, u + b.w / 2, v1 - .5, v2 + .5, w1, w2, gr ? { grain: 'w' } : {}); }
       if (b.n) labels.push({ n: b.n, at: b.dir === 'u' ? [u2 - s * .3, v2, w1 + b.w / 2 + 40] : [u2 - b.w / 2 - 20, v2, D * .3] });
     }
@@ -382,7 +384,7 @@ function nFoundation(nd, labels) {
     const yTop = top - (wall.length - 1 - i) * 0;
     const yb = i <= mIdx ? yC : Math.max(yG + 120, -60);
     if (l.m !== 'gap') nBox(g, l.m, x, x + t, yb, yTop - (i > wall.indexOf(block) ? (i - wall.indexOf(block)) * 120 : 0), w1, w2, { frame: 'x' });
-    if (l.bars) { const b = l.bars, gr = NMAT[b.m] && NMAT[b.m].tex === 'grain'; if (b.dir === 'u') { for (let yy = yb + b.w / 2; yy < yTop - 140 * (i - wall.indexOf(block)); yy += b.step) nBox(g, b.m, x, x + t, yy - b.w / 2, yy + b.w / 2, w1, w2, gr ? { grain: 'w' } : { frame: 'x' }); } else for (let w = w1 + 60; w < w2; w += b.step) nBox(g, b.m, x, x + t, yb, yTop - (i - wall.indexOf(block)) * 120, w, w + b.w, gr ? { grain: 'v' } : { frame: 'x' }); }
+    if (l.bars) { const b = l.bars, gr = NMAT[b.m] && NMAT[b.m].tex === 'grain'; if (b.dir === 'u') { for (let yy = yb + b.w / 2; yy < yTop - 140 * (i - wall.indexOf(block)); yy += b.step) nBox(g, b.m, x, x + t, yy - b.w / 2, yy + b.w / 2, w1, w2, gr ? { grain: 'w' } : { frame: 'x' }); } else if (b.ws) { let w = w1 + 10, k = 0; while (w + b.ws[k % b.ws.length] < w2) { const bw = b.ws[k++ % b.ws.length]; nBox(g, b.m, x, x + t, yb, yTop - (i - wall.indexOf(block)) * 120, w, w + bw, gr ? { grain: 'v' } : { frame: 'x' }); w += bw + b.gap; } } else for (let w = w1 + 60; w < w2; w += b.step) nBox(g, b.m, x, x + t, yb, yTop - (i - wall.indexOf(block)) * 120, w, w + b.w, gr ? { grain: 'v' } : { frame: 'x' }); }
     if (i > wall.indexOf(block) || isBlock) labels.push({ n: l.n, t: l.t, a: l.a, at: [x + t, yTop - (i > wall.indexOf(block) ? (i - wall.indexOf(block)) * 120 : 0) - 60, D * .3] });
     x += t;
   });
