@@ -15,9 +15,9 @@ const WALL60 = [
 const ROOF_TILE = [
   { n: 'Кровля — металлочерепица «Каскад»', t: 0.5, m: 'mtile' },
   { n: 'Вентиляционный зазор', t: 0, m: 'gap' },
-  { n: 'Разреженная обрешётка 30×150 с шагом 250 мм', t: 30, m: 'gap', bars: { w: 150, step: 250, dir: 'w', m: 'wood' } },
-  { n: 'Контробрешётка 50×50 с шагом 600 мм', t: 50, m: 'gap', bars: { w: 50, step: 600, dir: 'u', m: 'wood' } },
-  { n: 'Стропильная нога — 2 спаренные доски 50×200', t: 200, m: 'gap', bars: { w: 100, step: 600, dir: 'u', m: 'wood' } },
+  { n: 'Разреженная обрешётка 30×150 с шагом 250 мм', t: 30, m: 'gap', bars: { w: 150, step: 250, dir: 'w', m: 'woodfr' } },
+  { n: 'Контробрешётка 50×50 с шагом 600 мм', t: 50, m: 'gap', bars: { w: 50, step: 600, dir: 'u', m: 'woodfr' } },
+  { n: 'Стропильная нога — 2 спаренные доски 50×200', t: 200, m: 'gap', bars: { w: 100, step: 600, dir: 'u', m: 'woodfr' } },
 ];
 const CEIL60 = [
   { n: 'Черновой пол — доска 30×150', t: 30, m: 'gap', bars: { w: 150, step: 160, dir: 'w', m: 'wood' } },
@@ -52,8 +52,8 @@ const WALL510 = [
   { n: 'Штукатурка', t: 20, m: 'plaster', a: 1 },
 ];
 const WALL_SIDING = [
-  { n: 'Виниловый сайдинг', t: 12, m: 'siding' },
-  { n: 'Вентиляционный зазор, металлическая обрешётка', t: 40, m: 'gap', bars: { w: 60, step: 400, dir: 'w', m: 'metal' } },
+  { n: 'Виниловый сайдинг', t: 12, m: 'siding', reveal: { u: 0, w: 420, row: 230 } },
+  { n: 'Металлическая обрешётка: вертикальные и горизонтальные профили, вентзазор', t: 40, m: 'gap', frame: { step: 600, hstep: 500, w: 60 } },
   { n: 'Гидро-ветрозащита Ондутис', t: 0, m: 'ondutis' },
   { n: 'Утеплитель Эковер Лайт Вент Фасад', t: 50, m: 'wool' },
   { n: 'Газобетон Твинблок D400', t: 300, m: 'aerated' },
@@ -104,8 +104,8 @@ const slateRoof = (osb) => [
   { n: 'Фальцевая кровля Falz Lock 0,5 мм', t: 0.5, m: 'falz' },
   { n: 'Плёнка ТЕХНОНИКОЛЬ АЛЬФА ТОП', t: 0, m: 'membrane' },
   ...(osb ? [{ n: 'OSB', t: 12, m: 'osb' }] : []),
-  { n: 'Обрешётка', t: 45, m: 'gap', bars: { w: 100, step: 300, dir: 'w', m: 'wood' } },
-  { n: 'Стропильная система — фермы (раздел КД)', t: 150, m: 'gap', a: 1, bars: { w: 50, step: 600, dir: 'u', m: 'wood' } },
+  { n: 'Обрешётка', t: 45, m: 'gap', bars: { w: 100, step: 300, dir: 'w', m: 'woodfr' } },
+  { n: 'Стропильная система — фермы (раздел КД)', t: 150, m: 'gap', a: 1, bars: { w: 50, step: 600, dir: 'u', m: 'woodfr' } },
 ];
 const NODESETS = [
   {
@@ -165,14 +165,14 @@ const NMAT = {
   membrane: { c: '#eef1f6', tex: 'membrane', ts: .6 }, vapour: { c: '#bcd9ea', op: .82 },
   planter: { c: '#2f3135', tex: 'dimple', ts: .12 }, sand: { c: '#e1cb93', tex: 'speckle', ts: .25 },
   gravel: { c: '#bcb4a5', tex: 'gravel', ts: .3 }, geotex: { c: '#f3f2ee', tex: 'felt', ts: .3 },
-  soil: { c: '#83654a', tex: 'speckle', ts: .5 }, wood: { c: '#c9975e', tex: 'grain', ts: .6 },
+  soil: { c: '#83654a', tex: 'speckle', ts: .5 }, wood: { c: '#c9975e', tex: 'grain', ts: .6 }, woodfr: { c: '#d89a8f', tex: 'grain', ts: .6 },
   osb: { c: '#c9a46a', tex: 'osb', ts: .3 }, laminate: { c: '#cfa576', tex: 'planks', ts: 1.2 },
   plaster: { c: '#f2f0eb', tex: 'speckle', ts: .3, soft: 1 }, paint: { c: '#f8f6f2' },
   siding: { c: '#e3dfd4', tex: 'siding', ts: .4 }, planken: { c: '#a8693d', tex: 'grain', ts: .6 },
   falz: { c: '#3b3f45', m: .55, r: .38 }, falzwall: { c: '#454a51', m: .35, r: .45, tex: 'seams', ts: .54 }, mtile: { c: '#6a2b25', m: .35, r: .42 },
   paver: { c: '#9d9a94', tex: 'paver', ts: .6 },
   aerated: { c: '#e7e5e0', tex: 'aerated', ts: { f: [1.2, .5], su: [.5, 2], sw: [1.2, 2] } }, ondutis: { c: '#f6f6f4', tex: 'ondutis', ts: .9 },
-  metal: { c: '#c9ced3', m: .25, r: .4 }, glue: { c: '#8f8c87', tex: 'comb', ts: .3 }, fmesh: { c: '#e9eef2', tex: 'mesh', ts: .15 },
+  metal: { c: '#dfe3e7', m: .15, r: .35 }, glue: { c: '#8f8c87', tex: 'comb', ts: .3 }, fmesh: { c: '#e9eef2', tex: 'mesh', ts: .15 },
   dplaster: { c: '#f3efe6', tex: 'rough', ts: .4 }, pipe: { c: '#e5532f', r: .5 }, rebar: { c: '#6d6052', m: .6, r: .5 },
 };
 const NODE_DEF = { nset: '', nnode: 'wall', labels: true, nlabelColor: '#261A7E', naz: .75, nel: .5, tab: 'plan' };
@@ -214,7 +214,7 @@ function nodeTex(kind, base, v = 'f', rot = false) {
     case 'xps': if (v === 'f') { for (let i = 0; i < 256; i += 16) vline(i, 1, .9); } else dots(900, .5, 1.2, .9, 1.08); break;
     case 'wool': fibers(v !== 'f'); break;
     case 'membrane': if (v === 'f') { c.fillStyle = 'rgba(70,110,190,.35)'; c.font = 'bold 15px Arial'; for (let y = 20; y < 256; y += 42) { c.fillText('ТЕХНОНИКОЛЬ', ((y / 42) % 2) * 60 - 30, y); c.fillText('ТЕХНОНИКОЛЬ', 150 + ((y / 42) % 2) * 60 - 30, y); } } break;
-    case 'ondutis': if (v === 'f') { c.strokeStyle = 'rgba(200,60,50,.25)'; c.lineWidth = 1; for (let i = 0; i < 256; i += 32) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i, 256); c.moveTo(0, i); c.lineTo(256, i); c.stroke(); } c.fillStyle = 'rgba(205,55,45,.75)'; c.font = 'bold 22px Arial'; for (let y = 40; y < 256; y += 96) c.fillText('ОНДУТИС', 10 + ((y / 96) % 2) * 70, y); } break;
+    case 'ondutis': if (v === 'f') { c.strokeStyle = 'rgba(200,60,50,.25)'; c.lineWidth = 1; for (let i = 0; i < 256; i += 32) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i, 256); c.moveTo(0, i); c.lineTo(256, i); c.stroke(); } c.save(); c.translate(256, 0); c.scale(-1, 1); c.fillStyle = 'rgba(205,55,45,.75)'; c.font = 'bold 22px Arial'; for (let y = 40; y < 256; y += 96) c.fillText('ОНДУТИС', 10 + ((y / 96) % 2) * 70, y); c.restore(); } break;
     case 'dimple': if (v === 'f') for (let y = 16; y < 256; y += 32) for (let x = 16; x < 256; x += 32) { c.fillStyle = rgb(1.9); c.beginPath(); c.arc(x + ((y / 32) % 2) * 16, y, 9, 0, 7); c.fill(); c.fillStyle = rgb(1.3); c.beginPath(); c.arc(x + ((y / 32) % 2) * 16 + 2, y + 2, 6, 0, 7); c.fill(); } break;
     case 'gravel': for (let i = 0; i < 420; i++) { c.fillStyle = rgb(.7 + rnd() * .5); c.beginPath(); c.ellipse(rnd() * 256, rnd() * 256, 3 + rnd() * 7, 2 + rnd() * 5, rnd() * 3, 0, 7); c.fill(); } break;
     case 'felt': dots(2500, .3, 1, .9, 1.04); break;
@@ -303,13 +303,33 @@ function nSheet(parent, m, u1, u2, v0, w1, w2, kind) {
 function nStack(layers, L, D, s, labels, spread) {
   const g = new THREE.Group(), n = layers.length;
   let v = 0;
+  const visOf = (l) => (l.m === 'mtile' || l.m === 'falz' ? 20 : l.t === 0 ? 3 : Math.max(l.t, 3));
+  // наружная грань несущего слоя — к ней крепятся кронштейны подсистемы
+  let acc = 0, vWall = null; for (const l of layers) { if (vWall === null && (l.m === 'aerated' || l.m === 'brick') && l !== layers[0]) vWall = -acc; acc += visOf(l); }
   layers.forEach((l, i) => {
-    const vis = l.m === 'mtile' || l.m === 'falz' ? 20 : l.t === 0 ? 3 : Math.max(l.t, 3);
+    const vis = visOf(l);
     const v2 = v, v1 = v - vis, u1 = -L / 2, u2 = L / 2 - (n - 1 - i) * s, w1 = -D / 2, w2 = D / 2;
     // у стены точки выносок расходятся по высоте, чтобы линии не перекрещивались
     const mid = [(u2 - s * .55), v2, spread ? D * (.36 - .72 * i / Math.max(1, n - 1)) : D * .18];
     if (l.m === 'mtile' || l.m === 'falz') nSheet(g, l.m, u1, u2, v1, w1, w2, l.m === 'falz' ? 'falz' : 'tile');
-    else if (l.m !== 'gap') nBox(g, l.m, u1, u2, v1, v2, w1, w2);
+    else if (l.reveal) {
+      // облицовка снята уступами по рядам, чтобы был виден каркас под ней
+      const R = l.reveal; let k = 0;
+      for (let w = w1; w < w2 - R.w; w += R.row, k++) nBox(g, l.m, u1 + 330 + (k % 2) * 120 + k * 20, u2 + s - 30, v1, v2, w, Math.min(w + R.row - 2, w2 - R.w));
+    } else if (l.m !== 'gap') nBox(g, l.m, u1, u2, v1, v2, w1, w2);
+    if (l.frame) {
+      // вертикальные профили — ближе к стене, горизонтальные — поверх них; кронштейны через утеплитель к несущей стене
+      const F = l.frame, vm = (v1 + v2) / 2, pw = F.w;
+      for (let u = u2 - 80; u > u1 + 40; u -= F.step) {
+        nBox(g, 'metal', u - pw / 2, u - pw / 2 + 2, v1, vm, w1, w2); nBox(g, 'metal', u + pw / 2 - 2, u + pw / 2, v1, vm, w1, w2); nBox(g, 'metal', u - pw / 2, u + pw / 2, vm - 2, vm, w1, w2);
+        if (vWall !== null) for (let w = w1 + 180; w < w2 - 60; w += 600) {
+          nBox(g, 'metal', u - pw / 2 - 4, u - pw / 2, vWall, v1, w - 45, w + 45);        // лапка кронштейна
+          nBox(g, 'metal', u - pw / 2 - 40, u - pw / 2, vWall, vWall + 3, w - 45, w + 45); // пятка на стене
+        }
+      }
+      for (let w = w1 + 120; w < w2; w += F.hstep) { nBox(g, 'metal', u1, u2, vm, v2, w - pw / 2, w - pw / 2 + 2); nBox(g, 'metal', u1, u2, vm, v2, w + pw / 2 - 2, w + pw / 2); nBox(g, 'metal', u1, u2, v2 - 2, v2, w - pw / 2, w + pw / 2); }
+      if (vWall !== null) labels.push({ n: 'Кронштейны подсистемы — к несущей стене через утеплитель', at: [u2 - 80 - pw / 2 - 20, (vWall + v1) / 2, w1 + 180] });
+    }
     if (l.bars) {
       const b = l.bars, bm = b.m || 'wood';
       const gr = NMAT[bm] && NMAT[bm].tex === 'grain' ? 1 : 0;
