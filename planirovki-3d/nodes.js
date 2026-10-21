@@ -158,7 +158,7 @@ const NODESETS = [
 
 /* материалы узлов: цвет, текстура (рисуется на холсте), размер текстуры в метрах */
 const NMAT = {
-  brick: { c: '#b2583d', tex: 'brick', ts: .52 },
+  brick: { c: '#b2583d', tex: 'brick', ts: { f: [.52, .15], su: [.15, 2], sw: [.52, 2] } },
   concrete: { c: '#a8a7a3', tex: 'speckle', ts: .4 }, screed: { c: '#c9c6bf', tex: 'speckle', ts: .5 },
   xps: { c: '#a9c9e6', tex: 'xps', ts: .6 }, wool: { c: '#d8bf72', tex: 'wool', ts: .4 },
   membrane: { c: '#eef1f6', tex: 'membrane', ts: .6 }, vapour: { c: '#bcd9ea', op: .82 },
@@ -170,7 +170,7 @@ const NMAT = {
   siding: { c: '#e3dfd4', tex: 'siding', ts: .4 }, planken: { c: '#a8693d', tex: 'grain', ts: .6 },
   falz: { c: '#3b3f45', m: .55, r: .38 }, falzwall: { c: '#454a51', m: .35, r: .45, tex: 'seams', ts: .54 }, mtile: { c: '#6a2b25', m: .35, r: .42 },
   paver: { c: '#9d9a94', tex: 'paver', ts: .6 },
-  aerated: { c: '#e7e5e0', tex: 'aerated', ts: 1.2 }, ondutis: { c: '#f6f6f4', tex: 'ondutis', ts: .9 },
+  aerated: { c: '#e7e5e0', tex: 'aerated', ts: { f: [1.2, .5], su: [.5, 2], sw: [1.2, 2] } }, ondutis: { c: '#f6f6f4', tex: 'ondutis', ts: .9 },
   metal: { c: '#c9ced3', m: .25, r: .4 }, glue: { c: '#8f8c87', tex: 'comb', ts: .3 }, fmesh: { c: '#e9eef2', tex: 'mesh', ts: .15 },
   dplaster: { c: '#f3efe6', tex: 'rough', ts: .4 }, pipe: { c: '#e5532f', r: .5 }, rebar: { c: '#6d6052', m: .6, r: .5 },
 };
@@ -196,17 +196,19 @@ function nodeTex(kind, base, v = 'f', rot = false) {
   const grain = () => { for (let y = 0; y < 256; y += 3) { c.strokeStyle = rgb(.8 + rnd() * .3, .5); c.lineWidth = 1 + rnd() * 1.5; c.beginPath(); c.moveTo(0, y); for (let x = 0; x <= 256; x += 32) c.lineTo(x, y + Math.sin(x / 40 + y) * 2); c.stroke(); } };
   const endgrain = () => { for (let r = 300; r > 4; r -= 7 + rnd() * 5) { c.strokeStyle = rgb(.78 + rnd() * .15, .6); c.lineWidth = 1.5; c.beginPath(); c.arc(-40, 300, r, 0, 7); c.stroke(); } };
   switch (kind) {
-    case 'aerated': // блок 600×250, текстура 1,2 м: 1 мм = 0,213 px
-      dots(1300, .5, 1.5, .78, .92);
-      if (v === 'f') { for (let r = 0; r < 5; r++) { hline(r * 53.3, 2, .8); for (const x of [0, 128]) vline((x + (r % 2) * 64) % 256, 2, .8), c.clearRect(0, 0, 0, 0); } c.fillStyle = base; for (let r = 0; r < 5; r++) for (const x of [0, 128]) { c.fillStyle = rgb(.8); c.fillRect((x + (r % 2) * 64) % 256, r * 53.3, 2, 53.3); } }
-      else if (v === 'su') for (let r = 0; r < 5; r++) vline(r * 53.3, 2, .8);   // торец: ряды по 250
-      else for (const x of [0, 128]) vline(x, 2, .8);                            // верх: блоки по 600
+    case 'aerated': // блок 600×250; лицо — плитка 1,2 × 0,5 м (2 ряда), торец — 0,5 м по высоте, верх — 1,2 м по длине
+      dots(900, .5, 1.4, .78, .92);
+      if (v === 'f') for (let r = 0; r < 2; r++) { hline(r * 128, 2, .78); for (const x of [0, 128]) { c.fillStyle = rgb(.78); c.fillRect((x + r * 64) % 256, r * 128, 2, 128); } }
+      else for (const x of [0, 128]) vline(x, 2, .78);
       break;
-    case 'brick': // кирпич 250×65, шов 10; текстура 0,52 м
-      if (v === 'f') { c.fillStyle = rgb(.62, 1); c.fillStyle = '#d8d2c6'; c.fillRect(0, 0, 256, 256); for (let r = 0; r < 8; r++) for (let i = -1; i < 3; i++) { c.fillStyle = rgb(.85 + rnd() * .3); c.fillRect(i * 128 + (r % 2) * 64 + 3, r * 32 + 3, 122, 26); } }
-      else if (v === 'su') { c.fillStyle = '#d8d2c6'; c.fillRect(0, 0, 256, 256); for (let r = 0; r < 8; r++) { c.fillStyle = rgb(.85 + rnd() * .3); c.fillRect(r * 32 + 3, 3, 26, 250); } }   // торец: ряды кладки
-      else { c.fillStyle = '#d8d2c6'; c.fillRect(0, 0, 256, 256); for (let i = 0; i < 2; i++) { c.fillStyle = rgb(.85 + rnd() * .3); c.fillRect(i * 128 + 3, 3, 122, 250); } }   // верх: ложки
-      dots(500, .4, 1, .85, 1.1, .5); break;
+    case 'brick': { // кирпич 250×65, шов 10: лицо — 520 × 150 мм (2 ряда), торец — 150 мм по высоте, верх — 520 мм по длине
+      c.fillStyle = '#d6d0c4'; c.fillRect(0, 0, 256, 256);
+      const jx = 5, jy = 17, b = (x, y, w, h) => { c.fillStyle = rgb(.86 + rnd() * .26); c.fillRect(x, y, w, h); };
+      if (v === 'f') { for (let r = 0; r < 2; r++) for (let i = -1; i < 2; i++) b(i * 128 + r * 64 + jx / 2, r * 128 + jy / 2, 128 - jx, 128 - jy); }
+      else if (v === 'su') { for (let r = 0; r < 2; r++) b(r * 128 + jy / 2, 0, 128 - jy, 256); }   // торец: ряды кладки, кирпич во всю толщину
+      else { for (let i = 0; i < 2; i++) b(i * 128 + jx / 2, 0, 128 - jx, 256); }                   // верх: ложки во всю толщину
+      dots(500, .4, 1, .85, 1.1, .45); break;
+    }
     case 'speckle': dots(1600, .4, 1.4, .75, 1.2); break;
     case 'xps': if (v === 'f') { for (let i = 0; i < 256; i += 16) vline(i, 1, .9); } else dots(900, .5, 1.2, .9, 1.08); break;
     case 'wool': fibers(v !== 'f'); break;
@@ -237,15 +239,20 @@ function nodeMat(m, v = 'f', rot = false) {
   if (N.mats.has(key)) return N.mats.get(key);
   const mt = new THREE.MeshStandardMaterial({ color: d.tex ? 0xffffff : new THREE.Color(c).convertSRGBToLinear(), roughness: d.r ?? .9, metalness: d.m ?? 0, transparent: !!d.op || d.tex === 'mesh', opacity: d.op ?? 1, alphaTest: d.tex === 'mesh' ? .3 : 0, side: d.tex === 'mesh' ? THREE.DoubleSide : THREE.FrontSide });
   if (d.tex) mt.map = nodeTex(d.tex, c, v, rot);
-  mt.userData.ts = d.ts || .5;
+  // размер плитки текстуры в метрах [по горизонтали, по вертикали] для этой грани; у повёрнутой — наоборот
+  const t0 = d.ts || .5, t = typeof t0 === 'number' ? [t0, t0] : (t0[v] || t0.f);
+  mt.userData.ts = rot ? [t[1], t[0]] : t;
   N.mats.set(key, mt); return mt;
 }
 /* развёртка UV по мировым размерам: текстура не растягивается на длинных брусках */
-function worldUV(g, ts) {
+/* ts — размер плитки [x, y] в метрах, или функция от номера вершины (у бруска — свой размер на каждой грани);
+   o — сдвиг начала координат, чтобы швы на соседних гранях одного куска совпадали */
+function worldUV(g, ts, o = [0, 0, 0]) {
   const p = g.attributes.position, nrm = g.attributes.normal, uv = g.attributes.uv; if (!uv) return g;
   for (let i = 0; i < p.count; i++) {
-    const ax = Math.abs(nrm.getX(i)), ay = Math.abs(nrm.getY(i)), az = Math.abs(nrm.getZ(i)), x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    if (ax >= ay && ax >= az) uv.setXY(i, z / ts, y / ts); else if (ay >= az) uv.setXY(i, x / ts, z / ts); else uv.setXY(i, x / ts, y / ts);
+    const t = typeof ts === 'function' ? ts(i) : (typeof ts === 'number' ? [ts, ts] : ts);
+    const ax = Math.abs(nrm.getX(i)), ay = Math.abs(nrm.getY(i)), az = Math.abs(nrm.getZ(i)), x = p.getX(i) + o[0], y = p.getY(i) + o[1], z = p.getZ(i) + o[2];
+    if (ax >= ay && ax >= az) uv.setXY(i, z / t[0], y / t[1]); else if (ay >= az) uv.setXY(i, x / t[0], z / t[1]); else uv.setXY(i, x / t[0], y / t[1]);
   }
   uv.needsUpdate = true; return g;
 }
@@ -266,7 +273,8 @@ function nBox(parent, m, u1, u2, v1, v2, w1, w2, opt = {}) {
     const f = nodeMat(m, 'f'), su = nodeMat(m, 'su', true), sw = nodeMat(m, 'sw', true);
     mats = [f, f, sw, sw, su, su];
   } else { const f = nodeMat(m, 'f'), su = nodeMat(m, 'su'), sw = nodeMat(m, 'sw'); mats = [su, su, f, f, sw, sw]; }
-  const g = worldUV(new THREE.BoxGeometry(sx, sy, sz), mats[2].userData.ts);
+  // у BoxGeometry по 4 вершины на грань в порядке +x, −x, +y, −y, +z, −z; начало развёртки — угол куска
+  const g = worldUV(new THREE.BoxGeometry(sx, sy, sz), (i) => mats[i >> 2].userData.ts, [sx / 2, sy / 2, sz / 2]);
   const me = new THREE.Mesh(g, mats); me.position.set((u1 + u2) / 2000, (v1 + v2) / 2000, (w1 + w2) / 2000);
   me.castShadow = !mats[2].transparent; me.receiveShadow = true; parent.add(me); return me;
 }
