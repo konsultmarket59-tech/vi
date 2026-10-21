@@ -27,6 +27,27 @@ const CEIL60 = [
   { n: 'Черновой пол — доска 50×150', t: 50, m: 'gap', bars: { w: 150, step: 400, dir: 'w', m: 'wood' } },
   { n: 'Подшив', t: 12, m: 'plaster', a: 1 },
 ];
+// холодный чердак: утеплённое перекрытие под неотапливаемым вентилируемым чердаком, пиломатериал с огнебиозащитой
+const CEIL_ATTIC = [
+  { n: 'Ходовые доски по балкам 25×150', t: 25, m: 'gap', a: 1, bars: { w: 150, step: 600, dir: 'w', m: 'woodfr' } },
+  { n: 'Ветрозащитная мембрана ТЕХНОНИКОЛЬ', t: 0, m: 'membrane' },
+  { n: 'Утеплитель ROCKWOOL Лайт Баттс между балками — 200 мм', t: 200, m: 'wool', bars: { w: 100, step: 600, dir: 'u', m: 'woodfr', n: 'Балки перекрытия 100×200 с шагом 600 мм' } },
+  { n: 'Пароизоляционная плёнка ТЕХНОНИКОЛЬ', t: 0, m: 'vapour' },
+  { n: 'Обрешётка под подшив 25×50 с шагом 400 мм', t: 25, m: 'gap', a: 1, bars: { w: 50, step: 400, dir: 'w', m: 'woodfr' } },
+  { n: 'Подшив потолка — гипсокартон 12,5 мм', t: 12.5, m: 'gkl', a: 1 },
+];
+// мансардная кровля: утеплитель между стропилами, отделка изнутри по скату
+const ROOF_MANSARD = [
+  { n: 'Кровля — металлочерепица «Каскад»', t: 0.5, m: 'mtile' },
+  { n: 'Обрешётка 30×150 с шагом 250 мм', t: 30, m: 'gap', bars: { w: 150, step: 250, dir: 'w', m: 'woodfr' } },
+  { n: 'Контробрешётка 50×50 — вентзазор', t: 50, m: 'gap', air: 'u', bars: { w: 50, step: 600, dir: 'u', m: 'woodfr' } },
+  { n: 'Супердиффузионная мембрана ТЕХНОНИКОЛЬ', t: 0, m: 'membrane' },
+  { n: 'Утеплитель ROCKWOOL Лайт Баттс между стропилами — 200 мм', t: 200, m: 'wool', bars: { w: 100, step: 600, dir: 'u', m: 'woodfr', n: 'Стропильная нога — 2 спаренные доски 50×200' } },
+  { n: 'Дополнительное утепление поперёк стропил — 50 мм', t: 50, m: 'wool', a: 1, bars: { w: 50, step: 600, dir: 'w', m: 'woodfr' } },
+  { n: 'Пароизоляционная плёнка ТЕХНОНИКОЛЬ', t: 0, m: 'vapour' },
+  { n: 'Обрешётка под отделку 25×50 с шагом 400 мм', t: 25, m: 'gap', a: 1, bars: { w: 50, step: 400, dir: 'w', m: 'woodfr' } },
+  { n: 'Гипсокартон 12,5 мм', t: 12.5, m: 'gkl', a: 1 },
+];
 const FLOOR60 = [
   { n: 'Напольное покрытие: ламинат, линолеум, ковролин', t: 10, m: 'laminate', a: 1 },
   { n: 'Цементно-песчаная стяжка 4–5 см, максимум 8 см', t: 50, m: 'screed', pipes: { d: 20, step: 200, n: 'Водяной тёплый пол — труба XL PIPE Ø20 мм' } },
@@ -114,6 +135,7 @@ const NODESETS = [
       { id: 'wall', n: 'Стена', type: 'wall', layers: WALL60 },
       { id: 'roof', n: 'Кровля', type: 'roof', pitch: 22, layers: ROOF_TILE },
       { id: 'ceil', n: 'Перекрытие', type: 'slab', layers: CEIL60 },
+      { id: 'attic', n: 'Холодный чердак', type: 'attic', pitch: 22, layers: CEIL_ATTIC, roof: ROOF_TILE },
       { id: 'floor', n: 'Пол по грунту', type: 'slab', layers: FLOOR60 },
       { id: 'fnd', n: 'Фундамент и цоколь', type: 'fnd', wall: WALL60, floor: FLOOR60, rib: { w: 400, d: 310 }, xpsV: 100, ground: -650, otm: OTM_TYPE, otmW: 900 },
       { id: 'otm', n: 'Отмостка', type: 'slab', layers: OTM_TYPE },
@@ -129,6 +151,8 @@ const NODESETS = [
       { id: 'wallP', n: 'Стена — штукатурка', type: 'wall', layers: WALL_PLASTER },
       { id: 'roof', n: 'Кровля', type: 'roof', pitch: 22, layers: ROOF_TILE.map((l) => ({ ...l, a: 1 })) },
       { id: 'ceil', n: 'Перекрытие', type: 'slab', layers: CEIL60.map((l) => ({ ...l, a: 1 })) },
+      { id: 'attic', n: 'Холодный чердак', type: 'attic', pitch: 22, layers: CEIL_ATTIC, roof: ROOF_TILE.map((l) => ({ ...l, a: 1 })) },
+      { id: 'mansard', n: 'Мансардная кровля', type: 'roof', pitch: 22, layers: ROOF_MANSARD },
       { id: 'floor', n: 'Пол по грунту', type: 'slab', layers: FLOOR60 },
       { id: 'fnd', n: 'Фундамент и цоколь', type: 'fnd', wall: WALL510, floor: FLOOR60, rib: { w: 510, d: 300 }, xpsV: 100, ground: -650, otm: OTM_TYPE, otmW: 900 },
       { id: 'otm', n: 'Отмостка', type: 'slab', layers: OTM_TYPE },
@@ -165,7 +189,7 @@ const NMAT = {
   membrane: { c: '#eef1f6', tex: 'membrane', ts: .6 }, vapour: { c: '#bcd9ea', op: .82 },
   planter: { c: '#2f3135', tex: 'dimple', ts: .12 }, sand: { c: '#e1cb93', tex: 'speckle', ts: .25 },
   gravel: { c: '#bcb4a5', tex: 'gravel', ts: .3 }, geotex: { c: '#f3f2ee', tex: 'felt', ts: .3 },
-  soil: { c: '#83654a', tex: 'speckle', ts: .5 }, wood: { c: '#c9975e', tex: 'grain', ts: .6 }, woodfr: { c: '#d89a8f', tex: 'grain', ts: .6 },
+  soil: { c: '#83654a', tex: 'speckle', ts: .5 }, wood: { c: '#c9975e', tex: 'grain', ts: .6 }, gkl: { c: '#ecebe6', tex: 'speckle', ts: .4 }, woodfr: { c: '#d89a8f', tex: 'grain', ts: .6 },
   osb: { c: '#c9a46a', tex: 'osb', ts: .3 }, laminate: { c: '#cfa576', tex: 'planks', ts: 1.2 },
   plaster: { c: '#f2f0eb', tex: 'speckle', ts: .3, soft: 1 }, paint: { c: '#f8f6f2' },
   siding: { c: '#e3dfd4', tex: 'siding', ts: .4 }, planken: { c: '#a8693d', tex: 'grain', ts: .6 },
@@ -467,7 +491,17 @@ function buildNode() {
   const nd = curNode(), labels = [];
   let g;
   if (nd.type === 'fnd') g = nFoundation(nd, labels);
-  else {
+  else if (nd.type === 'attic') {
+    // перекрытие внизу, над ним — продух чердака и скат кровли на стропилах
+    const a = nStack(nd.layers, 1600, 1000, 110, labels); a.userData.lab = labels.length;
+    nAir(a, 'u', -800, 650, 170, -500, 500);
+    labels.push({ n: 'Вентилируемое пространство холодного чердака — воздух от карниза к коньку', at: [200, 170, 0] });
+    const n1 = labels.length, r = nStack(nd.roof, 1500, 1000, 120, labels);
+    // скат опирается нижним краем на перекрытие, стропила поднимаются вверх
+    r.rotation.z = nd.pitch * Math.PI / 180; r.updateMatrixWorld(true);
+    const rb = new THREE.Box3().setFromObject(r); r.position.set(-.3 - rb.min.x, .03 - rb.min.y, 0);
+    g = new THREE.Group(); g.add(a, r); g.userData.split = [[0, n1, a], [n1, labels.length, r]];
+  } else {
     const L = nd.type === 'wall' ? 1300 : 1500, D = nd.type === 'wall' ? 1100 : 1000;
     g = nStack(nd.layers, L, D, nd.type === 'wall' ? 110 : 120, labels, nd.type === 'wall', nd.type === 'wall');
     const outer = new THREE.Group(); outer.add(g);
@@ -485,7 +519,8 @@ function buildNode() {
   group.position.set(-c.x, -bb.min.y, -c.z); group.updateMatrixWorld(true);
   N.box = new THREE.Box3().setFromObject(group);
   const inner = g.children[0] && g.children[0].isGroup ? g.children[0] : g;
-  N.labels = labels.map((l, i) => ({ ...l, n0: l.n, i: i + 1, w: new THREE.Vector3(l.at[0] / 1000, l.at[1] / 1000, l.at[2] / 1000).applyMatrix4(inner.matrixWorld) }));
+  const grpOf = (i) => { const sp = g.userData.split; if (!sp) return inner; const e = sp.find(([a, b]) => i >= a && i < b); return e ? e[2] : inner; };
+  N.labels = labels.map((l, i) => ({ ...l, n0: l.n, i: i + 1, w: new THREE.Vector3(l.at[0] / 1000, l.at[1] / 1000, l.at[2] / 1000).applyMatrix4(grpOf(i).matrixWorld) }));
   nodeLight(); nodeFit(); orderLabels(); renderNodeLegend();
 }
 /* номера слоёв — сверху вниз, как точки выносок видны в исходном ракурсе */
