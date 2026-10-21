@@ -233,7 +233,7 @@ function nodeTex(kind, base, v = 'f', rot = false) {
   N.texs.set(key, t); return t;
 }
 /* цвет облицовки, который выбирают в панели */
-const NCOL = { brick: '#b2583d', siding: '#e3dfd4', dplaster: '#f3efe6' };
+const NCOL = { brick: '#b2583d', siding: '#e3dfd4', dplaster: '#f3efe6', mtile: '#6a2b25', falz: '#3b3f45' };
 const ncolor = (m) => (NCOL[m] && S.ncol && S.ncol[m]) || (NMAT[m] || {}).c || '#cccccc';
 function nodeMat(m, v = 'f', rot = false) {
   const d = NMAT[m] || { c: '#cccccc' }, c = ncolor(m), key = [m, v, rot, c].join('|');
@@ -566,7 +566,7 @@ async function initNodes() {
   const group = new THREE.Group(); scene.add(group);
   const shadowM = new THREE.ShadowMaterial({ opacity: .18 }), ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), shadowM);
   ground.rotation.x = -Math.PI / 2; ground.position.y = -.001; ground.receiveShadow = true; scene.add(ground);
-  N = { renderer, scene, cam, hemi, sun, group, mats: new Map(), texs: new Map(), dirty: true, t: new THREE.Vector3(), dist: 4, labels: [] };
+  N = { ground, renderer, scene, cam, hemi, sun, group, mats: new Map(), texs: new Map(), dirty: true, t: new THREE.Vector3(), dist: 4, labels: [] };
   scene.background = new THREE.Color('#F7F8FB').convertSRGBToLinear();
   bindNodeControls(canvas);
   new ResizeObserver(nresize).observe($('#stage')); nresize();
@@ -584,7 +584,10 @@ function nresize() {
 function ncam() {
   const { cam, t } = N; S.nel = clamp(S.nel, -.2, 1.45);
   const ce = Math.cos(S.nel); cam.position.set(t.x + N.dist * ce * Math.sin(S.naz), t.y + N.dist * Math.sin(S.nel), t.z + N.dist * ce * Math.cos(S.naz));
-  cam.lookAt(t); cam.updateMatrixWorld(); ndirty();
+  cam.lookAt(t); cam.updateMatrixWorld();
+  // плоскость с тенью видна ребром, когда камера почти на уровне земли или ниже — тогда её прячем
+  N.ground.visible = cam.position.y > .15 && Math.atan2(cam.position.y, Math.hypot(cam.position.x - t.x, cam.position.z - t.z)) > .12;
+  ndirty();
 }
 function nodeFit() {
   const bb = N.box, c = bb.getCenter(new THREE.Vector3()), r = bb.getSize(new THREE.Vector3()).length() / 2;
