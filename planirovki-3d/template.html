@@ -95,6 +95,8 @@ h1,h2,h3,p{margin:0}
 .pick-rot button{width:30px;height:28px;border:1.5px solid var(--brand);border-radius:9px;background:var(--panel);color:var(--brand);font:700 15px/1 var(--text)}
 .pick-rot button:hover{background:var(--brand-soft)}
 .pick-x{border:0;background:none;font:400 20px/1 var(--text);color:var(--muted);padding:0 2px}
+.fcols .seg{padding:2px}
+.fcols .seg button{padding:4px 9px;font-size:11.5px}
 .tabs{flex:none}
 .tabs button{padding:7px 14px;font-size:13px}
 body:not(.tab-nodes) [data-only="nodes"], body.tab-nodes [data-only="plan"]{display:none!important}
@@ -181,6 +183,13 @@ body:not(.tab-nodes) [data-only="nodes"], body.tab-nodes [data-only="plan"]{disp
         <h3>Пол</h3>
         <div class="sw" id="floors"></div>
         <label class="chk">Свой оттенок <input type="color" id="floorCustom"></label>
+      </div>
+      <div class="grp" data-only="plan">
+        <h3>Крыльцо и терраса</h3>
+        <div class="fcols">
+          <span>Крыльцо</span><div class="seg" id="porchSeg"><button data-k="wood">Дерево</button><button data-k="concrete">Бетон</button></div>
+          <span>Терраса</span><div class="seg" id="terrSeg"><button data-k="wood">Дерево</button><button data-k="concrete">Бетон</button></div>
+        </div>
       </div>
       <div class="grp" data-only="plan">
         <h3>Размеры, мм</h3>
@@ -368,7 +377,7 @@ function doorGeom(dr) {
 
 /* ---------- состояние ---------- */
 const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true,
-  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E', fcol: {}, icol: {}, ipos: {}, lpos: {}, dkind: {}, dcol: {} };
+  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E', porch: 'wood', terr: 'wood', fcol: {}, icol: {}, ipos: {}, lpos: {}, dkind: {}, dcol: {} };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(lsGet('pl3d') || '{}')); } catch (e) { }
 for (const k of ['wallIn', 'wallOut', 'wallCap']) delete S[k];   // прежние настройки цвета стен целиком
@@ -508,6 +517,8 @@ const WALL_KEYS = { capOut: 'cap', capIn: 'cap' };
 function syncWalls() { for (const [k, sk] of Object.entries(WALL_KEYS)) $('#' + k).value = S[k] || STYLES[S.style][sk]; }
 for (const k of Object.keys(WALL_KEYS)) $('#' + k).oninput = (e) => { S[k] = e.target.value; save(); if (G) build(); };
 $('#wallReset').onclick = () => { for (const k of Object.keys(WALL_KEYS)) delete S[k]; save(); syncWalls(); if (G) build(); };
+function syncPorch() { for (const [id, k] of [['porchSeg', 'porch'], ['terrSeg', 'terr']]) $$('#' + id + ' button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S[k])); }
+for (const [id, k] of [['porchSeg', 'porch'], ['terrSeg', 'terr']]) $$('#' + id + ' button').forEach((b) => { b.onclick = () => { S[k] = b.dataset.k; save(); syncPorch(); if (G) build(); }; });
 function setFloor(c) { S.floor = c; save(); renderFloors(); if (G) build(); }
 $('#floorCustom').oninput = (e) => setFloor(e.target.value);
 $('#labelColor').value = S.labelColor;
@@ -838,14 +849,19 @@ function build() {
   const shadowM = new THREE.ShadowMaterial({ opacity: .16 }); shadowM.userData.own = true;
   const catcher = new THREE.Mesh(new THREE.PlaneGeometry(size * 3, size * 3), shadowM);
   catcher.rotation.x = -Math.PI / 2; catcher.position.set(cx, -.199, cz); catcher.receiveShadow = true; catcher.visible = false; group.add(catcher); G.catcher = catcher;
-  add(new THREE.Mesh(new THREE.BoxGeometry(mm(b[2] - b[0] + 300), .2, mm(b[3] - b[1] + 300)), mat(st.plinth)), false).position.set(mm(b[0] + b[2]) / 2, -.1, mm(b[1] + b[3]) / 2);
-  // террасы и крыльцо: настил чуть ниже пола дома
-  const decks = [...P.decks, ...P.rooms.filter((r) => r.k === 'terrace').flatMap((r) => r.r)];
-  for (const r of decks) {
-    add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]), .16, mm(r[3] - r[1])), mat(st.deckSide)), false).position.set(mm(r[0] + r[2]) / 2, -.1, mm(r[1] + r[3]) / 2);
+  // цоколь — по контуру стен и помещений с выступом 150 мм, а не по габариту: у домов с тамбуром не появляется лишняя площадка
+  for (const r of [...P.walls, ...P.rooms.filter((x) => x.k !== 'terrace').flatMap((x) => x.r)])
+    add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0] + 300), .2, mm(r[3] - r[1] + 300)), mat(st.plinth)), false).position.set(mm(r[0] + r[2]) / 2, -.1, mm(r[1] + r[3]) / 2);
+  // крыльцо и терраса: деревянный настил или бетон, настил чуть ниже пола дома
+  const porchR = [...P.decks, ...P.rooms.filter((x) => x.k === 'terrace' && x.n === 'Крыльцо').flatMap((x) => x.r)];
+  const terrR = P.rooms.filter((x) => x.k === 'terrace' && x.n !== 'Крыльцо').flatMap((x) => x.r);
+  for (const [r, kind] of [...porchR.map((r) => [r, S.porch]), ...terrR.map((r) => [r, S.terr])]) {
+    const conc = kind === 'concrete';
+    add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]), .16, mm(r[3] - r[1])), mat(conc ? '#a9a6a0' : st.deckSide)), false).position.set(mm(r[0] + r[2]) / 2, -.1, mm(r[1] + r[3]) / 2);
     // настил внутри габарита дома лежит на цоколе, снаружи — чуть ниже пола
-    const inBox = r[0] >= b[0] - 5 && r[2] <= b[2] + 5 && r[1] >= b[1] - 5 && r[3] <= b[3] + 5;
-    group.add(floorMesh(r, 'deck', inBox ? .003 : -.018));
+    const inBox = r[0] >= b[0] - 5 && r[2] <= b[2] + 5 && r[1] >= b[1] - 5 && r[3] <= b[3] + 5, y = inBox ? .003 : -.018;
+    if (conc) { const me = new THREE.Mesh(new THREE.PlaneGeometry(mm(r[2] - r[0]), mm(r[3] - r[1])), mat('#c4c1ba', { r: .95 })); me.rotation.x = -Math.PI / 2; me.position.set(mm(r[0] + r[2]) / 2, y, mm(r[1] + r[3]) / 2); me.receiveShadow = true; group.add(me); }
+    else group.add(floorMesh(r, 'deck', y));
   }
   for (const room of P.rooms) if (room.k !== 'terrace') for (const r of room.r) group.add(floorMesh(r, FLOOR_OF[room.k] === 'tile' ? 'tile' : FLOOR_OF[room.k] || 'wood', .002));
   // стены: окна и двери закрыты перемычкой, у окон ещё подоконная часть
@@ -1154,7 +1170,7 @@ $('#shotAlpha').onclick = () => snapshot(true);
 /*NODES*/
 
 /* ---------- запуск ---------- */
-renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols(); syncWalls();
+renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols(); syncWalls(); syncPorch();
 (async () => {
   try { await init3D(); } catch (e) { $('#loading').textContent = 'Не удалось загрузить 3D. Проверьте подключение к интернету.'; return; }
   $('#loading').hidden = true;
