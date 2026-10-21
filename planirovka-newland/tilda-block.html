@@ -7,12 +7,32 @@
       <p id="nlSub">Выберите дом — расставьте мебель, подберите цвета и посмотрите интерьер в 3D.</p>
     </div>
     <div class="cards" id="nlCards"></div>
+    <div class="demo" id="nlDemo" aria-hidden="true">
+      <ol class="demo-steps" id="nlDemoSteps">
+        <li><i>1</i><b>Выберите дом</b><span>План откроется в 2D и 3D</span></li>
+        <li><i>2</i><b>Расставьте мебель</b><span>Сами или готовую из проекта</span></li>
+        <li><i>3</i><b>Подберите цвета</b><span>Стены, пол и мебель</span></li>
+        <li><i>4</i><b>Смотрите в 3D</b><span>Снимок, размеры, стоимость</span></li>
+      </ol>
+      <canvas id="nlDemoCv"></canvas>
+    </div>
   </section>
 
+  <div class="ob" id="nlOb" hidden role="dialog" aria-modal="true" aria-labelledby="nlObT">
+    <div class="ob-card">
+      <button class="ob-x" id="nlObX" aria-label="Закрыть">×</button>
+      <div class="ob-art" id="nlObArt"></div>
+      <span class="ob-n" id="nlObN"></span>
+      <h3 id="nlObT"></h3>
+      <p id="nlObP"></p>
+      <div class="ob-nav"><div class="ob-dots" id="nlObDots"></div><button class="btn sm" id="nlObPrev">Назад</button><button class="btn sm primary" id="nlObNext">Далее</button></div>
+    </div>
+  </div>
   <section class="ed" id="nlEd" hidden>
     <header class="bar">
       <button class="btn back" id="nlBack" title="Ко всем планировкам"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span class="lbl">Планировки</span></button>
       <div class="ttl"><b id="nlTitle">Дом</b><span id="nlMeta"></span></div>
+      <button class="btn help" id="nlHelp" title="Что здесь можно сделать" aria-label="Что здесь можно сделать">?</button>
       <div class="vars" id="nlVars" role="group" aria-label="Вариант планировки" hidden></div>
       <div class="views tagged" role="group" aria-label="Вид">
         <button data-view="plan" aria-pressed="true">План</button>
@@ -43,8 +63,7 @@
         <section class="pane tagged" data-pane="furn">
           <h3>Мебель <button class="lnk" id="nlClear">Убрать всё</button></h3>
           <span class="tag" data-tag="furn"><i>1</i>Начните с готовой<button aria-label="Скрыть подсказку">×</button></span>
-          <button class="btn rec" id="nlRec"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg>Рекомендованная расстановка</button>
-          <div class="muted">Мебель встанет как в проекте. Потом её можно двигать, менять и дополнять из каталога.</div>
+          <button class="btn sm rec" id="nlRec" title="Мебель встанет как в проекте — потом её можно двигать и дополнять"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg>Готовая расстановка</button>
           <div class="catf" id="nlCatF" role="group" aria-label="Раздел каталога"></div>
           <div id="nlCat" class="cat-wrap"></div>
         </section>
@@ -69,7 +88,7 @@
         <canvas id="nlUnfold" hidden></canvas>
         <div class="v3" id="nlV3" hidden><button class="btn sm" id="nlCut" aria-pressed="false">Срезать стены</button><span class="muted" id="nlV3hint"></span></div>
         <div class="rooms-bar" id="nlRooms" hidden></div>
-        <div class="empty" id="nlEmpty" hidden><span class="lg">План пустой — расставьте мебель из каталога или</span><span class="sh">План пустой —</span><button class="btn sm primary" id="nlRec2">рекомендованная расстановка</button></div>
+        <div class="empty" id="nlEmpty" hidden><span class="lg">План пустой — расставьте мебель из каталога или</span><span class="sh">План пустой —</span><button class="btn sm rec" id="nlRec2"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg>готовая расстановка</button></div>
         <div class="paintbar" id="nlPaintBar" hidden><i id="nlPaintDot"></i><span class="lg">Нажмите на комнату, чтобы покрасить стены</span><span class="sh">Нажмите на комнату</span><button class="btn sm" id="nlPaintOff">Готово</button></div>
         <div class="ft" id="nlFt" hidden>
           <button id="nlRot" title="Повернуть на 90° (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
@@ -79,7 +98,7 @@
         </div>
         <div class="hud">
           <div class="zoom" id="nlZoom"><button id="nlZin" title="Приблизить">+</button><button id="nlZout" title="Отдалить">−</button><button id="nlZfit" title="Вписать">⤢</button></div>
-          <div class="undo"><button class="btn sm" id="nlUndo" title="Отменить (Ctrl+Z)">Отменить</button></div>
+          <div class="undo"><button class="btn sm rec" id="nlRec3" title="Готовая расстановка мебели из проекта"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg><span class="lg">Из проекта</span><span class="sh">Из проекта</span></button><button class="btn sm" id="nlUndo" title="Отменить (Ctrl+Z)">Отменить</button></div>
         </div>
         <div class="toast" id="nlToast" hidden></div>
       </section>
@@ -135,7 +154,8 @@
 #nl-plan .card:hover em{background:var(--brand);color:#fff}
 
 /* редактор */
-#nl-plan .ed{height:min(880px,calc(100vh - 16px));min-height:620px;display:grid;grid-template-rows:auto 1fr}
+#nl-plan .ed{height:min(880px,calc(100vh - 16px));min-height:620px;display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(0,1fr)}
+#nl-plan .bar,#nl-plan .work,#nl-plan .side{min-width:0}
 #nl-plan .bar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:12px clamp(18px,2.5vw,32px);background:var(--panel);border-bottom:1px solid var(--line)}
 #nl-plan .ttl{display:grid;line-height:1.05}
 #nl-plan .ttl b{font:800 26px/1 var(--display);text-transform:uppercase;letter-spacing:.03em;color:var(--brand)}
@@ -184,7 +204,35 @@
 #nl-plan .zoom button+button{border-top:1px solid var(--line)}
 #nl-plan .undo .btn{box-shadow:var(--shadow-sm)}
 #nl-plan .empty{position:absolute;top:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.94);border:1.5px dashed var(--accent-2);color:var(--brand);border-radius:var(--r-sm);padding:6px 6px 6px 14px;font-size:13px;font-weight:600;max-width:calc(100% - 32px);white-space:nowrap}
-#nl-plan .btn.rec{justify-content:center;background:var(--gold);border-color:var(--gold);color:var(--brand);padding:10px 14px;box-shadow:0 8px 18px -8px rgba(252,194,27,.8)}
+#nl-plan .btn.rec{background:var(--gold);border-color:var(--gold);color:var(--brand);box-shadow:0 6px 14px -6px rgba(252,194,27,.8)}
+#nl-plan .btn.rec svg{width:14px;height:14px}
+#nl-plan .pane > .btn.rec{justify-self:start}
+#nl-plan .undo{display:flex;gap:6px}
+#nl-plan .btn.help{width:32px;height:32px;padding:0;justify-content:center;font:800 17px var(--display)}
+/* анимация под карточками */
+#nl-plan .demo{position:relative;margin-top:28px;border-radius:var(--r-lg);background:linear-gradient(135deg,#f4f5fb 0%,#e3e6f4 100%);overflow:hidden;display:grid;grid-template-columns:minmax(220px,300px) 1fr;align-items:center}
+#nl-plan .demo canvas{width:100%;height:360px;display:block}
+#nl-plan .demo-steps{list-style:none;margin:0;padding:28px 0 28px 28px;display:grid;gap:10px;align-content:center;position:relative;z-index:1}
+#nl-plan .demo-steps li{display:grid;grid-template-columns:30px 1fr;column-gap:10px;padding:10px 12px;border-radius:var(--r-sm);transition:background .4s,box-shadow .4s,opacity .4s;opacity:.55}
+#nl-plan .demo-steps li.on{background:#fff;box-shadow:var(--shadow);opacity:1}
+#nl-plan .demo-steps i{grid-row:span 2;width:30px;height:30px;border-radius:50%;background:var(--brand);color:#fff;font:800 16px/30px var(--display);text-align:center;font-style:normal}
+#nl-plan .demo-steps li.on i{background:var(--gold);color:var(--brand)}
+#nl-plan .demo-steps b{font:800 19px/1.05 var(--display);text-transform:uppercase;color:var(--brand);letter-spacing:.02em}
+#nl-plan .demo-steps span{font-size:12.5px;color:var(--muted)}
+/* попап-объяснялка */
+#nl-plan .ob{position:fixed;inset:0;z-index:99990;background:rgba(28,19,97,.42);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);display:grid;place-items:center;padding:16px}
+#nl-plan .ob-card{position:relative;width:min(440px,100%);background:#fff;border-radius:var(--r-lg);box-shadow:0 30px 70px -24px rgba(38,26,126,.5);padding:22px 22px 18px;display:grid;gap:8px;text-align:left}
+#nl-plan .ob-x{position:absolute;top:10px;right:10px;width:34px;height:34px;border:0;border-radius:50%;background:var(--bg-2);color:var(--brand);font-size:20px;line-height:34px}
+#nl-plan .ob-x:hover{background:var(--brand-soft)}
+#nl-plan .ob-art{height:150px;border-radius:var(--r-md);background:linear-gradient(135deg,#f4f5fb,#e3e6f4);display:grid;place-items:center;margin-bottom:6px}
+#nl-plan .ob-art svg{width:220px;height:130px}
+#nl-plan .ob-n{font:600 11px var(--text);letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+#nl-plan .ob h3{font:800 28px/1 var(--display);text-transform:uppercase;color:var(--brand);letter-spacing:.02em;margin:0}
+#nl-plan .ob p{margin:0;color:var(--ink);font-size:14px;line-height:1.5}
+#nl-plan .ob-nav{display:flex;align-items:center;gap:8px;margin-top:10px}
+#nl-plan .ob-dots{display:flex;gap:6px;margin-right:auto}
+#nl-plan .ob-dots i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+#nl-plan .ob-dots i.on{background:var(--brand);width:22px;border-radius:4px}
 #nl-plan .btn.rec:hover{background:#ffd34d}
 #nl-plan .btn.price{background:var(--gold);border-color:var(--gold);color:var(--brand);box-shadow:0 10px 24px -8px rgba(252,194,27,.75)}
 #nl-plan .btn.price:hover{background:#ffd34d}
@@ -261,7 +309,7 @@
   #nl-plan #nlWhere,#nl-plan #nlPrice{display:none}
   #nl-plan #nlWhere2,#nl-plan #nlPrice2{display:flex}
   #nl-plan #nlWhere2{margin-top:8px}
-  #nl-plan .vars{width:100%;order:2;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  #nl-plan .vars{width:100%;min-width:0;order:2;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   #nl-plan .vars::-webkit-scrollbar{display:none}
   #nl-plan .back{padding:8px 10px}
   #nl-plan .back .lbl{display:none}
@@ -279,6 +327,15 @@
   #nl-plan .v3 .muted{font-size:11px}
   #nl-plan .hud{left:10px;bottom:10px}
   #nl-plan .pick{padding:32px 20px}
+  #nl-plan .demo{grid-template-columns:1fr;min-height:0}
+  #nl-plan .demo canvas{height:240px;min-height:240px;order:-1}
+  #nl-plan .demo-steps{padding:4px 12px 14px;grid-template-columns:1fr 1fr;gap:6px}
+  #nl-plan .demo-steps li{padding:8px;grid-template-columns:24px 1fr;column-gap:7px}
+  #nl-plan .demo-steps i{width:24px;height:24px;font-size:13px;line-height:24px}
+  #nl-plan .demo-steps b{font-size:15px}
+  #nl-plan .demo-steps span{font-size:11px}
+  #nl-plan .ob-art{height:120px}
+  #nl-plan .ob h3{font-size:24px}
     #nl-plan .pick-head h2{font-size:36px}
   #nl-plan .cards{grid-template-columns:1fr 1fr;gap:10px}
   #nl-plan .card .cb{padding:10px}
@@ -303,7 +360,7 @@ ROOT.dataset.ready = '1';
    Собираются из plans.py командой python3 build.py */
 const PLANS = [{"id":"p60","area":60,"note":"2 спальни · кухня-гостиная 23 м²","link":null,"walls":[[0,0,3470,320],[4060,0,5040,320],[5630,0,7230,320],[7810,0,10980,320],[0,6250,7230,6580],[7810,6250,10980,6580],[0,320,340,1280],[0,2220,340,4290],[0,5290,340,6250],[10640,320,10980,1280],[10640,2220,10980,3460],[10640,5290,10980,6250],[3280,320,3420,3120],[3280,2990,3500,3120],[3290,4070,3420,4290],[340,4160,3420,4290],[3290,5240,3420,6250],[4710,320,4840,1340],[4720,2090,4830,2990],[6330,320,6470,2990],[4270,2990,7150,3100],[8030,2990,10640,3120]],"windows":[[3470,0,4060,320],[5040,0,5630,320],[7230,0,7810,320],[7230,6250,7810,6580],[0,1280,340,2220],[10640,1280,10980,2220],[10640,3460,10980,5290]],"doors":[{"r":[0,4290,340,5290],"hinge":"a","side":-1,"ext":true},{"r":[3280,3120,3420,4070],"hinge":"b","side":-1},{"r":[3290,4290,3420,5240],"hinge":"a","side":-1},{"r":[3500,2990,4270,3100],"hinge":"a","side":1},{"r":[4710,1340,4840,2090],"hinge":"a","side":-1},{"r":[7150,2990,8030,3100],"hinge":"b","side":1}],"rooms":[{"n":"Спальня","a":11.7,"k":"bed","r":[[340,320,3280,4160]]},{"n":"Тех. помещение","a":3.7,"k":"tech","r":[[3420,320,4710,2990]]},{"n":"Санузел","a":4.2,"k":"wet","r":[[4840,320,6330,2990]]},{"n":"Спальня","a":11.5,"k":"bed","r":[[6470,320,10640,2990]]},{"n":"Прихожая","a":6.0,"k":"hall","r":[[340,4290,3290,6250]]},{"n":"Кухня-гостиная","a":23.2,"k":"living","r":[[3420,3100,10640,6250]]}],"zones":[],"decks":[{"k":"porch","r":[-1480,3670,0,6250]}],"posts":[],"roof":[[-890,-900,11850,7450]],"fixed":[{"type":"washer","x":4480,"y":2690,"rot":90,"w":600,"d":450}],"box":[0,0,10980,6580],"title":"КЛАССИК 60 м²","group":"p60","rec":[{"type":"bed2","x":1510,"y":1280,"rot":0,"w":1600,"d":1920},{"type":"nightstand","x":515,"y":505,"rot":0,"w":330,"d":330},{"type":"nightstand","x":2505,"y":505,"rot":0,"w":330,"d":330},{"type":"wardrobe","x":3000,"y":1210,"rot":90,"w":1780,"d":560},{"type":"dresser","x":3000,"y":2545,"rot":90,"w":890,"d":560},{"type":"desk","x":575,"y":3220,"rot":270,"w":1060,"d":450},{"type":"ochair","x":1060,"y":3080,"w":520,"d":520,"rot":90},{"type":"tvwall","x":1510,"y":4020,"rot":180,"w":1220,"d":120},{"type":"wardrobe","x":1365,"y":5950,"rot":180,"w":2050,"d":600},{"type":"shoe","x":2835,"y":6015,"rot":180,"w":890,"d":470},{"type":"toilet","x":5990,"y":680,"rot":90,"w":500,"d":660},{"type":"sink","x":6130,"y":1730,"rot":90,"w":1060,"d":400},{"type":"bath","x":5590,"y":2595,"rot":180,"w":1480,"d":650},{"type":"bed2","x":9460,"y":1280,"rot":0,"w":1560,"d":1920},{"type":"nightstand","x":8460,"y":515,"rot":0,"w":360,"d":350},{"type":"nightstand","x":10450,"y":515,"rot":0,"w":340,"d":350},{"type":"wardrobe","x":6755,"y":2080,"rot":270,"w":1720,"d":550},{"type":"ochair","x":7190,"y":670,"w":480,"d":480,"rot":270},{"type":"tvwall","x":9465,"y":2890,"rot":180,"w":1190,"d":120},{"type":"ksink","x":3800,"y":5940,"rot":180,"w":740,"d":620},{"type":"kbase","x":4580,"y":5940,"rot":180,"w":820,"d":620},{"type":"khob","x":5260,"y":5940,"rot":180,"w":540,"d":620},{"type":"kbase","x":5925,"y":5940,"rot":180,"w":790,"d":620},{"type":"fridge","x":6635,"y":5920,"rot":180,"w":630,"d":660},{"type":"table","x":5690,"y":3395,"rot":0,"w":1200,"d":590},{"type":"chair","x":4770,"y":3380,"w":450,"d":480,"rot":270},{"type":"chair","x":6560,"y":3380,"w":450,"d":480,"rot":90},{"type":"chair","x":5430,"y":3960,"w":450,"d":480,"rot":180},{"type":"chair","x":6020,"y":3960,"w":450,"d":480,"rot":180},{"type":"tv","x":9310,"y":3310,"rot":0,"w":1740,"d":360},{"type":"sofa3","x":9330,"y":5790,"rot":180,"w":2540,"d":880}]},{"id":"p85","area":85,"note":"3 спальни · тамбур · холл","link":"https://newland59.ru/katalog?tfc_charact:9351132%5B2427391811%5D=85&tfc_div=:::","walls":[[0,0,3790,540],[4310,0,6000,540],[6520,0,10170,540],[0,9640,4320,10170],[6120,9640,10170,10170],[0,540,540,1190],[0,2480,540,3130],[0,7050,540,7700],[0,8980,540,9640],[210,3130,540,3830],[210,4800,540,6500],[9640,540,10170,1170],[9640,2410,10170,6220],[9640,8120,10170,9640],[-2210,3130,-1290,3680],[-780,3130,540,3680],[-2210,3680,-1640,4580],[-2210,5600,-1640,6500],[-2210,6500,540,7050],[3470,540,3580,3500],[4950,540,5060,3500],[6830,540,6940,4000],[6830,4860,6940,4970],[540,3500,2440,3600],[3320,3500,3730,3600],[4500,3500,5950,3600],[540,4970,2330,5200],[3220,4970,4310,5200],[5550,4970,9640,5200],[3260,5200,3360,9640]],"windows":[[3790,0,4310,540],[6000,0,6520,540],[4320,9640,6120,10170],[0,1190,540,2480],[0,7700,540,8980],[9640,1170,10170,2410],[9640,6220,10170,8120],[-1290,3130,-780,3680]],"doors":[{"r":[-2210,4580,-1640,5600],"hinge":"a","side":-1,"ext":true},{"r":[210,3830,540,4800],"hinge":"a","side":-1},{"r":[2440,3500,3320,3600],"hinge":"b","side":-1},{"r":[3730,3500,4500,3600],"hinge":"a","side":1},{"r":[5950,3500,6830,3600],"hinge":"b","side":-1},{"r":[6830,4000,6940,4860],"hinge":"a","side":1},{"r":[2330,4970,3220,5200],"hinge":"b","side":1}],"rooms":[{"n":"Спальня","a":8.8,"k":"bed","r":[[540,540,3470,3500]]},{"n":"Тех. помещение","a":4.1,"k":"tech","r":[[3580,540,4950,3500]]},{"n":"Санузел","a":5.2,"k":"wet","r":[[5060,540,6830,3500]]},{"n":"Спальня","a":12.0,"k":"bed","r":[[6940,540,9640,4970]]},{"n":"Холл","a":9.1,"k":"hall","r":[[540,3600,6830,4970],[4310,4970,5550,5200]]},{"n":"Тамбур","a":5.9,"k":"hall","r":[[-1640,3680,210,6500]]},{"n":"Спальня","a":12.4,"k":"bed","r":[[540,5200,3260,9640]]},{"n":"Кухня-гостиная","a":28.0,"k":"living","r":[[3360,5200,9640,9640]]}],"zones":[],"decks":[{"k":"porch","r":[-3700,3790,-2210,6380]}],"posts":[],"roof":[[-880,-870,11060,11060],[-3100,2240,-880,7920]],"fixed":[],"box":[-2210,0,10170,10170],"title":"КЛАССИК 85 м²","group":"p85","rec":[{"type":"bed1","x":2335,"y":1000,"rot":90,"w":860,"d":2110},{"type":"nightstand","x":3295,"y":1770,"rot":90,"w":620,"d":310},{"type":"desk","x":805,"y":2005,"rot":270,"w":1170,"d":470},{"type":"ochair","x":1160,"y":1980,"w":500,"d":500,"rot":90},{"type":"wardrobe","x":1405,"y":3225,"rot":180,"w":1670,"d":490},{"type":"bath","x":5415,"y":1365,"rot":0,"w":630,"d":1590},{"type":"toilet","x":6480,"y":935,"rot":90,"w":470,"d":640},{"type":"sink","x":6625,"y":1905,"rot":90,"w":1050,"d":410},{"type":"washer","x":5415,"y":3175,"rot":180,"w":630,"d":590},{"type":"wardrobe","x":8290,"y":790,"rot":0,"w":2640,"d":440},{"type":"sofa","x":7425,"y":2595,"rot":270,"w":2350,"d":910},{"type":"tvwall","x":9540,"y":3970,"rot":90,"w":1140,"d":160},{"type":"desk","x":8825,"y":4725,"rot":180,"w":1190,"d":490},{"type":"ochair","x":8810,"y":4240,"w":500,"d":500,"rot":0},{"type":"wardrobe","x":1405,"y":5505,"rot":0,"w":1670,"d":570},{"type":"desk","x":810,"y":6440,"rot":270,"w":1220,"d":480},{"type":"ochair","x":1180,"y":6370,"w":500,"d":500,"rot":90},{"type":"bed18","x":1935,"y":8585,"rot":180,"w":1690,"d":2110},{"type":"nightstand","x":820,"y":9380,"rot":180,"w":460,"d":460},{"type":"nightstand","x":3035,"y":9380,"rot":180,"w":430,"d":460},{"type":"tvwall","x":3200,"y":6925,"rot":90,"w":890,"d":120},{"type":"kbase","x":3725,"y":5390,"rot":270,"w":340,"d":690},{"type":"ksink","x":3725,"y":5880,"rot":270,"w":640,"d":690},{"type":"khob","x":3725,"y":6520,"rot":270,"w":640,"d":690},{"type":"dishwasher","x":3725,"y":7145,"rot":270,"w":610,"d":690},{"type":"ktall","x":3725,"y":7775,"rot":270,"w":650,"d":690},{"type":"kbase","x":3725,"y":8485,"rot":270,"w":770,"d":690},{"type":"fridge","x":3725,"y":9245,"rot":270,"w":750,"d":690},{"type":"table6","x":6115,"y":8325,"rot":0,"w":1830,"d":730},{"type":"chair","x":5460,"y":7640,"w":480,"d":500,"rot":0},{"type":"chair","x":6120,"y":7640,"w":480,"d":500,"rot":0},{"type":"chair","x":6760,"y":7640,"w":480,"d":500,"rot":0},{"type":"chair","x":5460,"y":9050,"w":480,"d":500,"rot":180},{"type":"chair","x":6120,"y":9050,"w":480,"d":500,"rot":180},{"type":"chair","x":6760,"y":9050,"w":480,"d":500,"rot":180},{"type":"chair","x":4950,"y":8340,"w":480,"d":500,"rot":270},{"type":"chair","x":7290,"y":8340,"w":480,"d":500,"rot":90},{"type":"sofaL","x":7840,"y":6520,"rot":0,"w":3580,"d":2640},{"type":"coffee","x":7980,"y":7055,"rot":0,"w":620,"d":1150},{"type":"tv","x":8505,"y":9400,"rot":180,"w":1750,"d":420}]},{"id":"p100","area":100,"note":"3 спальни · терраса 13 м²","link":"https://newland59.ru/katalog","walls":[[0,0,1750,570],[3660,0,6280,570],[7590,0,9610,570],[11450,0,13200,570],[0,8250,1220,8820],[2540,8250,4550,8820],[5060,8250,6150,8820],[7180,8250,8270,8820],[8790,8250,10670,8820],[11990,8250,13200,8820],[0,570,570,8250],[12640,570,13200,8250],[4840,570,4970,4290],[8360,570,8490,4290],[3960,4290,7390,4540],[8270,4290,8580,4540],[9450,4290,12640,4540],[9620,4540,9770,4620],[9620,5510,9770,8250],[3960,5790,4440,5920],[5230,5790,6120,5920],[7910,5790,8380,5920],[9170,5790,9770,5920],[3930,5790,4070,8250],[6010,5790,6130,8250],[7900,5790,8030,8250]],"windows":[[2560,0,3660,570],[6280,0,7590,570],[9610,0,11450,570],[1220,8250,2540,8820],[4550,8250,5060,8820],[8270,8250,8790,8820],[10670,8250,11990,8820]],"doors":[{"r":[1750,0,2560,570],"hinge":"a","side":-1,"ext":true},{"r":[6150,8250,7180,8820],"hinge":"b","side":1,"ext":true},{"r":[7390,4290,8270,4540],"hinge":"b","side":-1},{"r":[8580,4290,9450,4540],"hinge":"a","side":-1},{"r":[9620,4620,9770,5510],"hinge":"a","side":1},{"r":[4440,5790,5230,5920],"hinge":"a","side":-1},{"r":[8380,5790,9170,5920],"hinge":"a","side":-1}],"rooms":[{"n":"Гостиная","a":20.3,"k":"living","r":[[570,570,4840,4290],[570,4290,3960,5810]]},{"n":"Кухня","a":8.0,"k":"kitchen","r":[[570,5810,3930,8250]]},{"n":"Спальня","a":12.6,"k":"bed","r":[[4970,570,8360,4290]]},{"n":"Спальня","a":15.5,"k":"bed","r":[[8490,570,12640,4290]]},{"n":"Коридор","a":7.1,"k":"hall","r":[[3960,4540,9620,5790]]},{"n":"Санузел","a":4.5,"k":"wet","r":[[4070,5920,6010,8250]]},{"n":"Прихожая","a":4.3,"k":"hall","r":[[6130,5790,7900,8250]]},{"n":"Тех. помещение","a":3.7,"k":"tech","r":[[8030,5920,9620,8250]]},{"n":"Спальня","a":10.5,"k":"bed","r":[[9770,4540,12640,8250]]},{"n":"Терраса","a":13.0,"k":"terrace","r":[[-40,-2490,5390,0]]}],"zones":[[570,5810,3930,5810],[3960,4290,3960,5790]],"decks":[{"k":"porch","r":[5340,8820,8000,10390]}],"posts":[[150,-2330],[5230,-2330]],"roof":[[-960,-950,14040,9760]],"fixed":[{"type":"sink","x":8230,"y":6580,"rot":270,"w":550,"d":400},{"type":"toilet","x":8380,"y":7320,"rot":270,"w":390,"d":700},{"type":"equip","x":8530,"y":8060,"rot":0,"w":770,"d":375}],"box":[0,0,13200,8820],"title":"КЛАССИК 100 м²","group":"p100","rec":[{"type":"swing","x":1040,"y":-2190,"w":1150,"d":1150,"rot":0},{"type":"outsofa","x":2945,"y":-2095,"rot":0,"w":2110,"d":710},{"type":"bbq","x":5005,"y":-1855,"rot":90,"w":770,"d":610},{"type":"coffee","x":2875,"y":-1125,"rot":0,"w":1450,"d":610,"h":420},{"type":"gchair","x":700,"y":-720,"w":750,"d":750,"rot":225},{"type":"gchair","x":4440,"y":-720,"w":750,"d":750,"rot":135},{"type":"tv","x":785,"y":2380,"rot":270,"w":2980,"d":410},{"type":"rug","x":3720,"y":2390,"rot":0,"w":2120,"d":2960,"color":"#c9b79c"},{"type":"coffee","x":3170,"y":2410,"rot":0,"w":740,"d":1420},{"type":"sofa3","x":4365,"y":2370,"rot":90,"w":3600,"d":950},{"type":"table","x":1320,"y":5055,"rot":0,"w":1300,"d":910},{"type":"chair","x":940,"y":4500,"w":450,"d":480,"rot":0},{"type":"chair","x":1550,"y":4500,"w":450,"d":480,"rot":0},{"type":"chair","x":940,"y":5610,"w":450,"d":480,"rot":180},{"type":"chair","x":1550,"y":5610,"w":450,"d":480,"rot":180},{"type":"chair","x":2090,"y":5060,"w":450,"d":480,"rot":90},{"type":"kbase","x":825,"y":6580,"rot":270,"w":860,"d":510},{"type":"khob","x":825,"y":7325,"rot":270,"w":630,"d":510},{"type":"kbase","x":825,"y":7935,"rot":270,"w":590,"d":510},{"type":"kbase","x":1245,"y":7965,"rot":180,"w":330,"d":530},{"type":"ksink","x":2195,"y":7965,"rot":180,"w":1570,"d":530},{"type":"fridge","x":3580,"y":6125,"rot":90,"w":590,"d":660},{"type":"rug","x":6045,"y":2165,"rot":0,"w":2130,"d":2430,"color":"#d8d3c8"},{"type":"bed14","x":5965,"y":2355,"rot":270,"w":1250,"d":1970},{"type":"nightstand","x":5145,"y":1330,"rot":270,"w":300,"d":330},{"type":"wardrobe2","x":6145,"y":4025,"rot":180,"w":2270,"d":490},{"type":"desk","x":8130,"y":1145,"rot":90,"w":1050,"d":420},{"type":"ochair","x":7660,"y":1080,"w":500,"d":500,"rot":270},{"type":"tvwall","x":8280,"y":2460,"rot":90,"w":1260,"d":160},{"type":"desk","x":9060,"y":775,"rot":0,"w":1100,"d":350},{"type":"ochair","x":9150,"y":1160,"w":500,"d":500,"rot":0},{"type":"tvwall","x":8570,"y":2105,"rot":270,"w":1250,"d":160},{"type":"rug","x":11390,"y":2105,"rot":0,"w":2500,"d":2710,"color":"#d8d3c8"},{"type":"bed18","x":11610,"y":2075,"rot":90,"w":1590,"d":2000},{"type":"nightstand","x":12425,"y":1055,"rot":90,"w":370,"d":370},{"type":"nightstand","x":12425,"y":3175,"rot":90,"w":450,"d":370},{"type":"wardrobe2","x":11085,"y":4025,"rot":180,"w":3110,"d":530},{"type":"wardrobe","x":11720,"y":4815,"rot":0,"w":1780,"d":550},{"type":"rug","x":11575,"y":6500,"rot":0,"w":2130,"d":2360,"color":"#d8d3c8"},{"type":"bed14","x":11610,"y":6575,"rot":90,"w":1650,"d":2000},{"type":"tvwall","x":9845,"y":6225,"rot":270,"w":1090,"d":150},{"type":"desk","x":10005,"y":7600,"rot":270,"w":1100,"d":470},{"type":"ochair","x":10460,"y":7580,"w":500,"d":500,"rot":90},{"type":"sink","x":4345,"y":6665,"rot":270,"w":950,"d":490},{"type":"toilet","x":4470,"y":7825,"rot":270,"w":450,"d":740},{"type":"bath","x":5630,"y":7375,"rot":180,"w":760,"d":1710},{"type":"hallwardrobe","x":7650,"y":7220,"rot":90,"w":2020,"d":500}]},{"id":"p120","area":120,"note":"4 спальни · гардеробная · терраса 18 м²","link":"https://newland59.ru/katalog?tfc_charact:9351132%5B2427391811%5D=120&tfc_div=:::","walls":[[0,0,1880,550],[3630,0,5060,550],[6810,0,8870,550],[10620,0,12040,550],[13800,0,15680,550],[0,7820,4050,8370],[5940,7820,10090,8370],[10700,7820,12300,8370],[13550,7820,15680,8370],[0,550,550,3730],[0,4970,550,7820],[15120,550,15680,3730],[15120,4660,15680,7820],[4560,550,4670,3660],[550,3550,3570,3660],[3350,3550,3460,3800],[11280,550,11410,3550],[10680,3550,12000,3660],[12880,3550,15120,3660],[3350,4840,4160,4960],[5040,4840,8400,4960],[9190,4840,9940,4960],[10730,4840,11890,4960],[3350,4670,3460,7820],[7770,4960,7890,7820],[9670,4960,9790,7820],[11780,4840,11910,7820],[12890,5650,15120,5770]],"windows":[[1880,0,2900,550],[5060,0,6140,550],[8870,0,10620,550],[12720,0,13800,550],[4700,7820,5940,8370],[10090,7820,10700,8370],[12300,7820,13550,8370],[0,3730,550,4970]],"doors":[{"r":[2900,0,3630,550],"hinge":"b","side":-1,"ext":true},{"r":[6140,0,6810,550],"hinge":"b","side":-1,"ext":true},{"r":[12040,0,12720,550],"hinge":"a","side":-1,"ext":true},{"r":[4050,7820,4700,8370],"hinge":"a","side":1,"ext":true},{"r":[15120,3730,15680,4660],"hinge":"a","side":1,"ext":true},{"r":[3570,3550,4560,3660],"hinge":"b","side":-1},{"r":[12000,3550,12880,3660],"hinge":"a","side":-1},{"r":[3350,3800,3460,4670],"hinge":"a","side":-1},{"r":[4160,4840,5040,4960],"hinge":"a","side":1},{"r":[8400,4840,9190,4960],"hinge":"b","side":1},{"r":[9940,4840,10730,4960],"hinge":"a","side":1},{"r":[11910,5650,12890,5770],"hinge":"a","side":-1}],"rooms":[{"n":"Спальня","a":12.0,"k":"bed","r":[[550,550,4560,3550]]},{"n":"Кухня-гостиная","a":31.6,"k":"living","r":[[4670,550,11280,3660],[3460,3660,12880,4840]]},{"n":"Спальня","a":11.2,"k":"bed","r":[[11410,550,15120,3550]]},{"n":"Тамбур","a":3.6,"k":"hall","r":[[12880,3660,15120,5650],[11910,4840,12880,5650]]},{"n":"Спальня","a":11.6,"k":"bed","r":[[550,3660,3350,7820]]},{"n":"Спальня","a":12.3,"k":"bed","r":[[3460,4960,7770,7820]]},{"n":"Гардеробная","a":5.2,"k":"tech","r":[[7890,4960,9670,7820]]},{"n":"Санузел","a":5.3,"k":"wet","r":[[9790,4960,11780,7820]]},{"n":"Котельная","a":6.7,"k":"tech","r":[[11910,5770,15120,7820]]},{"n":"Терраса","a":18.0,"k":"terrace","r":[[4800,-3080,10870,0]]}],"zones":[],"decks":[{"k":"porch","r":[15680,2870,17240,5500]}],"posts":[[4950,-2930],[7820,-2930],[10770,-2930]],"roof":[[-950,-960,16620,9320]],"fixed":[{"type":"sink","x":12150,"y":6620,"rot":270,"w":600,"d":480},{"type":"toilet","x":12230,"y":7350,"rot":270,"w":380,"d":650},{"type":"equip","x":14390,"y":7630,"rot":0,"w":1430,"d":370}],"box":[0,0,15680,8370],"title":"КЛАССИК 120 м²","group":"p120","rec":[{"type":"swing","x":5550,"y":-2340,"w":1150,"d":1150,"rot":0},{"type":"bbq","x":10395,"y":-2230,"rot":90,"w":980,"d":530},{"type":"coffee","x":7820,"y":-1570,"rot":0,"w":1640,"d":680,"h":420},{"type":"outsofa","x":7835,"y":-430,"rot":180,"w":2090,"d":780},{"type":"gchair","x":5650,"y":-820,"w":750,"d":750,"rot":225},{"type":"gchair","x":10110,"y":-820,"w":750,"d":750,"rot":135},{"type":"bed14","x":1540,"y":1700,"rot":270,"w":1280,"d":1980},{"type":"nightstand","x":730,"y":870,"rot":270,"w":340,"d":340},{"type":"nightstand","x":730,"y":2520,"rot":270,"w":320,"d":340},{"type":"wardrobe2","x":1975,"y":3245,"rot":180,"w":2850,"d":610},{"type":"ochair","x":4130,"y":980,"w":480,"d":480,"rot":90},{"type":"tvwall","x":4460,"y":1990,"rot":90,"w":1540,"d":200},{"type":"tv","x":4840,"y":2010,"rot":270,"w":1860,"d":340},{"type":"rug","x":7785,"y":2210,"rot":0,"w":3870,"d":3360,"color":"#c9b79c"},{"type":"sofa3","x":7250,"y":1930,"rot":90,"w":2560,"d":760},{"type":"table","x":8245,"y":1775,"rot":0,"w":1030,"d":2170},{"type":"chair","x":9070,"y":1060,"w":450,"d":480,"rot":90},{"type":"chair","x":9070,"y":1680,"w":450,"d":480,"rot":90},{"type":"chair","x":9070,"y":2300,"w":450,"d":480,"rot":90},{"type":"chair","x":8270,"y":3130,"w":450,"d":480,"rot":180},{"type":"ktall","x":10980,"y":805,"rot":90,"w":550,"d":600},{"type":"ksink","x":10980,"y":1435,"rot":90,"w":710,"d":600},{"type":"kbase","x":10980,"y":2035,"rot":90,"w":490,"d":600},{"type":"khob","x":10980,"y":2610,"rot":90,"w":660,"d":600},{"type":"kbase","x":10980,"y":3245,"rot":90,"w":610,"d":600},{"type":"ochair","x":11860,"y":980,"w":480,"d":480,"rot":0},{"type":"tvwall","x":11505,"y":1885,"rot":270,"w":1250,"d":190},{"type":"bed18","x":14125,"y":1710,"rot":90,"w":1680,"d":1990},{"type":"nightstand","x":14920,"y":720,"rot":90,"w":300,"d":400},{"type":"nightstand","x":14920,"y":2710,"rot":90,"w":320,"d":400},{"type":"wardrobe","x":14055,"y":3245,"rot":180,"w":2130,"d":610},{"type":"wardrobe","x":11710,"y":3130,"rot":270,"w":840,"d":600},{"type":"wardrobe","x":14535,"y":5335,"rot":180,"w":1130,"d":630},{"type":"hallbench","x":13480,"y":5415,"rot":180,"w":980,"d":470},{"type":"desk","x":1250,"y":3915,"rot":0,"w":1340,"d":450},{"type":"ochair","x":1310,"y":4350,"w":480,"d":480,"rot":180},{"type":"bed2","x":2345,"y":5975,"rot":90,"w":1270,"d":2010},{"type":"nightstand","x":3165,"y":5180,"rot":90,"w":320,"d":370},{"type":"nightstand","x":3165,"y":6775,"rot":90,"w":310,"d":370},{"type":"wardrobe2","x":1950,"y":7530,"rot":180,"w":2800,"d":580},{"type":"wardrobe","x":3755,"y":5670,"rot":270,"w":1360,"d":590},{"type":"desk","x":3720,"y":7140,"rot":270,"w":1320,"d":520},{"type":"ochair","x":4190,"y":7120,"w":480,"d":480,"rot":90},{"type":"bed18","x":6605,"y":5970,"rot":0,"w":1670,"d":2020},{"type":"nightstand","x":5595,"y":5155,"rot":0,"w":350,"d":350},{"type":"nightstand","x":7605,"y":5155,"rot":0,"w":330,"d":350},{"type":"tvwall","x":6655,"y":7725,"rot":180,"w":1950,"d":190},{"type":"wardrobe","x":8140,"y":6415,"rot":270,"w":2810,"d":500},{"type":"wardrobe","x":9425,"y":6415,"rot":90,"w":2810,"d":490},{"type":"sink","x":10025,"y":6130,"rot":270,"w":800,"d":450},{"type":"toilet","x":10155,"y":7385,"rot":270,"w":530,"d":710},{"type":"bath","x":11430,"y":6975,"rot":90,"w":1690,"d":700}]}];
 /* настройки страницы: серия, заголовок, хук формы Тильды */
-const CFG = Object.assign({ series: 'КЛАССИК', head: 'Примерьте планировку', sub: '', form: '#popup:price', field: 'house' }, {"series": "КЛАССИК", "head": "Примерьте планировку", "sub": "Выберите дом — расставьте мебель, подберите цвета и посмотрите интерьер в 3D."});
+const CFG = Object.assign({ series: 'КЛАССИК', head: 'Примерьте планировку', sub: '', form: '#popup:price', field: 'house', managers: [] }, {"series": "КЛАССИК", "head": "Примерьте планировку", "sub": "Выберите дом — расставьте мебель, подберите цвета и посмотрите интерьер в 3D.", "managers": [{"name": "Евгений", "role": "Менеджер проектов", "places": "Горный воздух · Акварели · Лобаново · КРП / Самоцветы", "phone": "+7 950 459-07-07"}, {"name": "Василий", "role": "Менеджер проектов", "places": "Болдино LIFE · Большакино · Тихие пруды · Мокино Лайф", "phone": "+7 950 474-07-07"}]});
 
 const LIBS = {
   konva: ['https://cdnjs.cloudflare.com/ajax/libs/konva/9.3.14/konva.min.js', 'https://unpkg.com/konva@9.3.14/konva.min.js', 'https://cdn.jsdelivr.net/npm/konva@9.3.14/konva.min.js'],
@@ -622,6 +679,106 @@ function renderCards() {
   }
 }
 
+/* ---------- анимация под карточками: план поворачивается, падает мебель, стены красятся ----------
+   Рисуется на обычном canvas, без 3D-библиотеки: прямоугольники «выдавливаются» в бруски. */
+const DEMO_DUR = 13000, DEMO_COLORS = ['#dfe5dc', '#e7d5c4', '#d6e1e6', '#ece6f0'];
+let demoRaf = 0, demoT0 = 0, demoIdx = 0, demoOn = false;
+function demoPlan() { const g = GROUPS[demoIdx % GROUPS.length]; return g.plans.find((p) => p.rec && p.rec.length) || g.plans[0]; }
+function demoFrame(now) {
+  const cv = $('#nlDemoCv'); if (!cv || !cv.clientWidth) return;
+  const dpr = Math.min(devicePixelRatio || 1, 2), W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+  let t = (now - demoT0); if (t > DEMO_DUR) { demoT0 = now; demoIdx++; t = 0; }
+  const P = demoPlan(), b = P.box, cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+  const e = extent(P), rad = Math.hypot(e[2] - e[0], e[3] - e[1]) / 2;
+  const tilt = .58, sc = Math.min(W / (rad * 1.7), H / (rad * (tilt + .2) * 1.9));
+  const ang = -0.75 + t / DEMO_DUR * 1.1, ca = Math.cos(ang), sa = Math.sin(ang);
+  const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.pow(1 - x, 3));
+  const appear = ease(t / 1400), fade = 1 - ease((t - DEMO_DUR + 700) / 700);
+  const wallH = 1250 * ease((t - 300) / 1500);
+  const paint = ease((t - 7600) / 900) * (1 - ease((t - 11400) / 900));
+  const pr = (x, y, z) => { const dx = x - cx, dy = y - cy, rx = dx * ca - dy * sa, ry = dx * sa + dy * ca; return [W / 2 + rx * sc, H / 2 + 14 + ry * sc * tilt - z * sc * .78, ry]; };
+  // какой шаг подсвечен
+  const step = t < 2200 ? 0 : t < 7600 ? 1 : t < 10200 ? 2 : 3;
+  $$('#nlDemoSteps li').forEach((li, i) => li.classList.toggle('on', i === step));
+  c.globalAlpha = appear * fade;
+  // пол и подписи помещений
+  P.rooms.forEach((room, i) => {
+    const col = room.k === 'terrace' ? '#d9c3a3' : room.k === 'wet' ? '#dde3e6' : '#e6cfaf';
+    for (const r of room.r) {
+      const q = [pr(r[0], r[1], 0), pr(r[2], r[1], 0), pr(r[2], r[3], 0), pr(r[0], r[3], 0)];
+      c.beginPath(); q.forEach((v, k) => (k ? c.lineTo(v[0], v[1]) : c.moveTo(v[0], v[1]))); c.closePath();
+      c.fillStyle = col; c.fill();
+    }
+  });
+  // бруски: стены и мебель, дальние рисуем первыми
+  const items = [];
+  const box = (r, z0, z1, top, side, alpha = 1) => items.push({ r, z0, z1, top, side, alpha, d: pr((r[0] + r[2]) / 2, (r[1] + r[3]) / 2, 0)[2] + (r[3] - r[1] + r[2] - r[0]) * .05 });
+  const tint = DEMO_COLORS[demoIdx % DEMO_COLORS.length];
+  const wallSide = paint > 0 ? mix('#f4f3f8', tint, paint) : '#f4f3f8';
+  for (const r of P.walls) box(r, 0, wallH, '#261A7E', wallSide);
+  for (const p of P.posts) box([p[0] - 80, p[1] - 80, p[0] + 80, p[1] + 80], 0, wallH, '#261A7E', '#6b5544');
+  const rec = P.rec || [], t1 = 2200, t2 = 7200;
+  rec.forEach((f, i) => {
+    const ti = t1 + (t2 - t1) * i / Math.max(1, rec.length), k = ease((t - ti) / 450); if (k <= 0) return;
+    const a = aabb(f), cat = CAT[f.type] || { c3: '#ddd', h: 500 }, h = Math.min(f.h || cat.h, 1250), drop = (1 - k) * 1600;
+    const col = cat.c3; box(a, drop, drop + Math.max(h, 30), shade(col, .18), shade(col, -.12), k);
+  });
+  items.sort((p1, p2) => p1.d - p2.d);
+  for (const it of items) {
+    const [x1, y1, x2, y2] = it.r, z0 = it.z0, z1 = it.z1;
+    const B = [pr(x1, y1, z0), pr(x2, y1, z0), pr(x2, y2, z0), pr(x1, y2, z0)], T = [pr(x1, y1, z1), pr(x2, y1, z1), pr(x2, y2, z1), pr(x1, y2, z1)];
+    c.globalAlpha = appear * fade * it.alpha;
+    // видимые боковые грани: те, что смотрят к зрителю (ниже на экране)
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4; if (B[k][2] + B[k2][2] < (B[(k + 2) % 4][2] + B[(k + 3) % 4][2]) - 1) continue;
+      c.beginPath(); c.moveTo(B[k][0], B[k][1]); c.lineTo(B[k2][0], B[k2][1]); c.lineTo(T[k2][0], T[k2][1]); c.lineTo(T[k][0], T[k][1]); c.closePath();
+      c.fillStyle = it.side; c.fill(); c.strokeStyle = 'rgba(38,26,126,.10)'; c.lineWidth = .6; c.stroke();
+    }
+    c.beginPath(); T.forEach((v, k) => (k ? c.lineTo(v[0], v[1]) : c.moveTo(v[0], v[1]))); c.closePath(); c.fillStyle = it.top; c.fill();
+  }
+  c.globalAlpha = 1;
+}
+function mix(a, b, k) { const A = parseInt(a.slice(1), 16), Bc = parseInt(b.slice(1), 16), f = (s) => [(s >> 16) & 255, (s >> 8) & 255, s & 255], x = f(A), y = f(Bc); return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * k).toString(16).padStart(2, '0')).join(''); }
+function demoLoop(now) { if (!demoOn) { demoRaf = 0; return; } demoFrame(now); demoRaf = requestAnimationFrame(demoLoop); }
+function demoSet(on) {
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { demoOn = false; demoT0 = performance.now() - DEMO_DUR * .7; demoFrame(performance.now()); return; }
+  demoOn = on && !$('#nlPick').hidden;
+  if (demoOn && !demoRaf) { if (!demoT0) demoT0 = performance.now(); demoRaf = requestAnimationFrame(demoLoop); }
+}
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => demoSet(es[0].isIntersecting), { threshold: .05 }).observe($('#nlDemo'));
+else demoSet(true);
+
+/* ---------- попап-объяснялка: 5 слайдов при первом входе в планировку ---------- */
+const OB_SLIDES = [
+  { t: 'Мебель за один клик', p: 'Нажмите <b>«★ Из проекта»</b> — мебель встанет как у архитектора. Или выбирайте из каталога: нажмите на предмет, и он сам встанет в нужную комнату. На плане его можно двигать, поворачивать и копировать.',
+    a: '<svg viewBox="0 0 220 130"><rect x="20" y="15" width="180" height="100" rx="4" fill="#fff" stroke="#261A7E" stroke-width="6"/><line x1="110" y1="15" x2="110" y2="70" stroke="#261A7E" stroke-width="4"/><rect x="34" y="28" width="52" height="62" rx="8" fill="#ddd6cc" stroke="#261A7E" stroke-width="2"/><rect x="40" y="32" width="18" height="10" rx="4" fill="#fff" stroke="#261A7E"/><rect x="62" y="32" width="18" height="10" rx="4" fill="#fff" stroke="#261A7E"/><rect x="128" y="74" width="60" height="28" rx="8" fill="#dcd6cc" stroke="#261A7E" stroke-width="2"/><rect x="140" y="40" width="34" height="22" rx="3" fill="#a5714d"/><path d="M160 6l3.4 7.3 8 .9-5.9 5.5 1.6 7.9-7.1-4-7.1 4 1.6-7.9-5.9-5.5 8-.9z" fill="#FCC21B"/></svg>' },
+  { t: 'Цвета стен, пола и мебели', p: 'Вкладка <b>«Цвета»</b>: выберите оттенок и нажмите на комнату — стены перекрасятся. Пол — шесть оттенков доски, мебель перекрашивается целыми группами.',
+    a: '<svg viewBox="0 0 220 130"><rect x="30" y="20" width="160" height="90" rx="4" fill="#dfe5dc" stroke="#261A7E" stroke-width="6"/><rect x="36" y="26" width="72" height="78" fill="#e7d5c4"/><rect x="114" y="26" width="70" height="78" fill="#d6e1e6"/><circle cx="60" cy="118" r="0" /><g transform="translate(40 4)"><circle cx="0" cy="0" r="9" fill="#b9c8b4" stroke="#fff" stroke-width="3"/><circle cx="24" cy="0" r="9" fill="#d7a98a" stroke="#fff" stroke-width="3"/><circle cx="48" cy="0" r="9" fill="#a9c0cc" stroke="#261A7E" stroke-width="3"/><circle cx="72" cy="0" r="9" fill="#55402f" stroke="#fff" stroke-width="3"/></g><path d="M150 70l18-18 8 8-18 18c-2 6-8 8-12 8 0-4 2-10 4-16z" fill="#FCC21B" stroke="#261A7E" stroke-width="2"/></svg>' },
+  { t: 'Смотрите в 3D', p: 'Переключайте виды: <b>3D</b>, <b>сверху</b>, <b>из гостиной</b> — как будто вы уже внутри, и <b>развёртка</b> стен каждой комнаты с окнами и мебелью.',
+    a: '<svg viewBox="0 0 220 130"><path d="M40 70l70-40 70 40-70 40z" fill="#e6cfaf" stroke="#261A7E" stroke-width="3"/><path d="M40 70v-26l70-40v26z" fill="#f4f3f8" stroke="#261A7E" stroke-width="3"/><path d="M110 30V4l70 40v26z" fill="#ebe9f5" stroke="#261A7E" stroke-width="3"/><path d="M92 74l26-15 20 11-26 15z" fill="#dcd6cc" stroke="#261A7E" stroke-width="2"/><path d="M60 72l16-9 14 8-16 9z" fill="#a5714d"/><text x="168" y="118" font-family="Alumni Sans, sans-serif" font-weight="800" font-size="28" fill="#261A7E">3D</text></svg>' },
+  { t: 'Размеры и снимок', p: '<b>Наружные</b> и <b>внутренние размеры</b> в миллиметрах. Кнопка <b>«Снимок»</b> сохранит картинку планировки с контактами менеджеров — удобно показать семье.',
+    a: '<svg viewBox="0 0 220 130"><rect x="45" y="30" width="130" height="80" fill="#fff" stroke="#261A7E" stroke-width="6"/><line x1="45" y1="14" x2="175" y2="14" stroke="#5D74FF" stroke-width="2"/><line x1="45" y1="8" x2="45" y2="20" stroke="#5D74FF" stroke-width="2"/><line x1="175" y1="8" x2="175" y2="20" stroke="#5D74FF" stroke-width="2"/><text x="96" y="11" font-family="JetBrains Mono, monospace" font-size="9" fill="#5D74FF">12 380</text><rect x="122" y="70" width="64" height="48" rx="8" fill="#261A7E"/><circle cx="154" cy="95" r="12" fill="none" stroke="#fff" stroke-width="3"/><rect x="132" y="64" width="18" height="8" rx="2" fill="#261A7E"/></svg>' },
+  { t: 'Узнайте стоимость', p: 'Понравилась планировка? Нажмите <b>«Узнать стоимость»</b> — менеджер рассчитает цену дома и расскажет, где такие дома уже стоят.',
+    a: '<svg viewBox="0 0 220 130"><path d="M60 62l50-36 50 36v52H60z" fill="#fff" stroke="#261A7E" stroke-width="6" stroke-linejoin="round"/><rect x="96" y="80" width="28" height="34" fill="#261A7E"/><rect x="128" y="18" width="78" height="34" rx="17" fill="#FCC21B"/><text x="141" y="40" font-family="Raleway, sans-serif" font-weight="700" font-size="13" fill="#261A7E">Цена?</text></svg>' },
+];
+let obI = 0;
+function obShow(i) {
+  obI = clamp(i, 0, OB_SLIDES.length - 1); const sl = OB_SLIDES[obI];
+  $('#nlObArt').innerHTML = sl.a; $('#nlObT').textContent = sl.t; $('#nlObP').innerHTML = sl.p; $('#nlObN').textContent = `Шаг ${obI + 1} из ${OB_SLIDES.length}`;
+  $('#nlObDots').innerHTML = OB_SLIDES.map((_, k) => `<i class="${k === obI ? 'on' : ''}"></i>`).join('');
+  $('#nlObPrev').hidden = obI === 0; $('#nlObNext').textContent = obI === OB_SLIDES.length - 1 ? 'Начать' : 'Далее';
+}
+function obOpen() { $('#nlOb').hidden = false; obShow(0); $('#nlObNext').focus(); }
+function obClose() { $('#nlOb').hidden = true; lsSet('nl-plan-ob', '1'); }
+$('#nlObX').onclick = obClose; $('#nlObPrev').onclick = () => obShow(obI - 1);
+$('#nlObNext').onclick = () => (obI === OB_SLIDES.length - 1 ? obClose() : obShow(obI + 1));
+$('#nlOb').addEventListener('click', (e) => { if (e.target.id === 'nlOb') obClose(); });
+document.addEventListener('keydown', (e) => { if ($('#nlOb').hidden) return; if (e.key === 'Escape') obClose(); if (e.key === 'ArrowRight') obShow(obI + 1); if (e.key === 'ArrowLeft') obShow(obI - 1); });
+$('#nlHelp').onclick = obOpen;
+
 /* ---------- состояние редактора ---------- */
 let P = null, ST = null, hist = [], view = 'plan', dims = { out: false, in: false }, paintColor = null, sel = null;
 const storeKey = (id) => 'nl-plan-' + id;
@@ -668,7 +825,8 @@ $('#nlTips').onclick = () => { tagsDone = {}; lsSet('nl-plan-tags', '{}'); rende
 function openPlan(id, keepView) {
   P = PLANS.find((p) => p.id === id); if (!P) return;
   ST = loadState(); hist = []; sel = null; paintColor = null; unfoldRoom = -1;
-  $('#nlPick').hidden = true; $('#nlEd').hidden = false;
+  $('#nlPick').hidden = true; $('#nlEd').hidden = false; demoSet(false);
+  if (!keepView && !lsGet('nl-plan-ob')) setTimeout(obOpen, 450);
   const b = P.box, n = roomsCount(P), g = groupOfPlan(P);
   $('#nlTitle').textContent = P.title || `${CFG.series} ${P.area} м²`;
   const vb = $('#nlVars'); vb.hidden = g.plans.length < 2; vb.innerHTML = '';
@@ -691,7 +849,7 @@ function openPlan(id, keepView) {
 }
 $('#nlBack').onclick = () => {
   setPaint(null); setSel(null); if (three) three.renderer.setAnimationLoop(null);
-  $('#nlEd').hidden = true; $('#nlPick').hidden = false; P = null;
+  $('#nlEd').hidden = true; $('#nlPick').hidden = false; P = null; demoSet(true);
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
 };
 
@@ -933,7 +1091,7 @@ function applyRec() {
   doneTag('furn'); showBoard();
   toast('Мебель как в проекте. «Отменить» вернёт вашу расстановку');
 }
-$('#nlRec').onclick = applyRec; $('#nlRec2').onclick = applyRec;
+$('#nlRec').onclick = applyRec; $('#nlRec2').onclick = applyRec; $('#nlRec3').onclick = applyRec;
 $('#nlClear').onclick = () => { if (!ST.furn.length) return; setSel(null); mutate(() => { ST.furn = []; }); toast('Мебель убрана. «Отменить» вернёт её'); };
 
 /* панорама, масштаб, щелчки */
@@ -1603,21 +1761,57 @@ function snapshot() {
   else if (three) { three.renderer.render(three.scene, three.camera); src = three.renderer.domElement; }
   if (!src) return;
   // шапка в цвете бренда, внизу адрес сайта
-  const k = src.width / board.clientWidth, head = Math.round(76 * k), foot = Math.round(42 * k), x0 = 22 * k;
+  const k = src.width / board.clientWidth, x0 = 22 * k, M = CFG.managers || [], cols = M.length > 1 && board.clientWidth >= 560 ? 2 : 1;
+  const card = 112 * k, head = Math.round(76 * k), foot = Math.round((M.length ? 50 + Math.ceil(M.length / cols) * 124 : 42) * k);
   const out = document.createElement('canvas'); out.width = src.width; out.height = src.height + head + foot;
   const c = out.getContext('2d'); c.fillStyle = '#ffffff'; c.fillRect(0, 0, out.width, out.height);
   if (view === 'plan') { c.fillStyle = SHEET; c.fillRect(0, head, out.width, src.height); }
   c.drawImage(src, 0, head);
   c.fillStyle = BRAND; c.fillRect(0, 0, out.width, head);
-  c.fillStyle = '#ffffff'; c.font = `800 ${Math.round(34 * k)}px ${F_DISP}`; c.textBaseline = 'middle';
+  c.textBaseline = 'middle'; c.font = `800 ${Math.round(20 * k)}px ${F_DISP}`;
+  const brandW = c.measureText('НОВАЯ ЗЕМЛЯ').width;
   const b = P.box, vn = { plan: 'План', '3d': '3D', top: 'Вид сверху', eye: 'Вид из гостиной', unfold: 'Развёртка: ' + (P.rooms[unfoldRoom] || {}).n }[view];
-  c.fillText(`${(P.title || CFG.series + ' ' + P.area + ' м²').toUpperCase()}${P.variant ? ' · ' + P.variant.toUpperCase() : ''} — МОЯ ПЛАНИРОВКА`, x0, head / 2 - 9 * k);
+  {
+    const room = out.width - x0 * 3 - brandW, base = `${(P.title || CFG.series + ' ' + P.area + ' м²').toUpperCase()}${P.variant ? ' · ' + P.variant.toUpperCase() : ''}`;
+    let txt = base + ' — МОЯ ПЛАНИРОВКА', fs = 34 * k; c.font = `800 ${Math.round(fs)}px ${F_DISP}`;
+    if (c.measureText(txt).width > room) { txt = base; }
+    while (c.measureText(txt).width > room && fs > 14 * k) { fs -= k; c.font = `800 ${Math.round(fs)}px ${F_DISP}`; }
+    c.fillStyle = '#ffffff'; c.fillText(txt, x0, head / 2 - 9 * k);
+  }
   c.font = `${Math.round(12 * k)}px ${F_MONO}`; c.fillStyle = '#7F92FF';
   c.fillText(`${vn} · габариты ${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм`, x0, head / 2 + 18 * k);
   c.textAlign = 'right'; c.fillStyle = '#ffffff'; c.font = `800 ${Math.round(20 * k)}px ${F_DISP}`;
-  c.fillText('НОВАЯ ЗЕМЛЯ', out.width - x0, head / 2);
-  c.textAlign = 'left'; c.fillStyle = BRAND; c.font = `700 ${Math.round(13 * k)}px ${F_DRAW}`;
-  c.fillText('newland59.ru', x0, out.height - foot / 2);
+  c.fillText('НОВАЯ ЗЕМЛЯ', out.width - x0, head / 2 - 8 * k);
+  c.font = `700 ${Math.round(12 * k)}px ${F_DRAW}`; c.fillStyle = '#7F92FF'; c.fillText('newland59.ru', out.width - x0, head / 2 + 14 * k);
+  // контакты менеджеров
+  const fy = head + src.height;
+  c.textAlign = 'left'; c.fillStyle = '#F7F8FB'; c.fillRect(0, fy, out.width, foot);
+  if (M.length) {
+    c.fillStyle = '#373736'; c.font = `700 ${Math.round(14 * k)}px ${F_DRAW}`;
+    const hl = 'Наши менеджеры помогут подобрать решение под ваш запрос';
+    c.fillText(c.measureText(hl).width > out.width - x0 * 2 ? 'Менеджеры помогут подобрать решение' : hl, x0, fy + 26 * k);
+    const cw = (out.width - x0 * 2 - (cols - 1) * 14 * k) / cols;
+    M.forEach((m, i) => {
+      const cx0 = x0 + (i % cols) * (cw + 14 * k), cy0 = fy + 44 * k + Math.floor(i / cols) * 124 * k;
+      c.fillStyle = '#ffffff'; c.strokeStyle = BRAND; c.lineWidth = 1.5 * k;
+      c.beginPath(); if (c.roundRect) c.roundRect(cx0, cy0, cw, card, 14 * k); else c.rect(cx0, cy0, cw, card); c.fill(); c.stroke();
+      // круглый знак
+      const r = 30 * k, lx = cx0 + 16 * k + r, ly = cy0 + card / 2;
+      c.fillStyle = '#3a2d8a'; c.beginPath(); c.arc(lx, ly, r, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#fff'; c.textAlign = 'center'; c.font = `700 ${Math.round(10.5 * k)}px ${F_DRAW}`;
+      c.fillText('НОВАЯ', lx, ly - 6 * k); c.fillText('ЗЕМЛЯ', lx, ly + 7 * k);
+      const tx = lx + r + 16 * k, tw = cx0 + cw - tx - 12 * k; c.textAlign = 'left';
+      c.fillStyle = '#1b1b1b'; c.font = `800 ${Math.round(21 * k)}px ${F_DISP}`; c.fillText(m.name, tx, cy0 + 24 * k);
+      c.fillStyle = '#8a8a92'; c.font = `${Math.round(11.5 * k)}px ${F_DRAW}`; c.fillText(m.role, tx, cy0 + 42 * k);
+      c.fillStyle = BRAND; c.fillRect(tx, cy0 + 51 * k, 26 * k, 3 * k);
+      c.fillStyle = '#373736'; c.font = `${Math.round(11.5 * k)}px ${F_DRAW}`;
+      let line = '', yy = cy0 + 68 * k;
+      for (const wd of m.places.split(' ')) { const t2 = line ? line + ' ' + wd : wd; if (c.measureText(t2).width > tw && line) { c.fillText(line, tx, yy); line = wd; yy += 14 * k; } else line = t2; }
+      if (yy < cy0 + 84 * k) { c.fillText(line, tx, yy); yy += 14 * k; }
+      c.fillStyle = '#1b1b1b'; c.font = `700 ${Math.round(14 * k)}px ${F_DRAW}`; c.fillText(m.phone, tx, cy0 + card - 12 * k);
+    });
+  }
+  c.textAlign = 'left';
   c.fillStyle = '#FCC21B'; c.fillRect(0, out.height - 4 * k, out.width, 4 * k);
   const a = document.createElement('a');
   a.download = `planirovka-${P.id}-${VIEW_LABEL[view]}.png`;
