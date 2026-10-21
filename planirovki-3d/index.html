@@ -1,0 +1,823 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Планировки в 3D — Новая Земля</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500&family=Raleway:wght@400;500;600;700&display=swap">
+<style>
+/* дизайн-система «Новая Земля»: Alumni Sans + Raleway, индиго #261A7E, акценты #5D74FF и #FCC21B */
+:root{--bg:#E9EBF2;--sheet:#F7F8FB;--panel:#fff;--ink:#373736;--muted:#6E6E78;--ink-3:#9A9AA6;--line:#E6E8F1;
+  --brand:#261A7E;--brand-700:#1C1361;--accent:#5D74FF;--accent-2:#7F92FF;--gold:#FCC21B;--brand-soft:#ECEEFF;
+  --r-md:16px;--shadow:0 12px 40px -12px rgba(38,26,126,.18);
+  --display:"Alumni Sans",system-ui,sans-serif;--text:"Raleway",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--text);font-variant-numeric:lining-nums}
+[hidden]{display:none!important}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,p{margin:0}
+
+#app{height:100vh;display:grid;grid-template-rows:auto 1fr;min-height:560px}
+.top{display:flex;align-items:center;gap:12px 24px;padding:14px clamp(16px,2.4vw,32px);background:var(--panel);border-bottom:1px solid var(--line);min-width:0}
+.brand{display:grid;flex:none;line-height:1}
+.brand small{font:600 11px var(--text);letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+.brand h1{font:800 30px/1 var(--display);letter-spacing:.02em;text-transform:uppercase;color:var(--brand);margin-top:3px}
+.plans{display:flex;gap:8px;overflow-x:auto;min-width:0;padding:2px;scrollbar-width:thin}
+.plan{flex:none;display:grid;gap:1px;text-align:left;border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);border-radius:14px;padding:7px 14px 8px;transition:background .18s,color .18s}
+.plan b{font:800 20px/1 var(--display);letter-spacing:.03em;text-transform:uppercase}
+.plan span{font:500 11px var(--text);color:var(--muted)}
+.plan:hover{background:var(--brand-soft)}
+.plan[aria-pressed="true"]{background:var(--brand);color:#fff}
+.plan[aria-pressed="true"] span{color:#C9CEF5}
+
+.work{display:grid;grid-template-columns:272px minmax(0,1fr);min-height:0}
+.side{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 18px 20px;display:grid;gap:18px;align-content:start}
+.grp{display:grid;gap:8px}
+.grp h3{font:800 15px/1 var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--brand)}
+.seg{display:flex;gap:2px;padding:3px;border:1.5px solid var(--brand);border-radius:999px}
+.seg button{flex:1;border:0;background:transparent;padding:6px 8px;font:700 12.5px var(--text);color:var(--brand);border-radius:999px;white-space:nowrap}
+.seg button:hover{background:var(--brand-soft)}
+.seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.tgl{display:flex;flex-wrap:wrap;gap:6px}
+.btn{border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);border-radius:999px;padding:7px 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;font:700 12.5px/1.2 var(--text);transition:background .18s,color .18s}
+.btn:hover{background:var(--brand-soft)}
+.btn[aria-pressed="true"]{background:var(--brand);color:#fff}
+.btn.primary{background:var(--brand);color:#fff;box-shadow:0 10px 24px -8px rgba(38,26,126,.55)}
+.btn.primary:hover{background:var(--brand-700)}
+.btn svg{width:16px;height:16px;flex:none}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.chk input{accent-color:var(--brand);width:16px;height:16px;margin:0}
+.chk select{border:1px solid var(--line);border-radius:8px;padding:3px 6px;background:var(--sheet);color:var(--ink)}
+.info{border-top:1px solid var(--line);padding-top:14px;display:grid;gap:6px}
+.info b{font:800 26px/1 var(--display);color:var(--brand);text-transform:uppercase}
+.info .nt{color:var(--muted);font-size:12.5px}
+.info dl{display:grid;grid-template-columns:1fr auto;gap:3px 10px;margin:4px 0 0;font-size:12.5px}
+.info dt{color:var(--muted)}
+.info dd{margin:0;font:500 12px var(--mono);color:var(--ink);text-align:right}
+.rooms{display:grid;gap:2px;font-size:12.5px;margin-top:4px}
+.rooms div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding:2px 0}
+.rooms span:last-child{font:500 12px var(--mono)}
+
+.stage{position:relative;min-height:0;overflow:hidden;background:var(--bg)}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#gl{touch-action:none}
+#ov{pointer-events:none}
+.hud{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:6px}
+.hud button{width:38px;height:38px;border-radius:12px;border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);font:700 18px/1 var(--text);display:grid;place-items:center;box-shadow:0 4px 14px -6px rgba(38,26,126,.35)}
+.hud button:hover{background:var(--brand-soft)}
+.hud svg{width:18px;height:18px}
+.hint{position:absolute;left:14px;bottom:12px;font:500 11.5px var(--text);color:var(--muted);background:rgba(255,255,255,.82);padding:5px 10px;border-radius:999px;max-width:calc(100% - 28px)}
+.loading{position:absolute;inset:0;display:grid;place-items:center;font:600 14px var(--text);color:var(--brand)}
+.toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow)}
+
+@media (max-width:860px){
+  #app{height:auto;min-height:0;display:block}
+  .top{flex-direction:column;align-items:stretch;gap:10px;padding:12px 16px}
+  .brand h1{font-size:26px}
+  .work{display:flex;flex-direction:column}
+  .stage{height:62vh;min-height:380px;order:1}
+  .side{order:2;border-right:0;border-top:1px solid var(--line);padding:16px}
+  .hint{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand"><small>Новая Земля</small><h1>Планировки в 3D</h1></div>
+    <nav class="plans" id="plans" aria-label="Планировка"></nav>
+  </header>
+  <div class="work">
+    <aside class="side">
+      <div class="grp">
+        <h3>Вид</h3>
+        <div class="seg" id="views" role="group" aria-label="Вид">
+          <button data-v="3d">3D</button><button data-v="top">Сверху</button><button data-v="iso">Изометрия</button>
+        </div>
+      </div>
+      <div class="grp">
+        <h3>Стиль</h3>
+        <div class="seg" id="styles" role="group" aria-label="Стиль">
+          <button data-s="nz">Новая Земля</button><button data-s="real">Реалистичный</button>
+        </div>
+      </div>
+      <div class="grp">
+        <h3>Подписи</h3>
+        <div class="tgl">
+          <button class="btn" data-t="names">Назначения</button>
+          <button class="btn" data-t="areas">Площади, м²</button>
+        </div>
+      </div>
+      <div class="grp">
+        <h3>Размеры, мм</h3>
+        <div class="tgl">
+          <button class="btn" data-t="dimOut">Наружные</button>
+          <button class="btn" data-t="dimIn">Внутренние</button>
+        </div>
+      </div>
+      <div class="grp">
+        <h3>Стены</h3>
+        <div class="tgl">
+          <button class="btn" data-t="cut">Срезать стены</button>
+          <button class="btn" data-t="furn">Мебель</button>
+        </div>
+      </div>
+      <div class="grp">
+        <h3>Снимок PNG</h3>
+        <div class="shots">
+          <button class="btn primary" id="shotBg" title="Картинка с фоном"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>С фоном</button>
+          <button class="btn" id="shotAlpha" title="Картинка на прозрачном фоне, обрезана по дому">Без фона</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="shotCap">Подпись: дом, площадь, габариты</label>
+        <label class="chk">Размер <select id="shotScale"><option value="1">как на экране</option><option value="2" selected>×2</option><option value="3">×3</option></select></label>
+      </div>
+      <div class="info" id="info"></div>
+    </aside>
+    <section class="stage" id="stage">
+      <canvas id="gl"></canvas>
+      <canvas id="ov"></canvas>
+      <div class="hud">
+        <button id="rotL" title="Повернуть на 90° влево"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a8 8 0 1 1 2.3 5.7"/><path d="M4 4v7h7"/></svg></button>
+        <button id="rotR" title="Повернуть на 90° вправо"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+        <button id="zIn" title="Приблизить">+</button>
+        <button id="zOut" title="Отдалить">−</button>
+        <button id="fit" title="Показать дом целиком">⤢</button>
+      </div>
+      <div class="hint" id="hint"></div>
+      <div class="loading" id="loading">Загружаю 3D…</div>
+      <div class="toast" id="toast" hidden></div>
+    </section>
+  </div>
+</div>
+<script>
+(function () {
+'use strict';
+const PLANS = [{"id":"p60","title":"Дом 60 м²","note":"2 спальни · кухня-гостиная 23 м²","walls":[[0,0,3470,320],[4060,0,5040,320],[5630,0,7230,320],[7810,0,10980,320],[0,6250,7230,6580],[7810,6250,10980,6580],[0,320,340,1280],[0,2220,340,4290],[0,5290,340,6250],[10640,320,10980,1280],[10640,2220,10980,3460],[10640,5290,10980,6250],[3280,320,3420,3120],[3280,2990,3500,3120],[3290,4070,3420,4290],[340,4160,3420,4290],[3290,5240,3420,6250],[4710,320,4840,1340],[4720,2090,4830,2990],[6330,320,6470,2990],[4270,2990,7150,3100],[8030,2990,10640,3120]],"windows":[[3470,0,4060,320],[5040,0,5630,320],[7230,0,7810,320],[7230,6250,7810,6580],[0,1280,340,2220],[10640,1280,10980,2220],[10640,3460,10980,5290]],"doors":[{"r":[0,4290,340,5290],"hinge":"a","side":-1,"ext":true},{"r":[3280,3120,3420,4070],"hinge":"b","side":-1},{"r":[3290,4290,3420,5240],"hinge":"a","side":-1},{"r":[3500,2990,4270,3100],"hinge":"a","side":1},{"r":[4710,1340,4840,2090],"hinge":"a","side":-1},{"r":[7150,2990,8030,3100],"hinge":"b","side":1}],"rooms":[{"n":"Спальня","a":11.7,"k":"bed","r":[[340,320,3280,4160]],"lp":[1780,3160]},{"n":"Тех. помещение","a":3.7,"k":"tech","r":[[3420,320,4710,2990]],"lp":[4050,1430]},{"n":"Санузел","a":4.2,"k":"wet","r":[[4840,320,6330,2990]],"lp":[5380,1670]},{"n":"Спальня","a":11.5,"k":"bed","r":[[6470,320,10640,2990]],"lp":[7890,1670]},{"n":"Прихожая","a":6.0,"k":"hall","r":[[340,4290,3290,6250]],"lp":[1780,5040]},{"n":"Кухня-гостиная","a":23.2,"k":"living","r":[[3420,3100,10640,6250]],"lp":[7890,4570]}],"decks":[[-1480,3670,0,6250]],"posts":[],"furn":[{"type":"bed2","x":1510,"y":1280,"rot":0,"w":1600,"d":1920},{"type":"nightstand","x":515,"y":505,"rot":0,"w":330,"d":330},{"type":"nightstand","x":2505,"y":505,"rot":0,"w":330,"d":330},{"type":"wardrobe","x":3000,"y":1210,"rot":90,"w":1780,"d":560},{"type":"dresser","x":3000,"y":2545,"rot":90,"w":890,"d":560},{"type":"desk","x":575,"y":3220,"rot":270,"w":1060,"d":450},{"type":"ochair","x":1060,"y":3080,"w":520,"d":520,"rot":90},{"type":"tvwall","x":1510,"y":4020,"rot":180,"w":1220,"d":120},{"type":"wardrobe","x":1365,"y":5950,"rot":180,"w":2050,"d":600},{"type":"shoe","x":2835,"y":6015,"rot":180,"w":890,"d":470},{"type":"washer","x":4510,"y":2655,"rot":90,"w":570,"d":420},{"type":"toilet","x":5990,"y":680,"rot":90,"w":500,"d":660},{"type":"sink","x":6130,"y":1730,"rot":90,"w":1060,"d":400},{"type":"bath","x":5590,"y":2595,"rot":180,"w":1480,"d":650},{"type":"bed2","x":9460,"y":1280,"rot":0,"w":1560,"d":1920},{"type":"nightstand","x":8460,"y":515,"rot":0,"w":360,"d":350},{"type":"nightstand","x":10450,"y":515,"rot":0,"w":340,"d":350},{"type":"wardrobe","x":6755,"y":2080,"rot":270,"w":1720,"d":550},{"type":"ochair","x":7190,"y":670,"w":480,"d":480,"rot":270},{"type":"tvwall","x":9465,"y":2890,"rot":180,"w":1190,"d":120},{"type":"ksink","x":3800,"y":5940,"rot":180,"w":740,"d":620},{"type":"kbase","x":4580,"y":5940,"rot":180,"w":820,"d":620},{"type":"khob","x":5260,"y":5940,"rot":180,"w":540,"d":620},{"type":"kbase","x":5925,"y":5940,"rot":180,"w":790,"d":620},{"type":"fridge","x":6635,"y":5920,"rot":180,"w":630,"d":660},{"type":"table","x":5690,"y":3395,"rot":0,"w":1200,"d":590},{"type":"chair","x":4770,"y":3380,"w":450,"d":480,"rot":270},{"type":"chair","x":6560,"y":3380,"w":450,"d":480,"rot":90},{"type":"chair","x":5430,"y":3960,"w":450,"d":480,"rot":180},{"type":"chair","x":6020,"y":3960,"w":450,"d":480,"rot":180},{"type":"tv","x":9310,"y":3310,"rot":0,"w":1740,"d":360},{"type":"sofa3","x":9330,"y":5790,"rot":180,"w":2540,"d":880}],"box":[0,0,10980,6580]},{"id":"p85","title":"Дом 85 м²","note":"3 спальни · тамбур · холл","walls":[[0,0,3790,540],[4310,0,6000,540],[6520,0,10170,540],[0,9640,4320,10170],[6120,9640,10170,10170],[0,540,540,1190],[0,2480,540,3130],[0,7050,540,7700],[0,8980,540,9640],[210,3130,540,3830],[210,4800,540,6500],[9640,540,10170,1170],[9640,2410,10170,6220],[9640,8120,10170,9640],[-2210,3130,-1290,3680],[-780,3130,540,3680],[-2210,3680,-1640,4580],[-2210,5600,-1640,6500],[-2210,6500,540,7050],[3470,540,3580,3500],[4950,540,5060,3500],[6830,540,6940,4000],[6830,4860,6940,4970],[540,3500,2440,3600],[3320,3500,3730,3600],[4500,3500,5950,3600],[540,4970,2330,5200],[3220,4970,4310,5200],[5550,4970,9640,5200],[3260,5200,3360,9640]],"windows":[[3790,0,4310,540],[6000,0,6520,540],[4320,9640,6120,10170],[0,1190,540,2480],[0,7700,540,8980],[9640,1170,10170,2410],[9640,6220,10170,8120],[-1290,3130,-780,3680]],"doors":[{"r":[-2210,4580,-1640,5600],"hinge":"a","side":-1,"ext":true},{"r":[210,3830,540,4800],"hinge":"a","side":-1},{"r":[2440,3500,3320,3600],"hinge":"b","side":-1},{"r":[3730,3500,4500,3600],"hinge":"a","side":1},{"r":[5950,3500,6830,3600],"hinge":"b","side":-1},{"r":[6830,4000,6940,4860],"hinge":"a","side":1},{"r":[2330,4970,3220,5200],"hinge":"b","side":1}],"rooms":[{"n":"Спальня","a":8.8,"k":"bed","r":[[540,540,3470,3500]],"lp":[2090,2070]},{"n":"Тех. помещение","a":4.1,"k":"tech","r":[[3580,540,4950,3500]]},{"n":"Санузел","a":5.2,"k":"wet","r":[[5060,540,6830,3500]],"lp":[5900,2470]},{"n":"Спальня","a":12.0,"k":"bed","r":[[6940,540,9640,4970]],"lp":[8650,2470]},{"n":"Холл","a":9.1,"k":"hall","r":[[540,3600,6830,4970],[4310,4970,5550,5200]],"lp":[4520,4250]},{"n":"Тамбур","a":5.9,"k":"hall","r":[[-1640,3680,210,6500]]},{"n":"Спальня","a":12.4,"k":"bed","r":[[540,5200,3260,9640]],"lp":[1930,6680]},{"n":"Кухня-гостиная","a":28.0,"k":"living","r":[[3360,5200,9640,9640]],"lp":[5980,7090]}],"decks":[[-3700,3790,-2210,6380]],"posts":[],"furn":[{"type":"bed1","x":2335,"y":1000,"rot":90,"w":860,"d":2110},{"type":"nightstand","x":3295,"y":1770,"rot":90,"w":620,"d":310},{"type":"desk","x":805,"y":2005,"rot":270,"w":1170,"d":470},{"type":"ochair","x":1160,"y":1980,"w":500,"d":500,"rot":90},{"type":"wardrobe","x":1405,"y":3225,"rot":180,"w":1670,"d":490},{"type":"bath","x":5415,"y":1365,"rot":0,"w":630,"d":1590},{"type":"toilet","x":6480,"y":935,"rot":90,"w":470,"d":640},{"type":"sink","x":6625,"y":1905,"rot":90,"w":1050,"d":410},{"type":"washer","x":5415,"y":3175,"rot":180,"w":630,"d":590},{"type":"wardrobe","x":8290,"y":790,"rot":0,"w":2640,"d":440},{"type":"sofa","x":7425,"y":2595,"rot":270,"w":2350,"d":910},{"type":"tvwall","x":9540,"y":3970,"rot":90,"w":1140,"d":160},{"type":"desk","x":8825,"y":4725,"rot":180,"w":1190,"d":490},{"type":"ochair","x":8810,"y":4240,"w":500,"d":500,"rot":0},{"type":"wardrobe","x":1405,"y":5505,"rot":0,"w":1670,"d":570},{"type":"desk","x":810,"y":6440,"rot":270,"w":1220,"d":480},{"type":"ochair","x":1180,"y":6370,"w":500,"d":500,"rot":90},{"type":"bed18","x":1935,"y":8585,"rot":180,"w":1690,"d":2110},{"type":"nightstand","x":820,"y":9380,"rot":180,"w":460,"d":460},{"type":"nightstand","x":3035,"y":9380,"rot":180,"w":430,"d":460},{"type":"tvwall","x":3200,"y":6925,"rot":90,"w":890,"d":120},{"type":"kbase","x":3725,"y":5390,"rot":270,"w":340,"d":690},{"type":"ksink","x":3725,"y":5880,"rot":270,"w":640,"d":690},{"type":"khob","x":3725,"y":6520,"rot":270,"w":640,"d":690},{"type":"dishwasher","x":3725,"y":7145,"rot":270,"w":610,"d":690},{"type":"ktall","x":3725,"y":7775,"rot":270,"w":650,"d":690},{"type":"kbase","x":3725,"y":8485,"rot":270,"w":770,"d":690},{"type":"fridge","x":3725,"y":9245,"rot":270,"w":750,"d":690},{"type":"table6","x":6115,"y":8325,"rot":0,"w":1830,"d":730},{"type":"chair","x":5460,"y":7640,"w":480,"d":500,"rot":0},{"type":"chair","x":6120,"y":7640,"w":480,"d":500,"rot":0},{"type":"chair","x":6760,"y":7640,"w":480,"d":500,"rot":0},{"type":"chair","x":5460,"y":9050,"w":480,"d":500,"rot":180},{"type":"chair","x":6120,"y":9050,"w":480,"d":500,"rot":180},{"type":"chair","x":6760,"y":9050,"w":480,"d":500,"rot":180},{"type":"chair","x":4950,"y":8340,"w":480,"d":500,"rot":270},{"type":"chair","x":7290,"y":8340,"w":480,"d":500,"rot":90},{"type":"sofaL","x":7840,"y":6520,"rot":0,"w":3580,"d":2640},{"type":"coffee","x":7980,"y":7055,"rot":0,"w":620,"d":1150},{"type":"tv","x":8505,"y":9400,"rot":180,"w":1750,"d":420}],"box":[-2210,0,10170,10170]},{"id":"p100","title":"Дом 100 м²","note":"3 спальни · терраса 13 м²","walls":[[0,0,1750,570],[3660,0,6280,570],[7590,0,9610,570],[11450,0,13200,570],[0,8250,1220,8820],[2540,8250,4550,8820],[5060,8250,6150,8820],[7180,8250,8270,8820],[8790,8250,10670,8820],[11990,8250,13200,8820],[0,570,570,8250],[12640,570,13200,8250],[4840,570,4970,4290],[8360,570,8490,4290],[3960,4290,7390,4540],[8270,4290,8580,4540],[9450,4290,12640,4540],[9620,4540,9770,4620],[9620,5510,9770,8250],[3960,5790,4440,5920],[5230,5790,6120,5920],[7910,5790,8380,5920],[9170,5790,9770,5920],[3930,5790,4070,8250],[6010,5790,6130,8250],[7900,5790,8030,8250]],"windows":[[2560,0,3660,570],[6280,0,7590,570],[9610,0,11450,570],[1220,8250,2540,8820],[4550,8250,5060,8820],[8270,8250,8790,8820],[10670,8250,11990,8820]],"doors":[{"r":[1750,0,2560,570],"hinge":"a","side":-1,"ext":true},{"r":[6150,8250,7180,8820],"hinge":"b","side":1,"ext":true},{"r":[7390,4290,8270,4540],"hinge":"b","side":-1},{"r":[8580,4290,9450,4540],"hinge":"a","side":-1},{"r":[9620,4620,9770,5510],"hinge":"a","side":1},{"r":[4440,5790,5230,5920],"hinge":"a","side":-1},{"r":[8380,5790,9170,5920],"hinge":"a","side":-1}],"rooms":[{"n":"Гостиная","a":20.3,"k":"living","r":[[570,570,4840,4290],[570,4290,3960,5810]],"lp":[1760,2220]},{"n":"Кухня","a":8.0,"k":"kitchen","r":[[570,5810,3930,8250]],"lp":[2150,6850]},{"n":"Спальня","a":12.6,"k":"bed","r":[[4970,570,8360,4290]],"lp":[7490,3320]},{"n":"Спальня","a":15.5,"k":"bed","r":[[8490,570,12640,4290]],"lp":[9450,2610]},{"n":"Коридор","a":7.1,"k":"hall","r":[[3960,4540,9620,5790]]},{"n":"Санузел","a":4.5,"k":"wet","r":[[4070,5920,6010,8250]],"lp":[4900,6300]},{"n":"Прихожая","a":4.3,"k":"hall","r":[[6130,5790,7900,8250]],"lp":[6780,7010]},{"n":"Тех. помещение","a":3.7,"k":"tech","r":[[8030,5920,9620,8250]],"lp":[9060,6230]},{"n":"Спальня","a":10.5,"k":"bed","r":[[9770,4540,12640,8250]],"lp":[11410,7870]},{"n":"Терраса","a":13.0,"k":"terrace","r":[[-40,-2490,5390,0]],"lp":[2860,-450]}],"decks":[[5340,8820,8000,10390]],"posts":[[150,-2330],[5230,-2330]],"furn":[{"type":"swing","x":1040,"y":-2190,"w":1150,"d":1150,"rot":0},{"type":"outsofa","x":2945,"y":-2095,"rot":0,"w":2110,"d":710},{"type":"bbq","x":5005,"y":-1855,"rot":90,"w":770,"d":610},{"type":"coffee","x":2875,"y":-1125,"rot":0,"w":1450,"d":610,"h":420},{"type":"gchair","x":700,"y":-720,"w":750,"d":750,"rot":225},{"type":"gchair","x":4440,"y":-720,"w":750,"d":750,"rot":135},{"type":"tv","x":785,"y":2380,"rot":270,"w":2980,"d":410},{"type":"rug","x":3720,"y":2390,"rot":0,"w":2120,"d":2960,"color":"#c9b79c"},{"type":"coffee","x":3170,"y":2410,"rot":0,"w":740,"d":1420},{"type":"sofa3","x":4365,"y":2370,"rot":90,"w":3600,"d":950},{"type":"table","x":1320,"y":5055,"rot":0,"w":1300,"d":910},{"type":"chair","x":940,"y":4500,"w":450,"d":480,"rot":0},{"type":"chair","x":1550,"y":4500,"w":450,"d":480,"rot":0},{"type":"chair","x":940,"y":5610,"w":450,"d":480,"rot":180},{"type":"chair","x":1550,"y":5610,"w":450,"d":480,"rot":180},{"type":"chair","x":2090,"y":5060,"w":450,"d":480,"rot":90},{"type":"kbase","x":825,"y":6580,"rot":270,"w":860,"d":510},{"type":"khob","x":825,"y":7325,"rot":270,"w":630,"d":510},{"type":"kbase","x":825,"y":7935,"rot":270,"w":590,"d":510},{"type":"kbase","x":1245,"y":7965,"rot":180,"w":330,"d":530},{"type":"ksink","x":2195,"y":7965,"rot":180,"w":1570,"d":530},{"type":"fridge","x":3580,"y":6125,"rot":90,"w":590,"d":660},{"type":"rug","x":6045,"y":2165,"rot":0,"w":2130,"d":2430,"color":"#d8d3c8"},{"type":"bed14","x":5965,"y":2355,"rot":270,"w":1250,"d":1970},{"type":"nightstand","x":5145,"y":1330,"rot":270,"w":300,"d":330},{"type":"wardrobe2","x":6145,"y":4025,"rot":180,"w":2270,"d":490},{"type":"desk","x":8130,"y":1145,"rot":90,"w":1050,"d":420},{"type":"ochair","x":7660,"y":1080,"w":500,"d":500,"rot":270},{"type":"tvwall","x":8280,"y":2460,"rot":90,"w":1260,"d":160},{"type":"desk","x":9060,"y":775,"rot":0,"w":1100,"d":350},{"type":"ochair","x":9150,"y":1160,"w":500,"d":500,"rot":0},{"type":"tvwall","x":8570,"y":2105,"rot":270,"w":1250,"d":160},{"type":"rug","x":11390,"y":2105,"rot":0,"w":2500,"d":2710,"color":"#d8d3c8"},{"type":"bed18","x":11610,"y":2075,"rot":90,"w":1590,"d":2000},{"type":"nightstand","x":12425,"y":1055,"rot":90,"w":370,"d":370},{"type":"nightstand","x":12425,"y":3175,"rot":90,"w":450,"d":370},{"type":"wardrobe2","x":11085,"y":4025,"rot":180,"w":3110,"d":530},{"type":"wardrobe","x":11720,"y":4815,"rot":0,"w":1780,"d":550},{"type":"rug","x":11575,"y":6500,"rot":0,"w":2130,"d":2360,"color":"#d8d3c8"},{"type":"bed14","x":11610,"y":6575,"rot":90,"w":1650,"d":2000},{"type":"tvwall","x":9845,"y":6225,"rot":270,"w":1090,"d":150},{"type":"desk","x":10005,"y":7600,"rot":270,"w":1100,"d":470},{"type":"ochair","x":10460,"y":7580,"w":500,"d":500,"rot":90},{"type":"sink","x":4345,"y":6665,"rot":270,"w":950,"d":490},{"type":"toilet","x":4470,"y":7825,"rot":270,"w":450,"d":740},{"type":"bath","x":5630,"y":7375,"rot":180,"w":760,"d":1710},{"type":"hallwardrobe","x":7650,"y":7220,"rot":90,"w":2020,"d":500},{"type":"sink","x":8230,"y":6580,"w":550,"d":400,"rot":270},{"type":"toilet","x":8380,"y":7320,"w":390,"d":700,"rot":270},{"type":"equip","x":8530,"y":8060,"w":770,"d":375,"rot":180}],"box":[0,0,13200,8820]},{"id":"p120","title":"Дом 120 м²","note":"4 спальни · гардеробная · терраса 18 м²","walls":[[0,0,1880,550],[3630,0,5060,550],[6810,0,8870,550],[10620,0,12040,550],[13800,0,15680,550],[0,7820,4050,8370],[5940,7820,10090,8370],[10700,7820,12300,8370],[13550,7820,15680,8370],[0,550,550,3730],[0,4970,550,7820],[15120,550,15680,3730],[15120,4660,15680,7820],[4560,550,4670,3660],[550,3550,3570,3660],[3350,3550,3460,3800],[11280,550,11410,3550],[10680,3550,12000,3660],[12880,3550,15120,3660],[3350,4840,4160,4960],[5040,4840,8400,4960],[9190,4840,9940,4960],[10730,4840,11890,4960],[3350,4670,3460,7820],[7770,4960,7890,7820],[9670,4960,9790,7820],[11780,4840,11910,7820],[12890,5650,15120,5770]],"windows":[[1880,0,2900,550],[5060,0,6140,550],[8870,0,10620,550],[12720,0,13800,550],[4700,7820,5940,8370],[10090,7820,10700,8370],[12300,7820,13550,8370],[0,3730,550,4970]],"doors":[{"r":[2900,0,3630,550],"hinge":"b","side":-1,"ext":true},{"r":[6140,0,6810,550],"hinge":"b","side":-1,"ext":true},{"r":[12040,0,12720,550],"hinge":"a","side":-1,"ext":true},{"r":[4050,7820,4700,8370],"hinge":"a","side":1,"ext":true},{"r":[15120,3730,15680,4660],"hinge":"a","side":1,"ext":true},{"r":[3570,3550,4560,3660],"hinge":"b","side":-1},{"r":[12000,3550,12880,3660],"hinge":"a","side":-1},{"r":[3350,3800,3460,4670],"hinge":"a","side":-1},{"r":[4160,4840,5040,4960],"hinge":"a","side":1},{"r":[8400,4840,9190,4960],"hinge":"b","side":1},{"r":[9940,4840,10730,4960],"hinge":"a","side":1},{"r":[11910,5650,12890,5770],"hinge":"a","side":-1}],"rooms":[{"n":"Спальня","a":12.0,"k":"bed","r":[[550,550,4560,3550]],"lp":[3430,1810]},{"n":"Кухня-гостиная","a":31.6,"k":"living","r":[[4670,550,11280,3660],[3460,3660,12880,4840]],"lp":[5660,4250]},{"n":"Спальня","a":11.2,"k":"bed","r":[[11410,550,15120,3550]],"lp":[12460,2020]},{"n":"Тамбур","a":3.6,"k":"hall","r":[[12880,3660,15120,5650],[11910,4840,12880,5650]],"lp":[13940,4350]},{"n":"Спальня","a":11.6,"k":"bed","r":[[550,3660,3350,7820]],"lp":[1940,4780]},{"n":"Спальня","a":12.3,"k":"bed","r":[[3460,4960,7770,7820]],"lp":[4920,6050]},{"n":"Гардеробная","a":5.2,"k":"tech","r":[[7890,4960,9670,7820]]},{"n":"Санузел","a":5.3,"k":"wet","r":[[9790,4960,11780,7820]],"lp":[10550,5420]},{"n":"Котельная","a":6.7,"k":"tech","r":[[11910,5770,15120,7820]],"lp":[13410,6480]},{"n":"Терраса","a":18.0,"k":"terrace","r":[[4800,-3080,10870,0]],"lp":[7780,-2440]}],"decks":[[15680,2870,17240,5500]],"posts":[[4950,-2930],[7820,-2930],[10770,-2930]],"furn":[{"type":"swing","x":5550,"y":-2340,"w":1150,"d":1150,"rot":0},{"type":"bbq","x":10395,"y":-2230,"rot":90,"w":980,"d":530},{"type":"coffee","x":7820,"y":-1570,"rot":0,"w":1640,"d":680,"h":420},{"type":"outsofa","x":7835,"y":-430,"rot":180,"w":2090,"d":780},{"type":"gchair","x":5650,"y":-820,"w":750,"d":750,"rot":225},{"type":"gchair","x":10110,"y":-820,"w":750,"d":750,"rot":135},{"type":"bed14","x":1540,"y":1700,"rot":270,"w":1280,"d":1980},{"type":"nightstand","x":730,"y":870,"rot":270,"w":340,"d":340},{"type":"nightstand","x":730,"y":2520,"rot":270,"w":320,"d":340},{"type":"wardrobe2","x":1975,"y":3245,"rot":180,"w":2850,"d":610},{"type":"ochair","x":4130,"y":980,"w":480,"d":480,"rot":90},{"type":"tvwall","x":4460,"y":1990,"rot":90,"w":1540,"d":200},{"type":"tv","x":4840,"y":2010,"rot":270,"w":1860,"d":340},{"type":"rug","x":7785,"y":2210,"rot":0,"w":3870,"d":3360,"color":"#c9b79c"},{"type":"sofa3","x":7250,"y":1930,"rot":90,"w":2560,"d":760},{"type":"table","x":8245,"y":1775,"rot":0,"w":1030,"d":2170},{"type":"chair","x":9070,"y":1060,"w":450,"d":480,"rot":90},{"type":"chair","x":9070,"y":1680,"w":450,"d":480,"rot":90},{"type":"chair","x":9070,"y":2300,"w":450,"d":480,"rot":90},{"type":"chair","x":8270,"y":3130,"w":450,"d":480,"rot":180},{"type":"ktall","x":10980,"y":805,"rot":90,"w":550,"d":600},{"type":"ksink","x":10980,"y":1435,"rot":90,"w":710,"d":600},{"type":"kbase","x":10980,"y":2035,"rot":90,"w":490,"d":600},{"type":"khob","x":10980,"y":2610,"rot":90,"w":660,"d":600},{"type":"kbase","x":10980,"y":3245,"rot":90,"w":610,"d":600},{"type":"ochair","x":11860,"y":980,"w":480,"d":480,"rot":0},{"type":"tvwall","x":11505,"y":1885,"rot":270,"w":1250,"d":190},{"type":"bed18","x":14125,"y":1710,"rot":90,"w":1680,"d":1990},{"type":"nightstand","x":14920,"y":720,"rot":90,"w":300,"d":400},{"type":"nightstand","x":14920,"y":2710,"rot":90,"w":320,"d":400},{"type":"wardrobe","x":14055,"y":3245,"rot":180,"w":2130,"d":610},{"type":"wardrobe","x":11710,"y":3130,"rot":270,"w":840,"d":600},{"type":"wardrobe","x":14535,"y":5335,"rot":180,"w":1130,"d":630},{"type":"hallbench","x":13480,"y":5415,"rot":180,"w":980,"d":470},{"type":"desk","x":1250,"y":3915,"rot":0,"w":1340,"d":450},{"type":"ochair","x":1310,"y":4350,"w":480,"d":480,"rot":180},{"type":"bed2","x":2345,"y":5975,"rot":90,"w":1270,"d":2010},{"type":"nightstand","x":3165,"y":5180,"rot":90,"w":320,"d":370},{"type":"nightstand","x":3165,"y":6775,"rot":90,"w":310,"d":370},{"type":"wardrobe2","x":1950,"y":7530,"rot":180,"w":2800,"d":580},{"type":"wardrobe","x":3755,"y":5670,"rot":270,"w":1360,"d":590},{"type":"desk","x":3720,"y":7140,"rot":270,"w":1320,"d":520},{"type":"ochair","x":4190,"y":7120,"w":480,"d":480,"rot":90},{"type":"bed18","x":6605,"y":5970,"rot":0,"w":1670,"d":2020},{"type":"nightstand","x":5595,"y":5155,"rot":0,"w":350,"d":350},{"type":"nightstand","x":7605,"y":5155,"rot":0,"w":330,"d":350},{"type":"tvwall","x":6655,"y":7725,"rot":180,"w":1950,"d":190},{"type":"wardrobe","x":8140,"y":6415,"rot":270,"w":2810,"d":500},{"type":"wardrobe","x":9425,"y":6415,"rot":90,"w":2810,"d":490},{"type":"sink","x":10025,"y":6130,"rot":270,"w":800,"d":450},{"type":"toilet","x":10155,"y":7385,"rot":270,"w":530,"d":710},{"type":"bath","x":11430,"y":6975,"rot":90,"w":1690,"d":700},{"type":"sink","x":12150,"y":6620,"w":600,"d":480,"rot":270},{"type":"toilet","x":12230,"y":7350,"w":380,"d":650,"rot":270},{"type":"equip","x":14390,"y":7630,"w":1430,"d":370,"rot":180}],"box":[0,0,15680,8370]},{"id":"p68","title":"Дом 11 × 7 м","note":"3 спальни · кабинет · 2 террасы","walls":[[0,0,1200,310],[2740,0,4860,310],[5710,0,7200,310],[9130,0,11300,310],[0,7030,3820,7340],[4840,7030,6250,7340],[6770,7030,9200,7340],[10050,7030,11300,7340],[0,310,330,5550],[0,6140,330,7030],[10950,310,11300,3660],[10950,4480,11300,7030],[3230,310,3350,3370],[3230,4200,3350,5430],[3230,6250,3350,7030],[330,4650,3230,4860],[3350,3230,4980,3350],[5710,3230,6350,3350],[6350,310,6490,3350],[3350,4720,3890,4860],[4720,4720,5660,4860],[6400,4720,10950,4860],[5330,4860,5430,7030],[8500,4860,8610,7030]],"windows":[[1200,0,1910,310],[0,5550,330,6140],[10950,3660,11300,4480],[6250,7030,6770,7340]],"doors":[{"r":[1910,0,2740,310],"hinge":"a","side":-1,"ext":true},{"r":[4860,0,5710,310],"hinge":"a","side":-1,"ext":true},{"r":[7200,0,8170,310],"hinge":"a","side":-1,"ext":true},{"r":[8170,0,9130,310],"hinge":"b","side":-1,"ext":true},{"r":[3820,7030,4840,7340],"hinge":"b","side":1,"ext":true},{"r":[9200,7030,10050,7340],"hinge":"a","side":1,"ext":true},{"r":[3230,3370,3350,4200],"hinge":"b","side":-1},{"r":[3230,5430,3350,6250],"hinge":"b","side":-1},{"r":[4980,3230,5710,3350],"hinge":"b","side":-1},{"r":[3890,4720,4720,4860],"hinge":"a","side":1},{"r":[5660,4720,6400,4860],"hinge":"b","side":1}],"rooms":[{"n":"Спальня","a":12.57,"k":"bed","r":[[330,310,3230,4650]],"lp":[1860,3660]},{"n":"Спальня","a":8.85,"k":"bed","r":[[3350,310,6350,3230]],"lp":[4810,2480]},{"n":"Коридор","a":4.65,"k":"hall","r":[[3350,3350,6400,4720]],"lp":[4700,4060]},{"n":"Кухня-гостиная","a":19.6,"k":"living","r":[[6490,310,10950,4720]],"lp":[9420,3300]},{"n":"Спальня-кабинет","a":6.26,"k":"bed","r":[[330,4860,3230,7030]],"lp":[1630,6020]},{"n":"Прихожая","a":4.61,"k":"hall","r":[[3350,4860,5330,7030]],"lp":[4040,6140]},{"n":"Санузел","a":6.7,"k":"wet","r":[[5430,4860,8500,7030]],"lp":[6580,5900]},{"n":"Котельная","a":5.05,"k":"tech","r":[[8610,4860,10950,7030]],"lp":[9650,6180]},{"n":"Терраса","a":17.42,"k":"terrace","r":[[5760,-3140,11300,0]],"lp":[9890,-940]},{"n":"Терраса","a":11.05,"k":"terrace","r":[[3300,7340,11300,8730]],"lp":[7530,8070]}],"decks":[],"posts":[[7100,-3020],[10430,-3020]],"furn":[{"type":"bed18","x":1350,"y":1750,"w":1800,"d":2000,"rot":270},{"type":"nightstand","x":570,"y":520,"w":450,"d":400,"rot":270},{"type":"nightstand","x":570,"y":3000,"w":450,"d":400,"rot":270},{"type":"wardrobe2","x":1805,"y":4390,"rot":180,"w":2850,"d":520},{"type":"tvwall","x":3160,"y":2455,"rot":90,"w":1610,"d":140},{"type":"bed1","x":3835,"y":1440,"rot":0,"w":930,"d":1940},{"type":"desk","x":6055,"y":1085,"rot":90,"w":1230,"d":590},{"type":"ochair","x":5500,"y":1130,"w":480,"d":480,"rot":90},{"type":"wardrobe","x":6030,"y":2490,"rot":90,"w":1480,"d":640},{"type":"bed1","x":895,"y":5910,"rot":0,"w":990,"d":2000},{"type":"wardrobe","x":2370,"y":5145,"rot":0,"w":1720,"d":570},{"type":"desk","x":2690,"y":6795,"rot":180,"w":1080,"d":470},{"type":"ochair","x":2740,"y":6210,"w":480,"d":480,"rot":180},{"type":"hallwardrobe","x":5085,"y":5960,"rot":90,"w":2140,"d":490},{"type":"washer","x":5795,"y":5215,"rot":0,"w":630,"d":610},{"type":"sink","x":5795,"y":6610,"rot":270,"w":660,"d":630},{"type":"toilet","x":7150,"y":6675,"rot":180,"w":480,"d":710},{"type":"dresser","x":8145,"y":5110,"rot":0,"w":710,"d":400,"h":900},{"type":"bath","x":8145,"y":6170,"rot":180,"w":710,"d":1720},{"type":"equip","x":8930,"y":5950,"rot":270,"w":2080,"d":540},{"type":"heater","x":10600,"y":5380,"w":480,"d":480,"rot":0},{"type":"boiler","x":10645,"y":6160,"rot":90,"w":1000,"d":610},{"type":"shelf","x":6675,"y":1860,"rot":270,"w":2880,"d":330},{"type":"sofaL","x":9620,"y":1110,"rot":0,"w":2480,"d":1560},{"type":"pouf","x":10380,"y":2290,"w":650,"d":650,"rot":0},{"type":"roundtable","x":8020,"y":1940,"w":1150,"d":1150,"rot":0},{"type":"chair","x":7250,"y":1940,"w":450,"d":480,"rot":270},{"type":"chair","x":7690,"y":1230,"w":450,"d":480,"rot":335},{"type":"chair","x":8350,"y":1230,"w":450,"d":480,"rot":25},{"type":"chair","x":8350,"y":2640,"w":450,"d":480,"rot":155},{"type":"chair","x":7690,"y":2640,"w":450,"d":480,"rot":205},{"type":"kbase","x":7760,"y":4425,"rot":180,"w":1180,"d":590},{"type":"khob","x":8625,"y":4425,"rot":180,"w":550,"d":590},{"type":"kbase","x":9100,"y":4425,"rot":180,"w":400,"d":590},{"type":"ksink","x":9675,"y":4425,"rot":180,"w":750,"d":590},{"type":"kbase","x":10500,"y":4425,"rot":180,"w":900,"d":590},{"type":"lounger","x":6470,"y":-1300,"w":700,"d":1900,"rot":0},{"type":"gtable","x":9650,"y":-1890,"w":1400,"d":800,"rot":0}],"box":[0,0,11300,7340]},{"id":"slate85-1","title":"SLATE 85 · вариант 1","note":"3 спальни · 2 санузла · терраса 38 м²","walls":[[0,0,1650,490],[3210,0,5180,490],[7040,0,9070,490],[10580,0,12240,490],[0,8440,6540,8910],[7310,8440,8600,8910],[9600,8440,12240,8910],[0,490,420,3810],[0,4260,420,5940],[0,6720,420,8440],[11800,490,12240,4450],[11800,5170,12240,6580],[11800,7310,12240,8440],[3710,490,3810,2830],[3710,3620,3810,5970],[3710,6820,3810,8440],[420,3620,1910,3780],[3120,3620,3710,3780],[1810,3780,1910,4180],[1810,4920,1910,5900],[420,5800,1810,5900],[1910,5230,3710,5320],[7910,490,8050,3330],[7910,3190,8700,3330],[9500,3190,11800,3330],[9600,3330,9730,4450],[9600,5170,9730,7040],[9600,7780,9730,8440],[9730,5640,11800,5740],[7910,6640,8050,8440],[7910,6640,8640,6740],[9480,6640,9600,6740]],"windows":[[1650,0,2380,490],[9910,0,10580,490],[6540,8440,7310,8910],[0,3810,420,4260],[0,5940,420,6720],[11800,4450,12240,5170],[11800,6580,12240,7310]],"doors":[{"r":[2380,0,3210,490],"hinge":"b","side":-1,"ext":true},{"r":[5180,0,6110,490],"hinge":"a","side":-1,"ext":true},{"r":[6110,0,7040,490],"hinge":"b","side":-1,"ext":true},{"r":[9070,0,9910,490],"hinge":"b","side":-1,"ext":true},{"r":[8600,8440,9600,8910],"hinge":"a","side":1,"ext":true},{"r":[3710,2830,3810,3620],"hinge":"b","side":1},{"r":[3710,5970,3810,6820],"hinge":"a","side":1},{"r":[1810,4180,1910,4920],"hinge":"a","side":1},{"r":[8700,3190,9500,3330],"hinge":"a","side":1},{"r":[9600,4450,9730,5170],"hinge":"a","side":-1},{"r":[9600,7040,9730,7780],"hinge":"a","side":-1},{"r":[8640,6640,9480,6740],"hinge":"b","side":-1}],"rooms":[{"n":"Прихожая","a":2.72,"k":"hall","r":[[8050,6740,9600,8440]],"lp":[9030,8020]},{"n":"Котельная-постирочная","a":5.57,"k":"tech","r":[[9730,5740,11800,8440]],"lp":[10550,7320]},{"n":"Санузел","a":5.04,"k":"wet","r":[[9730,3330,11800,5640]],"lp":[10810,4660]},{"n":"Спальня","a":10.45,"k":"bed","r":[[8050,490,11800,3190]],"lp":[8910,2760]},{"n":"Кухня-гостиная","a":38.49,"k":"living","r":[[3810,490,7910,8440],[7910,3330,9600,6640]],"lp":[5740,6310]},{"n":"Спальня","a":10.56,"k":"bed","r":[[420,490,3710,3620]],"lp":[2900,1750]},{"n":"Гардероб","a":2.88,"k":"tech","r":[[1910,3780,3710,5230]],"lp":[2510,4540]},{"n":"Санузел","a":2.94,"k":"wet","r":[[420,3780,1810,5800]],"lp":[1110,4790]},{"n":"Спальня","a":9.33,"k":"bed","r":[[420,5900,3710,8440],[1910,5320,3710,5900]],"lp":[2070,6560]},{"n":"Терраса","a":37.95,"k":"terrace","r":[[0,-3080,12240,0]],"lp":[10810,-2310]},{"n":"Крыльцо","a":4.84,"k":"terrace","r":[[7310,8910,10870,10260]],"lp":[10170,9730]}],"decks":[],"posts":[],"furn":[{"type":"bed18","x":1450,"y":2075,"rot":270,"w":1770,"d":1940},{"type":"nightstand","x":585,"y":925,"rot":270,"w":530,"d":330},{"type":"nightstand","x":585,"y":3230,"rot":270,"w":540,"d":330},{"type":"wardrobe","x":3545,"y":1645,"rot":90,"w":2310,"d":330},{"type":"sink","x":1245,"y":3915,"rot":0,"w":670,"d":270},{"type":"toilet","x":750,"y":4645,"rot":270,"w":370,"d":460},{"type":"bath","x":1125,"y":5440,"rot":180,"w":1330,"d":720},{"type":"wardrobe","x":3415,"y":4495,"rot":90,"w":1430,"d":590},{"type":"wardrobe","x":2825,"y":5625,"rot":0,"w":1670,"d":510},{"type":"bed1","x":1400,"y":7855,"rot":270,"w":1200,"d":1960},{"type":"desk","x":3445,"y":7740,"rot":90,"w":1400,"d":530},{"type":"ochair","x":2950,"y":7730,"w":480,"d":480,"rot":270},{"type":"wardrobe","x":3965,"y":1645,"rot":270,"w":2310,"d":310},{"type":"kbase","x":4115,"y":7075,"rot":270,"w":470,"d":610},{"type":"khob","x":4115,"y":7575,"rot":270,"w":530,"d":610},{"type":"kbase","x":4115,"y":8140,"rot":270,"w":600,"d":610},{"type":"kbase","x":5080,"y":8140,"rot":180,"w":1320,"d":600},{"type":"ksink","x":6140,"y":8140,"rot":180,"w":800,"d":600},{"type":"fridge","x":7610,"y":6980,"rot":90,"w":680,"d":600},{"type":"ktall","x":7610,"y":7880,"rot":90,"w":1120,"d":600},{"type":"table","x":6115,"y":4860,"rot":0,"w":1790,"d":820},{"type":"chair","x":5640,"y":4300,"w":450,"d":480,"rot":0},{"type":"chair","x":6560,"y":4300,"w":450,"d":480,"rot":0},{"type":"chair","x":5640,"y":5420,"w":450,"d":480,"rot":180},{"type":"chair","x":6560,"y":5420,"w":450,"d":480,"rot":180},{"type":"sofa","x":7500,"y":2065,"rot":90,"w":2410,"d":580,"h":800},{"type":"ottoman","x":6720,"y":1270,"rot":0,"w":980,"d":700},{"type":"coffee","x":6220,"y":2510,"rot":0,"w":640,"d":1040},{"type":"hallwardrobe","x":8315,"y":7290,"rot":270,"w":1100,"d":530},{"type":"shower","x":10225,"y":3865,"rot":0,"w":970,"d":1010},{"type":"toilet","x":11365,"y":3620,"rot":0,"w":410,"d":560},{"type":"sink2","x":10505,"y":5445,"rot":180,"w":1550,"d":470},{"type":"dresser","x":11540,"y":5445,"rot":180,"w":520,"d":470},{"type":"ktall","x":9970,"y":6025,"rot":270,"w":450,"d":480},{"type":"ktall","x":9970,"y":6475,"rot":270,"w":450,"d":480},{"type":"kbase","x":10710,"y":5970,"rot":0,"w":1000,"d":340},{"type":"washer","x":11505,"y":6190,"rot":90,"w":440,"d":590},{"type":"heater","x":11360,"y":8020,"w":500,"d":500,"rot":0},{"type":"bed18","x":10805,"y":1810,"rot":90,"w":1780,"d":1990},{"type":"nightstand","x":11570,"y":785,"rot":90,"w":310,"d":460},{"type":"nightstand","x":11570,"y":2850,"rot":90,"w":280,"d":460},{"type":"ktall","x":8275,"y":625,"rot":270,"w":270,"d":450},{"type":"desk","x":8275,"y":1380,"rot":270,"w":1240,"d":450},{"type":"ochair","x":8750,"y":1370,"w":480,"d":480,"rot":90},{"type":"wardrobe","x":8325,"y":2585,"rot":270,"w":1170,"d":550}],"box":[0,0,12240,8910]},{"id":"slate85-2","title":"SLATE 85 · вариант 2","note":"2 спальни · сауна · терраса 38 м²","walls":[[0,0,1650,490],[3210,0,5180,490],[7040,0,9070,490],[10580,0,12240,490],[0,8440,6540,8910],[7310,8440,8600,8910],[9600,8440,12240,8910],[0,490,420,3810],[0,4260,420,5940],[0,6720,420,8440],[11800,490,12240,4450],[11800,5170,12240,6580],[11800,7310,12240,8440],[3710,490,3810,2830],[3710,3620,3810,5970],[3710,6820,3810,8440],[420,3620,1910,3780],[3120,3620,3710,3780],[1810,3780,1910,4180],[1810,4920,1910,5900],[420,5800,1810,5900],[1910,5230,3710,5320],[7910,490,8050,3330],[7910,3190,8700,3330],[9500,3190,11800,3330],[9600,3330,9730,4450],[9600,5170,9730,7040],[9600,7780,9730,8440],[9730,5640,11800,5740],[7910,6640,8050,8440],[7910,6640,8640,6740],[9480,6640,9600,6740],[8050,1910,8630,2000],[9450,1910,11800,2000]],"windows":[[1650,0,2380,490],[9910,0,10580,490],[6540,8440,7310,8910],[0,3810,420,4260],[0,5940,420,6720],[11800,4450,12240,5170],[11800,6580,12240,7310]],"doors":[{"r":[2380,0,3210,490],"hinge":"b","side":-1,"ext":true},{"r":[5180,0,6110,490],"hinge":"a","side":-1,"ext":true},{"r":[6110,0,7040,490],"hinge":"b","side":-1,"ext":true},{"r":[9070,0,9910,490],"hinge":"b","side":-1,"ext":true},{"r":[8600,8440,9600,8910],"hinge":"a","side":1,"ext":true},{"r":[3710,2830,3810,3620],"hinge":"b","side":1},{"r":[3710,5970,3810,6820],"hinge":"a","side":1},{"r":[1810,4180,1910,4920],"hinge":"a","side":1},{"r":[8700,3190,9500,3330],"hinge":"a","side":1},{"r":[9600,4450,9730,5170],"hinge":"a","side":-1},{"r":[9600,7040,9730,7780],"hinge":"a","side":-1},{"r":[8640,6640,9480,6740],"hinge":"b","side":-1},{"r":[8630,1910,9450,2000],"hinge":"b","side":1}],"rooms":[{"n":"Прихожая","a":2.72,"k":"hall","r":[[8050,6740,9600,8440]],"lp":[9030,8020]},{"n":"Котельная-постирочная","a":5.57,"k":"tech","r":[[9730,5740,11800,8440]],"lp":[10550,7320]},{"n":"Санузел","a":5.04,"k":"wet","r":[[9730,3330,11800,5640]],"lp":[10810,4660]},{"n":"Сауна","a":10.44,"k":"wet","r":[[8050,490,11800,1910],[8050,2000,11800,3190]],"lp":[8780,2760]},{"n":"Кухня-гостиная","a":38.49,"k":"living","r":[[3810,490,7910,8440],[7910,3330,9600,6640]],"lp":[5740,6310]},{"n":"Спальня","a":10.56,"k":"bed","r":[[420,490,3710,3620]],"lp":[2900,1750]},{"n":"Гардероб","a":2.88,"k":"tech","r":[[1910,3780,3710,5230]],"lp":[2510,4540]},{"n":"Санузел","a":2.94,"k":"wet","r":[[420,3780,1810,5800]],"lp":[1110,4790]},{"n":"Спальня","a":9.33,"k":"bed","r":[[420,5900,3710,8440],[1910,5320,3710,5900]],"lp":[2070,6560]},{"n":"Терраса","a":37.95,"k":"terrace","r":[[0,-3080,12240,0]],"lp":[10810,-2310]},{"n":"Крыльцо","a":4.84,"k":"terrace","r":[[7310,8910,10870,10260]],"lp":[10170,9730]}],"decks":[],"posts":[],"furn":[{"type":"bed18","x":1450,"y":2075,"rot":270,"w":1770,"d":1940},{"type":"nightstand","x":585,"y":925,"rot":270,"w":530,"d":330},{"type":"nightstand","x":585,"y":3230,"rot":270,"w":540,"d":330},{"type":"wardrobe","x":3545,"y":1645,"rot":90,"w":2310,"d":330},{"type":"sink","x":1245,"y":3915,"rot":0,"w":670,"d":270},{"type":"toilet","x":750,"y":4645,"rot":270,"w":370,"d":460},{"type":"bath","x":1125,"y":5440,"rot":180,"w":1330,"d":720},{"type":"wardrobe","x":3415,"y":4495,"rot":90,"w":1430,"d":590},{"type":"wardrobe","x":2825,"y":5625,"rot":0,"w":1670,"d":510},{"type":"bed1","x":1400,"y":7855,"rot":270,"w":1200,"d":1960},{"type":"desk","x":3445,"y":7740,"rot":90,"w":1400,"d":530},{"type":"ochair","x":2950,"y":7730,"w":480,"d":480,"rot":270},{"type":"wardrobe","x":3965,"y":1645,"rot":270,"w":2310,"d":310},{"type":"kbase","x":4115,"y":7075,"rot":270,"w":470,"d":610},{"type":"khob","x":4115,"y":7575,"rot":270,"w":530,"d":610},{"type":"kbase","x":4115,"y":8140,"rot":270,"w":600,"d":610},{"type":"kbase","x":5080,"y":8140,"rot":180,"w":1320,"d":600},{"type":"ksink","x":6140,"y":8140,"rot":180,"w":800,"d":600},{"type":"fridge","x":7610,"y":6980,"rot":90,"w":680,"d":600},{"type":"ktall","x":7610,"y":7880,"rot":90,"w":1120,"d":600},{"type":"table","x":6115,"y":4860,"rot":0,"w":1790,"d":820},{"type":"chair","x":5640,"y":4300,"w":450,"d":480,"rot":0},{"type":"chair","x":6560,"y":4300,"w":450,"d":480,"rot":0},{"type":"chair","x":5640,"y":5420,"w":450,"d":480,"rot":180},{"type":"chair","x":6560,"y":5420,"w":450,"d":480,"rot":180},{"type":"sofa","x":7500,"y":2065,"rot":90,"w":2410,"d":580,"h":800},{"type":"ottoman","x":6720,"y":1270,"rot":0,"w":980,"d":700},{"type":"coffee","x":6220,"y":2510,"rot":0,"w":640,"d":1040},{"type":"hallwardrobe","x":8315,"y":7290,"rot":270,"w":1100,"d":530},{"type":"shower","x":10225,"y":3865,"rot":0,"w":970,"d":1010},{"type":"toilet","x":11365,"y":3620,"rot":0,"w":410,"d":560},{"type":"sink2","x":10505,"y":5445,"rot":180,"w":1550,"d":470},{"type":"dresser","x":11540,"y":5445,"rot":180,"w":520,"d":470},{"type":"ktall","x":9970,"y":6025,"rot":270,"w":450,"d":480},{"type":"ktall","x":9970,"y":6475,"rot":270,"w":450,"d":480},{"type":"kbase","x":10710,"y":5970,"rot":0,"w":1000,"d":340},{"type":"washer","x":11505,"y":6190,"rot":90,"w":440,"d":590},{"type":"heater","x":11360,"y":8020,"w":500,"d":500,"rot":0},{"type":"saunabench","x":11195,"y":915,"rot":0,"w":1210,"d":850,"h":900},{"type":"saunabench","x":10690,"y":1625,"rot":0,"w":2220,"d":570,"h":450},{"type":"stove","x":9825,"y":735,"rot":0,"w":450,"d":410},{"type":"bench","x":8275,"y":1130,"rot":270,"w":480,"d":450},{"type":"ktall","x":8275,"y":2610,"rot":270,"w":1160,"d":450},{"type":"shower","x":11305,"y":2610,"rot":90,"w":1160,"d":990},{"type":"towel","x":9665,"y":2575,"rot":270,"w":630,"d":90}],"box":[0,0,12240,8910]}];
+
+const LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'];
+function loadScript(urls) {
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    const next = () => {
+      if (i >= urls.length) { reject(new Error('cdn')); return; }
+      const sc = document.createElement('script'); sc.src = urls[i++]; sc.async = true;
+      sc.onload = () => resolve(); sc.onerror = () => { sc.remove(); next(); };
+      document.head.appendChild(sc);
+    };
+    next();
+  });
+}
+
+const WALL_H = 2700, SILL = 850, HEAD = 2100, CUT_H = 1150;
+/* мебель: c3 — цвет (натуральные тона в обоих стилях), h — высота, мм; base — чья модель */
+const CAT = {
+  bed2: { n: 'Кровать 160', c3: '#ddd6cc', h: 1050 },
+  bed18: { n: 'Кровать 180', base: 'bed2', c3: '#d6cfc4', h: 1100 },
+  bed14: { n: 'Кровать 140', base: 'bed2', c3: '#e3ddd4', h: 1050 },
+  bed1: { n: 'Кровать 90', c3: '#ddd6cc', h: 1050 },
+  nightstand: { n: 'Тумба', c3: '#b98559', h: 500 },
+  wardrobe: { n: 'Шкаф', c3: '#c89467', h: 2200 },
+  wardrobe2: { n: 'Шкаф', base: 'wardrobe', c3: '#c89467', h: 2300 },
+  hallwardrobe: { n: 'Шкаф-купе', base: 'wardrobe', c3: '#c89467', h: 2300 },
+  dresser: { n: 'Комод', c3: '#c08a5e', h: 850 },
+  shoe: { n: 'Обувница', base: 'dresser', c3: '#c89467', h: 600 },
+  bench: { n: 'Банкетка', c3: '#d9d2c6', h: 450 },
+  hallbench: { n: 'Банкетка', base: 'bench', c3: '#b98559', h: 450 },
+  desk: { n: 'Письменный стол', c3: '#c89467', h: 750 },
+  ochair: { n: 'Рабочее кресло', c3: '#5a5552', h: 1000 },
+  sofa: { n: 'Диван', c3: '#e9e6e1', h: 870 },
+  sofa3: { n: 'Диван', base: 'sofa', c3: '#dcd6cc', h: 870 },
+  outsofa: { n: 'Уличный диван', base: 'sofa', c3: '#d9d2c6', h: 800 },
+  sofaL: { n: 'Угловой диван', c3: '#e9e6e1', h: 870 },
+  armchair: { n: 'Кресло', c3: '#cdb79e', h: 870 },
+  gchair: { n: 'Садовое кресло', base: 'armchair', c3: '#a77d55', h: 800 },
+  ottoman: { n: 'Оттоманка', c3: '#dcd6cc', h: 420 },
+  pouf: { n: 'Пуф', c3: '#c9a27e', h: 450 },
+  coffee: { n: 'Журнальный столик', c3: '#b98559', h: 440 },
+  tv: { n: 'ТВ-тумба', c3: '#c89467', h: 1370 },
+  tvwall: { n: 'Телевизор', c3: '#1b1c1e', h: 1600 },
+  shelf: { n: 'Стеллаж', c3: '#c89467', h: 2000 },
+  rug: { n: 'Ковёр', c3: '#e2d6c4', h: 12 },
+  kbase: { n: 'Тумба кухни', c3: '#f2f0eb', h: 860 },
+  ksink: { n: 'Мойка', c3: '#f2f0eb', h: 860 },
+  khob: { n: 'Варочная', c3: '#f2f0eb', h: 860 },
+  dishwasher: { n: 'Посудомойка', c3: '#f2f0eb', h: 860 },
+  ktall: { n: 'Пенал', c3: '#f2f0eb', h: 2100 },
+  fridge: { n: 'Холодильник', c3: '#e9e9e7', h: 1900 },
+  table: { n: 'Стол', c3: '#c89467', h: 760 },
+  table6: { n: 'Стол на 6', base: 'table', c3: '#c89467', h: 760 },
+  gtable: { n: 'Садовый стол', base: 'table', c3: '#a77d55', h: 740 },
+  roundtable: { n: 'Круглый стол', c3: '#f0ede8', h: 760 },
+  chair: { n: 'Стул', c3: '#e9e6e1', h: 920 },
+  toilet: { n: 'Унитаз', c3: '#ffffff', h: 780 },
+  sink: { n: 'Раковина', c3: '#c89467', h: 850 },
+  sink2: { n: 'Две раковины', c3: '#c89467', h: 850 },
+  bath: { n: 'Ванна', c3: '#ffffff', h: 570 },
+  shower: { n: 'Душ', c3: '#ffffff', h: 2000 },
+  washer: { n: 'Стиральная машина', c3: '#f4f4f4', h: 850 },
+  towel: { n: 'Полотенцесушитель', c3: '#c9cdd1', h: 1600 },
+  lounger: { n: 'Шезлонг', c3: '#d9cbb5', h: 900 },
+  swing: { n: 'Подвесное кресло', c3: '#b08a64', h: 2000 },
+  bbq: { n: 'Барбекю', c3: '#3a3a3a', h: 950 },
+  boiler: { n: 'Котёл', c3: '#f2f2f0', h: 1850 },
+  heater: { n: 'Бойлер', c3: '#f2f2f0', h: 1500 },
+  equip: { n: 'Оборудование', c3: '#e3e5ea', h: 1800 },
+  saunabench: { n: 'Полок', c3: '#c8a170', h: 900 },
+  stove: { n: 'Печь', c3: '#3a3a3a', h: 800 },
+};
+const baseOf = (t) => (CAT[t] && CAT[t].base) || t;
+
+/* два стиля сцены */
+const STYLES = {
+  real: {
+    bg: '#E9EBF2', ground: '#c9c6b8', plinth: '#a9a399', wall: '#f3f1ec', facade: '#e3ddd2', cap: '#6f7275',
+    floor: { wood: 'tex', tile: 'tex', deck: 'tex' }, deckSide: '#9a8a78', post: '#6b5544',
+    glass: '#a8cfe0', frame: '#ffffff', extDoor: '#5a4a3e', door: '#efe9dd',
+    white: '#f7f7f5', dark: '#2b2f33', wood: '#b08a64', top: '#6d6a66', ink: '#2a2556', label: '#2a2556', halo: 'rgba(255,255,255,.92)',
+  },
+  nz: {
+    bg: '#E9EBF2', ground: '#E1E4EE', plinth: '#C9CEE6', wall: '#FBFBFC', facade: '#F4F5FA', cap: '#261A7E',
+    floor: { wood: 'tex', tile: 'tex', deck: 'tex' }, deckSide: '#b9a896', post: '#261A7E',
+    glass: '#b9d4e6', frame: '#FFFFFF', extDoor: '#261A7E', door: '#f4f1ec',
+    white: '#f6f4f0', dark: '#4a4440', wood: '#b98559', top: '#e6e1d8', ink: '#261A7E', label: '#261A7E', halo: 'rgba(250,250,252,.94)',
+  },
+};
+
+/* ---------- утилиты ---------- */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const fmtMM = (v) => Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const fmtA = (v) => (Math.round(v * 10) === v * 10 ? v.toFixed(1) : v.toFixed(2)).replace('.', ',');
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
+const rArea = (r) => (r[2] - r[0]) * (r[3] - r[1]);
+const mainRect = (room) => room.r.reduce((a, b) => (rArea(b) > rArea(a) ? b : a));
+const isHoriz = (r) => r[2] - r[0] >= r[3] - r[1];
+const inR = (x, y, r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
+let toastT;
+function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600); }
+
+function extent(P) {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  const add = (r) => { x1 = Math.min(x1, r[0]); y1 = Math.min(y1, r[1]); x2 = Math.max(x2, r[2]); y2 = Math.max(y2, r[3]); };
+  [...P.walls, ...P.decks, ...P.rooms.flatMap((m) => m.r)].forEach(add);
+  return [x1, y1, x2, y2];
+}
+function doorGeom(dr) {
+  const r = dr.r;
+  if (isHoriz(r)) return { L: r[2] - r[0], hx: dr.hinge === 'a' ? r[0] : r[2], hy: dr.side < 0 ? r[1] : r[3] };
+  return { L: r[3] - r[1], hx: dr.side < 0 ? r[0] : r[2], hy: dr.hinge === 'a' ? r[1] : r[3] };
+}
+
+/* ---------- состояние ---------- */
+const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true };
+let S = Object.assign({}, DEF);
+try { Object.assign(S, JSON.parse(lsGet('pl3d') || '{}')); } catch (e) { }
+const hashId = decodeURIComponent(location.hash.slice(1));
+if (PLANS.some((p) => p.id === hashId)) S.plan = hashId;
+if (!PLANS.some((p) => p.id === S.plan)) S.plan = PLANS[0].id;
+let P = PLANS.find((p) => p.id === S.plan);
+const save = () => lsSet('pl3d', JSON.stringify(S));
+
+/* ---------- интерфейс ---------- */
+function renderPlans() {
+  const el = $('#plans'); el.innerHTML = '';
+  for (const p of PLANS) {
+    const b = document.createElement('button'); b.className = 'plan'; b.setAttribute('aria-pressed', p.id === S.plan);
+    b.innerHTML = `<b></b><span></span>`; b.querySelector('b').textContent = p.title; b.querySelector('span').textContent = p.note;
+    b.onclick = () => openPlan(p.id);
+    el.append(b);
+  }
+}
+function renderInfo() {
+  const inner = P.rooms.filter((r) => r.k !== 'terrace'), ter = P.rooms.filter((r) => r.k === 'terrace');
+  const sum = inner.reduce((s, r) => s + r.a, 0), tsum = ter.reduce((s, r) => s + r.a, 0), b = P.box;
+  const el = $('#info');
+  el.innerHTML = `<b></b><div class="nt"></div><dl>
+    <dt>Площадь помещений</dt><dd>${fmtA(Math.round(sum * 100) / 100)} м²</dd>
+    ${tsum ? `<dt>Террасы и крыльцо</dt><dd>${fmtA(Math.round(tsum * 100) / 100)} м²</dd>` : ''}
+    <dt>Габарит дома</dt><dd>${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])}</dd></dl><div class="rooms"></div>`;
+  el.querySelector('b').textContent = P.title; el.querySelector('.nt').textContent = P.note;
+  const list = el.querySelector('.rooms');
+  for (const r of P.rooms) { const d = document.createElement('div'); d.innerHTML = '<span></span><span></span>'; d.children[0].textContent = r.n; d.children[1].textContent = fmtA(r.a); list.append(d); }
+}
+function syncUI() {
+  $$('#views button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === S.view));
+  $$('#styles button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.s === S.style));
+  $$('[data-t]').forEach((b) => b.setAttribute('aria-pressed', !!S[b.dataset.t]));
+  $$('#plans .plan').forEach((b, i) => b.setAttribute('aria-pressed', PLANS[i].id === S.plan));
+  const touch = matchMedia('(pointer:coarse)').matches;
+  $('#hint').textContent = S.view === 'top'
+    ? (touch ? 'Палец — сдвиг, два пальца — масштаб' : 'Тяните — сдвиг, колёсико — масштаб, кнопки справа — поворот')
+    : S.view === 'iso'
+      ? (touch ? 'Палец — поворот, два пальца — масштаб' : 'Тяните — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб')
+      : (touch ? 'Палец — вращение, два пальца — масштаб' : 'Тяните — вращение, правая кнопка или Shift — сдвиг, колёсико — масштаб');
+}
+$$('#views button').forEach((b) => { b.onclick = () => { S.view = b.dataset.v; save(); syncUI(); if (G) setCamera(false); }; });
+$$('#styles button').forEach((b) => { b.onclick = () => { S.style = b.dataset.s; save(); syncUI(); if (G) build(); }; });
+$$('[data-t]').forEach((b) => {
+  b.onclick = () => {
+    const k = b.dataset.t; S[k] = !S[k]; save(); syncUI();
+    if (!G) return;
+    if (k === 'cut' || k === 'furn') build(); else if (k === 'dimOut') fitView(); else dirty();
+  };
+});
+function openPlan(id) {
+  S.plan = id; P = PLANS.find((p) => p.id === id); save();
+  history.replaceState(null, '', '#' + id);
+  syncUI(); renderInfo();
+  const btn = $$('#plans .plan')[PLANS.indexOf(P)]; if (btn) btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (G) { build(); setCamera(false); }
+}
+
+/* ---------- 3D ---------- */
+let G = null, THREE = null;
+async function init3D() {
+  if (!window.THREE) await loadScript(LIBS);
+  THREE = window.THREE;
+  const canvas = $('#gl');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  const persp = new THREE.PerspectiveCamera(40, 1, .05, 400);
+  const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -200, 400);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x9a8f80, .68);
+  const sun = new THREE.DirectionalLight(0xfff4e6, .72);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0005; sun.shadow.normalBias = .02;
+  scene.add(hemi, sun, sun.target);
+  const group = new THREE.Group(); scene.add(group);
+  G = { renderer, scene, persp, ortho, cam: persp, hemi, sun, group, mats: new Map(), texs: new Map(), dirty: true,
+    ctl: { target: new THREE.Vector3(), az: 0, el: .6, dist: 20, zoom: 8 } };
+  bindControls(canvas);
+  new ResizeObserver(resize).observe($('#stage'));
+  resize();
+  const loop = () => { if (G.dirty) { G.dirty = false; renderFrame(); } requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+}
+const dirty = () => { if (G) G.dirty = true; };
+function resize() {
+  const st = $('#stage'), w = st.clientWidth, h = st.clientHeight; if (!w || !h) return;
+  G.renderer.setSize(w, h, false);
+  const ov = $('#ov'), dpr = Math.min(devicePixelRatio, 2); ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr);
+  applyCamera(); dirty();
+}
+function renderFrame() {
+  G.renderer.render(G.scene, G.cam);
+  const ov = $('#ov'), c = ov.getContext('2d'), dpr = ov.width / ov.clientWidth || 1;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, ov.width, ov.height);
+  drawOverlay(c, ov.width, ov.height, dpr);
+}
+
+/* камера: орбита вокруг цели. 3D — перспектива, «сверху» и «изометрия» — ортографические */
+const ISO_EL = Math.atan(1 / Math.SQRT2);
+function applyCamera() {
+  if (!G) return;
+  const { ctl, persp, ortho } = G, st = $('#stage'), asp = (st.clientWidth / st.clientHeight) || 1;
+  if (S.view === '3d') {
+    ctl.el = clamp(ctl.el, .05, Math.PI / 2 - .02); ctl.dist = clamp(ctl.dist, 2, 120);
+    const ce = Math.cos(ctl.el);
+    persp.position.set(ctl.target.x + ctl.dist * ce * Math.sin(ctl.az), ctl.target.y + ctl.dist * Math.sin(ctl.el), ctl.target.z + ctl.dist * ce * Math.cos(ctl.az));
+    persp.up.set(0, 1, 0); persp.aspect = asp; persp.updateProjectionMatrix(); persp.lookAt(ctl.target);
+    G.cam = persp;
+  } else {
+    const el = S.view === 'top' ? Math.PI / 2 : ISO_EL, D = 120, ce = Math.cos(el);
+    ctl.zoom = clamp(ctl.zoom, 1.2, 80);
+    ortho.position.set(ctl.target.x + D * ce * Math.sin(ctl.az), ctl.target.y + D * Math.sin(el), ctl.target.z + D * ce * Math.cos(ctl.az));
+    if (S.view === 'top') ortho.up.set(-Math.sin(ctl.az), 0, -Math.cos(ctl.az)); else ortho.up.set(0, 1, 0);
+    Object.assign(ortho, { left: -ctl.zoom * asp, right: ctl.zoom * asp, top: ctl.zoom, bottom: -ctl.zoom, near: 1, far: 300 });
+    ortho.updateProjectionMatrix(); ortho.lookAt(ctl.target);
+    G.cam = ortho;
+  }
+  G.cam.updateMatrixWorld();
+  dirty();
+}
+/* поставить вид и вписать дом. reset — вернуть угол по умолчанию */
+const DEF_AZ = { '3d': -.62, top: 0, iso: -Math.PI / 4 };
+/* ближайший «изометрический» азимут (45° + k·90°) */
+const snapAz = (a) => Math.round((a - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) + Math.PI / 4;
+function setCamera(reset) {
+  const c = G.ctl;
+  if (reset || !c.view) { c.az = DEF_AZ[S.view]; c.el = .62; }
+  else if (c.view !== S.view) {
+    if (S.view === 'iso') c.az = snapAz(c.az);
+    else if (S.view === 'top') c.az = Math.round(c.az / (Math.PI / 2)) * (Math.PI / 2);
+    else c.el = .62;
+  }
+  c.view = S.view;
+  fitView();
+}
+const fwdOf = (az) => new THREE.Vector3(-Math.sin(az), 0, -Math.cos(az));
+const elOf = () => (S.view === 'top' ? Math.PI / 2 : S.view === 'iso' ? ISO_EL : G.ctl.el);
+function fitView() {
+  const e = extent(P), pad = S.dimOut ? 2200 : 600, H = wallH() / 1000;
+  const xs = [(e[0] - pad) / 1000, (e[2] + pad) / 1000], zs = [(e[1] - pad) / 1000, (e[3] + pad) / 1000];
+  const c = G.ctl;
+  c.target.set((xs[0] + xs[1]) / 2, 0, (zs[0] + zs[1]) / 2);
+  if (S.view === '3d') {
+    const r = Math.hypot(xs[1] - xs[0], zs[1] - zs[0]) / 2, asp = G.persp.aspect || 1;
+    const half = Math.atan(Math.tan(G.persp.fov * Math.PI / 360) * Math.min(1, asp));
+    c.dist = r / Math.sin(half) * .68;
+    applyCamera(); return;
+  }
+  c.zoom = 10; applyCamera();
+  // углы габарита в координатах ортокамеры
+  const cam = G.ortho, v = new THREE.Vector3();
+  let x1 = Infinity, x2 = -Infinity, y1 = Infinity, y2 = -Infinity;
+  for (const x of xs) for (const z of zs) for (const y of [0, H]) {
+    v.set(x, y, z).applyMatrix4(cam.matrixWorldInverse); x1 = Math.min(x1, v.x); x2 = Math.max(x2, v.x); y1 = Math.min(y1, v.y); y2 = Math.max(y2, v.y);
+  }
+  const asp = (cam.right - cam.left) / (cam.top - cam.bottom);
+  // центр кадра: вправо — вдоль оси камеры, вверх по кадру — вдоль земли от зрителя
+  const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0); right.y = 0; right.normalize();
+  c.target.addScaledVector(right, (x1 + x2) / 2).addScaledVector(fwdOf(c.az), (y1 + y2) / 2 / Math.sin(elOf()));
+  c.zoom = Math.max((y2 - y1) / 2, (x2 - x1) / 2 / asp) * 1.06;
+  applyCamera();
+}
+function rotateBy(d) { const c = G.ctl; c.az += d; applyCamera(); }
+
+function bindControls(dom) {
+  const pts = new Map(); let pinch = 0;
+  const pan = (dx, dy) => {
+    const c = G.ctl, cam = G.cam, H = $('#stage').clientHeight || 1;
+    const k = S.view === '3d' ? 2 * c.dist * Math.tan(G.persp.fov * Math.PI / 360) / H : 2 * c.zoom / H;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0); right.y = 0; right.normalize();
+    c.target.addScaledVector(right, -dx * k).addScaledVector(fwdOf(c.az), dy * k / Math.max(.35, Math.sin(elOf())));
+    applyCamera();
+  };
+  const zoom = (f) => { const c = G.ctl; if (S.view === '3d') c.dist *= f; else c.zoom *= f; applyCamera(); };
+  dom.addEventListener('contextmenu', (e) => e.preventDefault());
+  dom.addEventListener('pointerdown', (e) => { dom.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey }); pinch = 0; });
+  dom.addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+    if (pts.size === 2) {
+      const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch) zoom(pinch / d); pinch = d; pan(dx / 2, dy / 2); return;
+    }
+    const c = G.ctl;
+    if (p.pan || S.view === 'top') pan(dx, dy);
+    else if (S.view === 'iso') { c.az -= dx * .006; applyCamera(); }
+    else { c.az -= dx * .006; c.el += dy * .006; applyCamera(); }
+  });
+  const up = (e) => { pts.delete(e.pointerId); pinch = 0; };
+  dom.addEventListener('pointerup', up); dom.addEventListener('pointercancel', up);
+  dom.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.pow(1.0012, e.deltaY)); }, { passive: false });
+  dom.addEventListener('dblclick', () => fitView());
+  $('#rotL').onclick = () => rotateBy(Math.PI / 2);
+  $('#rotR').onclick = () => rotateBy(-Math.PI / 2);
+  $('#zIn').onclick = () => zoom(1 / 1.25);
+  $('#zOut').onclick = () => zoom(1.25);
+  $('#fit').onclick = () => fitView();
+}
+
+/* ---------- сборка сцены ---------- */
+const sty = () => STYLES[S.style];
+const wallH = () => (S.cut ? CUT_H : WALL_H);
+function mat(color, o = {}) {
+  const key = color + JSON.stringify(o);
+  if (!G.mats.has(key)) G.mats.set(key, new THREE.MeshStandardMaterial({ color: new THREE.Color(color).convertSRGBToLinear(), roughness: o.r ?? .88, metalness: o.m ?? 0, transparent: !!o.op, opacity: o.op ?? 1, side: o.ds ? THREE.DoubleSide : THREE.FrontSide }));
+  return G.mats.get(key);
+}
+function texture(kind) {
+  const light = S.style === 'nz', key = kind + (light ? '-l' : '');
+  if (G.texs.has(key)) return G.texs.get(key);
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256; const c = cv.getContext('2d');
+  const hash = (n) => { n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3); n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return (n >>> 0) / 4294967295; };
+  if (kind === 'tile') {
+    c.fillStyle = '#b9bcbd'; c.fillRect(0, 0, 256, 256);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { const v = 214 + hash(x * 13 + y * 7) * 14; c.fillStyle = `rgb(${v},${v + 2},${v + 4})`; c.fillRect(x * 64 + 2, y * 64 + 2, 60, 60); }
+  } else {
+    const deck = kind === 'deck';
+    for (let y = 0; y < 8; y++) {
+      const off = deck ? 0 : (y * 97) % 256;
+      for (let x = -1; x < 2; x++) {
+        const v = hash(y * 31 + x * 977 + (deck ? 5 : 0)) * 26 - 13;
+        c.fillStyle = deck ? `rgb(${150 + v},${112 + v * .8},${80 + v * .6})` : light ? `rgb(${226 + v * .6},${196 + v * .6},${166 + v * .5})` : `rgb(${200 + v},${164 + v * .8},${122 + v * .6})`;
+        c.fillRect(x * 256 + off, y * 32, 256, 32);
+        c.fillStyle = light ? 'rgba(90,50,20,.10)' : 'rgba(0,0,0,.18)'; c.fillRect(x * 256 + off, y * 32, deck ? 0 : 2, 32);
+      }
+      c.fillStyle = light && !deck ? 'rgba(90,50,20,.13)' : 'rgba(0,0,0,.22)'; c.fillRect(0, y * 32, 256, deck ? 3 : 1.5);
+    }
+  }
+  const t = new THREE.CanvasTexture(cv); t.encoding = THREE.sRGBEncoding; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  G.texs.set(key, t); return t;
+}
+const FLOOR_OF = { wet: 'tile', terrace: 'deck', hall: 'hall', tech: 'tech' };
+function floorMesh(r, kind, y) {
+  const w = (r[2] - r[0]) / 1000, d = (r[3] - r[1]) / 1000, g = new THREE.PlaneGeometry(w, d);
+  const st = sty(), f = st.floor[kind] || st.floor[kind === 'hall' || kind === 'tech' ? 'wood' : kind] || st.floor.wood;
+  let m;
+  if (f === 'tex') {
+    const tk = kind === 'tile' ? 'tile' : kind === 'deck' ? 'deck' : 'wood', rep = tk === 'tile' ? 1.2 : 1.6, uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / rep, uv.getY(i) * d / rep);
+    m = new THREE.MeshStandardMaterial({ map: texture(tk), roughness: .8 }); m.userData.own = true;
+  } else m = mat(f, { r: .95 });
+  const me = new THREE.Mesh(g, m);
+  me.rotation.x = -Math.PI / 2; me.position.set((r[0] + r[2]) / 2000, y, (r[1] + r[3]) / 2000); me.receiveShadow = true;
+  return me;
+}
+function inRoom(x, y) { return P.rooms.some((room) => room.k !== 'terrace' && room.r.some((r) => inR(x, y, r))); }
+function build() {
+  const { group, scene, sun } = G, st = sty();
+  group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.userData && o.material.userData.own) o.material.dispose(); });
+  group.clear();
+  scene.background = new THREE.Color(st.bg).convertSRGBToLinear();
+  G.hemi.intensity = S.style === 'nz' ? .78 : .66; G.sun.intensity = S.style === 'nz' ? .62 : .72;
+  const b = P.box, e = extent(P), cx = (e[0] + e[2]) / 2000, cz = (e[1] + e[3]) / 2000, size = Math.max(e[2] - e[0], e[3] - e[1]) / 1000;
+  sun.position.set(cx - size * .5, size * 1.2, cz - size * .7); sun.target.position.set(cx, 0, cz);
+  Object.assign(sun.shadow.camera, { left: -size * .85, right: size * .85, top: size * .85, bottom: -size * .85, near: 1, far: size * 4 }); sun.shadow.camera.updateProjectionMatrix();
+  const H = wallH() / 1000, mm = (v) => v / 1000;
+  const add = (me, cast = true) => { me.castShadow = cast; me.receiveShadow = true; group.add(me); return me; };
+  // земля и тень для снимка без фона
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size * 8, size * 8), mat(st.ground, { r: 1 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -.2, cz); ground.receiveShadow = true; group.add(ground); G.ground = ground;
+  const shadowM = new THREE.ShadowMaterial({ opacity: .16 }); shadowM.userData.own = true;
+  const catcher = new THREE.Mesh(new THREE.PlaneGeometry(size * 3, size * 3), shadowM);
+  catcher.rotation.x = -Math.PI / 2; catcher.position.set(cx, -.199, cz); catcher.receiveShadow = true; catcher.visible = false; group.add(catcher); G.catcher = catcher;
+  add(new THREE.Mesh(new THREE.BoxGeometry(mm(b[2] - b[0] + 300), .2, mm(b[3] - b[1] + 300)), mat(st.plinth)), false).position.set(mm(b[0] + b[2]) / 2, -.1, mm(b[1] + b[3]) / 2);
+  // террасы и крыльцо: настил чуть ниже пола дома
+  const decks = [...P.decks, ...P.rooms.filter((r) => r.k === 'terrace').flatMap((r) => r.r)];
+  for (const r of decks) {
+    add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]), .16, mm(r[3] - r[1])), mat(st.deckSide)), false).position.set(mm(r[0] + r[2]) / 2, -.1, mm(r[1] + r[3]) / 2);
+    group.add(floorMesh(r, 'deck', -.018));
+  }
+  for (const room of P.rooms) if (room.k !== 'terrace') for (const r of room.r) group.add(floorMesh(r, FLOOR_OF[room.k] === 'tile' ? 'tile' : FLOOR_OF[room.k] || 'wood', .002));
+  // стены: окна и двери закрыты перемычкой, у окон ещё подоконная часть
+  const pieces = P.walls.map((r) => ({ r, y0: 0, y1: H }));
+  for (const r of P.windows) { pieces.push({ r, y0: 0, y1: Math.min(SILL / 1000, H) }); if (H > HEAD / 1000) pieces.push({ r, y0: HEAD / 1000, y1: H }); }
+  for (const d of P.doors) if (H > HEAD / 1000) pieces.push({ r: d.r, y0: HEAD / 1000, y1: H });
+  const cap = mat(st.cap, { r: .7 });
+  for (const pc of pieces) {
+    const r = pc.r, mx = (r[0] + r[2]) / 2, my = (r[1] + r[3]) / 2, o = 120;
+    const side = (x, y) => mat(inRoom(x, y) ? st.wall : st.facade);
+    const mats = [side(r[2] + o, my), side(r[0] - o, my), pc.y1 >= H - .001 ? cap : mat(st.wall), mat(st.wall), side(mx, r[3] + o), side(mx, r[1] - o)];
+    add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]), pc.y1 - pc.y0, mm(r[3] - r[1])), mats)).position.set(mm(mx), (pc.y0 + pc.y1) / 2, mm(my));
+  }
+  for (const r of P.windows) {
+    const h = isHoriz(r), gt = Math.min(HEAD / 1000, H); if (gt <= SILL / 1000) continue;
+    const gl = new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) : .02, gt - SILL / 1000, h ? .02 : mm(r[3] - r[1])), mat(st.glass, { op: .32, r: .1 }));
+    gl.position.set(mm(r[0] + r[2]) / 2, (SILL / 1000 + gt) / 2, mm(r[1] + r[3]) / 2); group.add(gl);
+    add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]) + .01, .05, mm(r[3] - r[1]) + .01), mat(st.frame)), false).position.set(mm(r[0] + r[2]) / 2, SILL / 1000 + .025, mm(r[1] + r[3]) / 2);
+  }
+  for (const d of P.doors) {
+    const lh = Math.min(2.05, H), r = d.r, h = isHoriz(r);
+    if (d.ext) {
+      add(new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) - .02 : .06, lh, h ? .06 : mm(r[3] - r[1]) - .02), mat(st.extDoor))).position.set(mm(r[0] + r[2]) / 2, lh / 2, mm(r[1] + r[3]) / 2);
+      continue;
+    }
+    // межкомнатная дверь приоткрыта на 70°
+    const g = doorGeom(d), ang = 70 * Math.PI / 180, ll = g.L - 20;
+    const jx = h ? (d.hinge === 'a' ? 1 : -1) : 0, jy = h ? 0 : (d.hinge === 'a' ? 1 : -1), nx = h ? 0 : d.side, ny = h ? d.side : 0;
+    const dx = jx * Math.cos(ang) + nx * Math.sin(ang), dy = jy * Math.cos(ang) + ny * Math.sin(ang);
+    const lf = add(new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat(st.door)));
+    lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx);
+  }
+  for (const p of P.posts) add(new THREE.Mesh(new THREE.BoxGeometry(.15, H, .15), mat(st.post))).position.set(mm(p[0]), H / 2, mm(p[1]));
+  if (S.furn) for (const f of P.furn) {
+    if (!CAT[f.type]) continue;
+    const g = furn3D(f, st);
+    // при срезанных стенах высокая мебель в доме срезается на той же высоте
+    if (S.cut && inRoom(f.x, f.y)) { const top = new THREE.Box3().setFromObject(g).max.y; if (top > H + .02) g.scale.y = H / top; }
+    group.add(g);
+  }
+  dirty();
+}
+
+/* мебель: w — ширина, d — глубина, спинка — к −z (вверх по чертежу при повороте 0) */
+function furn3D(f, st) {
+  const g = new THREE.Group(), w = f.w / 1000, d = f.d / 1000, Z = -d / 2, X0 = -w / 2;
+  const cat = CAT[f.type];
+  const col = f.color || cat.c3, white = st.white, dark = st.dark, wood = st.wood, top = st.top;
+  const hh = (f.h || cat.h) / 1000;
+  const B = (bw, bh, bd, c, x, y, z, o) => { const me = new THREE.Mesh(new THREE.BoxGeometry(Math.max(bw, .005), Math.max(bh, .005), Math.max(bd, .005)), mat(c, o)); me.position.set(x, y, z); me.castShadow = true; me.receiveShadow = true; g.add(me); return me; };
+  const Cy = (r, h, c, x, y, z, sx = 1, sz = 1, o) => { const me = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), mat(c, o)); me.position.set(x, y, z); me.scale.set(sx, 1, sz); me.castShadow = true; me.receiveShadow = true; g.add(me); return me; };
+  const legs = (h, inset = .04, c = dark, r = .02) => { for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(r * 2, h, r * 2, c, sx * (w / 2 - inset), h / 2, sz * (d / 2 - inset)); };
+  switch (baseOf(f.type)) {
+    case 'bed2': case 'bed1': {
+      const hb = Math.min(1.05, hh);
+      B(w, .3, d, wood, 0, .15, 0); B(w - .04, .2, d - .08, white, 0, .4, .02); B(w, hb, .07, wood, 0, hb / 2, Z + .035);
+      const n = w >= 1.3 ? 2 : 1, pw = (w - .07 * (n + 1)) / n; for (let i = 0; i < n; i++) B(pw, .12, .32, white, X0 + .07 + pw / 2 + i * (pw + .07), .56, Z + .3);
+      B(w - .02, .05, d * .62, col, 0, .52, d / 2 - d * .31); break;
+    }
+    case 'nightstand': B(w, .5, d, col, 0, .25, 0); B(w * .9, .01, .01, dark, 0, .3, d / 2); break;
+    case 'wardrobe': B(w, hh, d, col, 0, hh / 2, 0); for (let x = X0 + .5; x < w / 2 - .1; x += .5) B(.01, hh - .1, .01, '#9b7a5a', x, hh / 2, d / 2 + .003); break;
+    case 'dresser': B(w, hh, d, col, 0, hh / 2, 0); for (const y of [.3, .6, .85].map((k) => k * hh)) B(w - .04, .008, .01, '#7a5f45', 0, y, d / 2 + .003); break;
+    case 'shelf': B(w, hh, d, col, 0, hh / 2, 0); for (let y = .4; y < hh; y += .4) B(w - .04, .02, .02, '#a7a196', 0, y, d / 2); break;
+    case 'sofa': case 'armchair': {
+      const a = Math.min(.22, w * .14), bk = Math.min(.24, d * .27), sh = Math.min(.42, hh * .48);
+      B(w, sh, d, col, 0, sh / 2, 0); B(w, hh - sh, bk, col, 0, sh + (hh - sh) / 2, Z + bk / 2); B(a, .22, d, col, X0 + a / 2, sh + .11, 0); B(a, .22, d, col, w / 2 - a / 2, sh + .11, 0);
+      B(w - 2 * a - .02, .1, d - bk - .03, col, 0, sh + .05, bk / 2, { r: 1 }); break;
+    }
+    case 'ottoman': B(w, .38, d, col, 0, .19, 0); B(w - .04, .06, d - .04, col, 0, .41, 0, { r: 1 }); break;
+    case 'coffee': B(w, .04, d, col, 0, hh - .02, 0); legs(hh - .04); break;
+    case 'tv': B(w, .5, d, col, 0, .25, 0); B(Math.min(w * .85, 1.45), .82, .04, '#1b1c1e', 0, .5 + .45, 0, { r: .3 }); break;
+    case 'tvwall': { const tw = Math.min(w, 1.45), th = tw * .58; B(tw, th, .05, '#1b1c1e', 0, 1.15 + th / 2, Z + .03, { r: .3 }); break; }
+    case 'rug': B(w, .012, d, col, 0, .006, 0); break;
+    case 'kbase': case 'ksink': case 'khob': case 'dishwasher':
+      B(w, .82, d - .02, col, 0, .41, -.01); B(w, .04, d, top, 0, .84, 0);
+      if (baseOf(f.type) === 'ksink') { B(Math.min(w * .62, .7), .02, d * .5, '#b9bec2', 0, .855, .02, { m: .6, r: .3 }); Cy(.015, .25, '#b9bec2', 0, .97, Z + .07, 1, 1, { m: .8, r: .2 }); }
+      if (baseOf(f.type) === 'khob') B(Math.min(w * .9, .58), .01, d * .85, '#111', 0, .865, 0, { r: .2 });
+      if (baseOf(f.type) === 'dishwasher') B(w * .9, .02, .01, '#999', 0, .74, d / 2); break;
+    case 'fridge': B(w, hh, d, col, 0, hh / 2, 0, { r: .4 }); B(.02, .5, .02, '#888', X0 + .06, 1.3, d / 2 + .01); break;
+    case 'ktall': B(w, hh, d, col, 0, hh / 2, 0); B(w * .85, .5, .01, '#222', 0, 1.05, d / 2 + .003, { r: .2 }); break;
+    case 'table': B(w, .04, d, col, 0, .74, 0); legs(.72, .06, col, .025); break;
+    case 'roundtable': Cy(w / 2, .04, col, 0, .74, 0, 1, d / w); Cy(.05, .72, col, 0, .36, 0); Cy(.25, .02, col, 0, .01, 0); break;
+    case 'chair': B(w, .05, d * .9, col, 0, .45, .02); B(w, .45, .04, col, 0, .7, Z + .02); legs(.43, .04, col, .015); break;
+    case 'desk': B(w, .04, d, col, 0, .74, 0); B(.04, .72, d - .04, col, X0 + .02, .36, 0); B(.04, .72, d - .04, col, w / 2 - .02, .36, 0); break;
+    case 'ochair': Cy(Math.min(w, d) * .42, .08, col, 0, .47, .03); B(w * .7, .5, .05, col, 0, .78, Z + .05); Cy(.025, .42, '#777', 0, .22, 0); Cy(.28, .03, '#333', 0, .03, 0); break;
+    case 'toilet': B(w * .95, .4, d * .27, white, 0, .58, Z + d * .135, { r: .3 }); Cy(w * .46, .4, white, 0, .2, Z + d * .27 + d * .36, 1, (d * .36) / (w * .46), { r: .3 }); break;
+    case 'sink': B(w, .5, d, col, 0, .55, 0); B(w, .05, d, white, 0, .825, 0, { r: .3 }); B(w * .55, .01, d * .55, '#d7dcdf', 0, .851, .02, { r: .2 }); Cy(.015, .2, '#aaa', 0, .93, Z + .06, 1, 1, { m: .8 }); break;
+    case 'sink2': B(w, .5, d, col, 0, .55, 0); B(w, .05, d, white, 0, .825, 0, { r: .3 }); for (const s of [-1, 1]) { B(w * .3, .01, d * .55, '#d7dcdf', s * w / 4, .851, .02, { r: .2 }); Cy(.015, .2, '#aaa', s * w / 4, .93, Z + .06, 1, 1, { m: .8 }); } break;
+    case 'bath': B(w, .56, d, white, 0, .28, 0, { r: .3 }); B(w - .12, .02, d - .12, '#d9e6ec', 0, .565, 0, { r: .2 }); break;
+    case 'shower': B(w, .06, d, white, 0, .03, 0); B(w, 2, .01, '#bcd7e3', 0, 1.06, d / 2, { op: .3, r: .1 }); B(.01, 2, d, '#bcd7e3', X0 + .005, 1.06, 0, { op: .3, r: .1 }); Cy(.1, .01, '#aaa', 0, 2.05, 0, 1, 1, { m: .8 }); break;
+    case 'washer': B(w, .85, d, white, 0, .425, 0, { r: .4 }); Cy(.2, .02, '#5b6670', 0, .45, d / 2 + .005, 1, 1).rotation.x = Math.PI / 2; break;
+    case 'sofaL': {
+      const d1 = Math.min(.95, d * .6), sw = Math.min(.95, w * .36), bk = Math.min(.23, d1 * .25);
+      B(w, .42, d1, col, 0, .21, Z + d1 / 2); B(sw, .42, d - d1, col, w / 2 - sw / 2, .21, Z + d1 + (d - d1) / 2);
+      B(w, .45, bk, col, 0, .64, Z + bk / 2); B(bk, .45, d, col, w / 2 - bk / 2, .64, 0); B(.2, .22, d1, col, X0 + .1, .53, Z + d1 / 2); break;
+    }
+    case 'pouf': Cy(w / 2, .42, col, 0, .21, 0, 1, d / w); break;
+    case 'lounger': B(w, .32, d * .62, col, 0, .16, d / 2 - d * .31); { const bk = B(w, .06, d * .42, col, 0, .5, Z + d * .17); bk.rotation.x = .75; } break;
+    case 'swing': {
+      Cy(.015, 1.2, dark, 0, 2.1, 0);
+      const s = new THREE.Mesh(new THREE.SphereGeometry(.5, 24, 14, 0, Math.PI * 2, Math.PI * .3, Math.PI * .7), mat(col, { ds: true, r: .9 })); s.scale.set(w, 1, d); s.position.y = 1.0; s.castShadow = true; g.add(s);
+      Cy(w * .38, .08, '#f1e6cf', 0, .62, 0, 1, d / w); break;
+    }
+    case 'bbq': legs(.7, .05, dark, .02); B(w, .25, d, col, 0, .82, 0); B(w * .9, .01, d * .85, '#666', 0, .95, 0, { m: .6 }); break;
+    case 'equip': B(w, hh, d, col, 0, hh / 2, 0, { r: .5 }); for (let x = X0 + .3; x < w / 2 - .1; x += .5) B(.01, hh - .1, .01, '#9b968d', x, hh / 2, d / 2 + .003); break;
+    case 'boiler': B(w, .75, d, white, 0, 1.45, 0, { r: .4 }); for (const x of [-.15, -.05, .05, .15]) Cy(.012, 1.05, '#a7712f', x * w * 1.6, .55, Z + .06, 1, 1, { m: .7 }); break;
+    case 'heater': Cy(Math.min(w, d) / 2, hh, white, 0, hh / 2, 0, 1, 1, { r: .4 }); break;
+    case 'bench': B(w, .1, d, col, 0, .42, 0); legs(.38, .05, dark, .02); break;
+    case 'towel': for (let i = 0; i < 6; i++) B(w, .02, .02, col, 0, .85 + i * .13, 0, { m: .7, r: .3 }); B(.025, .75, .025, col, X0, 1.18, 0, { m: .7 }); B(.025, .75, .025, col, w / 2, 1.18, 0, { m: .7 }); break;
+    case 'saunabench': B(w, .04, d, col, 0, hh - .02, 0); B(w, hh - .04, .03, col, 0, (hh - .04) / 2, d / 2 - .015); B(.04, hh - .04, d - .04, col, X0 + .02, (hh - .04) / 2, 0); B(.04, hh - .04, d - .04, col, w / 2 - .02, (hh - .04) / 2, 0); break;
+    case 'stove': B(w, .6, d, col, 0, .3, 0, { m: .3, r: .5 }); B(w * .9, .16, d * .9, '#8a8580', 0, .68, 0); break;
+    default: B(w, Math.max(.3, hh), d, col, 0, Math.max(.3, hh) / 2, 0);
+  }
+  if (f.mir) g.scale.x = -1;
+  g.position.set(f.x / 1000, 0, f.y / 1000); g.rotation.y = -f.rot * Math.PI / 180;
+  return g;
+}
+
+/* ---------- подписи и размеры поверх 3D ---------- */
+const FONT_T = '"Raleway", Arial, sans-serif', FONT_D = '"Alumni Sans", "Arial Narrow", sans-serif';
+function projector(W, H) {
+  const v = new THREE.Vector3(), cam = G.cam;
+  return (x, y, h) => {
+    v.set(x / 1000, h, y / 1000).project(cam);
+    return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, ok: v.z > -1 && v.z < 1 };
+  };
+}
+function drawOverlay(c, W, H, k) {
+  if (!S.names && !S.areas && !S.dimOut && !S.dimIn) return;
+  const pr = projector(W, H), st = sty(), hTop = wallH() / 1000 + .01;
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  if (S.dimIn) drawInnerDims(c, pr, k, hTop, st);
+  if (S.dimOut) drawOuterDims(c, pr, k, hTop, st);
+  if (S.names || S.areas) drawLabels(c, pr, k, st);
+}
+function label(c, text, x, y, ang, font, color, halo, k) {
+  c.save(); c.translate(x, y); c.rotate(ang); c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.lineWidth = 3.5 * k; c.strokeStyle = halo; c.strokeText(text, 0, 0); c.fillStyle = color; c.fillText(text, 0, 0); c.restore();
+}
+/* размерная линия между точками плана a и b (мм) на высоте h; e1/e2 — начала выносных линий */
+function dimLine(c, pr, k, h, a, b, txt, st, opt = {}) {
+  const A = pr(a[0], a[1], h), Bp = pr(b[0], b[1], h); if (!A.ok || !Bp.ok) return;
+  const dx = Bp.x - A.x, dy = Bp.y - A.y, L = Math.hypot(dx, dy); if (L < 6 * k) return;
+  const ux = dx / L, uy = dy / L;
+  c.strokeStyle = st.ink; c.lineWidth = (opt.bold ? 1.4 : 1.1) * k;
+  if (opt.e1) for (const [e, P2] of [[opt.e1, A], [opt.e2, Bp]]) {
+    const E = pr(e[0], e[1], h); if (!E.ok) continue;
+    const ex = P2.x - E.x, ey = P2.y - E.y, el = Math.hypot(ex, ey) || 1;
+    c.globalAlpha = .55; c.beginPath(); c.moveTo(E.x + ex / el * 3 * k, E.y + ey / el * 3 * k); c.lineTo(P2.x + ex / el * 5 * k, P2.y + ey / el * 5 * k); c.stroke(); c.globalAlpha = 1;
+  }
+  c.beginPath(); c.moveTo(A.x - ux * 5 * k, A.y - uy * 5 * k); c.lineTo(Bp.x + ux * 5 * k, Bp.y + uy * 5 * k); c.stroke();
+  // засечки под 45°
+  const t = 4.5 * k, tx = (ux - uy) * Math.SQRT1_2, ty = (uy + ux) * Math.SQRT1_2;
+  c.lineWidth = 1.8 * k;
+  for (const p of [A, Bp]) { c.beginPath(); c.moveTo(p.x - tx * t, p.y - ty * t); c.lineTo(p.x + tx * t, p.y + ty * t); c.stroke(); }
+  const fs = (opt.fs || 11.5) * k; c.font = `600 ${fs}px ${FONT_T}`;
+  const tw = c.measureText(txt).width;
+  if (tw > L - 4 * k && !opt.force) return;
+  let ang = Math.atan2(dy, dx); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+  // подпись над линией: со стороны, противоположной выносным линиям, иначе — «вверх» экрана
+  let nx = Math.sin(ang), ny = -Math.cos(ang);
+  if (opt.out) { const O = pr(opt.out[0], opt.out[1], h); if (O.ok) { const mx = (A.x + Bp.x) / 2, my = (A.y + Bp.y) / 2; if ((O.x - mx) * nx + (O.y - my) * ny < 0) { nx = -nx; ny = -ny; } } }
+  const off = fs * .75;
+  label(c, txt, (A.x + Bp.x) / 2 + nx * off, (A.y + Bp.y) / 2 + ny * off, ang, c.font, st.ink, st.halo, k);
+}
+function drawInnerDims(c, pr, k, h, st) {
+  for (const room of P.rooms) {
+    const r = mainRect(room), w = r[2] - r[0], d = r[3] - r[1];
+    if (w < 700 || d < 700) continue;
+    const oy = Math.min(420, d * .16), ox = Math.min(420, w * .16);
+    dimLine(c, pr, k, h, [r[0], r[1] + oy], [r[2], r[1] + oy], fmtMM(w), st, { fs: 10.5, out: [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2] });
+    dimLine(c, pr, k, h, [r[0] + ox, r[1]], [r[0] + ox, r[3]], fmtMM(d), st, { fs: 10.5, out: [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2] });
+  }
+}
+function drawOuterDims(c, pr, k, h, st) {
+  const b = P.box, e = extent(P), open = [...P.windows, ...P.doors.filter((d) => d.ext).map((d) => d.r)];
+  const sides = [
+    { ax: 0, at: b[1], lim: e[1], dir: -1, lo: b[0], hi: b[2], hit: (r) => r[1] <= b[1] + 15 },
+    { ax: 0, at: b[3], lim: e[3], dir: 1, lo: b[0], hi: b[2], hit: (r) => r[3] >= b[3] - 15 },
+    { ax: 1, at: b[0], lim: e[0], dir: -1, lo: b[1], hi: b[3], hit: (r) => r[0] <= b[0] + 15 },
+    { ax: 1, at: b[2], lim: e[2], dir: 1, lo: b[1], hi: b[3], hit: (r) => r[2] >= b[2] - 15 },
+  ];
+  for (const s of sides) {
+    // точки цепочки: углы стены и края проёмов на этой стороне
+    const pts = new Set([s.lo, s.hi]);
+    for (const r of open) if (s.hit(r)) { pts.add(s.ax === 0 ? r[0] : r[1]); pts.add(s.ax === 0 ? r[2] : r[3]); }
+    // стена может начинаться не от угла габарита (выступ тамбура) — берём её края
+    const wallsOn = P.walls.filter((r) => s.hit(r));
+    if (wallsOn.length) { pts.add(Math.min(...wallsOn.map((r) => (s.ax === 0 ? r[0] : r[1])))); pts.add(Math.max(...wallsOn.map((r) => (s.ax === 0 ? r[2] : r[3])))); }
+    const arr = [...pts].filter((v) => v >= s.lo && v <= s.hi).sort((a, q) => a - q);
+    const base = s.dir < 0 ? Math.min(s.at, s.lim) : Math.max(s.at, s.lim);
+    const l1 = base + s.dir * 650, l2 = base + s.dir * 1350;
+    const P2 = (along, across) => (s.ax === 0 ? [along, across] : [across, along]);
+    const out = P2((s.lo + s.hi) / 2, s.at + s.dir * 5000);
+    if (arr.length > 2) for (let i = 0; i < arr.length - 1; i++) {
+      dimLine(c, pr, k, h, P2(arr[i], l1), P2(arr[i + 1], l1), fmtMM(arr[i + 1] - arr[i]), st, { e1: P2(arr[i], s.at), e2: P2(arr[i + 1], s.at), fs: 10.5, out });
+    }
+    dimLine(c, pr, k, h, P2(s.lo, l2), P2(s.hi, l2), fmtMM(s.hi - s.lo), st, { e1: P2(s.lo, arr.length > 2 ? l1 : s.at), e2: P2(s.hi, arr.length > 2 ? l1 : s.at), bold: true, fs: 13, force: true, out });
+  }
+}
+function drawLabels(c, pr, k, st) {
+  const h = .05;
+  for (const room of P.rooms) {
+    const r = mainRect(room), lp = room.lp || [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2];
+    const p = pr(lp[0], lp[1], h); if (!p.ok) continue;
+    const both = S.names && S.areas, fsN = 12.5 * k, fsA = 19 * k;
+    if (S.names) label(c, room.n, p.x, p.y - (both ? fsA * .42 : 0), 0, `700 ${fsN}px ${FONT_T}`, st.label, st.halo, k);
+    if (S.areas) label(c, fmtA(room.a) + ' м²', p.x, p.y + (both ? fsN * .78 : 0), 0, `800 ${fsA}px ${FONT_D}`, S.style === 'nz' ? '#5D74FF' : st.label, st.halo, k);
+  }
+}
+
+/* ---------- снимок PNG ---------- */
+async function snapshot(transparent) {
+  if (!G) return;
+  const sc = +$('#shotScale').value || 2, r = G.renderer, st = $('#stage'), w = st.clientWidth, h = st.clientHeight, pr0 = r.getPixelRatio();
+  const W = Math.round(w * sc), Hh = Math.round(h * sc);
+  r.setPixelRatio(sc); r.setSize(w, h, false);
+  const bg = G.scene.background;
+  if (transparent) { G.scene.background = null; r.setClearColor(0x000000, 0); G.ground.visible = false; G.catcher.visible = true; }
+  r.render(G.scene, G.cam);
+  const out = document.createElement('canvas'); out.width = W; out.height = Hh;
+  const c = out.getContext('2d');
+  c.drawImage(r.domElement, 0, 0, W, Hh);
+  drawOverlay(c, W, Hh, sc);
+  if (transparent) { G.scene.background = bg; G.ground.visible = true; G.catcher.visible = false; }
+  r.setPixelRatio(pr0); r.setSize(w, h, false); dirty();
+  let res = out;
+  if (transparent) res = cropAlpha(out, Math.round(24 * sc));
+  if ($('#shotCap').checked) res = withCaption(res, sc, transparent);
+  const name = `${P.id}-${{ '3d': '3d', top: 'sverhu', iso: 'izometriya' }[S.view]}-${transparent ? 'bez-fona' : 's-fonom'}.png`;
+  res.toBlob((blob) => {
+    if (!blob) { toast('Не удалось сохранить картинку'); return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Снимок сохранён: ' + name);
+  }, 'image/png');
+}
+/* обрезка прозрачных полей вокруг дома */
+function cropAlpha(cv, pad) {
+  const c = cv.getContext('2d'), { width: W, height: H } = cv, d = c.getImageData(0, 0, W, H).data;
+  let x1 = W, y1 = H, x2 = -1, y2 = -1;
+  for (let y = 0; y < H; y++) { const row = y * W * 4; for (let x = 0; x < W; x++) if (d[row + x * 4 + 3] > 8) { if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; y2 = y; } }
+  if (x2 < 0) return cv;
+  x1 = Math.max(0, x1 - pad); y1 = Math.max(0, y1 - pad); x2 = Math.min(W - 1, x2 + pad); y2 = Math.min(H - 1, y2 + pad);
+  const o = document.createElement('canvas'); o.width = x2 - x1 + 1; o.height = y2 - y1 + 1; o.getContext('2d').drawImage(cv, -x1, -y1); return o;
+}
+function withCaption(cv, k, transparent) {
+  const inner = P.rooms.filter((r) => r.k !== 'terrace').reduce((s, r) => s + r.a, 0), b = P.box;
+  const pad = 22 * k, capH = 64 * k, o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height + capH;
+  const c = o.getContext('2d');
+  if (!transparent) { c.fillStyle = STYLES[S.style].bg; c.fillRect(0, 0, o.width, o.height); }
+  c.drawImage(cv, 0, 0);
+  c.fillStyle = '#261A7E'; c.textBaseline = 'alphabetic';
+  c.font = `800 ${30 * k}px ${FONT_D}`; c.fillText(P.title.toUpperCase(), pad, cv.height + 34 * k);
+  c.fillStyle = '#6E6E78'; c.font = `500 ${13 * k}px ${FONT_T}`;
+  c.fillText(`${P.note} · помещения ${fmtA(Math.round(inner * 100) / 100)} м² · габарит ${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм`, pad, cv.height + 54 * k);
+  return o;
+}
+$('#shotBg').onclick = () => snapshot(false);
+$('#shotAlpha').onclick = () => snapshot(true);
+
+/* ---------- запуск ---------- */
+renderPlans(); syncUI(); renderInfo();
+(async () => {
+  try { await init3D(); } catch (e) { $('#loading').textContent = 'Не удалось загрузить 3D. Проверьте подключение к интернету.'; return; }
+  $('#loading').hidden = true;
+  build(); setCamera(true);
+  if (document.fonts) document.fonts.ready.then(dirty);
+})();
+window.addEventListener('hashchange', () => { const id = decodeURIComponent(location.hash.slice(1)); if (id !== S.plan && PLANS.some((p) => p.id === id)) openPlan(id); });
+})();
+</script>
+</body>
+</html>
