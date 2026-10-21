@@ -90,10 +90,15 @@ h1,h2,h3,p{margin:0}
 .pick b{font:700 13px var(--text);color:var(--brand)}
 .pick label{display:flex;align-items:center;gap:6px;color:var(--muted)}
 .pick input{width:34px;height:24px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer}
+.pick .seg button{padding:5px 10px;font-size:12px}
+.pick-rot{display:flex;gap:4px}
+.pick-rot button{width:30px;height:28px;border:1.5px solid var(--brand);border-radius:9px;background:var(--panel);color:var(--brand);font:700 15px/1 var(--text)}
+.pick-rot button:hover{background:var(--brand-soft)}
 .pick-x{border:0;background:none;font:400 20px/1 var(--text);color:var(--muted);padding:0 2px}
 .toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow)}
 
 @media (max-width:860px){
+  .pick{flex-wrap:wrap;right:14px}
   #app{height:auto;min-height:0;display:block}
   .top{flex-direction:column;align-items:stretch;gap:10px;padding:12px 16px}
   .brand h1{font-size:26px}
@@ -143,7 +148,7 @@ h1,h2,h3,p{margin:0}
       <div class="grp">
         <h3>Цвет мебели <button class="lnk" id="fcolReset">Сбросить</button></h3>
         <div class="fcols" id="fcols"></div>
-        <div class="muted">Нажмите на предмет в 3D, чтобы перекрасить только его.</div>
+        <div class="muted">Нажмите на предмет, чтобы перекрасить или повернуть только его.</div>
       </div>
       <div class="grp">
         <h3>Пол</h3>
@@ -163,6 +168,8 @@ h1,h2,h3,p{margin:0}
           <button class="btn" data-t="cut">Срезать стены</button>
           <button class="btn" data-t="furn">Мебель</button>
         </div>
+        <div class="muted">Мебель и подписи помещений можно перетаскивать. Нажмите на дверь, чтобы выбрать деревянную или стеклянную.</div>
+        <button class="lnk" id="layoutReset" style="justify-self:start">Вернуть расстановку как на чертеже</button>
       </div>
       <div class="grp">
         <h3>Снимок PNG</h3>
@@ -188,10 +195,19 @@ h1,h2,h3,p{margin:0}
       <div class="hint" id="hint"></div>
       <div class="loading" id="loading">Загружаю 3D…</div>
       <div class="toast" id="toast" hidden></div>
+      <div class="pick" id="dpick" hidden>
+        <b id="dpickName">Дверь</b>
+        <div class="seg" id="dkind"><button data-k="wood">Деревянная</button><button data-k="glass">Стеклянная</button></div>
+        <label id="dcolL">Цвет <input type="color" id="dcol"></label>
+        <button class="lnk" id="dReset">Как было</button>
+        <button class="pick-x" id="dClose" aria-label="Закрыть">×</button>
+      </div>
       <div class="pick" id="pick" hidden>
         <b id="pickName"></b>
         <label>Цвет <input type="color" id="pickColor"></label>
         <button class="lnk" id="pickReset">Как у группы</button>
+        <span class="pick-rot"><button id="rotM" title="Повернуть на 15° против часовой">↺</button><button id="rotP" title="Повернуть на 15° по часовой (R — на 90°)">↻</button></span>
+        <button class="lnk" id="pickHome">На место</button>
         <button class="pick-x" id="pickClose" aria-label="Закрыть">×</button>
       </div>
     </section>
@@ -322,9 +338,10 @@ function doorGeom(dr) {
 
 /* ---------- состояние ---------- */
 const DEF = { plan: PLANS[0].id, view: 'iso', style: 'nz', names: true, areas: true, dimOut: false, dimIn: false, cut: true, furn: true,
-  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E', fcol: {}, icol: {} };
+  tilt: 35, persp: 18, sunAz: 325, sunEl: 55, sunPow: 100, floor: '#c49a6c', labelColor: '#261A7E', fcol: {}, icol: {}, ipos: {}, lpos: {}, dkind: {}, dcol: {} };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(lsGet('pl3d') || '{}')); } catch (e) { }
+for (const k of ['fcol', 'icol', 'ipos', 'lpos', 'dkind', 'dcol']) if (!S[k] || typeof S[k] !== 'object') S[k] = {};
 const hashId = decodeURIComponent(location.hash.slice(1));
 if (PLANS.some((p) => p.id === hashId)) S.plan = hashId;
 if (!PLANS.some((p) => p.id === S.plan)) S.plan = PLANS[0].id;
@@ -378,7 +395,7 @@ function syncUI() {
   $('#persp').value = S.persp; $('#perspV').textContent = S.persp ? S.persp + '°' : 'нет';
   const touch = matchMedia('(pointer:coarse)').matches;
   $('#hint').textContent = S.view === 'top'
-    ? (touch ? 'Палец — сдвиг, два пальца — масштаб' : 'Тяните — сдвиг, колёсико — масштаб, кнопки справа — поворот')
+    ? (touch ? 'Палец — сдвиг, два пальца — масштаб' : 'Тяните фон — сдвиг, мебель и подписи — переставить; колёсико — масштаб')
     : S.view === 'iso'
       ? (touch ? 'Палец: влево-вправо — поворот, вверх-вниз — наклон; два пальца — масштаб' : 'Тяните: влево-вправо — поворот, вверх-вниз — наклон; правая кнопка или Shift — сдвиг, колёсико — масштаб')
       : (touch ? 'Палец — вращение, два пальца — масштаб' : 'Тяните — вращение, правая кнопка или Shift — сдвиг, колёсико — масштаб');
@@ -412,13 +429,45 @@ function renderFcols() {
 $('#fcolReset').onclick = () => { S.fcol = {}; S.icol[P.id] = {}; save(); renderFcols(); closePick(); if (G) build(); };
 /* перекраска одного предмета: нажатие на него в 3D */
 let picked = -1;
+/* расстановка: свои положения предметов и подписей поверх чертежа, отдельно для каждого дома */
+const own = (k) => (S[k][P.id] = S[k][P.id] || {});
+const effF = (f, i) => { const o = (S.ipos[P.id] || {})[i]; return o ? Object.assign({}, f, o) : f; };
+function rotItem(i, d) {
+  const f = effF(P.furn[i], i); own('ipos')[i] = { x: f.x, y: f.y, rot: ((f.rot + d) % 360 + 360) % 360 };
+  save(); build();
+}
+$('#rotM').onclick = () => { if (picked >= 0) rotItem(picked, -15); };
+$('#rotP').onclick = () => { if (picked >= 0) rotItem(picked, 15); };
+$('#pickHome').onclick = () => { if (picked < 0) return; delete own('ipos')[picked]; save(); build(); };
+$('#layoutReset').onclick = () => { S.ipos[P.id] = {}; S.lpos[P.id] = {}; save(); closePick(); if (G) build(); };
+document.addEventListener('keydown', (e) => {
+  if (picked < 0 || e.target.closest('input,select,textarea')) return;
+  if (e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') { rotItem(picked, e.shiftKey ? -90 : 90); e.preventDefault(); }
+  if (e.key === 'Escape') closePick();
+});
+/* двери: деревянная или стеклянная, свой цвет полотна или рамы */
+let dPicked = -1;
+const doorKind = (i) => (S.dkind[P.id] || {})[i] || 'wood';
+function openDoor(i) {
+  closePick(); dPicked = i; const d = P.doors[i];
+  $('#dpickName').textContent = d.ext ? 'Входная дверь' : 'Межкомнатная дверь';
+  $$('#dkind button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === doorKind(i)));
+  $('#dcol').value = (S.dcol[P.id] || {})[i] || doorColor(d, i);
+  $('#dpick').hidden = false;
+}
+function closeDoor() { dPicked = -1; $('#dpick').hidden = true; }
+$$('#dkind button').forEach((b) => { b.onclick = () => { if (dPicked < 0) return; own('dkind')[dPicked] = b.dataset.k; save(); build(); openDoor(dPicked); }; });
+$('#dcol').oninput = (e) => { if (dPicked < 0) return; own('dcol')[dPicked] = e.target.value; save(); build(); };
+$('#dReset').onclick = () => { if (dPicked < 0) return; delete own('dkind')[dPicked]; delete own('dcol')[dPicked]; save(); build(); openDoor(dPicked); };
+$('#dClose').onclick = closeDoor;
 function openPick(i) {
+  closeDoor();
   picked = i; const f = P.furn[i], g = groupOf(f.type);
   $('#pickName').textContent = CAT[f.type].n;
   $('#pickColor').value = itemColor(f, i) || (g && (S.fcol[g.k] || g.def)) || CAT[f.type].c3;
   $('#pick').hidden = false;
 }
-function closePick() { picked = -1; $('#pick').hidden = true; }
+function closePick() { picked = -1; $('#pick').hidden = true; if (G && G.sel) { G.sel = null; dirty(); } }
 $('#pickColor').oninput = (e) => { if (picked < 0) return; (S.icol[P.id] = S.icol[P.id] || {})[picked] = e.target.value; save(); build(); };
 $('#pickReset').onclick = () => { if (picked < 0) return; if (S.icol[P.id]) delete S.icol[P.id][picked]; save(); build(); openPick(picked); };
 $('#pickClose').onclick = closePick;
@@ -435,7 +484,7 @@ $('#tilt').oninput = (e) => { S.tilt = +e.target.value; save(); if (G) { G.ctl.e
 /* перспектива в изометрии: 0 — строгая изометрия (ортогональная), больше — сильнее сходятся линии */
 $('#persp').oninput = (e) => { S.persp = +e.target.value; save(); syncUI(); if (G) fitView(); };
 function openPlan(id) {
-  S.plan = id; P = PLANS.find((p) => p.id === id); save(); closePick();
+  S.plan = id; P = PLANS.find((p) => p.id === id); save(); closePick(); closeDoor();
   history.replaceState(null, '', '#' + id);
   syncUI(); renderInfo();
   const btn = $$('#plans .plan')[PLANS.indexOf(P)]; if (btn) btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -478,7 +527,7 @@ function renderFrame() {
   G.renderer.render(G.scene, G.cam);
   const ov = $('#ov'), c = ov.getContext('2d'), dpr = ov.width / ov.clientWidth || 1;
   c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, ov.width, ov.height);
-  drawOverlay(c, ov.width, ov.height, dpr);
+  G.labelHits = []; drawOverlay(c, ov.width, ov.height, dpr, G.labelHits);
 }
 
 /* камера: орбита вокруг цели. 3D — перспектива, «сверху» и «изометрия» — ортографические */
@@ -575,33 +624,81 @@ function bindControls(dom) {
   };
   const zoom = (f) => { const c = G.ctl; if (isPersp()) c.dist *= f; else c.zoom *= f; applyCamera(); };
   dom.addEventListener('contextmenu', (e) => e.preventDefault());
-  let down = null;
-  dom.addEventListener('pointerdown', (e) => { dom.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey }); pinch = 0; down = { x: e.clientX, y: e.clientY, n: pts.size, b: e.button }; });
-  // щелчок без сдвига — выбор предмета мебели для перекраски
-  dom.addEventListener('pointerup', (e) => {
-    if (!down || down.n > 1 || down.b !== 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
-    const r = dom.getBoundingClientRect(), m = new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
-    const rc = new THREE.Raycaster(); rc.setFromCamera(m, G.cam);
+  const rc = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const ray = (e) => { const r = dom.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); rc.setFromCamera(ndc, G.cam); };
+  // точка на горизонтальной плоскости высоты h под курсором, в метрах
+  const onPlane = (e, h) => { ray(e); const o = rc.ray.origin, d = rc.ray.direction; if (Math.abs(d.y) < 1e-6) return null; const t = (h - o.y) / d.y; return t > 0 ? o.clone().addScaledVector(d, t) : null; };
+  // что под курсором: подпись, предмет мебели, дверь — или ничего
+  const hitAt = (e) => {
+    const r = dom.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const lb = (G.labelHits || []).find((h) => x >= h.x1 && x <= h.x2 && y >= h.y1 && y <= h.y2);
+    if (lb) return { kind: 'label', i: lb.i };
+    ray(e);
     for (const h of rc.intersectObjects(G.group.children, true)) {
-      let o = h.object; while (o && o.userData.fi === undefined && o.parent !== G.group) o = o.parent;
-      if (o && o.userData.fi !== undefined) { openPick(o.userData.fi); return; }
-      if (h.object.material && !h.object.material.transparent) break;   // попали в стену или пол
+      let o = h.object; while (o && o.userData.fi === undefined && o.userData.door === undefined && o.parent && o.parent !== G.group) o = o.parent;
+      if (o && o.userData.fi !== undefined) return { kind: 'furn', i: o.userData.fi, obj: o };
+      if (o && o.userData.door !== undefined) return { kind: 'door', i: o.userData.door };
+      if (h.object.material && !h.object.material.transparent) break;   // стена или пол
     }
-    closePick();
+    return null;
+  };
+  let drag = null;
+  dom.addEventListener('pointerdown', (e) => {
+    dom.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.button === 1 || e.shiftKey }); pinch = 0;
+    drag = { mode: 'cam', x: e.clientX, y: e.clientY, moved: false };
+    if (pts.size > 1 || e.button !== 0 || e.shiftKey) return;
+    const hit = hitAt(e); if (!hit) return;
+    drag = Object.assign(drag, { mode: hit.kind, i: hit.i, obj: hit.obj });
+    if (hit.kind === 'furn') { const gp = onPlane(e, 0); drag.off = gp ? gp.sub(hit.obj.position) : new THREE.Vector3(); }
   });
   dom.addEventListener('pointermove', (e) => {
-    const p = pts.get(e.pointerId); if (!p) return;
+    const p = pts.get(e.pointerId);
+    if (!p) { hover(e); return; }
     const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+    if (drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true;
     if (pts.size === 2) {
       const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
       if (pinch) zoom(pinch / d); pinch = d; pan(dx / 2, dy / 2); return;
     }
+    if (drag && drag.mode === 'furn') {
+      if (!drag.moved) return;
+      const gp = onPlane(e, 0); if (!gp) return;
+      drag.obj.position.x = gp.x - drag.off.x; drag.obj.position.z = gp.z - drag.off.z; dom.style.cursor = 'grabbing'; dirty(); return;
+    }
+    if (drag && drag.mode === 'label') {
+      if (!drag.moved) return;
+      const gp = onPlane(e, .05); if (!gp) return;
+      own('lpos')[drag.i] = [Math.round(gp.x * 1000), Math.round(gp.z * 1000)]; dom.style.cursor = 'grabbing'; dirty(); return;
+    }
+    if (drag && drag.mode === 'door') return;
     const c = G.ctl;
     if (p.pan || S.view === 'top') pan(dx, dy);
     else { c.az -= dx * .006; c.el += dy * .006; S.tilt = Math.round(clamp(c.el, .17, 1.55) * 180 / Math.PI); applyCamera(); }
   });
-  const up = (e) => { if (pts.has(e.pointerId)) save(); pts.delete(e.pointerId); pinch = 0; };
+  const up = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId); pinch = 0;
+    const d = drag; drag = null; if (!d) return;
+    if (d.mode === 'furn') {
+      if (d.moved) {
+        const f = effF(P.furn[d.i], d.i);
+        own('ipos')[d.i] = { x: Math.round(d.obj.position.x * 1000), y: Math.round(d.obj.position.z * 1000), rot: f.rot };
+        save(); build();
+      }
+      openPick(d.i);
+    } else if (d.mode === 'door') { if (!d.moved) openDoor(d.i); }
+    else if (d.mode === 'label') save();
+    else { save(); if (!d.moved && e.button === 0) { closePick(); closeDoor(); } }
+    dom.style.cursor = '';
+  };
   dom.addEventListener('pointerup', up); dom.addEventListener('pointercancel', up);
+  // курсор подсказывает, что можно тянуть или нажать
+  let hoverRaf = 0;
+  const hover = (e) => {
+    if (hoverRaf) return;
+    hoverRaf = requestAnimationFrame(() => { hoverRaf = 0; const h = hitAt(e); dom.style.cursor = !h ? '' : h.kind === 'door' ? 'pointer' : 'grab'; });
+  };
   dom.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.pow(1.0012, e.deltaY)); }, { passive: false });
   dom.addEventListener('dblclick', () => fitView());
   $('#rotL').onclick = () => rotateBy(Math.PI / 2);
@@ -670,6 +767,24 @@ function applyLight() {
   Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: .5, far: R * 2.5 }); sun.shadow.camera.updateProjectionMatrix();
   dirty();
 }
+/* цвет двери по умолчанию: у деревянной — полотно, у стеклянной — рама */
+function doorColor(d, i) { const st = sty(); return doorKind(i) === 'glass' ? '#3f434a' : d.ext ? st.extDoor : st.door; }
+/* полотно двери вдоль локальной оси x, низ — на полу */
+function doorLeaf(L, lh, t, kind, col) {
+  const g = new THREE.Group(), st = sty();
+  const box = (w, h, d, c, x, y, o) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c, o)); m.position.set(x, y, 0); m.castShadow = !o || !o.op; m.receiveShadow = true; g.add(m); return m; };
+  if (kind === 'glass') {
+    const f = .045;
+    box(L, f, t, col, 0, lh - f / 2); box(L, f * 1.6, t, col, 0, f * .8);
+    box(f, lh, t, col, -L / 2 + f / 2, lh / 2); box(f, lh, t, col, L / 2 - f / 2, lh / 2);
+    box(L - 2 * f, lh - f * 2.6, .012, '#cfe6f0', 0, lh / 2 + f * .3, { op: .32, r: .05 });
+    box(.02, .3, t + .04, '#9aa0a6', L / 2 - f - .06, lh * .5, { m: .7, r: .3 });
+  } else {
+    box(L, lh, t, col, 0, lh / 2);
+    box(.12, .02, t + .05, '#9aa0a6', L / 2 - .1, lh * .48, { m: .7, r: .3 });
+  }
+  return g;
+}
 function inRoom(x, y) { return P.rooms.some((room) => room.k !== 'terrace' && room.r.some((r) => inR(x, y, r))); }
 function build() {
   const { group, scene, sun } = G, st = sty();
@@ -713,26 +828,29 @@ function build() {
     gl.position.set(mm(r[0] + r[2]) / 2, (SILL / 1000 + gt) / 2, mm(r[1] + r[3]) / 2); group.add(gl);
     add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]) + .01, .05, mm(r[3] - r[1]) + .01), mat(st.frame)), false).position.set(mm(r[0] + r[2]) / 2, SILL / 1000 + .025, mm(r[1] + r[3]) / 2);
   }
-  for (const d of P.doors) {
+  for (const [i, d] of P.doors.entries()) {
     const lh = Math.min(2.05, H), r = d.r, h = isHoriz(r);
+    const kind = doorKind(i), col = (S.dcol[P.id] || {})[i] || doorColor(d, i);
     if (d.ext) {
-      add(new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) - .02 : .06, lh, h ? .06 : mm(r[3] - r[1]) - .02), mat(st.extDoor))).position.set(mm(r[0] + r[2]) / 2, lh / 2, mm(r[1] + r[3]) / 2);
+      const L = (h ? r[2] - r[0] : r[3] - r[1]) / 1000 - .02;
+      const lf = doorLeaf(L, lh, .06, kind, col); lf.userData.door = i;
+      lf.position.set(mm(r[0] + r[2]) / 2, 0, mm(r[1] + r[3]) / 2); lf.rotation.y = h ? 0 : Math.PI / 2; group.add(lf);
       continue;
     }
     // межкомнатная дверь приоткрыта на 70°
     const g = doorGeom(d), ang = 70 * Math.PI / 180, ll = g.L - 20;
     const jx = h ? (d.hinge === 'a' ? 1 : -1) : 0, jy = h ? 0 : (d.hinge === 'a' ? 1 : -1), nx = h ? 0 : d.side, ny = h ? d.side : 0;
     const dx = jx * Math.cos(ang) + nx * Math.sin(ang), dy = jy * Math.cos(ang) + ny * Math.sin(ang);
-    const lf = add(new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat(st.door)));
-    lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx);
+    const lf = doorLeaf(mm(ll), lh, .04, kind, col); lf.userData.door = i;
+    lf.position.set(mm(g.hx + dx * ll / 2), 0, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx); group.add(lf);
   }
   for (const p of P.posts) add(new THREE.Mesh(new THREE.BoxGeometry(.15, H, .15), mat(st.post))).position.set(mm(p[0]), H / 2, mm(p[1]));
   if (S.furn) for (const [i, f] of P.furn.entries()) {
     if (!CAT[f.type]) continue;
-    const g = furn3D(f, st, i);
+    const fe = effF(f, i), g = furn3D(fe, st, i);
     g.userData.fi = i;
     // при срезанных стенах высокая мебель в доме срезается на той же высоте
-    if (S.cut && inRoom(f.x, f.y)) { const top = new THREE.Box3().setFromObject(g).max.y; if (top > H + .02) g.scale.y = H / top; }
+    if (S.cut && inRoom(fe.x, fe.y)) { const top = new THREE.Box3().setFromObject(g).max.y; if (top > H + .02) g.scale.y = H / top; }
     group.add(g);
   }
   dirty();
@@ -852,13 +970,13 @@ function projector(W, H) {
     return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, ok: v.z > -1 && v.z < 1 };
   };
 }
-function drawOverlay(c, W, H, k) {
+function drawOverlay(c, W, H, k, hits) {
   if (!S.names && !S.areas && !S.dimOut && !S.dimIn) return;
   const pr = projector(W, H), st = sty(), hTop = wallH() / 1000 + .01;
   c.lineCap = 'round'; c.lineJoin = 'round';
   if (S.dimIn) drawInnerDims(c, pr, k, hTop, st);
   if (S.dimOut) drawOuterDims(c, pr, k, hTop, st);
-  if (S.names || S.areas) drawLabels(c, pr, k);
+  if (S.names || S.areas) drawLabels(c, pr, k, hits);
 }
 function label(c, text, x, y, ang, font, color, halo, k) {
   c.save(); c.translate(x, y); c.rotate(ang); c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -926,16 +1044,18 @@ function drawOuterDims(c, pr, k, h, st) {
   }
 }
 /* подписи помещений: Raleway, без обводки, цвет задаётся в панели */
-function drawLabels(c, pr, k) {
+const lpOf = (room, i) => (S.lpos[P.id] || {})[i] || room.lp || (() => { const r = mainRect(room); return [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2]; })();
+function drawLabels(c, pr, k, hits) {
   const h = .05;
   c.save(); c.fillStyle = S.labelColor; c.textAlign = 'center'; c.textBaseline = 'middle';
-  for (const room of P.rooms) {
-    const r = mainRect(room), lp = room.lp || [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2];
-    const p = pr(lp[0], lp[1], h); if (!p.ok) continue;
+  P.rooms.forEach((room, i) => {
+    const lp = lpOf(room, i), p = pr(lp[0], lp[1], h); if (!p.ok) return;
     const both = S.names && S.areas, fsN = 12.5 * k, fsA = 15 * k;
-    if (S.names) { c.font = `600 ${fsN}px ${FONT_T}`; c.fillText(room.n, p.x, p.y - (both ? fsA * .55 : 0)); }
-    if (S.areas) { c.font = `700 ${fsA}px ${FONT_T}`; c.fillText(fmtA(room.a) + ' м²', p.x, p.y + (both ? fsN * .62 : 0)); }
-  }
+    let w = 0;
+    if (S.names) { c.font = `600 ${fsN}px ${FONT_T}`; c.fillText(room.n, p.x, p.y - (both ? fsA * .55 : 0)); w = Math.max(w, c.measureText(room.n).width); }
+    if (S.areas) { const t = fmtA(room.a) + ' м²'; c.font = `700 ${fsA}px ${FONT_T}`; c.fillText(t, p.x, p.y + (both ? fsN * .62 : 0)); w = Math.max(w, c.measureText(t).width); }
+    if (hits) { const hh = (both ? fsN + fsA : Math.max(fsN, fsA)) * .75 + 4 * k; hits.push({ i, x1: (p.x - w / 2 - 4 * k) / k, x2: (p.x + w / 2 + 4 * k) / k, y1: (p.y - hh) / k, y2: (p.y + hh) / k }); }
+  });
   c.restore();
 }
 
