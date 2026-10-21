@@ -146,6 +146,14 @@ h1,h2,h3,p{margin:0}
         <label class="rng"><span>Яркость</span><input type="range" id="sunPow" min="40" max="160" step="5"><output id="sunPowV"></output></label>
       </div>
       <div class="grp">
+        <h3>Цвет стен <button class="lnk" id="wallReset">Сбросить</button></h3>
+        <div class="fcols">
+          <span>Внутренние</span><input type="color" id="wallIn" title="Стены внутри дома">
+          <span>Наружные (фасад)</span><input type="color" id="wallOut" title="Стены снаружи">
+          <span>Срез стен сверху</span><input type="color" id="wallCap" title="Верх стен и срез">
+        </div>
+      </div>
+      <div class="grp">
         <h3>Цвет мебели <button class="lnk" id="fcolReset">Сбросить</button></h3>
         <div class="fcols" id="fcols"></div>
         <div class="muted">Нажмите на предмет, чтобы перекрасить или повернуть только его.</div>
@@ -401,7 +409,7 @@ function syncUI() {
       : (touch ? 'Палец — вращение, два пальца — масштаб' : 'Тяните — вращение, правая кнопка или Shift — сдвиг, колёсико — масштаб');
 }
 $$('#views button').forEach((b) => { b.onclick = () => { S.view = b.dataset.v; save(); syncUI(); if (G) setCamera(false); }; });
-$$('#styles button').forEach((b) => { b.onclick = () => { S.style = b.dataset.s; save(); syncUI(); if (G) build(); }; });
+$$('#styles button').forEach((b) => { b.onclick = () => { S.style = b.dataset.s; save(); syncUI(); syncWalls(); if (G) build(); }; });
 $$('[data-t]').forEach((b) => {
   b.onclick = () => {
     const k = b.dataset.t; S[k] = !S[k]; save(); syncUI();
@@ -472,6 +480,11 @@ $('#pickColor').oninput = (e) => { if (picked < 0) return; (S.icol[P.id] = S.ico
 $('#pickReset').onclick = () => { if (picked < 0) return; if (S.icol[P.id]) delete S.icol[P.id][picked]; save(); build(); openPick(picked); };
 $('#pickClose').onclick = closePick;
 const itemColor = (f, i) => (S.icol[P.id] || {})[i];
+/* цвет стен: свой поверх стиля; пусто — как в стиле */
+const WALL_KEYS = { wallIn: 'wall', wallOut: 'facade', wallCap: 'cap' };
+function syncWalls() { for (const [k, sk] of Object.entries(WALL_KEYS)) $('#' + k).value = S[k] || STYLES[S.style][sk]; }
+for (const k of Object.keys(WALL_KEYS)) $('#' + k).oninput = (e) => { S[k] = e.target.value; save(); if (G) build(); };
+$('#wallReset').onclick = () => { for (const k of Object.keys(WALL_KEYS)) delete S[k]; save(); syncWalls(); if (G) build(); };
 function setFloor(c) { S.floor = c; save(); renderFloors(); if (G) build(); }
 $('#floorCustom').oninput = (e) => setFloor(e.target.value);
 $('#labelColor').value = S.labelColor;
@@ -815,11 +828,11 @@ function build() {
   const pieces = P.walls.map((r) => ({ r, y0: 0, y1: H }));
   for (const r of P.windows) { pieces.push({ r, y0: 0, y1: Math.min(SILL / 1000, H) }); if (H > HEAD / 1000) pieces.push({ r, y0: HEAD / 1000, y1: H }); }
   for (const d of P.doors) if (H > HEAD / 1000) pieces.push({ r: d.r, y0: HEAD / 1000, y1: H });
-  const cap = mat(st.cap, { r: .7 });
+  const wIn = S.wallIn || st.wall, wOut = S.wallOut || st.facade, cap = mat(S.wallCap || st.cap, { r: .7 });
   for (const pc of pieces) {
     const r = pc.r, mx = (r[0] + r[2]) / 2, my = (r[1] + r[3]) / 2, o = 120;
-    const side = (x, y) => mat(inRoom(x, y) ? st.wall : st.facade);
-    const mats = [side(r[2] + o, my), side(r[0] - o, my), pc.y1 >= H - .001 ? cap : mat(st.wall), mat(st.wall), side(mx, r[3] + o), side(mx, r[1] - o)];
+    const side = (x, y) => mat(inRoom(x, y) ? wIn : wOut);
+    const mats = [side(r[2] + o, my), side(r[0] - o, my), pc.y1 >= H - .001 ? cap : mat(wIn), mat(wIn), side(mx, r[3] + o), side(mx, r[1] - o)];
     add(new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]), pc.y1 - pc.y0, mm(r[3] - r[1])), mats)).position.set(mm(mx), (pc.y0 + pc.y1) / 2, mm(my));
   }
   for (const r of P.windows) {
@@ -1109,7 +1122,7 @@ $('#shotBg').onclick = () => snapshot(false);
 $('#shotAlpha').onclick = () => snapshot(true);
 
 /* ---------- запуск ---------- */
-renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols();
+renderPlans(); syncUI(); renderInfo(); renderFloors(); syncLight(); renderFcols(); syncWalls();
 (async () => {
   try { await init3D(); } catch (e) { $('#loading').textContent = 'Не удалось загрузить 3D. Проверьте подключение к интернету.'; return; }
   $('#loading').hidden = true;
