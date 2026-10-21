@@ -922,7 +922,7 @@ function build() {
     const fe = effF(f, i), g = furn3D(fe, st, i);
     g.userData.fi = i;
     // при срезанных стенах высокая мебель в доме срезается на той же высоте
-    if (S.cut && inRoom(fe.x, fe.y)) { const top = new THREE.Box3().setFromObject(g).max.y; if (top > H + .02) g.scale.y = H / top; }
+    if (S.cut && (inRoom(fe.x, fe.y) || inR(fe.x, fe.y, P.box))) { const top = new THREE.Box3().setFromObject(g).max.y; if (top > H + .02) g.scale.y = H / top; }
     group.add(g);
   }
   dirty();
