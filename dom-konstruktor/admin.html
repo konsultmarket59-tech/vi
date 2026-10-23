@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Заявки и исполнители</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@700;800&family=JetBrains+Mono:wght@500&family=Raleway:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#ECEDEE;--panel:#fff;--ink:#2B2E33;--muted:#6B7078;--line:#E2E4E7;--brand:#2F3237;--accent:#E3A21A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Raleway,system-ui,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+[hidden]{display:none!important}
+header{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+h1{margin:0;font:800 26px/1 "Alumni Sans",sans-serif;text-transform:uppercase;color:var(--brand)}
+h2{margin:0 0 6px;font:800 22px/1 "Alumni Sans",sans-serif;text-transform:uppercase;color:var(--brand)}
+.btn{border:1.5px solid var(--brand);background:var(--panel);border-radius:999px;padding:6px 13px;font-weight:700;font-size:12.5px;cursor:pointer}
+.btn[aria-pressed="true"],.btn.primary{background:var(--brand);color:#fff}
+main{display:grid;grid-template-columns:minmax(320px,440px) 1fr;gap:16px;padding:16px 20px;align-items:start}
+.card{background:var(--panel);border-radius:14px;padding:14px 16px;display:grid;gap:10px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+td,th{padding:6px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+tr[data-id]{cursor:pointer}
+tr[data-id]:hover,tr.on{background:#f5f2ea}
+.st{display:inline-block;padding:1px 8px;border-radius:999px;background:#eceff2;font-size:11.5px;font-weight:700}
+.st.new{background:var(--accent);color:#1f1a0d}
+.muted{color:var(--muted);font-size:12px}
+ul{margin:0;padding-left:18px}
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.imgs img{width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
+dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0}
+dt{color:var(--muted)}dd{margin:0}
+textarea,input,select{border:1px solid var(--line);border-radius:10px;padding:7px 9px;background:#f6f6f7;width:100%}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Заявки</h1>
+  <div class="row"><button class="btn" data-tab="leads" aria-pressed="true">Заявки</button><button class="btn" data-tab="comp">Исполнители</button></div>
+  <div class="row" style="margin-left:auto"><input type="password" id="key" placeholder="ADMIN_KEY" style="width:200px"><button class="btn primary" id="go">Войти</button></div>
+</header>
+<main id="m-leads">
+  <div class="card"><table><thead><tr><th>№</th><th>Клиент</th><th>Город</th><th>Статус</th></tr></thead><tbody id="leads"></tbody></table></div>
+  <div class="card" id="lead"><span class="muted">Выберите заявку</span></div>
+</main>
+<main id="m-comp" hidden style="grid-template-columns:1fr">
+  <div class="card"><table><thead><tr><th>Компания</th><th>Город</th><th>Контакты</th><th>Статус</th><th></th></tr></thead><tbody id="comps"></tbody></table></div>
+</main>
+<script>
+(function () {
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ST = { new: 'Новая', call: 'Созвон', tz: 'ТЗ отправлено', calc: 'Расчёты получены', report: 'Отчёт клиенту', meeting: 'Встреча назначена', paid: 'Лид оплачен', closed: 'Закрыта' };
+const L = { plot: { yes: 'есть', process: 'оформляет', no: 'нет' }, slope: { flat: '0–3°', small: '3–7°', mid: '7–15°', steep: '>15°', unknown: 'не знает' },
+  term: { now: 'в этом сезоне', y1: 'в течение года', y2: 'через 1–2 года', look: 'присматривается' }, cls: { eco: 'эконом', comfort: 'комфорт', premium: 'дороже' }, material: { gas: 'газобетон', brick: 'кирпич', any: 'любой' } };
+let key = sessionStorage.getItem('dk-admin') || '';
+$('#key').value = key;
+const api = async (p, body) => {
+  const r = await fetch('/api/admin/' + p, { method: body ? 'POST' : 'GET', headers: Object.assign({ 'X-Admin-Key': key }, body ? { 'Content-Type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { alert('Неверный ключ'); throw new Error('401'); }
+  return r.json();
+};
+async function leads() {
+  const list = await api('leads');
+  $('#leads').innerHTML = list.map(l => `<tr data-id="${esc(l.id)}"><td><b>${esc(l.id)}</b><div class="muted">${new Date(l.at).toLocaleString('ru-RU')}</div></td><td>${esc(l.name)}<div class="muted">${esc(l.phone)}</div></td><td>${esc(l.city)}<div class="muted">${l.area ? Math.round(l.area) + ' м² · ' : ''}${esc(L.cls[l.cls] || l.cls)}</div></td><td><span class="st ${l.status}">${ST[l.status]}</span></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Заявок пока нет</td></tr>';
+  document.querySelectorAll('tr[data-id]').forEach(tr => tr.onclick = () => { location.hash = tr.dataset.id; open(tr.dataset.id); });
+  if (location.hash.length > 1) open(location.hash.slice(1));
+}
+async function open(id) {
+  document.querySelectorAll('tr[data-id]').forEach(tr => tr.classList.toggle('on', tr.dataset.id === id));
+  const l = await api('lead/' + encodeURIComponent(id)), a = l.answers;
+  const imgs = await Promise.all(l.files.map(async f => { const r = await fetch(`/api/admin/lead/${l.id}/file/${f}`, { headers: { 'X-Admin-Key': key } }); return URL.createObjectURL(await r.blob()); }));
+  $('#lead').innerHTML = `<h2>Заявка ${esc(l.id)}</h2>
+    <dl><dt>Клиент</dt><dd>${esc(a.name)}, <a href="tel:${esc(a.phone.replace(/[^+\d]/g, ''))}">${esc(a.phone)}</a>${a.time ? ' · ' + esc(a.time) : ''}</dd>
+    <dt>Город</dt><dd>${esc(a.city)}</dd><dt>Участок</dt><dd>${esc(L.plot[a.plot] || a.plot)}, уклон ${esc(L.slope[a.slope] || a.slope)}</dd>
+    <dt>Срок</dt><dd>${esc(L.term[a.term] || a.term)}</dd><dt>Бюджет</dt><dd>${esc(L.cls[a.cls] || a.cls)}${l.estimate ? ` · ${l.estimate.from}–${l.estimate.to} млн ₽ за ${Math.round(l.estimate.area)} м²` : ''}</dd>
+    <dt>Материал</dt><dd>${esc(L.material[a.material] || a.material)}</dd>${a.note ? `<dt>Пожелания</dt><dd>${esc(a.note)}</dd>` : ''}</dl>
+    <div><b>Проект</b><ul>${l.brief.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>
+    ${l.changes.length ? `<div><b>Скорректировано под запрос</b><ul>${l.changes.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
+    ${l.notesAuto.length ? `<div><b>Проверить</b><ul>${l.notesAuto.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
+    <div class="imgs">${imgs.map(u => `<a href="${u}" target="_blank"><img src="${u}" alt=""></a>`).join('')}</div>
+    <div><b>Рассылка</b> <span class="muted">${l.dispatch.length ? l.dispatch.map(d => esc(d.name) + (d.sent ? ' ✓' : ' (без Telegram)')).join(', ') : 'нет исполнителей в этом городе'}</span></div>
+    <div class="row"><select id="st">${Object.entries(ST).map(([k, v]) => `<option value="${k}"${l.status === k ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+    <textarea id="note" rows="3" placeholder="Заметка: итоги созвона, какие компании считают, цены…"></textarea>
+    <div class="row"><button class="btn primary" id="saveL">Сохранить</button><a class="btn" download="proekt-${esc(l.id)}.json" href="data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(l.project || {}))}">Файл проекта</a></div>
+    ${l.notes.length ? `<ul>${l.notes.slice().reverse().map(n => `<li><span class="muted">${new Date(n.at).toLocaleString('ru-RU')}</span> ${esc(n.text)}</li>`).join('')}</ul>` : ''}`;
+  $('#saveL').onclick = async () => { await api('lead/' + l.id, { status: $('#st').value, note: $('#note').value }); leads(); };
+}
+async function comps() {
+  const list = await api('companies');
+  $('#comps').innerHTML = list.map(c => `<tr><td><b>${esc(c.name)}</b><div class="muted">${esc(c.type)} · ИНН ${esc(c.inn || '—')}${c.site ? ' · ' + esc(c.site) : ''}</div><div class="muted">${esc(c.about)}</div></td>
+    <td>${esc(c.city)}<div class="muted">${esc((c.regions || []).join(', '))}</div></td><td>${esc(c.phone)}<div class="muted">${esc(c.email)} ${esc(c.tg || '')}</div></td>
+    <td><span class="st">${esc(c.status)}</span></td><td class="row"><button class="btn" data-id="${esc(c.id)}" data-s="approved">Опубликовать</button><button class="btn" data-id="${esc(c.id)}" data-s="rejected">Отклонить</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Регистраций пока нет</td></tr>';
+  document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => { await api('company/' + b.dataset.id, { status: b.dataset.s }); comps(); });
+}
+document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  $('#m-leads').hidden = b.dataset.tab !== 'leads'; $('#m-comp').hidden = b.dataset.tab !== 'comp';
+  b.dataset.tab === 'leads' ? leads() : comps();
+});
+$('#go').onclick = () => { key = $('#key').value; sessionStorage.setItem('dk-admin', key); leads(); };
+if (key) leads();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Конструктор дома</title>
+<meta name="description" content="Спланируйте свой дом: этажи, несущие стены, мокрые зоны, котельная, 3D-прогулка, фасад и кровля. Подбор строительной компании и архитектора.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Raleway:wght@400;500;600;700&display=swap">
+<style>
+/* графитовая гамма: Alumni Sans + Raleway, графит #2F3237, акцент — тёплое золото */
+:root{--bg:#ECEDEE;--sheet:#F6F6F7;--panel:#fff;--ink:#2B2E33;--muted:#6B7078;--ink-3:#9CA1A8;--line:#E2E4E7;
+  --brand:#2F3237;--brand-700:#1F2125;--brand-soft:#ECEDEF;--accent:#E3A21A;--accent-soft:#FBF1DA;--ok:#2E8B57;--warn:#C27C0E;--err:#C0392B;
+  --r:14px;--shadow:0 12px 40px -12px rgba(31,33,37,.25);
+  --display:"Alumni Sans",system-ui,sans-serif;--text:"Raleway",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--text);font-variant-numeric:lining-nums}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,p{margin:0}
+a{color:inherit}
+
+#app{min-height:100vh;display:grid;grid-template-rows:auto 1fr}
+.top{display:flex;align-items:center;gap:10px 22px;padding:12px clamp(16px,2.4vw,28px);background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{display:grid;line-height:1;flex:none}
+.brand small{font:600 10.5px var(--text);letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.brand b{font:800 28px/1 var(--display);letter-spacing:.02em;text-transform:uppercase;color:var(--brand);margin-top:3px}
+nav.main{display:flex;gap:4px;flex-wrap:wrap}
+nav.main button{border:0;background:none;padding:8px 12px;border-radius:999px;font:600 13.5px var(--text);color:var(--muted)}
+nav.main button:hover{background:var(--brand-soft);color:var(--ink)}
+nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
+.top .cta{margin-left:auto}
+
+.btn{border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);border-radius:999px;padding:7px 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;font:700 12.5px/1.2 var(--text);text-decoration:none;transition:background .15s,color .15s}
+.btn:hover{background:var(--brand-soft)}
+.btn[aria-pressed="true"]{background:var(--brand);color:#fff}
+.btn.primary{background:var(--brand);color:#fff;box-shadow:0 10px 24px -10px rgba(31,33,37,.6)}
+.btn.primary:hover{background:var(--brand-700)}
+.btn.gold{background:var(--accent);border-color:var(--accent);color:#1f1a0d;box-shadow:0 10px 24px -10px rgba(227,162,26,.7)}
+.btn.gold:hover{filter:brightness(.96)}
+.btn.ghost{border-color:var(--line)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn.big{padding:12px 20px;font-size:14px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn svg{width:16px;height:16px;flex:none}
+.seg{display:flex;gap:2px;padding:3px;border:1.5px solid var(--brand);border-radius:999px;background:var(--panel)}
+.seg button{flex:1;border:0;background:transparent;padding:6px 10px;font:700 12.5px var(--text);color:var(--brand);border-radius:999px;white-space:nowrap}
+.seg button:hover{background:var(--brand-soft)}
+.seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.seg button:disabled{opacity:.35;cursor:default}
+
+/* ---- конструктор ---- */
+.page{min-height:0}
+.work{display:grid;grid-template-columns:300px minmax(0,1fr);height:calc(100vh - 64px);min-height:560px}
+.side{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:14px 16px 24px;display:grid;gap:16px;align-content:start}
+.grp{display:grid;gap:8px}
+.grp h3{font:800 15px/1 var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--brand);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.grp h3 small{font:500 11px var(--text);letter-spacing:0;text-transform:none;color:var(--muted)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fld{display:grid;gap:3px;font-size:12px;color:var(--muted)}
+.fld input,.fld select,.fld textarea{border:1px solid var(--line);border-radius:10px;padding:7px 9px;background:var(--sheet);color:var(--ink);width:100%;min-width:0}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+.chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.chk input{accent-color:var(--brand);width:16px;height:16px;margin:0}
+.rng{display:grid;grid-template-columns:92px 1fr 52px;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.rng input{accent-color:var(--brand);width:100%;margin:0}
+.rng output{font:500 11.5px var(--mono);color:var(--ink);text-align:right}
+.muted{color:var(--muted);font-size:12px}
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tools .btn{padding:7px 6px}
+.layers{border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:12px}
+.layers div{display:flex;justify-content:space-between;gap:8px;padding:5px 10px;border-bottom:1px solid var(--line)}
+.layers div:last-child{border-bottom:0;font-weight:700;background:var(--sheet)}
+.layers span:last-child{font-family:var(--mono)}
+.layers i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.dims{display:grid;grid-template-columns:1fr auto;gap:3px 10px;font-size:12.5px}
+.dims dt{color:var(--muted)}
+.dims dd{margin:0;font:600 12px var(--mono);text-align:right}
+.vars{display:grid;gap:6px}
+.var{display:grid;grid-template-columns:auto 1fr;gap:2px 9px;align-items:center;text-align:left;border:1.5px solid var(--line);background:var(--panel);border-radius:12px;padding:7px 10px}
+.var b{font:700 12.5px var(--text)}
+.var span{grid-column:2;font:500 11.5px var(--mono);color:var(--muted)}
+.var i{grid-row:span 2;width:30px;height:24px}
+.var[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+.var:hover{border-color:var(--ink-3)}
+.furn{display:grid;gap:6px}
+.furn details{border:1px solid var(--line);border-radius:12px;padding:6px 10px}
+.furn summary{font:700 12.5px var(--text);cursor:pointer}
+.furn .row{margin-top:6px}
+.furn .btn{padding:4px 9px;font-size:11.5px}
+.checks{display:grid;gap:5px;font-size:12px;list-style:none;margin:0;padding:0}
+.checks li{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.checks li::before{content:"";width:9px;height:9px;border-radius:50%;margin-top:4px;background:var(--ok)}
+.checks li.warn::before{background:var(--warn)}
+.checks li.err::before{background:var(--err)}
+.checks li.err{color:var(--err)}
+.sel{border:1.5px solid var(--accent);background:var(--accent-soft);border-radius:var(--r);padding:10px 12px;display:grid;gap:8px}
+.sel h3{color:var(--ink)}
+.area{display:grid;gap:3px;font-size:12.5px}
+.area div{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:2px 0}
+.area span:last-child{font:600 12px var(--mono)}
+.area .tot{font-weight:700;border-bottom:0}
+.est{background:var(--brand);color:#fff;border-radius:var(--r);padding:12px 14px;display:grid;gap:4px}
+.est b{font:800 26px/1 var(--display);letter-spacing:.02em}
+.est small{color:#C9CCD1;font-size:11px;line-height:1.35}
+.sw{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.sw button{display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);background:var(--panel);border-radius:12px;padding:6px 8px;font:600 12px var(--text);text-align:left}
+.sw button i{width:22px;height:22px;border-radius:6px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.sw button[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+
+.stage{position:relative;min-height:0;overflow:hidden;background:var(--bg)}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.bar{position:absolute;left:12px;right:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;pointer-events:none;z-index:2}
+.bar>*{pointer-events:auto}
+.bar .seg{box-shadow:0 6px 18px -10px rgba(0,0,0,.35)}
+.bar .sp{flex:1}
+.hud{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:2}
+.hud button{width:38px;height:38px;border-radius:12px;border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);font:700 17px/1 var(--text);display:grid;place-items:center}
+.hud button:hover{background:var(--brand-soft)}
+.hud svg{width:18px;height:18px}
+.hint{position:absolute;left:12px;bottom:12px;font:500 11.5px var(--text);color:var(--muted);background:rgba(255,255,255,.88);padding:6px 11px;border-radius:999px;max-width:calc(100% - 80px);z-index:2}
+.loading{position:absolute;inset:0;display:grid;place-items:center;font:600 14px var(--text);color:var(--brand);z-index:1}
+.toast{position:fixed;left:50%;top:76px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow);z-index:50}
+.joy{position:absolute;left:16px;bottom:56px;width:120px;height:120px;border-radius:50%;border:2px dashed rgba(47,50,55,.35);display:none;place-items:center;color:var(--muted);font-size:11px;text-align:center;z-index:2;pointer-events:none}
+@media (pointer:coarse){.v-walk .joy{display:grid}}
+
+/* ---- каталог и страницы ---- */
+.wrap{max-width:1180px;margin:0 auto;padding:28px clamp(16px,3vw,32px) 60px;display:grid;gap:20px;align-content:start}
+.wrap h1{font:800 clamp(34px,5vw,52px)/0.95 var(--display);text-transform:uppercase;letter-spacing:.01em;color:var(--brand)}
+.wrap .lead{font-size:15.5px;color:var(--muted);max-width:760px}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end;background:var(--panel);border-radius:var(--r);padding:12px 14px}
+.filters .fld{min-width:150px;flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.org{background:var(--panel);border-radius:var(--r);padding:16px 18px;display:grid;gap:10px;align-content:start;border:1px solid var(--line)}
+.org header{display:flex;justify-content:space-between;gap:10px}
+.org small{font:600 11px var(--text);color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.org small .ok{color:var(--ok)}
+.org h3{font:800 24px/1.05 var(--display);text-transform:uppercase;color:var(--brand);margin-top:3px}
+.org .rate{text-align:right;font:700 16px var(--text);color:var(--accent);display:grid;align-content:start}
+.org .rate small{text-transform:none;letter-spacing:0}
+.org p{font-size:13px;color:var(--ink)}
+.org dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0;font-size:12.5px}
+.org dt{color:var(--muted)}
+.org dd{margin:0}
+.org footer{display:flex;gap:6px;flex-wrap:wrap}
+.empty{background:var(--panel);border-radius:var(--r);padding:26px;display:grid;gap:8px;max-width:640px}
+.empty b{font:800 22px var(--display);text-transform:uppercase;color:var(--brand)}
+.join{background:var(--brand);color:#fff;border-radius:var(--r);padding:20px 22px;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.join b{font:800 26px/1 var(--display);text-transform:uppercase}
+.join p{color:#C9CCD1;font-size:13px;margin-top:6px;max-width:620px}
+.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;counter-reset:s;list-style:none;padding:0;margin:0}
+.steps li{background:var(--panel);border-radius:var(--r);padding:16px 18px;display:grid;gap:6px;counter-increment:s}
+.steps li::before{content:counter(s,decimal-leading-zero);font:800 30px/1 var(--display);color:var(--accent)}
+.steps b{font:700 14px var(--text)}
+.steps p{font-size:13px;color:var(--muted)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.card{background:var(--panel);border-radius:var(--r);padding:18px 20px;display:grid;gap:10px;align-content:start}
+.card h2{font:800 26px/1 var(--display);text-transform:uppercase;color:var(--brand)}
+.card ul{margin:0;padding-left:18px;display:grid;gap:5px;font-size:13.5px}
+.card .price{font:700 15px var(--text)}
+footer.legal{padding:18px clamp(16px,3vw,32px);font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);background:var(--panel)}
+
+/* ---- диалоги ---- */
+dialog{border:0;border-radius:20px;padding:0;width:min(640px,calc(100vw - 24px));max-height:calc(100vh - 24px);box-shadow:var(--shadow);color:var(--ink)}
+dialog::backdrop{background:rgba(31,33,37,.45)}
+.dlg{display:grid;gap:16px;padding:20px 22px 22px}
+.dlg header{display:flex;justify-content:space-between;align-items:start;gap:10px}
+.dlg h2{font:800 30px/1 var(--display);text-transform:uppercase;color:var(--brand)}
+.dlg .x{border:0;background:none;font:400 26px/1 var(--text);color:var(--muted);padding:0 4px}
+.prog{display:flex;gap:4px}
+.prog i{flex:1;height:4px;border-radius:4px;background:var(--line)}
+.prog i.on{background:var(--accent)}
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.opt{border:1.5px solid var(--line);background:var(--panel);border-radius:14px;padding:10px;display:grid;gap:4px;justify-items:center;text-align:center;font:700 13px var(--text);color:var(--ink)}
+.opt small{font:500 11.5px var(--text);color:var(--muted)}
+.opt svg{width:100%;height:auto;color:var(--brand)}
+.opt[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+.opt:hover{border-color:var(--ink-3)}
+.q{display:grid;gap:8px}
+.q>b{font:700 14px var(--text)}
+.nav{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.ch{margin:0;padding-left:18px;display:grid;gap:5px;font-size:13px}
+.box{background:var(--sheet);border-radius:12px;padding:12px 14px;display:grid;gap:6px;font-size:13px}
+.box b{font:700 13px var(--text)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+.thumbs img{width:100%;border-radius:8px;border:1px solid var(--line);background:#fff}
+.err-t{color:var(--err);font-size:12.5px}
+
+@media (max-width:900px){
+  .work{display:flex;flex-direction:column;height:auto}
+  .stage{height:68vh;min-height:420px;order:1}
+  .side{order:2;border-right:0;border-top:1px solid var(--line)}
+  .top .cta{margin-left:0}
+  .hint{display:none}
+}
+</style>
+</head>
+<body class="v-plan">
+<div id="app">
+  <header class="top">
+    <div class="brand"><small id="tagline"></small><b id="brandName"></b></div>
+    <nav class="main" aria-label="Разделы">
+      <button data-page="project" aria-current="page">Мой проект</button>
+      <button data-page="builders">Строительные компании</button>
+      <button data-page="arch">Архитекторы</button>
+      <button data-page="how">Как это работает</button>
+    </nav>
+    <button class="btn gold cta" data-act="lead">Подобрать строителя</button>
+  </header>
+
+  <!-- конструктор -->
+  <main class="page" id="page-project">
+    <div class="work">
+      <aside class="side" id="side">
+        <div class="grp" data-v="plan">
+          <h3>Дом <small>размеры по несущему слою, мм</small></h3>
+          <div class="row2">
+            <label class="fld">Ширина (запад — восток)<input type="number" id="inW" min="6000" max="24000" step="100"></label>
+            <label class="fld">Глубина (север — юг)<input type="number" id="inD" min="6000" max="24000" step="100"></label>
+          </div>
+          <div class="row2">
+            <label class="fld">Надземных этажей<div class="seg" id="floorsN"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button></div></label>
+            <label class="fld">Высота в чистоте<select id="hClear"><option value="2700">2,7 м</option><option value="2800">2,8 м</option><option value="3000">3,0 м</option><option value="3200">3,2 м</option></select></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="basement">Цокольный этаж</label>
+        </div>
+
+        <div class="grp" data-v="plan">
+          <h3>Наружные стены</h3>
+          <div class="seg" id="wallMat"><button data-k="gas">Газобетон 400</button><button data-k="brick">Кирпич 510</button></div>
+          <label class="fld">Утеплитель<div class="seg" id="insul"><button data-k="0">нет</button><button data-k="50">50</button><button data-k="100">100</button><button data-k="150">150</button></div></label>
+          <label class="fld">Облицовка<select id="clad"></select></label>
+          <div class="layers" id="layers"></div>
+          <dl class="dims" id="dims"></dl>
+        </div>
+
+        <div class="grp" data-v="plan">
+          <h3>Несущая стена <small>кирпич 380 мм, на всех этажах</small></h3>
+          <div class="vars" id="bvars"></div>
+          <label class="rng" id="bposRow"><span>Сдвиг оси</span><input type="range" id="bpos" step="50"><output id="bposV"></output></label>
+        </div>
+
+        <div class="grp" data-v="plan">
+          <h3>Мокрая зона <small>совпадает на всех этажах</small></h3>
+          <div class="row"><button class="btn sm" id="wetNext">Другой вариант</button><button class="btn sm" data-tool="wet">Двигать зону</button></div>
+          <div class="muted">Санузлы, прачечная и котельная — в зоне: общий стояк и короткая канализация.</div>
+        </div>
+
+        <div class="grp" data-v="plan">
+          <h3>Инструменты</h3>
+          <div class="tools">
+            <button class="btn" data-tool="select">Выбор</button>
+            <button class="btn" data-tool="wall">Перегородка</button>
+            <button class="btn" data-tool="door">Дверь</button>
+            <button class="btn" data-tool="win">Окно</button>
+            <button class="btn" data-tool="erase">Ластик</button>
+            <button class="btn" id="addStair">Лестница</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="optDimOpen" checked>Размеры проёмов на фасадах</label>
+          <div class="muted" id="toolHint"></div>
+        </div>
+
+        <div class="grp" data-v="plan int">
+          <h3>Мебель</h3>
+          <div class="furn" id="furnPal"></div>
+        </div>
+
+        <div class="sel" id="selBox" hidden></div>
+
+        <div class="grp" data-v="int">
+          <h3>Интерьер</h3>
+          <div class="row"><button class="btn" id="tCut" aria-pressed="true">Срезать стены</button><button class="btn" id="tFurn" aria-pressed="true">Мебель</button></div>
+          <div class="muted">Тяните — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб.</div>
+        </div>
+
+        <div class="grp" data-v="walk">
+          <h3>Прогулка</h3>
+          <div class="muted">Нажмите на сцену, чтобы управлять мышью. W A S D или стрелки — идти, Shift — быстрее, Esc — отпустить мышь. На телефоне: левая половина экрана — идти, правая — смотреть.</div>
+          <div class="row" id="walkFloors"></div>
+        </div>
+
+        <div class="grp" data-v="ext">
+          <h3>Кровля</h3>
+          <div class="sw" id="roofs"></div>
+          <label class="rng" id="pitchRow"><span>Уклон</span><input type="range" id="pitch" min="5" max="45" step="1"><output id="pitchV"></output></label>
+          <label class="fld" id="ridgeRow">Конёк<div class="seg" id="ridge"><button data-k="long">вдоль длинной стороны</button><button data-k="short">поперёк</button></div></label>
+        </div>
+        <div class="grp" data-v="ext">
+          <h3>Стиль фасада</h3>
+          <div class="sw" id="styles"></div>
+          <div class="muted">Нажмите на окно — откроются его настройки; тяните окно мышью, чтобы сдвинуть по горизонтали.</div>
+        </div>
+
+        <div class="grp">
+          <h3>Площади</h3>
+          <div class="area" id="areas"></div>
+          <div class="est" id="est"></div>
+        </div>
+
+        <div class="grp" data-v="plan">
+          <h3>Проверки <small>инженерные правила</small></h3>
+          <ul class="checks" id="checks"></ul>
+        </div>
+
+        <div class="grp">
+          <h3>Проект</h3>
+          <div class="row">
+            <button class="btn sm" id="saveFile">Сохранить файл</button>
+            <button class="btn sm" id="openFile">Открыть</button>
+            <button class="btn sm ghost" id="resetProj">Начать заново</button>
+            <input type="file" id="fileIn" accept=".json,application/json" hidden>
+          </div>
+        </div>
+        <button class="btn gold big" data-act="lead">Подобрать строителя под проект</button>
+      </aside>
+
+      <section class="stage" id="stage">
+        <canvas id="c2d"></canvas>
+        <canvas id="c3d" hidden></canvas>
+        <div class="loading" id="loading" hidden>Загружаю 3D…</div>
+        <div class="bar">
+          <div class="seg" id="views">
+            <button data-view="plan">План</button><button data-view="int">Интерьер 3D</button><button data-view="walk">Прогулка</button><button data-view="ext">Снаружи</button>
+          </div>
+          <div class="seg" id="floorTabs"></div>
+          <span class="sp"></span>
+          <button class="btn sm" id="undo" title="Отменить (Ctrl+Z)">↶</button>
+          <button class="btn sm" id="redo" title="Вернуть (Ctrl+Shift+Z)">↷</button>
+          <button class="btn sm primary" id="shot">Снимок PNG</button>
+        </div>
+        <div class="hud" id="hud">
+          <button id="zIn" title="Приблизить">+</button>
+          <button id="zOut" title="Отдалить">−</button>
+          <button id="fit" title="Показать дом целиком">⤢</button>
+        </div>
+        <div class="hint" id="hint"></div>
+        <div class="joy">идти</div>
+      </section>
+    </div>
+  </main>
+
+  <!-- каталоги -->
+  <main class="page" id="page-builders" hidden>
+    <div class="wrap">
+      <h1>Строительные компании ИЖС</h1>
+      <p class="lead">Обращайтесь напрямую — бесплатно. Или оставьте заявку на подбор: соберём техзадание, получим расчёты от нескольких компаний, разберём цены и примеры работ и запишем на встречу в офис.</p>
+      <div class="filters" data-for="builders"></div>
+      <div class="grid" id="list-builders"></div>
+      <div class="join"><div><b>Вы строите дома?</b><p>Зарегистрируйтесь — получайте заявки с готовой планировкой, техзаданием и бюджетом в вашем городе.</p></div><button class="btn gold big" data-act="join">Добавить компанию</button></div>
+    </div>
+  </main>
+  <main class="page" id="page-arch" hidden>
+    <div class="wrap">
+      <h1>Архитекторы и бюро</h1>
+      <p class="lead">Эскиз из конструктора — хорошая отправная точка. Архитектор доведёт его до проекта: АР, КР, инженерные разделы, привязка к участку.</p>
+      <div class="filters" data-for="arch"></div>
+      <div class="grid" id="list-arch"></div>
+      <div class="join"><div><b>Вы архитектор?</b><p>Добавьте профиль и портфолио — клиенты с эскизами домов ищут исполнителя здесь.</p></div><button class="btn gold big" data-act="join">Добавить профиль</button></div>
+    </div>
+  </main>
+  <main class="page" id="page-how" hidden>
+    <div class="wrap">
+      <h1>Как это работает</h1>
+      <p class="lead">Сначала дом, потом подрядчик. Вы приходите к строителям с планировкой и техзаданием, а не с картинкой из интернета, — и получаете сравнимые расчёты.</p>
+      <ol class="steps">
+        <li><b>Планировка</b><p>Задайте размеры и этажи. Программа предложит допустимые положения несущей стены, мокрую зону и проверит котельную.</p></li>
+        <li><b>Интерьер</b><p>Расставьте перегородки, двери, окна и мебель. Пройдитесь по дому в 3D.</p></li>
+        <li><b>Фасад</b><p>Посмотрите белую модель снаружи, сдвиньте окна, примерьте кровлю и стиль отделки. Сохраните снимки.</p></li>
+        <li><b>Техзапрос</b><p>Ответьте на несколько вопросов: город, участок, уклон, сроки, бюджет, материал. Планировка подстроится автоматически.</p></li>
+        <li><b>Созвон и ТЗ</b><p>Мы созвонимся, уточним детали и составим письменное техзадание на расчёт стоимости.</p></li>
+        <li><b>Расчёты и встреча</b><p>ТЗ получают проверенные компании. Сравним расчёты, обоснование цен, примеры работ и отзывы — и запишем вас на встречу в офис.</p></li>
+      </ol>
+      <div class="cols">
+        <div class="card"><h2>Для заказчика</h2>
+          <ul><li>Конструктор, 3D, снимки — бесплатно.</li><li>Каталог компаний и архитекторов с контактами — бесплатно, обращайтесь напрямую.</li><li id="svcClient"></li></ul>
+          <div class="price" id="svcClientPrice"></div>
+          <button class="btn gold" data-act="lead" style="justify-self:start">Оставить заявку на подбор</button></div>
+        <div class="card"><h2>Для компаний</h2>
+          <ul><li>Регистрация и карточка в каталоге — бесплатно.</li><li>Уведомления о новых заявках в вашем городе.</li><li id="svcCompany"></li></ul>
+          <div class="price" id="svcCompanyPrice"></div>
+          <button class="btn primary" data-act="join" style="justify-self:start">Зарегистрироваться</button></div>
+      </div>
+    </div>
+  </main>
+  <footer class="legal">Расчёты в конструкторе — предварительные: пролёты, толщины стен и требования к котельной (СП 402.1325800.2018) проверяются упрощённо и не заменяют проект и технические условия газовой службы. <span id="ownerLine"></span></footer>
+</div>
+
+<!-- анкета подбора -->
+<dialog id="leadDlg">
+  <form class="dlg" method="dialog" id="leadForm" novalidate>
+    <header><div><h2>Подбор строителя</h2><div class="muted" id="leadStepT"></div></div><button class="x" value="cancel" aria-label="Закрыть">×</button></header>
+    <div class="prog" id="leadProg"></div>
+    <section data-step="0" class="q">
+      <label class="fld">Город, где будете строить<input id="lCity" list="cityList" autocomplete="address-level2" placeholder="Например, Пермь" required></label>
+      <datalist id="cityList"></datalist>
+      <b>Участок в собственности?</b>
+      <div class="opts" id="lPlot"><button type="button" class="opt" data-k="yes">Да</button><button type="button" class="opt" data-k="process">Оформляю</button><button type="button" class="opt" data-k="no">Ещё нет</button></div>
+    </section>
+    <section data-step="1" class="q" hidden>
+      <b>Уклон участка</b>
+      <div class="opts" id="lSlope"></div>
+    </section>
+    <section data-step="2" class="q" hidden>
+      <b>Когда планируете строить?</b>
+      <div class="opts" id="lTerm"></div>
+      <b>Бюджет</b>
+      <div class="opts" id="lCls"><button type="button" class="opt" data-k="eco">Эконом<small>штукатурка, проще отделка</small></button><button type="button" class="opt" data-k="comfort">Комфорт<small>облицовочный кирпич</small></button><button type="button" class="opt" data-k="premium">Дороже<small>вентфасад, премиум-узлы</small></button></div>
+      <b>Материал стен</b>
+      <div class="opts" id="lMat"><button type="button" class="opt" data-k="gas">Газобетон</button><button type="button" class="opt" data-k="brick">Кирпич</button><button type="button" class="opt" data-k="any">Нет предпочтений</button></div>
+    </section>
+    <section data-step="3" class="q" hidden>
+      <div class="row2"><label class="fld">Имя<input id="lName" autocomplete="name" required></label><label class="fld">Телефон<input id="lPhone" type="tel" autocomplete="tel" placeholder="+7" required></label></div>
+      <label class="fld">Когда удобно созвониться<input id="lTime" placeholder="Например, будни после 18:00"></label>
+      <label class="fld">Пожелания<textarea id="lNote" rows="3" placeholder="Гараж, сауна, терраса, кабинет…"></textarea></label>
+      <label class="chk"><input type="checkbox" id="lAgree">Согласен на обработку персональных данных и звонок по заявке</label>
+    </section>
+    <section data-step="4" class="q" hidden>
+      <div class="box"><b>Что поменяется в проекте под ваш запрос</b><ul class="ch" id="lChanges"></ul></div>
+      <div class="box" id="lNotesBox"><b>На заметку</b><ul class="ch" id="lNotes"></ul></div>
+      <div class="est" id="lEst"></div>
+      <div class="thumbs" id="lThumbs"></div>
+      <label class="chk"><input type="checkbox" id="lApply" checked>Применить изменения к моему проекту</label>
+    </section>
+    <section data-step="5" class="q" hidden>
+      <div class="box" id="lDone"></div>
+    </section>
+    <div class="err-t" id="lErr"></div>
+    <div class="nav"><button type="button" class="btn" id="lBack">Назад</button><button type="button" class="btn primary" id="lNext">Дальше</button></div>
+  </form>
+</dialog>
+
+<!-- регистрация исполнителя -->
+<dialog id="joinDlg">
+  <form class="dlg" id="joinForm" novalidate>
+    <header><div><h2>Регистрация исполнителя</h2><div class="muted">Карточка появится в каталоге после проверки. Заявки приходят по городам, которые вы обслуживаете.</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
+    <div class="row2">
+      <label class="fld">Кто вы<select name="type"><option value="builder">Строительная компания</option><option value="architect">Архитектор</option><option value="bureau">Архитектурное бюро</option></select></label>
+      <label class="fld">ИНН<input name="inn" inputmode="numeric" pattern="\d{10}|\d{12}" placeholder="10 или 12 цифр"></label>
+    </div>
+    <label class="fld">Название или имя<input name="name" required></label>
+    <div class="row2">
+      <label class="fld">Город<input name="city" list="cityList" required></label>
+      <label class="fld">Где ещё работаете<input name="regions" placeholder="Через запятую"></label>
+    </div>
+    <div class="fld">Материалы<div class="row" id="joinMats"></div></div>
+    <div class="row2">
+      <label class="fld">Цена от, ₽/м²<input name="priceFrom" type="number" min="0" step="500"></label>
+      <label class="fld">На рынке с (год)<input name="since" type="number" min="1950" max="2026"></label>
+    </div>
+    <div class="row2">
+      <label class="fld">Телефон<input name="phone" type="tel" required></label>
+      <label class="fld">Эл. почта для заявок<input name="email" type="email" required></label>
+    </div>
+    <div class="row2">
+      <label class="fld">Сайт<input name="site"></label>
+      <label class="fld">Telegram для уведомлений<input name="tg" placeholder="@username или chat id"></label>
+    </div>
+    <label class="fld">О компании, примеры работ<textarea name="about" rows="3"></textarea></label>
+    <label class="chk"><input type="checkbox" name="agree">Согласен с условиями: заявки без контактов клиента — бесплатно, передача клиента на встречу — по договору</label>
+    <div class="err-t" id="jErr"></div>
+    <div class="nav"><span class="muted" id="jMsg"></span><button class="btn primary" type="submit">Отправить на проверку</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/config.js"></script>
+<script src="js/model.js"></script>
+<script src="js/furniture.js"></script>
+<script src="data/catalog.js"></script>
+<script src="js/plan2d.js"></script>
+<script src="js/view3d.js"></script>
+<script src="js/lead.js"></script>
+<script src="js/catalog.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
