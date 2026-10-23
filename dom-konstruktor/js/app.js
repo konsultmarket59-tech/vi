@@ -4,10 +4,10 @@
 const DK = window.DK, C = DK.CONFIG;
 const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const esc = DK.esc;
-const KEY = 'dk-project-v1';
+const KEY = 'dk-project-v2';
 
 /* ---------- состояние ---------- */
-function load() { try { const s = JSON.parse(localStorage.getItem(KEY)); return s && s.v === 1 ? s : null; } catch (e) { return null; } }
+function load() { try { return DK.migrate(JSON.parse(localStorage.getItem(KEY)) || JSON.parse(localStorage.getItem('dk-project-v1'))); } catch (e) { return null; } }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e) { /* приватный режим */ } }
 let P = load() || DK.starter();
 ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
@@ -32,6 +32,7 @@ const app = {
   toast,
   setTool(t, arg) { plan.setTool(t, arg); $$('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t))); hint(); },
   pick3d(pk) { sel = pk ? { kind: pk.kind, id: pk.id } : null; renderSel(); },
+  walkFloor(f) { fid = f; refreshFloors(); },
 };
 
 const plan = DK.Plan2D($('#c2d'), app);
@@ -48,7 +49,7 @@ function findOp(id) { for (const f of DK.floorsOf(P)) { const o = P.levels[f].op
 /* ---------- панели ---------- */
 function refresh() {
   if (!DK.floorsOf(P).includes(fid)) fid = 'f1';
-  $('#inW').value = P.W; $('#inD').value = P.D; $('#hClear').value = P.hClear; $('#basement').checked = P.basement;
+  $('#hClear').value = P.hClear; $('#basement').checked = P.basement;
   seg($('#floorsN'), P.floors, 'n'); seg($('#wallMat'), P.wallMat, 'k'); seg($('#insul'), P.insul, 'k');
   $('#clad').value = P.clad;
   // слои стены
@@ -73,20 +74,65 @@ function refresh() {
     $('#bposV').textContent = b.pos;
   }
   // этажи
-  $('#floorTabs').innerHTML = DK.floorsOf(P).map(f => `<button data-f="${f}" aria-pressed="${f === fid}">${DK.FLOORS.find(x => x.id === f).n}</button>`).join('');
-  $$('#floorTabs button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
-  $('#walkFloors').innerHTML = DK.floorsOf(P).map(f => `<button class="btn sm" data-f="${f}" aria-pressed="${f === fid}">${DK.floorName(f)}</button>`).join('');
-  $$('#walkFloors button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
+  refreshFloors();
   // фасад
   $('#roofs').innerHTML = Object.entries(DK.ROOFS).map(([k, r]) => `<button data-k="${k}" aria-pressed="${P.roof.type === k}">${roofIcon(k)}${esc(r.n)}</button>`).join('');
   $$('#roofs button').forEach(bt => bt.onclick = () => { P.roof.type = bt.dataset.k; P.roof.pitch = DK.ROOFS[bt.dataset.k].pitch || P.roof.pitch; app.commit('Кровля'); });
   $('#pitchRow').hidden = P.roof.type === 'flat'; $('#ridgeRow').hidden = P.roof.type === 'flat' || P.roof.type === 'hip';
   $('#pitch').value = P.roof.pitch; $('#pitchV').textContent = P.roof.pitch + '°';
   seg($('#ridge'), P.roof.ridge, 'k');
-  $('#styles').innerHTML = Object.entries(DK.STYLES).map(([k, s]) => `<button data-k="${k}" aria-pressed="${P.style === k}"><i style="background:linear-gradient(135deg,${(s.upper || s.wall).c} 0 50%,${(s.lower || s.wall).c} 50% 72%,${s.roof.c} 72%)"></i>${esc(s.n)}</button>`).join('');
-  $$('#styles button').forEach(bt => bt.onclick = () => { P.style = bt.dataset.k; if (bt.dataset.k === 'hitech' && P.roof.type !== 'flat') { P.roof.type = 'flat'; toast('Хай-тек — с плоской кровлей'); } app.commit('Стиль'); });
+  renderFacade();
+  $('#stairType').value = P.stair ? P.stair.type : '';
+  $('#tz').innerHTML = DK.tzItems(P).map(t => `<li>${esc(t)}</li>`).join('') || '<li>Усилений не требуется</li>';
+  $$('#shapes button').forEach(b => b.setAttribute('aria-pressed', 'false'));
   $('#undo').disabled = hi <= 0; $('#redo').disabled = hi >= hist.length - 1;
   refreshInfo(); renderSel(); plan.render();
+}
+function refreshFloors() {
+  $('#floorTabs').innerHTML = DK.floorsOf(P).map(f => `<button data-f="${f}" aria-pressed="${f === fid}">${DK.FLOORS.find(x => x.id === f).n}</button>`).join('');
+  $$('#floorTabs button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
+  $('#walkFloors').innerHTML = DK.floorsOf(P).map(f => `<button class="btn sm" data-f="${f}" aria-pressed="${f === fid}">${DK.floorName(f)}</button>`).join('');
+  $$('#walkFloors button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
+}
+/* фасад: готовые сочетания и материал/цвет каждой зоны */
+function facadeEdit() { if (!P.facade) P.facade = JSON.parse(JSON.stringify(DK.facadeOf(P))); return P.facade; }
+function renderFacade() {
+  const F = DK.facadeOf(P);
+  const sw = (f) => `linear-gradient(135deg,${f.main.c} 0 45%,${(f.accentOn !== 'none' ? f.accent : f.main).c} 45% 62%,${f.plinth.c} 62% 74%,${f.roof.c} 74%)`;
+  $('#styles').innerHTML = Object.entries(DK.FACADES).map(([k, s]) => `<button data-k="${k}" aria-pressed="${!P.facade && DK.facadeOf(P) === s.f}"><i style="background:${sw(s.f)}"></i>${esc(s.n)}</button>`).join('');
+  $$('#styles button').forEach(bt => bt.onclick = () => { P.style = bt.dataset.k; P.facade = null; if (bt.dataset.k === 'hitech' && P.roof.type !== 'flat') { P.roof.type = 'flat'; toast('Хай-тек — с плоской кровлей'); } app.commit('Фасад'); });
+  const zoneRow = ([k, n]) => {
+    const z = F[k] || (k === 'gable' ? null : F.main), opts2 = k === 'roof' ? DK.ROOF_MATS : DK.WALL_MATS;
+    if (k === 'gable' && !z) return `<span>${n}</span><button type="button" class="lnk" data-gable>как стены — изменить</button>`;
+    return `<span>${n}</span><span class="zrow"><select data-z="${k}">${Object.entries(opts2).map(([m, t]) => `<option value="${m}"${z.m === m ? ' selected' : ''}>${t}</option>`).join('')}</select><input type="color" data-zc="${k}" value="${z.c}"></span>`;
+  };
+  $('#zones').innerHTML = DK.FACADE_ZONES.map(zoneRow).join('') +
+    DK.FACADE_COLORS.map(([k, n]) => `<span>${n}</span><span class="zrow"><input type="color" data-cc="${k}" value="${F[k]}"></span>`).join('');
+  $('#accentOn').value = F.accentOn; $('#wainscot').value = String(F.wainscot || 0);
+  $('#fSur').checked = !!F.surrounds; $('#fBelt').checked = !!F.belt; $('#fCorn').checked = !!F.corners;
+  $$('#zones [data-z]').forEach(i => i.onchange = () => { const f2 = facadeEdit(); f2[i.dataset.z] = Object.assign({}, f2[i.dataset.z] || f2.main, { m: i.value }); app.commit('Фасад'); });
+  $$('#zones [data-zc]').forEach(i => { i.oninput = () => { const f2 = facadeEdit(); f2[i.dataset.zc] = Object.assign({}, f2[i.dataset.zc] || f2.main, { c: i.value }); if (v3) v3.rebuild(); }; i.onchange = () => app.commit('Цвет'); });
+  $$('#zones [data-cc]').forEach(i => { i.oninput = () => { facadeEdit()[i.dataset.cc] = i.value; if (v3) v3.rebuild(); }; i.onchange = () => app.commit('Цвет'); });
+  const g = $('#zones [data-gable]'); if (g) g.onclick = () => { const f2 = facadeEdit(); f2.gable = Object.assign({}, f2.main); app.commit(); };
+}
+function shapeSvg(T) {
+  // мини-модель: стены контура в изометрии, без кровли — как эскиз
+  const pts = T.pts, H = 3200 * (T.floors > 1 ? 1.75 : 1), k = 0.0042;
+  const iso = (x, y, z) => [(x - y) * 0.866 * k, (x + y) * 0.5 * k - z * k];
+  const faces = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const out = a[1] === b[1] ? -Math.sign(b[0] - a[0]) : Math.sign(b[1] - a[1]);
+    const visible = a[1] === b[1] ? out > 0 : out > 0;
+    if (!visible) continue;
+    faces.push({ d: (a[0] + b[0] + a[1] + b[1]) / 2, q: [iso(a[0], a[1], 0), iso(b[0], b[1], 0), iso(b[0], b[1], H), iso(a[0], a[1], H)], shade: a[1] === b[1] ? '#ffffff' : '#e7e8ea' });
+  }
+  faces.sort((m, n) => m.d - n.d);
+  const top = pts.map(([x, y]) => iso(x, y, H));
+  const all = faces.flatMap(f => f.q).concat(top), xs = all.map(q => q[0]), ys = all.map(q => q[1]);
+  const x0 = Math.min(...xs) - 4, y0 = Math.min(...ys) - 4, w = Math.max(...xs) - x0 + 4, h = Math.max(...ys) - y0 + 4;
+  const P = (q) => q.map(v => v[0].toFixed(1) + ',' + v[1].toFixed(1)).join(' ');
+  return `<svg viewBox="${x0.toFixed(1)} ${y0.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" aria-hidden="true">${faces.map(f => `<polygon points="${P(f.q)}" fill="${f.shade}" stroke="#2f3237" stroke-width=".8"/>`).join('')}<polygon points="${P(top)}" fill="#d5d7da" stroke="#2f3237" stroke-width=".8"/></svg>`;
 }
 function refreshInfo() {
   const A = DK.areas(app.p());
@@ -112,8 +158,13 @@ function renderSel() {
   let h = '';
   if (sel.kind === 'open') {
     const r = findOp(sel.id); if (!r) { box.hidden = true; return; }
-    const o = r.o, nm = o.kind === 'win' ? (o.pano ? 'Панорамное окно' : 'Окно') : o.kind === 'entry' ? 'Входная дверь' : 'Дверь';
-    h = `<h3>${nm} <small>${esc(DK.floorName(r.f))}</small></h3>
+    const o = r.o, nm = o.kind === 'win' ? (o.pano ? 'Панорамное окно' : 'Окно') : o.kind === 'entry' ? 'Входная дверь' : o.kind === 'pass' ? 'Проём без двери' : 'Дверь';
+    const wl = DK.walls(P, r.f).find(v => v.id === o.wall);
+    h = `<h3>${nm} <small>${esc(DK.floorName(r.f))}</small></h3>`;
+    if (o.kind === 'door' || o.kind === 'pass') h += `<div class="seg" id="sKind"><button data-k="door" aria-pressed="${o.kind === 'door'}">С дверью</button><button data-k="pass" aria-pressed="${o.kind === 'pass'}">Без двери</button></div>`;
+    if (wl && wl.kind === 'bearing' && o.kind !== 'win') h += `<div class="muted">В несущей стене: ${o.w > DK.PASS.lintel ? 'усиленная перемычка по расчёту' : 'перемычка'} — добавлено в ТЗ. Ширина без двери до ${DK.PASS.maxBearing} мм.</div>`;
+    else if (o.kind === 'door') h += `<div class="muted">Открывание ставится само: из котельной и санузлов — наружу, в комнату — из коридора.</div>`;
+    h += `
       <div class="row2"><label class="fld">Ширина, мм<input type="number" id="sW" step="50" min="400" max="6000" value="${o.w}"></label>
       <label class="fld">Сдвиг<span class="row"><button type="button" class="btn sm" id="sL">← 100</button><button type="button" class="btn sm" id="sR">100 →</button></span></label></div>`;
     if (o.kind === 'win') {
@@ -125,7 +176,13 @@ function renderSel() {
     h += `<button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
   } else if (sel.kind === 'part') {
     const q = P.levels[fid].parts.find(w => w.id === sel.id); if (!q) { box.hidden = true; return; }
-    h = `<h3>Перегородка <small>кирпич 120 мм</small></h3><div class="muted">Длина ${Math.abs(q.x2 - q.x1) + Math.abs(q.y2 - q.y1)} мм. Тяните, чтобы сдвинуть; размеры помещений пересчитаются.</div><button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
+    h = `<h3>${q.rail ? 'Ограждение' : 'Перегородка'} <small>${q.rail ? 'стекло и металл, 1,0 м' : 'кирпич 120 мм'}</small></h3><div class="muted">Длина ${Math.abs(q.x2 - q.x1) + Math.abs(q.y2 - q.y1)} мм. Тяните стену — сдвиг, тяните концы — длина.</div>
+      <div class="seg" id="sRail"><button data-k="0" aria-pressed="${!q.rail}">Стена</button><button data-k="1" aria-pressed="${!!q.rail}">Ограждение</button></div>
+      <button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
+  } else if (sel.kind === 'edge') {
+    const e = DK.edges(P).find(x => x.id === sel.id); if (!e) { box.hidden = true; return; }
+    h = `<h3>Наружная стена <small>фасад ${DK.sideName(e.side)}</small></h3><div class="muted">Длина ${e.hi - e.lo} мм. Тяните стену на плане — дом станет шире или уже, выступ глубже или меньше. Уберите выступ в ноль — он исчезнет.</div>
+      <div class="row"><button type="button" class="btn sm" id="eIn">− 300 внутрь</button><button type="button" class="btn sm" id="eOut">+ 300 наружу</button></div>`;
   } else if (sel.kind === 'furn') {
     const f = P.levels[fid].furn.find(q => q.id === sel.id); if (!f) { box.hidden = true; return; }
     const F = DK.FURN[f.type];
@@ -133,10 +190,11 @@ function renderSel() {
   } else if (sel.kind === 'room') {
     const r = DK.rooms(P, fid).at(sel.x, sel.y); if (!r) { box.hidden = true; return; }
     h = `<h3>Помещение <small>${DK.fmtA(r.area)} м²${r.rect ? ' · ' + Math.round(r.x1 - r.x0) + ' × ' + Math.round(r.y1 - r.y0) : ''}</small></h3>
-      <label class="fld">Назначение<select id="sType">${Object.entries(DK.ROOM).map(([k, v]) => `<option value="${k}"${r.type === k ? ' selected' : ''}>${esc(v.n)}</option>`).join('')}</select></label>`;
+      <label class="fld">Назначение<select id="sType">${Object.entries(DK.ROOM).filter(([k, v]) => !v.upper || DK.floorsOf(P).indexOf(fid) > 0 && fid !== 'b').map(([k, v]) => `<option value="${k}"${r.type === k ? ' selected' : ''}>${esc(v.n)}</option>`).join('')}</select></label>`;
+    if (r.type === 'void') h += `<div class="muted">Над помещением нижнего этажа нет перекрытия — двойная высота. Отделите второй свет ограждением, а не стеной. Усиление проёма — в ТЗ.</div>`;
     if (r.type === 'boiler') h += `<div class="muted">Котельная: объём от ${DK.BOILER.vol} м³, высота от 2,5 м, у наружной стены с окном (0,03 м² остекления на 1 м³), дверь от 800 мм.</div>`;
   } else if (sel.kind === 'stair') {
-    h = `<h3>Лестница <small>${P.stair.w} × ${P.stair.l}</small></h3><div class="muted">Одномаршевая, на всех этажах в одном месте; в перекрытии — проём.</div>
+    h = `<h3>Лестница <small>${P.stair.w} × ${P.stair.l}</small></h3><div class="muted">${esc(DK.STAIRS[P.stair.type].n)}; на всех этажах в одном месте, в перекрытии — проём. Тип меняется в «Инструментах».</div>
       <div class="row"><button type="button" class="btn sm" id="sRot">Повернуть (R)</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
   } else if (sel.kind === 'bearing') {
     h = `<h3>Несущая стена</h3><div class="muted">Кирпич 380 мм, опора плит перекрытия. Положение выбирается из допустимых вариантов слева и совпадает на всех этажах.</div>`;
@@ -154,8 +212,11 @@ function renderSel() {
     on('sSill', 'change', (e) => { o.sill = Math.max(0, +e.target.value); app.commit(); });
     on('sH', 'change', (e) => { o.h = Math.max(400, +e.target.value); app.commit(); });
     on('sDel', 'click', () => { P.levels[r.f].open = P.levels[r.f].open.filter(q => q !== o); sel = null; app.commit(); });
+    $$('#sKind button', box).forEach(b => b.onclick = () => { o.kind = b.dataset.k; if (o.kind === 'pass' && o.w < 900) o.w = 1200; if (o.kind === 'door' && o.w > 1000) o.w = 900; clampC(); app.commit(); });
   }
-  if (sel.kind === 'part') on('sDel', 'click', () => delSel());
+  if (sel.kind === 'part') { on('sDel', 'click', () => delSel()); $$('#sRail button', box).forEach(b => b.onclick = () => { const q = P.levels[fid].parts.find(w => w.id === sel.id); q.rail = b.dataset.k === '1'; P.levels[fid].open = P.levels[fid].open.filter(o => !(q.rail && o.wall === q.id)); app.commit(); }); }
+  if (sel.kind === 'edge') { const mv = (d) => { const e = DK.edges(P).find(x => x.id === sel.id); if (!DK.moveEdge(P, sel.id, d * e.out)) { toast('Так стену не сдвинуть'); return; } const mx = Math.min(...P.poly.map(v => v.x)), my = Math.min(...P.poly.map(v => v.y)); app.commit('Стена'); plan.view.ox += mx * plan.view.k; plan.view.oy += my * plan.view.k; plan.render(); };
+    on('eIn', 'click', () => mv(-300)); on('eOut', 'click', () => mv(300)); }
   if (sel.kind === 'furn') { on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel()); }
   if (sel.kind === 'stair') { on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel()); }
   if (sel.kind === 'room') on('sType', 'change', (e) => {
@@ -187,7 +248,8 @@ function hint() {
   const H = {
     plan: { select: 'Нажмите на помещение, чтобы назначить его; тяните мебель, проёмы и перегородки. Колёсико — масштаб, тяните пустое место — сдвиг.',
             wall: 'Тяните от стены до стены — перегородка в полкирпича прилипает к граням стен.', door: 'Нажмите на стену — дверь 800 мм, на наружной — входная 1000 мм.',
-            win: 'Нажмите на наружную стену — окно 1500 мм.', erase: 'Нажмите на перегородку, проём или мебель, чтобы удалить.', furn: 'Нажмите на план, чтобы поставить предмет.',
+            win: 'Нажмите на наружную стену — окно 1500 мм.', pass: 'Нажмите на внутреннюю стену — проём без двери 1200 мм. В несущей стене в ТЗ добавится перемычка.',
+            bump: 'Нажмите на наружную стену — появится выступ 3 × 1,2 м. Потом тяните его стены.', erase: 'Нажмите на перегородку, проём или мебель, чтобы удалить.', furn: 'Нажмите на план, чтобы поставить предмет.',
             wet: 'Тяните зону или её края. Зона общая для всех этажей.' }[t],
     int: 'Тяните — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб.',
     walk: 'Нажмите на сцену и идите: W A S D, мышь — взгляд. Сквозь стены не пройти — только через двери.',
@@ -209,7 +271,7 @@ function setView(v) {
     $('#loading').hidden = false;
     DK.loadThree().then(() => {
       $('#loading').hidden = true;
-      if (!v3) v3 = DK.View3D($('#c3d'), app);
+      if (!v3) v3 = DK._view = DK.View3D($('#c3d'), app);
       v3.show(v === 'int' ? 'interior' : v === 'walk' ? 'walk' : 'exterior', fid, { cut: opts.cut, furn: opts.furn, refit: true });
     }).catch(() => { $('#loading').textContent = 'Не удалось загрузить 3D — проверьте интернет'; });
   }
@@ -226,8 +288,22 @@ function setFloor(f) {
 function bind() {
   $('#brandName').textContent = C.brand; $('#tagline').textContent = C.tagline; document.title = C.brand + ' — ' + C.tagline;
   $('#clad').innerHTML = Object.entries(DK.SPEC.clad).map(([k, v]) => `<option value="${k}">${esc(v.n)}</option>`).join('');
-  $('#inW').addEventListener('change', (e) => { P.W = clampDim(e.target.value); app.commit('Ширина'); plan.fit(); });
-  $('#inD').addEventListener('change', (e) => { P.D = clampDim(e.target.value); app.commit('Глубина'); plan.fit(); });
+  $('#shapes').innerHTML = DK.TEMPLATES.map(T => `<button type="button" data-t="${T.id}" title="${esc(T.d)}">${shapeSvg(T)}<b>${esc(T.n)}</b><small>${esc(T.d)}</small></button>`).join('');
+  $$('#shapes button').forEach(b => b.onclick = () => { const T = DK.TEMPLATES.find(x => x.id === b.dataset.t); $('#shapeAsk').hidden = false; $('#shapeAskT').textContent = `Начать с формы «${T.n}»? Текущая планировка будет заменена.`; $('#shapeYes').dataset.t = T.id; seg($('#shapes'), T.id, 't'); });
+  $('#shapeNo').onclick = () => { $('#shapeAsk').hidden = true; seg($('#shapes'), '', 't'); };
+  $('#shapeYes').onclick = (e) => { P = DK.fromTemplate(e.currentTarget.dataset.t); sel = null; fid = 'f1'; $('#shapeAsk').hidden = true; app.commit('Форма дома'); plan.fit(); if (v3 && view !== 'plan') setView(view); };
+  $('#stairType').innerHTML = '<option value="">Без лестницы</option>' + Object.entries(DK.STAIRS).map(([k, s]) => `<option value="${k}">${esc(s.n)}</option>`).join('');
+  $('#stairType').addEventListener('change', (e) => {
+    const k = e.target.value;
+    if (!k) { P.stair = null; app.commit(); return; }
+    if (DK.floorsOf(P).length < 2) { toast('Лестница нужна, если этажей больше одного'); e.target.value = ''; return; }
+    const S = DK.STAIRS[k], t = DK.ts(P), o = P.stair || { x: t + 200, y: t + 200, rot: 0 };
+    P.stair = { type: k, x: o.x, y: o.y, w: S.w, l: S.l, rot: o.rot }; app.commit('Лестница'); app.select({ kind: 'stair' });
+  });
+  $('#accentOn').innerHTML = Object.entries(DK.ACCENT_ON).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+  $('#accentOn').addEventListener('change', (e) => { facadeEdit().accentOn = e.target.value; app.commit(); });
+  $('#wainscot').addEventListener('change', (e) => { facadeEdit().wainscot = +e.target.value; app.commit(); });
+  [['fSur', 'surrounds'], ['fBelt', 'belt'], ['fCorn', 'corners']].forEach(([i, k]) => $('#' + i).addEventListener('change', (e) => { facadeEdit()[k] = e.target.checked; app.commit(); }));
   $('#hClear').addEventListener('change', (e) => { P.hClear = +e.target.value; app.commit(); });
   $('#basement').addEventListener('change', (e) => { P.basement = e.target.checked; if (P.basement) fid = 'b'; app.commit(); });
   $$('#floorsN button').forEach(b => b.onclick = () => { P.floors = +b.dataset.n; app.commit(); });
@@ -238,11 +314,6 @@ function bind() {
   $('#bpos').addEventListener('change', () => app.commit());
   $('#wetNext').onclick = () => { const vs = DK.wetVariants(P); wetIdx = (wetIdx + 1) % vs.length; P.wet = vs[wetIdx]; app.commit('Мокрая зона'); };
   $$('[data-tool]').forEach(b => b.onclick = () => { if (view !== 'plan') setView('plan'); app.setTool(b.dataset.tool); });
-  $('#addStair').onclick = () => {
-    if (DK.floorsOf(P).length < 2) { toast('Лестница нужна, если этажей больше одного'); return; }
-    const t = DK.ts(P);
-    P.stair = P.stair || { x: t + 200, y: t + 200, w: 1000, l: 3600, rot: 0 }; app.commit('Лестница'); app.select({ kind: 'stair' });
-  };
   $('#optDimOpen').addEventListener('change', (e) => { opts.dimOpen = e.target.checked; plan.render(); });
   // палитра мебели
   $('#furnPal').innerHTML = DK.FURN_GROUPS.map(g => `<details${g === 'Гостиная' ? ' open' : ''}><summary>${esc(g)}</summary><div class="row">${Object.entries(DK.FURN).filter(([, f]) => f.g === g).map(([k, f]) => `<button class="btn sm" data-furn="${k}">${esc(f.n)}</button>`).join('')}</div></details>`).join('');
@@ -271,13 +342,13 @@ function bind() {
     const f = e.target.files[0]; if (!f) return;
     try {
       const d = JSON.parse(await f.text());
-      if (d.v !== 1 || !d.levels) throw new Error('format');
+      if (!DK.migrate(d) || !d.levels) throw new Error('format');
       P = d; ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!P.levels[k]) P.levels[k] = DK.emptyLevel(); });
       sel = null; app.commit('Проект открыт'); plan.fit(); toast('Проект открыт');
     } catch (err) { toast('Это не файл проекта'); }
     e.target.value = '';
   });
-  $('#resetProj').onclick = () => { if (confirm('Начать с типового проекта? Текущий будет заменён.')) { P = DK.starter(); sel = null; fid = 'f1'; app.commit(); plan.fit(); } };
+  $('#resetProj').onclick = () => { $('#shapes').scrollIntoView({ block: 'nearest' }); toast('Выберите форму дома — планировка начнётся заново'); };
   // клавиши
   window.addEventListener('keydown', (e) => {
     if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || $('dialog[open]')) return;

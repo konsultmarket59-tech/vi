@@ -78,7 +78,7 @@ async function lead(req, res) {
     id, at: new Date().toISOString(), status: 'new', notes: [],
     answers: { city: str(a.city), plot: str(a.plot, 20), slope: str(a.slope, 20), term: str(a.term, 20), cls: str(a.cls, 20), material: str(a.material, 20),
       name: str(a.name, 100), phone: str(a.phone, 40), time: str(a.time), note: str(a.note, 2000) },
-    brief: (d.brief || []).slice(0, 20).map(s => str(s, 400)), changes: (d.changes || []).slice(0, 20).map(s => str(s, 400)),
+    brief: (d.brief || []).slice(0, 60).map(s => str(s, 400)), changes: (d.changes || []).slice(0, 20).map(s => str(s, 400)),
     notesAuto: (d.notes || []).slice(0, 30).map(s => str(s, 400)), estimate: d.estimate || null, project: d.project || null, files, dispatch: [],
   };
   // рассылка: исполнители города получают анонс без контактов клиента

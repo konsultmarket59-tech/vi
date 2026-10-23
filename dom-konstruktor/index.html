@@ -108,8 +108,21 @@ nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
 .est{background:var(--brand);color:#fff;border-radius:var(--r);padding:12px 14px;display:grid;gap:4px}
 .est b{font:800 26px/1 var(--display);letter-spacing:.02em}
 .est small{color:#C9CCD1;font-size:11px;line-height:1.35}
-.sw{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
-.sw button{display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);background:var(--panel);border-radius:12px;padding:6px 8px;font:600 12px var(--text);text-align:left}
+.shapes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.shapes button{display:grid;gap:2px;justify-items:center;border:1.5px solid var(--line);background:var(--panel);border-radius:12px;padding:6px 4px;font:700 11px/1.15 var(--text);color:var(--ink);text-align:center}
+.shapes button small{font:500 10px var(--text);color:var(--muted)}
+.shapes button svg{width:100%;height:46px}
+.shapes button:hover{border-color:var(--ink-3)}
+.shapes button[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+.ask{display:grid;gap:8px;background:var(--accent-soft);border:1.5px solid var(--accent);border-radius:12px;padding:9px 11px;font-size:12.5px}
+.zones{display:grid;grid-template-columns:92px minmax(0,1fr);gap:6px 10px;align-items:center;font-size:12.5px;color:var(--muted)}
+.zrow{display:flex;gap:6px;align-items:center}
+.zrow select{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:4px 6px;background:var(--sheet);color:var(--ink);font-size:12px}
+.zrow input[type=color]{width:34px;height:26px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer;flex:none}
+.zones .lnk{border:0;background:none;padding:0;color:var(--brand);font:600 12px var(--text);text-decoration:underline;text-align:left;cursor:pointer}
+.tz{margin:0;padding-left:16px;display:grid;gap:4px;font-size:12px}
+.sw{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.sw button{min-width:0;display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);background:var(--panel);border-radius:12px;padding:6px 8px;font:600 12px var(--text);text-align:left}
 .sw button i{width:22px;height:22px;border-radius:6px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .sw button[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
 
@@ -218,11 +231,9 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
     <div class="work">
       <aside class="side" id="side">
         <div class="grp" data-v="plan">
-          <h3>Дом <small>размеры по несущему слою, мм</small></h3>
-          <div class="row2">
-            <label class="fld">Ширина (запад — восток)<input type="number" id="inW" min="6000" max="24000" step="100"></label>
-            <label class="fld">Глубина (север — юг)<input type="number" id="inD" min="6000" max="24000" step="100"></label>
-          </div>
+          <h3>Форма дома <small>потом тяните стены на плане</small></h3>
+          <div class="shapes" id="shapes"></div>
+          <div class="ask" id="shapeAsk" hidden><span id="shapeAskT"></span><span class="row"><button type="button" class="btn sm primary" id="shapeYes">Начать</button><button type="button" class="btn sm ghost" id="shapeNo">Отмена</button></span></div>
           <div class="row2">
             <label class="fld">Надземных этажей<div class="seg" id="floorsN"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button></div></label>
             <label class="fld">Высота в чистоте<select id="hClear"><option value="2700">2,7 м</option><option value="2800">2,8 м</option><option value="3000">3,0 м</option><option value="3200">3,2 м</option></select></label>
@@ -258,9 +269,11 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
             <button class="btn" data-tool="wall">Перегородка</button>
             <button class="btn" data-tool="door">Дверь</button>
             <button class="btn" data-tool="win">Окно</button>
+            <button class="btn" data-tool="pass">Проём</button>
+            <button class="btn" data-tool="bump">Выступ</button>
             <button class="btn" data-tool="erase">Ластик</button>
-            <button class="btn" id="addStair">Лестница</button>
           </div>
+          <label class="fld">Лестница<select id="stairType"></select></label>
           <label class="chk"><input type="checkbox" id="optDimOpen" checked>Размеры проёмов на фасадах</label>
           <div class="muted" id="toolHint"></div>
         </div>
@@ -291,9 +304,20 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
           <label class="fld" id="ridgeRow">Конёк<div class="seg" id="ridge"><button data-k="long">вдоль длинной стороны</button><button data-k="short">поперёк</button></div></label>
         </div>
         <div class="grp" data-v="ext">
-          <h3>Стиль фасада</h3>
+          <h3>Отделка фасада</h3>
           <div class="sw" id="styles"></div>
           <div class="muted">Нажмите на окно — откроются его настройки; тяните окно мышью, чтобы сдвинуть по горизонтали.</div>
+        </div>
+        <div class="grp" data-v="ext">
+          <h3>Материалы и цвета <small>по зонам</small></h3>
+          <div class="zones" id="zones"></div>
+          <div class="row2">
+            <label class="fld">Акцент на<select id="accentOn"></select></label>
+            <label class="fld">Камень/цоколь по стене<select id="wainscot"><option value="0">нет</option><option value="600">до 0,6 м</option><option value="900">до 0,9 м</option><option value="1000">до 1,0 м</option></select></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="fSur">Наличники вокруг окон</label>
+          <label class="chk"><input type="checkbox" id="fBelt">Пояс между этажами</label>
+          <label class="chk"><input type="checkbox" id="fCorn">Угловые накладки</label>
         </div>
 
         <div class="grp">
@@ -305,6 +329,10 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
         <div class="grp" data-v="plan">
           <h3>Проверки <small>инженерные правила</small></h3>
           <ul class="checks" id="checks"></ul>
+        </div>
+        <div class="grp" data-v="plan">
+          <h3>В техзадание <small>усиления и узлы</small></h3>
+          <ul class="tz" id="tz"></ul>
         </div>
 
         <div class="grp">
@@ -472,6 +500,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 <script src="js/config.js"></script>
 <script src="js/model.js"></script>
 <script src="js/furniture.js"></script>
+<script src="js/facade.js"></script>
 <script src="data/catalog.js"></script>
 <script src="js/plan2d.js"></script>
 <script src="js/view3d.js"></script>

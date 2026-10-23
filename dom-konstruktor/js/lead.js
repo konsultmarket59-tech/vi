@@ -62,17 +62,21 @@ DK.applyBrief = function (src, a) {
 /* краткое техописание проекта для заявки */
 DK.brief = function (p) {
   const A = DK.areas(p), out = [];
+  out.push(`Форма: ${p.poly.length === 4 ? 'прямоугольник' : 'сложный контур, ' + p.poly.length + ' углов'}`);
   out.push(`Габариты с облицовкой ${DK.fmtM(A.outW)} × ${DK.fmtM(A.outD)} м, по несущему слою ${DK.fmtM(p.W)} × ${DK.fmtM(p.D)} м`);
   out.push(`Этажи: ${DK.floorsOf(p).map(DK.floorName).join(', ')}; высота в чистоте ${p.hClear} мм`);
   out.push(`Наружные стены: ${DK.SPEC.outer[p.wallMat].n} + утеплитель ${p.insul} мм + ${DK.SPEC.clad[p.clad].n.toLowerCase()} (итого ${A.T} мм)`);
   out.push(`Внутренняя несущая стена: ${p.bearing.length ? DK.SPEC.bearing.n : 'нет'}; перегородки — ${DK.SPEC.part.n.toLowerCase()}`);
-  out.push(`Кровля: ${DK.ROOFS[p.roof.type].n.toLowerCase()}${p.roof.type !== 'flat' ? ', ' + p.roof.pitch + '°' : ''}; стиль фасада: ${DK.STYLES[p.style].n.toLowerCase()}`);
+  out.push(`Кровля: ${DK.ROOFS[p.roof.type].n.toLowerCase()}${p.roof.type !== 'flat' ? ', ' + p.roof.pitch + '°' : ''}; фасад: ${p.facade ? 'своя отделка' : (DK.FACADES[p.style] || DK.FACADES.white).n.toLowerCase()}`);
   for (const f of A.per) {
     const rs = DK.rooms(p, f.fid).filter(r => r.type !== 'none').map(r => `${DK.ROOM[r.type].n.toLowerCase()} ${DK.fmtA(r.area)}`);
     const w = p.levels[f.fid].open.filter(o => o.kind === 'win');
     out.push(`${f.n} — ${DK.fmtA(f.area)} м²: ${rs.join(', ') || 'помещения не назначены'}; окон ${w.length}, из них панорамных ${w.filter(o => o.pano).length}`);
   }
   out.push(`Общая площадь помещений ${DK.fmtA(A.total)} м², площадь застройки ${DK.fmtA(A.footprint)} м²`);
+  const F = DK.facadeOf(p), wm = (z) => z ? `${DK.WALL_MATS[z.m] || z.m} ${z.c}` : '';
+  out.push(`Отделка: стены — ${wm(F.main)}${F.accentOn !== 'none' ? '; акцент (' + DK.ACCENT_ON[F.accentOn].toLowerCase() + ') — ' + wm(F.accent) : ''}; цоколь — ${wm(F.plinth)}; кровля — ${DK.ROOF_MATS[F.roof.m] || F.roof.m} ${F.roof.c}; рамы ${F.frame}`);
+  DK.tzItems(p).forEach(t => out.push('ТЗ: ' + t));
   return out;
 };
 
