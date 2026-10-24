@@ -25,13 +25,18 @@ async function refreshMe() {
   try { user = (await api('/api/me')).user; } catch (e) { if (e.status === 401) setToken(null); user = null; }
   paintHeader();
 }
-function paintHeader() { const b = $('#cabBtn'); if (b) b.textContent = user ? user.name.split(' ')[0] : 'Войти'; }
+function paintHeader() { const b = $('#cabBtn'); if (b) b.textContent = user ? 'Кабинет · ' + user.name.split(' ')[0] : 'Личный кабинет'; }
 
 /* ---------- вход и регистрация ---------- */
-let afterAuth = null;
+let afterAuth = null, authKind = 'user';
 function openAuth(then, tab) {
   afterAuth = then || null;
-  setTab(tab || 'login'); $('#aErr').textContent = ''; $('#authDlg').showModal();
+  // arch — регистрация с заявкой архитектора; company — вход и регистрация строительной компании
+  authKind = tab === 'company' ? 'company' : 'user';
+  $('#aArch').checked = tab === 'arch'; $('#aArchBox').hidden = tab !== 'arch';
+  if ($('#aCompBox')) { $('#aCompBox').hidden = authKind !== 'company'; $('#aArch').closest('label').hidden = authKind === 'company'; }
+  $('#authDlg h2').textContent = authKind === 'company' ? 'Кабинет строительной компании' : 'Личный кабинет';
+  setTab(tab === 'arch' ? 'reg' : tab === 'reg' ? 'reg' : 'login'); $('#aErr').textContent = ''; $('#authDlg').showModal();
 }
 function setTab(t) {
   $$('#authTabs button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === t)));
@@ -181,7 +186,12 @@ async function renderCab() {
 DK.Market = {
   init() {
     bindAuth(); bindPublish();
-    $('#cabBtn').onclick = () => user ? DK.goPage('cab') : openAuth();
+    // «Личный кабинет»: меню для клиентов, компаний, архитекторов и вход для сотрудников
+    const menu = $('#cabMenu'), btn = $('#cabBtn');
+    const toggle = (on) => { menu.hidden = !on; btn.setAttribute('aria-expanded', String(on)); };
+    btn.onclick = (e) => { e.stopPropagation(); toggle(menu.hidden); };
+    document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) toggle(false); });
+    $$('[data-cab]', menu).forEach(b => b.onclick = () => { toggle(false); DK.Market.openCabinet(b.dataset.cab); });
     $$('[data-act="publish"]').forEach(b => b.onclick = openPublish);
     $('[data-close]', $('#prDlg')) && ($('[data-close]', $('#prDlg')).onclick = () => $('#prDlg').close());
     $('#projQ').oninput = (e) => { flt.q = e.target.value; clearTimeout(this.t); this.t = setTimeout(renderProjects, 250); };
@@ -189,5 +199,12 @@ DK.Market = {
     refreshMe();
   },
   renderProjects, renderCab, openPublish,
+  /* кабинет по роли: компания — кабинет заявок, остальные — кабинет пользователя */
+  openCabinet(kind) {
+    if (kind === 'company') { if (user && user.role === 'company') return DK.goPage('company'); return openAuth(() => DK.goPage(user && user.role === 'company' ? 'company' : 'cab'), 'company'); }
+    if (user) return DK.goPage('cab');
+    openAuth(() => DK.goPage('cab'), kind === 'arch' ? 'arch' : undefined);
+  },
+  user: () => user, api: (...a) => api(...a),
 };
 })();

@@ -156,7 +156,7 @@ function stat(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(ROOT, p));
-  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || /(server|market)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || /\/(server|market|pages|content|crm-api|mailer)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
@@ -165,6 +165,7 @@ function stat(req, res, url) {
 }
 
 const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL });
+const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -180,6 +181,7 @@ http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/admin/')) return admin(req, res, url);
     if (url.pathname.startsWith('/api/')) return send(res, 404, { ok: false });
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { ok: false });
+    if (pagesHandle(req, res, url)) return;
     stat(req, res, url);
   } catch (e) { console.error(e); send(res, 500, { ok: false }); }
 }).listen(PORT, () => console.log(`Конструктор дома: http://localhost:${PORT}  (админка: /admin.html${ADMIN_KEY ? '' : ' — задайте ADMIN_KEY'})`));

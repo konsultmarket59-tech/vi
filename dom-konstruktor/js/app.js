@@ -529,11 +529,11 @@ function bind() {
   $$('nav.main button').forEach(b => b.onclick = () => page(b.dataset.page));
   $$('[data-act="lead"]').forEach(b => b.onclick = openLead);
   $$('[data-act="join"]').forEach(b => b.onclick = () => $('#joinDlg').showModal());
-  window.addEventListener('hashchange', () => page(location.hash.slice(1) || 'project', true));
+  window.addEventListener('hashchange', () => location.hash ? hashRoute() : page('project', true));
   const s = C.service;
   $('#svcClient').textContent = s.client; $('#svcClientPrice').textContent = s.clientPrice ? 'Стоимость: ' + s.clientPrice : 'Стоимость — по договорённости';
   $('#svcCompany').textContent = s.company; $('#svcCompanyPrice').textContent = s.companyPrice ? 'Стоимость: ' + s.companyPrice : 'Стоимость лида — по договору';
-  $('#ownerLine').textContent = [C.owner.phone, C.owner.email].filter(Boolean).join(' · ');
+  $('#ownerLine').textContent = [C.owner.phone, C.owner.email, C.owner.city || 'Пермь, работаем по России'].filter(Boolean).join(' · ');
   $('#cityList').innerHTML = DK.CITIES.map(c => `<option value="${esc(c)}">`).join('');
   bindLead(); bindCatalog();
 }
@@ -543,7 +543,7 @@ function undo() { if (hi > 0) { hi--; P = JSON.parse(hist[hi]); sel = null; save
 function redo() { if (hi < hist.length - 1) { hi++; P = JSON.parse(hist[hi]); sel = null; save(); refresh(); if (v3 && view !== 'plan') v3.rebuild(); } }
 
 function page(id, fromHash) {
-  if (!['project', 'builders', 'arch', 'how', 'projects', 'cab'].includes(id)) id = 'project';
+  if (!['project', 'builders', 'arch', 'how', 'projects', 'cab', 'company'].includes(id)) id = 'project';
   $$('dialog[open]').forEach(d => { if (d.id !== 'leadDlg') d.close(); });
   $$('main.page').forEach(m => { m.hidden = m.id !== 'page-' + id; });
   $$('nav.main button').forEach(b => b.setAttribute('aria-current', b.dataset.page === id ? 'page' : 'false'));
@@ -684,5 +684,13 @@ DK.loadPrices && DK.loadPrices().then(() => refreshInfo());
 setView('plan');
 refresh();
 requestAnimationFrame(() => { plan.size(); plan.fit(); app.setTool('select'); });
-if (location.hash) page(location.hash.slice(1), true);
+// ссылки с публичных страниц: #lead — анкета подбора, #join — регистрация исполнителя, #company — кабинет компании
+function hashRoute() {
+  const h = location.hash.slice(1);
+  if (h === 'lead') { history.replaceState(null, '', location.pathname); openLead(); }
+  else if (h === 'join') { history.replaceState(null, '', location.pathname); $('#joinDlg').showModal(); }
+  else if (h === 'company') DK.Market.openCabinet('company');
+  else if (h) page(h, true);
+}
+if (location.hash) hashRoute();
 })();
