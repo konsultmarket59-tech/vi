@@ -44,7 +44,7 @@ const app = {
   walkFloor(f) { fid = f; refreshFloors(); },
 };
 
-const plan = DK.Plan2D($('#c2d'), app);
+const plan = DK._plan = DK.Plan2D($('#c2d'), app);
 let v3 = null;
 
 /* ---------- утилиты ---------- */
@@ -204,7 +204,12 @@ function renderSel() {
   } else if (sel.kind === 'furn') {
     const f = P.levels[fid].furn.find(q => q.id === sel.id); if (!f) { box.hidden = true; return; }
     const F = DK.FURN[f.type];
-    h = `<h3>${esc(F.n)} <small>${F.w} × ${F.d} · ${DK.furnAngle(f)}°</small></h3><div class="muted">Крутите за кружок над предметом (шаг 15°, с Alt — 1°) или нажмите R — 90°.</div><div class="row"><button type="button" class="btn sm" id="sRot">Повернуть на 90°</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
+    const Z = DK.furnSize(f), own = f.w || f.d || f.h;
+    h = `<h3>${esc(F.n)} <small>${Z.w} × ${Z.d} × ${Z.h} · ${DK.furnAngle(f)}°</small></h3><div class="muted">Крутите за кружок над предметом (шаг 15°, с Alt — 1°) или нажмите R — 90°. Двигать можно и в 3D: в интерьере и на прогулке — тащите предмет мышью.</div>
+      <div class="row2" style="grid-template-columns:1fr 1fr 1fr"><label class="fld">Ширина<input type="number" id="fW" step="50" value="${Z.w}"></label><label class="fld">Глубина<input type="number" id="fD" step="50" value="${Z.d}"></label><label class="fld">Высота<input type="number" id="fH" step="50" value="${Z.h}"></label></div>
+      <div class="row"><button type="button" class="btn sm" id="fM">− 10 %</button><button type="button" class="btn sm" id="fP">+ 10 %</button>${own ? '<button type="button" class="btn sm ghost" id="f0">Как в каталоге</button>' : ''}</div>
+      ${DK.KITCHENS.includes(f.type) ? `<label class="fld">Верхние шкафы<div class="seg" id="fUp"><button data-k="1" aria-pressed="${f.upper !== false}">С верхом</button><button data-k="0" aria-pressed="${f.upper === false}">Без верха</button></div></label>` : ''}
+      <div class="row"><button type="button" class="btn sm" id="sRot">Повернуть на 90°</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
   } else if (sel.kind === 'room') {
     const r = DK.rooms(P, fid).at(sel.x, sel.y); if (!r) { box.hidden = true; return; }
     h = `<h3>Помещение <small>${DK.fmtA(r.area)} м²${r.rect ? ' · ' + Math.round(r.x1 - r.x0) + ' × ' + Math.round(r.y1 - r.y0) : ''}</small></h3>
@@ -245,7 +250,17 @@ function renderSel() {
   }
   if (sel.kind === 'edge') { const mv = (d) => { const e = DK.edges(P).find(x => x.id === sel.id); if (!DK.moveEdge(P, sel.id, d * e.out)) { toast('Так стену не сдвинуть'); return; } const mx = Math.min(...P.poly.map(v => v.x)), my = Math.min(...P.poly.map(v => v.y)); app.commit('Стена'); plan.view.ox += mx * plan.view.k; plan.view.oy += my * plan.view.k; plan.render(); };
     on('eIn', 'click', () => mv(-300)); on('eOut', 'click', () => mv(300)); }
-  if (sel.kind === 'furn') { on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel()); }
+  if (sel.kind === 'furn') {
+    on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel());
+    const f = P.levels[fid].furn.find(q => q.id === sel.id), F = DK.FURN[f.type];
+    // свой размер храним, только если он отличается от каталожного
+    const setDim = (k, v) => { const nv = DK.furnClamp(F[k], v); if (nv !== Math.round(v / 10) * 10) toast(`Допустимо ${DK.furnClamp(F[k], 0)}–${DK.furnClamp(F[k], 1e9)} мм`); if (nv === F[k]) delete f[k]; else f[k] = nv; };
+    for (const [id, k] of [['fW', 'w'], ['fD', 'd'], ['fH', 'h']]) on(id, 'change', (e) => { setDim(k, +e.target.value || F[k]); app.commit('Размер предмета'); });
+    const scale = (m) => { const Z = DK.furnSize(f); for (const k of ['w', 'd', 'h']) setDim(k, Z[k] * m); app.commit('Размер предмета'); };
+    on('fM', 'click', () => scale(0.9)); on('fP', 'click', () => scale(1.1));
+    on('f0', 'click', () => { delete f.w; delete f.d; delete f.h; app.commit('Размер как в каталоге'); });
+    $$('#fUp button', box).forEach(b => b.onclick = () => { if (b.dataset.k === '1') delete f.upper; else f.upper = false; app.commit(b.dataset.k === '1' ? 'Кухня с верхними шкафами' : 'Кухня без верха'); });
+  }
   if (sel.kind === 'stair') { on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel()); }
   if (sel.kind === 'room') on('sType', 'change', (e) => setRoomType(sel.x, sel.y, e.target.value));
 }

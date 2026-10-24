@@ -9,6 +9,7 @@ DK.FURN = {
   // гостиная
   sofa: { n: 'Диван 2,2 м', g: 'Гостиная', w: 2200, d: 950, h: 850, c: FAB },
   sofa3: { n: 'Диван 2,6 м', g: 'Гостиная', w: 2600, d: 1000, h: 850, c: '#b9b2a6', base: 'sofa' },
+  sofaOffice: { n: 'Диван офисный малый', g: 'Гостиная', w: 1400, d: 750, h: 780, c: '#5d6168' },
   sofaL: { n: 'Угловой диван', g: 'Гостиная', w: 2800, d: 1800, h: 850, c: FAB },
   armchair: { n: 'Кресло', g: 'Гостиная', w: 850, d: 850, h: 850, c: '#c2ad94' },
   pouf: { n: 'Пуф', g: 'Гостиная', w: 550, d: 550, h: 420, c: '#a88f74' },
@@ -22,6 +23,8 @@ DK.FURN = {
   kitchenS: { n: 'Кухня прямая 1,8 м', g: 'Кухня', w: 1800, d: 600, h: 900, c: WHITE, base: 'kitchen' },
   kitchen3: { n: 'Кухня прямая 3,2 м', g: 'Кухня', w: 3200, d: 600, h: 900, c: '#e9e4dc', base: 'kitchen' },
   kitchenL: { n: 'Кухня угловая', g: 'Кухня', w: 2800, d: 1800, h: 900, c: WHITE },
+  kitchenNo: { n: 'Кухня прямая без верха 2,4 м', g: 'Кухня', w: 2400, d: 600, h: 900, c: '#d9d4cb', base: 'kitchen', noUpper: true },
+  kitchenLNo: { n: 'Кухня угловая без верха', g: 'Кухня', w: 2800, d: 1800, h: 900, c: WHITE, base: 'kitchenL', noUpper: true },
   kitchenU: { n: 'Кухня П-образная', g: 'Кухня', w: 3000, d: 2400, h: 900, c: '#e9e4dc' },
   island: { n: 'Кухонный остров', g: 'Кухня', w: 1800, d: 900, h: 900, c: WHITE },
   fridge: { n: 'Холодильник', g: 'Кухня', w: 600, d: 650, h: 1900, c: '#e6e6e4' },
@@ -88,16 +91,24 @@ DK.FURN = {
 DK.FURN_GROUPS = ['Гостиная', 'Кухня', 'Столовая', 'Спальня', 'Детская', 'Хранение', 'Санузел', 'Котельная', 'Свет', 'Декор', 'Терраса', 'Гараж'];
 
 DK.furnAngle = function (f) { return f.a != null ? f.a : (f.rot || 0) * 90; };
+/* размер предмета: свой (f.w, f.d, f.h) или по каталогу */
+DK.furnSize = function (f) {
+  const F = DK.FURN[f.type] || { w: 500, d: 500, h: 500 };
+  return { w: f.w || F.w, d: f.d || F.d, h: f.h || F.h };
+};
+/* пределы ручного размера: от 40 % до 250 % каталожного, не меньше 100 мм */
+DK.furnClamp = function (base, v) { return Math.round(Math.max(Math.max(100, base * 0.4), Math.min(v, base * 2.5)) / 10) * 10; };
+DK.KITCHENS = ['kitchen', 'kitchenS', 'kitchen3', 'kitchenL', 'kitchenU', 'kitchenNo', 'kitchenLNo'];
 /* габарит на плане с учётом поворота (описанный прямоугольник) */
 DK.furnBox = function (f) {
-  const F = DK.FURN[f.type] || { w: 500, d: 500 }, a = DK.furnAngle(f) * Math.PI / 180;
+  const F = DK.furnSize(f), a = DK.furnAngle(f) * Math.PI / 180;
   const c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
   const sw = F.w * c + F.d * s, sd = F.w * s + F.d * c;
   return { x0: f.x - sw / 2, y0: f.y - sd / 2, x1: f.x + sw / 2, y1: f.y + sd / 2, sw, sd };
 };
 /* точка внутри повёрнутого предмета */
 DK.furnHit = function (f, x, y) {
-  const F = DK.FURN[f.type] || { w: 500, d: 500 }, a = -DK.furnAngle(f) * Math.PI / 180;
+  const F = DK.furnSize(f), a = -DK.furnAngle(f) * Math.PI / 180;
   const dx = x - f.x, dy = y - f.y, u = dx * Math.cos(a) - dy * Math.sin(a), v = dx * Math.sin(a) + dy * Math.cos(a);
   return Math.abs(u) <= F.w / 2 && Math.abs(v) <= F.d / 2;
 };
@@ -131,6 +142,14 @@ DK.FURN3D = {
     const n = Math.max(2, Math.round((w - 0.36) / 0.7));
     for (let i = 0; i < n; i++) k.add((w - 0.4) / n - 0.02, 0.12, d - 0.3, '#ddd9d2', -w / 2 + 0.2 + (w - 0.4) / n * (i + 0.5), 0.48, 0.08);
   },
+  sofaOffice(k) {
+    const { w, d, h, c } = k, y = 0.14;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.add(0.03, y, 0.03, METAL, sx * (w / 2 - 0.06), y / 2, sz * (d / 2 - 0.06));
+    k.add(w, 0.12, d, c, 0, y + 0.06, 0); k.add(w - 0.2, 0.12, d - 0.2, c, 0, y + 0.18, 0.06);
+    k.add(w, h - y - 0.12, 0.16, c, 0, y + 0.12 + (h - y - 0.12) / 2, -d / 2 + 0.08);
+    for (const sx of [-1, 1]) k.add(0.1, 0.42, d, c, sx * (w / 2 - 0.05), y + 0.21, 0);
+    k.add(0.008, 0.11, d - 0.22, '#4a4e55', 0, y + 0.19, 0.06);
+  },
   sofaL(k) {
     const { w, d, h, c } = k, s = 0.95;
     k.add(w, 0.42, s, c, 0, 0.21, -d / 2 + s / 2); k.add(s, 0.42, d - s, c, w / 2 - s / 2, 0.21, s / 2);
@@ -153,7 +172,7 @@ DK.FURN3D = {
     const { w, d, c } = k;
     k.add(w, 0.86, d, c, 0, 0.43, 0); k.add(w + 0.02, 0.04, d + 0.02, '#d8d4cc', 0, 0.88, 0);
     k.add(0.55, 0.01, 0.45, METAL, -w / 2 + 0.9, 0.905, 0); k.add(0.5, 0.02, 0.4, '#c9cfd3', w / 2 - 0.6, 0.9, 0);
-    k.add(w, 0.72, 0.35, c, 0, 1.5 + 0.36, -d / 2 + 0.175);
+    if (k.upper) k.add(w, 0.72, 0.35, c, 0, 1.5 + 0.36, -d / 2 + 0.175);
     for (let x = -w / 2 + 0.6; x < w / 2 - 0.01; x += 0.6) k.add(0.008, 0.82, 0.005, '#c9c5bd', x, 0.43, d / 2 + 0.003);
   },
   kitchenL(k) {
@@ -161,13 +180,13 @@ DK.FURN3D = {
     k.add(w, 0.86, s, c, 0, 0.43, -d / 2 + s / 2); k.add(s, 0.86, d - s, c, -w / 2 + s / 2, 0.43, s / 2);
     k.add(w + 0.02, 0.04, s + 0.02, '#d8d4cc', 0, 0.88, -d / 2 + s / 2); k.add(s + 0.02, 0.04, d - s, '#d8d4cc', -w / 2 + s / 2, 0.88, s / 2);
     k.add(0.55, 0.01, 0.45, METAL, w / 2 - 0.8, 0.905, -d / 2 + s / 2); k.add(0.4, 0.02, 0.5, '#c9cfd3', -w / 2 + s / 2, 0.9, d / 2 - 0.6);
-    k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175); k.add(0.35, 0.72, d - 0.35, c, -w / 2 + 0.175, 1.86, 0.175);
+    if (k.upper) { k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175); k.add(0.35, 0.72, d - 0.35, c, -w / 2 + 0.175, 1.86, 0.175); }
   },
   kitchenU(k) {
     const { w, d, c } = k, s = 0.6;
     k.add(w, 0.86, s, c, 0, 0.43, -d / 2 + s / 2); k.add(s, 0.86, d - s, c, -w / 2 + s / 2, 0.43, s / 2); k.add(s, 0.86, d - s, c, w / 2 - s / 2, 0.43, s / 2);
     k.add(w + 0.02, 0.04, s + 0.02, '#d8d4cc', 0, 0.88, -d / 2 + s / 2); k.add(s + 0.02, 0.04, d - s, '#d8d4cc', -w / 2 + s / 2, 0.88, s / 2); k.add(s + 0.02, 0.04, d - s, '#d8d4cc', w / 2 - s / 2, 0.88, s / 2);
-    k.add(0.55, 0.01, 0.45, METAL, 0, 0.905, -d / 2 + s / 2); k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175);
+    k.add(0.55, 0.01, 0.45, METAL, 0, 0.905, -d / 2 + s / 2); if (k.upper) k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175);
   },
   island(k) { const { w, d, c } = k; k.add(w, 0.86, d, c, 0, 0.43, 0); k.add(w + 0.1, 0.04, d + 0.1, '#d8d4cc', 0, 0.88, 0); },
   fridge(k) { const { w, d, h, c } = k; k.add(w, h, d, c, 0, h / 2, 0); k.add(w - 0.02, 0.005, 0.005, '#bdbdbb', 0, h * 0.62, d / 2 + 0.003); k.add(0.02, 0.4, 0.03, '#a9a9a7', w / 2 - 0.06, h * 0.75, d / 2 + 0.015); },

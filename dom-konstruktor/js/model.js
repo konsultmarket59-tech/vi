@@ -326,6 +326,34 @@ function stairHeight(p, X, Y) {
   return null;
 }
 
+/* зона выхода с верхней ступени (0,8 м за последним маршем) — там не должно быть стен */
+function stairExit(p) {
+  const s = p.stair; if (!s) return null;
+  const P = stairParts(s), D = 800;
+  let r;
+  if (P.spiral) {
+    const S = P.spiral, th = Math.PI * 2 * (S.turn + 1) / 2 - Math.PI / 2, cu = S.cu + Math.cos(th) * (S.r + D / 2), cv = S.cv + Math.sin(th) * (S.r + D / 2);
+    r = [cu - D / 2, cv - D / 2, cu + D / 2, cv + D / 2];
+  } else {
+    const f = P.flights[P.flights.length - 1], d = f.d;
+    r = d[1] > 0 ? [f.u0, f.v1, f.u1, f.v1 + D] : d[1] < 0 ? [f.u0, f.v0 - D, f.u1, f.v0] : d[0] > 0 ? [f.u1, f.v0, f.u1 + D, f.v1] : [f.u0 - D, f.v0, f.u0, f.v1];
+  }
+  const a = stairToWorld(s, r[0], r[1]), b = stairToWorld(s, r[2], r[3]);
+  return { x0: Math.min(a[0], b[0]), y0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), y1: Math.max(a[1], b[1]) };
+}
+/* выход наверх свободен: зона за верхней ступенью внутри дома и не пересекает стены (двери не мешают) */
+function stairExitOk(p, fid) {
+  const z = stairExit(p); if (!z) return true;
+  const m = 60, Z = { x0: z.x0 + m, y0: z.y0 + m, x1: z.x1 - m, y1: z.y1 - m };
+  if (![[Z.x0, Z.y0], [Z.x1, Z.y0], [Z.x0, Z.y1], [Z.x1, Z.y1]].every(([x, y]) => inside(p.poly, x, y))) return false;
+  return !walls(p, fid).some(w => {
+    if (!inter(Z, w)) return false;
+    // проём двери, перекрывающий зону по длине стены, — проход есть
+    const lo = w.axis === 'x' ? Z.x0 : Z.y0, hi = w.axis === 'x' ? Z.x1 : Z.y1;
+    return !p.levels[fid].open.some(o => o.wall === w.id && o.kind !== 'win' && o.c - o.w / 2 <= lo + 100 && o.c + o.w / 2 >= hi - 100);
+  });
+}
+
 /* ---------- несущая стена ---------- */
 function spansOf(origin, clear, pos, bt) {
   const edgesA = [origin].concat(...pos.slice().sort((a, b) => a - b).map(v => [v - bt / 2, v + bt / 2]), [origin + clear]);
@@ -413,6 +441,7 @@ function checks(p) {
   if (st && walls(p, 'f1').some(w => w.kind === 'bearing' && inter(st, w))) add('err', 'Лестница пересекает несущую стену');
   if (st && ![[st.x0, st.y0], [st.x1, st.y0], [st.x0, st.y1], [st.x1, st.y1]].every(([x, y]) => inside(p.poly, x, y))) add('err', 'Лестница выходит за контур дома');
   if (fl.length > 1 && !p.stair) add('warn', 'Добавьте лестницу между этажами');
+  if (st && fl.length > 1) fl.slice(1).forEach(fid => { if (!stairExitOk(p, fid)) add('err', `${floorName(fid)}: выход с лестницы упирается в стену — оставьте площадку 0,8 м за верхней ступенью или разверните лестницу`, fid); });
   const boilers = [];
   fl.forEach((fid, k) => {
     const regs = rooms(p, fid), lv = p.levels[fid], fn = floorName(fid);
@@ -766,7 +795,7 @@ function fromTemplate(tid) {
     F('toilet', xb + 420, t + 360); F('sink', xb + 1250, t + 280); F('shower', xb + 120 + 2000 - 480, yb - 480);
   });
   p.wet = { x: t, y: t, w: xw + 120 - t, h: d + 120 };
-  if (p.floors > 1) p.stair = { type: 'straight', x: xw + 420, y: t + 200, w: 1000, l: 3600, rot: 1 };
+  if (p.floors > 1) p.stair = { type: 'straight', x: xw + 420, y: t + 200, w: 1000, l: 3600, rot: 3 };
   // вход — на самом южном и длинном ребре
   const E = edges(p).filter(e => e.side === 'S');
   const maxY = Math.max(...E.map(e => e.line));
@@ -788,7 +817,7 @@ function starter() {
              O('N', 7000, 1500, 'win'), O('N', 9900, 2400, 'win', { pano: true, sash: 3 }), O('E', 2600, 1500, 'win'),
              O('S', 2200, 1500, 'win'), O('S', 9300, 1800, 'win', { sash: 3 }), O('E', 7400, 1500, 'win'), O('S', 5500, 1000, 'entry'),
              O('B0', 4500, 800, 'door'), O('P2', 3900, 700, 'door'), O('P1', 1600, 800, 'door'), O('P0', 3900, 700, 'door'),
-             O('P3', 3900, 1200, 'pass'), O('P4', 6000, 800, 'door'), O('P5', 6000, 800, 'door')];
+             O('P3', 3900, 1200, 'pass'), O('P4', 6000, 800, 'door'), O('P5', 9100, 800, 'door')];
   const map = { P0: 0, P1: 1, P2: 3, P3: 2, P4: 4, P5: 5 };
   f1.open.forEach(o => { if (o.wall in map) o.wall = f1.parts[map[o.wall]].id; });
   f1.names = [{ x: 1500, y: 1500, type: 'boiler' }, { x: 1500, y: 4000, type: 'laundry' }, { x: 3900, y: 1500, type: 'bath' },
@@ -803,7 +832,7 @@ function starter() {
   f2.open = [O('W', 1700, 600, 'win', { sill: 1300, h: 800 }), O('N', 4900, 1500, 'win'), O('N', 9300, 1500, 'win'), O('E', 2600, 1500, 'win'),
              O('S', 2200, 1500, 'win'), O('S', 9300, 1500, 'win'), O('E', 7400, 1500, 'win'), O('S', 5500, 900, 'win'),
              O('B0', 4500, 800, 'door'), O('B0', 1600, 700, 'door'), O('B0', 8200, 800, 'door'),
-             O(f2.parts[0].id, 1600, 700, 'door'), O(f2.parts[2].id, 6000, 800, 'door'), O(f2.parts[3].id, 6000, 800, 'door')];
+             O(f2.parts[0].id, 1600, 700, 'door'), O(f2.parts[2].id, 6000, 800, 'door'), O(f2.parts[3].id, 9100, 800, 'door')];
   f2.furn = [F('toilet', 900, 800), F('sink', 2200, 700), F('bath', 1550, 2450), F('bed160', 4800, 1500, 0), F('desk', 9300, 900),
              F('bed160', 2200, 8400, 2), F('bed90', 9800, 8500, 2), F('wardrobe', 1500, 4500, 2)];
   return normalize({
@@ -812,7 +841,7 @@ function starter() {
     hClear: 2800, slab: 220, floors: 2, basement: false,
     bearing: [{ axis: 'h', pos: 5000 }],
     wet: { x: 400, y: 400, w: 4600, h: 4410 },
-    stair: { type: 'straight', x: 5900, y: 5400, w: 1000, l: 3600, rot: 2 },
+    stair: { type: 'L', x: 5000, y: 5400, w: 1900, l: 3600, rot: 2 },
     roof: { type: 'gable', pitch: 30, ridge: 'long' },
     style: 'white', facade: null,
     levels: { b: emptyLevel(), f1, f2, f3: emptyLevel() },
@@ -821,7 +850,7 @@ function starter() {
 
 Object.assign(DK, { EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
-  stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight,
+  stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,
   fromTemplate, autoWindows, starter, fmtM, fmtA, sideName });
 })();

@@ -242,7 +242,7 @@ function Plan2D(canvas, app) {
     const T = f.type, base = F.base || T, ang = DK.furnAngle(f) * Math.PI / 180;
     c.save();
     c.translate(X(f.x), Y(f.y)); c.rotate(ang);
-    const w = L(F.w), d = L(F.d), l = (x0, y0, x1, y1) => line(c, x0, y0, x1, y1);
+    const Z = DK.furnSize(f), w = L(Z.w), d = L(Z.d), l = (x0, y0, x1, y1) => line(c, x0, y0, x1, y1);
     c.fillStyle = F.c; c.strokeStyle = '#6f747b'; c.lineWidth = 1;
     const round = ['tableR', 'coffeeR', 'pouf', 'tank', 'plant', 'lampCeil', 'lampFloor', 'lampTable', 'umbrella', 'barstool'].includes(base);
     if (base === 'kitchenL' || base === 'sofaL') { const s0 = L(base === 'kitchenL' ? 600 : 950); c.beginPath(); c.moveTo(-w / 2, -d / 2); c.lineTo(w / 2, -d / 2); c.lineTo(w / 2, base === 'sofaL' ? d / 2 : -d / 2 + s0); c.lineTo(base === 'sofaL' ? w / 2 - s0 : -w / 2 + s0, base === 'sofaL' ? d / 2 : -d / 2 + s0); c.lineTo(base === 'sofaL' ? w / 2 - s0 : -w / 2 + s0, base === 'sofaL' ? -d / 2 + s0 : d / 2); c.lineTo(base === 'sofaL' ? -w / 2 : -w / 2, base === 'sofaL' ? -d / 2 + s0 : d / 2); c.closePath(); c.fill(); c.stroke(); }
@@ -250,12 +250,14 @@ function Plan2D(canvas, app) {
     else if (round && base !== 'plant' && !base.startsWith('lamp')) { c.beginPath(); c.arc(0, 0, Math.min(w, d) / 2, 0, 7); c.fill(); c.stroke(); }
     else if (!round) { rr(c, -w / 2, -d / 2, w, d, Math.min(4, L(60))); c.fill(); c.stroke(); }
     c.strokeStyle = 'rgba(60,64,70,.55)';
+    // верхние шкафы кухни — пунктиром вдоль стены
+    if (DK.KITCHENS.includes(T) && f.upper !== false) { c.setLineDash([4, 3]); l(-w / 2, -d / 2 + L(350), w / 2, -d / 2 + L(350)); if (base !== 'kitchen') l(-w / 2 + L(350), -d / 2, -w / 2 + L(350), d / 2); if (base === 'kitchenU') l(w / 2 - L(350), -d / 2, w / 2 - L(350), d / 2); c.setLineDash([]); }
     if (base === 'bed160' || base === 'bed90' || base === 'bunk' || base === 'cot') { c.fillStyle = '#fff'; const two = base === 'bed160', pw = two ? (w - L(240)) / 2 : w - L(160);
       for (let i = 0; i < (two ? 2 : 1); i++) { rr(c, -w / 2 + L(80) + i * (pw + L(80)), -d / 2 + L(80), pw, L(380), 3); c.fill(); c.stroke(); }
       l(-w / 2, -d / 2 + L(560), w / 2, -d / 2 + L(560)); if (base === 'bunk') { c.setLineDash([3, 3]); l(-w / 2, d / 2, w / 2, -d / 2); c.setLineDash([]); } }
-    else if (base === 'sofa' || base === 'armchair') { rr(c, -w / 2 + 1, -d / 2 + 1, w - 2, L(220), 3); c.stroke(); rr(c, -w / 2 + 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); rr(c, w / 2 - L(180) - 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); }
+    else if (base === 'sofa' || base === 'armchair' || base === 'sofaOffice') { rr(c, -w / 2 + 1, -d / 2 + 1, w - 2, L(220), 3); c.stroke(); rr(c, -w / 2 + 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); rr(c, w / 2 - L(180) - 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); }
     else if (base === 'toilet') { c.beginPath(); c.ellipse(0, L(90), w / 2 - 2, d / 2 - L(170), 0, 0, Math.PI * 2); c.stroke(); l(-w / 2, -d / 2 + L(170), w / 2, -d / 2 + L(170)); }
-    else if (base === 'sink') { const n = F.w > 900 ? 2 : 1; for (let i = 0; i < n; i++) { c.beginPath(); c.ellipse(-w / 2 + w * (i + 0.5) / n, L(30), w / n / 2 - L(80), d / 2 - L(110), 0, 0, Math.PI * 2); c.stroke(); } }
+    else if (base === 'sink') { const n = Z.w > 900 ? 2 : 1; for (let i = 0; i < n; i++) { c.beginPath(); c.ellipse(-w / 2 + w * (i + 0.5) / n, L(30), w / n / 2 - L(80), d / 2 - L(110), 0, 0, Math.PI * 2); c.stroke(); } }
     else if (base === 'bath' || base === 'bathC') { rr(c, -w / 2 + L(70), -d / 2 + L(70), w - L(140), d - L(140), L(250)); c.stroke(); }
     else if (base === 'shower') { l(-w / 2, -d / 2, w / 2, d / 2); l(w / 2, -d / 2, -w / 2, d / 2); }
     else if (base === 'kitchen') { for (let x = -w / 2 + L(600); x < w / 2; x += L(600)) l(x, -d / 2, x, d / 2); c.beginPath(); c.arc(-w / 2 + L(900), 0, L(160), 0, Math.PI * 2); c.stroke(); }
@@ -279,6 +281,8 @@ function Plan2D(canvas, app) {
       c.save(); c.translate(X(f.x), Y(f.y)); c.rotate(ang);
       c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(-w / 2 - 2, -d / 2 - 2, w + 4, d + 4);
       rotHandle(c, 0, -d / 2 - 22);
+      // квадратик в углу — размер предмета
+      c.fillStyle = '#fff'; c.lineWidth = 1.5; c.fillRect(w / 2 - 5, d / 2 - 5, 10, 10); c.strokeRect(w / 2 - 5, d / 2 - 5, 10, 10);
       c.restore();
     }
   }
@@ -297,6 +301,8 @@ function Plan2D(canvas, app) {
     const W = (u, v) => { const q = DK.stairToWorld(s, u, v); return [X(q[0]), Y(q[1])]; };
     const poly = (pts) => { c.beginPath(); pts.forEach((q, i) => { const a = W(q[0], q[1]); i ? c.lineTo(a[0], a[1]) : c.moveTo(a[0], a[1]); }); c.closePath(); };
     c.fillStyle = '#f4f4f4'; c.fillRect(X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0));
+    // выход наверх: красная зона, если за верхней ступенью стена
+    if (!bottom && !DK.stairExitOk(p, fid)) { const z = DK.stairExit(p); c.fillStyle = 'rgba(200,60,50,.18)'; c.fillRect(X(z.x0), Y(z.y0), L(z.x1 - z.x0), L(z.y1 - z.y0)); c.strokeStyle = '#c83c32'; c.setLineDash([4, 3]); c.strokeRect(X(z.x0), Y(z.y0), L(z.x1 - z.x0), L(z.y1 - z.y0)); c.setLineDash([]); }
     c.strokeStyle = COL.stair; c.lineWidth = 0.8;
     const arrow = [];
     if (parts.spiral) {
@@ -409,11 +415,18 @@ function Plan2D(canvas, app) {
     });
   }
   /* ручка поворота выбранной мебели или лестницы, в экранных координатах */
+  function hitSize(p, fid, sx, sy) {
+    const s = app.sel(); if (!s || s.kind !== 'furn') return null;
+    const f = p.levels[fid].furn.find(q => q.id === s.id); if (!f) return null;
+    const Z = DK.furnSize(f), a = DK.furnAngle(f) * Math.PI / 180, u = Z.w / 2 * view.k, v = Z.d / 2 * view.k;
+    const hx = view.ox + f.x * view.k + u * Math.cos(a) - v * Math.sin(a), hy = view.oy + f.y * view.k + u * Math.sin(a) + v * Math.cos(a);
+    return Math.hypot(sx - hx, sy - hy) < 9 ? f : null;
+  }
   function hitRot(p, fid, sx, sy) {
     const s = app.sel(); if (!s) return null;
     if (s.kind === 'furn') {
       const f = p.levels[fid].furn.find(q => q.id === s.id); if (!f) return null;
-      const F = DK.FURN[f.type], a = DK.furnAngle(f) * Math.PI / 180, r = F.d * view.k / 2 + 22;
+      const a = DK.furnAngle(f) * Math.PI / 180, r = DK.furnSize(f).d * view.k / 2 + 22;
       const hx = view.ox + f.x * view.k + Math.sin(a) * r, hy = view.oy + f.y * view.k - Math.cos(a) * r;
       return Math.hypot(sx - hx, sy - hy) < 10 ? { f } : null;
     }
@@ -499,6 +512,9 @@ function Plan2D(canvas, app) {
     if (xh) { drag = { kind: 'xh', x: xh.x, k: xh.k }; return; }
     const rh = hitRot(p, fid, sx, sy);
     if (rh) { drag = { kind: 'frot', t: rh }; return; }
+    const hs = hitSize(p, fid, sx, sy);
+    if (hs) { const Z = DK.furnSize(hs), a = DK.furnAngle(hs) * Math.PI / 180, u = -Z.w / 2, v = -Z.d / 2;
+      drag = { kind: 'fsize', f: hs, fx: hs.x + u * Math.cos(a) - v * Math.sin(a), fy: hs.y + u * Math.sin(a) + v * Math.cos(a) }; return; }
     const he2 = hitOpenEnd(p, fid, w.x, w.y);
     if (he2) { drag = { kind: 'oend', o: he2.o, side: he2.side, wl: he2.w }; return; }
     const o = hitOpen(p, fid, w.x, w.y);
@@ -556,6 +572,13 @@ function Plan2D(canvas, app) {
         let lo = drag.k === 'w0' ? Math.max(e.lo, snap(a, 100)) : fixed, hi = drag.k === 'w0' ? fixed : Math.min(e.hi, snap(a, 100));
         if (hi - lo >= 1000) { x.w = hi - lo; x.c = (lo + hi) / 2; }
       }
+    } else if (drag.kind === 'fsize') {
+      // тянется угол, противоположный стоит на месте
+      const f = drag.f, F = DK.FURN[f.type], A = DK.furnAngle(f) * Math.PI / 180, dx = w.x - drag.fx, dy = w.y - drag.fy;
+      const u = dx * Math.cos(-A) - dy * Math.sin(-A), v = dx * Math.sin(-A) + dy * Math.cos(-A);
+      for (const [k, val] of [['w', u], ['d', v]]) { const nv = DK.furnClamp(F[k], Math.round(val / 50) * 50); if (nv === F[k]) delete f[k]; else f[k] = nv; }
+      const Z = DK.furnSize(f);
+      f.x = Math.round(drag.fx + Z.w / 2 * Math.cos(A) - Z.d / 2 * Math.sin(A)); f.y = Math.round(drag.fy + Z.w / 2 * Math.sin(A) + Z.d / 2 * Math.cos(A));
     } else if (drag.kind === 'frot') {
       if (drag.t.f) {
         const f = drag.t.f, deg = Math.atan2(w.x - f.x, -(w.y - f.y)) * 180 / Math.PI;
@@ -676,6 +699,7 @@ function Plan2D(canvas, app) {
   }
   function placeFurn(p, fid, x, y) {
     const f = { id: DK.id('f'), type: toolArg, x: snap(x), y: snap(y), rot: 0 };
+    if (DK.FURN[toolArg].noUpper) f.upper = false;
     p.levels[fid].furn.push(f); app.commit(DK.FURN[toolArg].n); app.select({ kind: 'furn', id: f.id }); app.setTool('select');
   }
   function placeBump(p, fid, x, y) {

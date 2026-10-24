@@ -137,6 +137,7 @@ nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
 .hud button:hover{background:var(--brand-soft)}
 .hud svg{width:18px;height:18px}
 .hint{position:absolute;left:12px;bottom:12px;font:500 11.5px var(--text);color:var(--muted);background:rgba(255,255,255,.88);padding:6px 11px;border-radius:999px;max-width:calc(100% - 80px);z-index:2}
+.aim{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid rgba(255,255,255,.9);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.35);pointer-events:none;z-index:2}
 .loading{position:absolute;inset:0;display:grid;place-items:center;font:600 14px var(--text);color:var(--brand);z-index:1}
 .toast{position:fixed;left:50%;top:76px;transform:translateX(-50%);background:var(--brand);color:#fff;padding:9px 16px;border-radius:999px;font:600 13px var(--text);box-shadow:var(--shadow);z-index:50}
 .rpop{position:absolute;z-index:4;background:var(--panel);border:1.5px solid var(--brand);border-radius:14px;padding:9px 10px;box-shadow:var(--shadow);max-width:320px;display:grid;gap:7px}
@@ -319,12 +320,12 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
           <h3>Интерьер</h3>
           <div class="row"><button class="btn" id="tCut" aria-pressed="true">Срезать стены</button><button class="btn" id="tFurn" aria-pressed="true">Мебель</button></div>
           <div class="row"><button class="btn" data-light>Включить свет</button><button class="btn sm ghost" data-lamps>Люстры во все комнаты</button></div>
-          <div class="muted">Тяните — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб.</div>
+          <div class="muted">Тяните предмет мебели — он переедет; тяните пустое место — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб.</div>
         </div>
 
         <div class="grp" data-v="walk">
           <h3>Прогулка</h3>
-          <div class="muted">Нажмите на сцену, чтобы управлять мышью. W A S D или стрелки — идти, Shift — быстрее, Esc — отпустить мышь. На телефоне: левая половина экрана — идти, правая — смотреть.</div>
+          <div class="muted">Нажмите на сцену, чтобы управлять мышью. W A S D или стрелки — идти, Shift — быстрее, Esc — отпустить мышь. Мебель: наведите кружок-прицел на предмет, зажмите кнопку мыши и поворачивайтесь или идите — предмет едет вместе с вами. На телефоне: левая половина экрана — идти, правая — смотреть.</div>
           <div class="row" id="walkFloors"></div>
           <div class="row"><button class="btn" data-light>Включить свет</button><button class="btn sm ghost" data-lamps>Люстры во все комнаты</button></div>
         </div>
@@ -386,6 +387,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
         <canvas id="c2d"></canvas>
         <canvas id="c3d" hidden></canvas>
         <div class="loading" id="loading" hidden>Загружаю 3D…</div>
+        <div class="aim" id="aim" hidden></div>
         <div class="bar">
           <div class="seg" id="views">
             <button data-view="plan">План</button><button data-view="int">Интерьер 3D</button><button data-view="walk">Прогулка</button><button data-view="ext">Снаружи</button>

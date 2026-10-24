@@ -37,7 +37,7 @@ function View3D(canvas, app) {
   sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
   scene.add(sun); scene.add(sun.target);
   const amb = new T.AmbientLight(0xffffff, 0.08); scene.add(amb);
-  let root = null, mode = 'interior', fid = 'f1', cut = true, showFurn = true, picks = [], paint = false;
+  let root = null, mode = 'interior', fid = 'f1', cut = true, showFurn = true, picks = [], furnPicks = [], paint = false;
   const orbit = { tx: 0, ty: 0, tz: 0, r: 20, az: -0.7, el: 0.75 };
   const walk = { x: 0, z: 0, h: 0, yaw: 0, pitch: 0, keys: {} };
   let walkData = null;
@@ -175,7 +175,7 @@ function View3D(canvas, app) {
   function build() {
     const p = app.p(), F = DK.facadeOf(p);
     if (root) { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
-    root = new T.Group(); scene.add(root); picks = [];
+    root = new T.Group(); scene.add(root); picks = []; furnPicks = [];
     const ext = DK.extT(p), e = ext / 1000, fl = DK.floorsOf(p), hc = p.hClear / 1000, sl = p.slab / 1000;
     lampCount = 0;
     const showFloors = mode === 'interior' ? fl.slice(0, fl.indexOf(fid) + 1) : fl;
@@ -214,7 +214,7 @@ function View3D(canvas, app) {
       const voids = regs.filter(r => r.type === 'void');
       const inVoid = (it) => voids.some(r => r.cells.some(c => it.x > c[0] && it.x < c[2] && it.y > c[1] && it.y < c[3]));
       clipNow = cutTop; cutPlane.constant = y0 + hWall + 0.01;
-      if (showFurn && mode !== 'exterior') p.levels[f].furn.forEach(it => { if (!inVoid(it)) root.add(furn(it, y0, hc)); });
+      if (showFurn && mode !== 'exterior') p.levels[f].furn.forEach(it => { if (inVoid(it)) return; const g = furn(it, y0, hc); g.userData.furn = { it, fid: f }; furnPicks.push(g); root.add(g); });
       if (p.stair && idx < fl.length - 1) stair3d(p, y0);
       clipNow = false;
       if (outside && F.belt && f !== 'b' && idx < fl.length - 1) belt(p, y0 + hc + sl / 2, ext, mat({ c: F.trim }));
@@ -459,8 +459,9 @@ function View3D(canvas, app) {
   function furn(it, y0, hc) {
     const F = DK.FURN[it.type], g = new T.Group();
     if (!F) return g;
+    const Z = DK.furnSize(it);
     const k = {
-      F, w: F.w / 1000, d: F.d / 1000, h: F.h / 1000, c: F.c,
+      F, w: Z.w / 1000, d: Z.d / 1000, h: Z.h / 1000, c: F.c, upper: it.upper !== false,
       add(bw, bh, bd, col, x, y, z, ry, o) {
         const glow = o && o.glow;
         const m = box(bw, bh, bd, glow ? new T.MeshStandardMaterial({ color: lin(col), emissive: lin(glow), emissiveIntensity: 1.2 }) : mat({ c: col }, { roughness: 0.82 }), x, y, z);
@@ -489,7 +490,7 @@ function View3D(canvas, app) {
       const L = new T.PointLight(0xffd9a6, F.light === 'ceil' ? 1.4 : 0.9, F.light === 'ceil' ? 9 : 6, 2);
       L.position.set(0, ly - 0.15, 0); g.add(L);
     }
-    const lift = F.ceil ? hc - F.h / 1000 : (F.wall || 0) / 1000;
+    const lift = F.ceil ? hc - Z.h / 1000 : (F.wall || 0) / 1000;
     g.position.set(it.x / 1000, y0 + 0.012 + lift, it.y / 1000);
     g.rotation.y = -DK.furnAngle(it) * Math.PI / 180;
     return g;
@@ -636,7 +637,7 @@ function View3D(canvas, app) {
         if (x.kind === 'balcony' || x.roof === 'glazed') add2(a0, a1, r.far - t, r.far + t);
         else { const sw = Math.min(2000, x.w - 400); add2(a0, x.c - sw / 2, r.far - t, r.far + t); add2(x.c + sw / 2, a1, r.far - t, r.far + t); }
       }
-      for (const it of p.levels[f].furn) { const F = DK.FURN[it.type]; if (F && F.h > 300 && it.type !== 'boiler') { const b = DK.furnBox(it); solid.push([b.x0, b.y0, b.x1, b.y1]); } }
+      for (const it of p.levels[f].furn) { const F = DK.FURN[it.type]; if (F && !F.ceil && !F.wall && DK.furnSize(it).h > 300 && it.type !== 'boiler') { const b = DK.furnBox(it); solid.push([b.x0, b.y0, b.x1, b.y1]); } }
       return { f, e: DK.elev(p, f) / 1000, solid: solid.map(r => r.map(v => v / 1000)), voids: regs.filter(r => r.type === 'void') };
     });
     return { p, fl, H, floors, sr: DK.stairRect(p) };
@@ -718,6 +719,37 @@ function View3D(canvas, app) {
     const hs = ray.intersectObjects(picks, true);
     return hs.length ? hs[0] : null;
   }
+  /* мебель под курсором (или под прицелом на прогулке): корневая группа предмета */
+  function hitFurn(nx, ny, maxD) {
+    if (!furnPicks.length) return null;
+    ray.setFromCamera({ x: nx, y: ny }, cam);
+    // первое, во что упирается луч: стена закрывает мебель за ней; срезанный в разрезе верх не берём
+    const hs = ray.intersectObject(root, true).filter(h => h.object.visible && h.object.material && !h.object.material.transparent && !(mode === 'interior' && cut && h.point.y > cutPlane.constant + 0.02));
+    const h = hs[0]; if (!h || (maxD && h.distance > maxD)) return null;
+    let g = h.object; while (g && !g.userData.furn) g = g.parent;
+    return g ? { g, point: h.point } : null;
+  }
+  function startFurnDrag(hf, kind) {
+    // сцена может строиться по копии проекта — правим сам проект
+    const u = hf.g.userData.furn, it = (app.p().levels[u.fid].furn.find(q => q.id === u.it.id)) || u.it;
+    if (hf.g.userData.furn.fid === fid) app.pick3d({ kind: 'furn', id: it.id });
+    const plane = new T.Plane(new T.Vector3(0, 1, 0), -hf.point.y);
+    const d = { kind, g: hf.g, it, plane, ox: it.x / 1000 - hf.point.x, oz: it.y / 1000 - hf.point.z };
+    if (kind === 'wfurn') { const dx = it.x / 1000 - walk.x, dz = it.y / 1000 - walk.z; d.dist = Math.max(0.8, Math.hypot(dx, dz)); d.da = Math.atan2(-dx, -dz) - walk.yaw; }
+    return d;
+  }
+  function moveFurnTo(d, x, z) {
+    d.it.x = Math.round(x * 100) * 10; d.it.y = Math.round(z * 100) * 10;
+    d.g.position.x = d.it.x / 1000; d.g.position.z = d.it.y / 1000; d.moved = true;
+  }
+  /* на прогулке предмет держится перед камерой на том же расстоянии, пока кнопка нажата */
+  function carry() {
+    const d = drag; if (!d || d.kind !== 'wfurn') return;
+    const a = walk.yaw + d.da, x = walk.x - Math.sin(a) * d.dist, z = walk.z - Math.cos(a) * d.dist, p = app.p(), t = DK.ts(p);
+    // в наружную стену и за дом не уносим: габарит предмета остаётся внутри дома
+    const b = DK.furnBox(Object.assign({}, d.it, { x: x * 1000, y: z * 1000 }));
+    if ([[b.x0 - t, b.y0 - t], [b.x1 + t, b.y0 - t], [b.x0 - t, b.y1 + t], [b.x1 + t, b.y1 + t]].every(([X, Y]) => DK.inside(p.poly, X, Y))) moveFurnTo(d, x, z);
+  }
   function findOp(p, id) {
     for (const f of DK.floorsOf(p)) { const o = p.levels[f].open.find(q => q.id === id); if (o) return { o, fid: f }; }
     return null;
@@ -727,9 +759,17 @@ function View3D(canvas, app) {
     ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptr.size === 2) { const [a, b] = Array.from(ptr.values()); pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), r: orbit.r }; drag = null; return; }
     if (mode === 'walk') {
-      if (e.pointerType === 'mouse' && canvas.requestPointerLock && document.pointerLockElement !== canvas) { try { const pr = canvas.requestPointerLock(); if (pr && pr.catch) pr.catch(() => {}); } catch (err) { /* без захвата мыши */ } }
+      const locked = document.pointerLockElement === canvas, r = canvas.getBoundingClientRect();
+      const hf = e.button === 0 && app.opt('furn') !== false ? hitFurn(locked ? 0 : (e.clientX - r.left) / r.width * 2 - 1, locked ? 0 : -(e.clientY - r.top) / r.height * 2 + 1, 4.5) : null;
+      // предмет под прицелом — несём его; мышь при этом не захватываем, чтобы не сорвать перенос
+      if (hf) { drag = startFurnDrag(hf, 'wfurn'); drag.x = e.clientX; drag.y = e.clientY; return; }
+      if (e.pointerType === 'mouse' && canvas.requestPointerLock && !locked) { try { const pr = canvas.requestPointerLock(); if (pr && pr.catch) pr.catch(() => {}); } catch (err) { /* без захвата мыши */ } }
       drag = { kind: 'look', x: e.clientX, y: e.clientY, touch: e.pointerType !== 'mouse', half: e.clientX - canvas.getBoundingClientRect().left < canvas.clientWidth / 2 };
       return;
+    }
+    if (mode === 'interior' && e.button === 0 && !e.shiftKey) {
+      const r = canvas.getBoundingClientRect(), hf = hitFurn((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+      if (hf) { drag = startFurnDrag(hf, 'furn'); canvas.style.cursor = 'grabbing'; return; }
     }
     const h = mode === 'exterior' ? hit(e) : null;
     if (h && e.button === 0 && h.object.userData.pick && h.object.userData.pick.kind === 'clad') { app.paint3d(h.object.userData.pick.key); return; }
@@ -749,9 +789,17 @@ function View3D(canvas, app) {
   canvas.addEventListener('pointermove', (e) => {
     if (ptr.has(e.pointerId)) ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch && ptr.size === 2) { const [a, b] = Array.from(ptr.values()); orbit.r = Math.max(2, Math.min(180, pinch.r * pinch.d / Math.hypot(a.x - b.x, a.y - b.y))); placeCam(); return; }
-    if (mode === 'walk' && document.pointerLockElement === canvas) { walk.yaw -= e.movementX * 0.0025; walk.pitch = Math.max(-1.3, Math.min(1.3, walk.pitch - e.movementY * 0.0025)); placeCam(); return; }
+    if (mode === 'walk' && document.pointerLockElement === canvas) { walk.yaw -= e.movementX * 0.0025; walk.pitch = Math.max(-1.3, Math.min(1.3, walk.pitch - e.movementY * 0.0025)); placeCam(); carry(); return; }
+    if (!drag && mode === 'interior' && furnPicks.length) { const r = canvas.getBoundingClientRect(); canvas.style.cursor = hitFurn((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1) ? 'grab' : ''; }
     if (!drag) { if (mode === 'exterior') canvas.style.cursor = hit(e) ? 'ew-resize' : 'grab'; return; }
+    if (drag.kind === 'furn') {
+      const r = canvas.getBoundingClientRect(), pt = new T.Vector3();
+      ray.setFromCamera({ x: (e.clientX - r.left) / r.width * 2 - 1, y: -(e.clientY - r.top) / r.height * 2 + 1 }, cam);
+      if (ray.ray.intersectPlane(drag.plane, pt)) moveFurnTo(drag, pt.x + drag.ox, pt.z + drag.oz);
+      return;
+    }
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (drag.kind === 'wfurn') { walk.yaw -= dx * 0.004; drag.x = e.clientX; drag.y = e.clientY; placeCam(); carry(); return; }
     if (drag.kind === 'look') {
       if (drag.touch && drag.half) { walk.touchMove = { f: -dy / 60, s: dx / 60 }; return; }
       walk.yaw -= dx * 0.004; walk.pitch = Math.max(-1.3, Math.min(1.3, walk.pitch - dy * 0.004)); drag.x = e.clientX; drag.y = e.clientY; placeCam(); return;
@@ -772,17 +820,33 @@ function View3D(canvas, app) {
     placeCam();
   });
   const up = (e) => {
+    // захват мыши на прогулке шлёт pointercancel — перенос предмета не прерываем
+    if (e.type === 'pointercancel' && drag && drag.kind === 'wfurn' && document.pointerLockElement === canvas) return;
     ptr.delete(e.pointerId);
     if (pinch) { if (ptr.size < 2) pinch = null; return; }
     if (drag && drag.kind === 'win' && drag.moved) app.commit('Окно сдвинуто');
+    if (drag && (drag.kind === 'furn' || drag.kind === 'wfurn')) { canvas.style.cursor = ''; if (drag.moved) app.commit(DK.FURN[drag.it.type].n + ' — сдвинут'); }
     if (drag && drag.kind === 'look') walk.touchMove = null;
     drag = null;
   };
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('pointerlockchange', () => { const a = document.getElementById('aim'); if (a) a.hidden = document.pointerLockElement !== canvas; });
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (mode === 'walk') return; orbit.r = Math.max(2, Math.min(180, orbit.r * Math.exp(e.deltaY * 0.001))); placeCam(); }, { passive: false });
   window.addEventListener('keydown', (e) => { if (mode === 'walk' && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { walk.keys[e.code] = true; if (/Arrow|Space/.test(e.code)) e.preventDefault(); } });
   window.addEventListener('keyup', (e) => { walk.keys[e.code] = false; });
+
+  function walkStep(f, s, sp) {
+    const fx = -Math.sin(walk.yaw), fz = -Math.cos(walk.yaw), rx = Math.cos(walk.yaw), rz = -Math.sin(walk.yaw);
+    const nx = walk.x + (fx * f + rx * s) * sp, nz = walk.z + (fz * f + rz * s) * sp;
+    // мелкими шагами, чтобы плавно подниматься по ступеням
+    if (!tryMove(nx, nz) && !tryMove(nx, walk.z) && !tryMove(walk.x, nz)) {
+      // подруливание в дверной проём: пробуем сместиться вбок на 5–30 см
+      for (const off of [0.05, -0.05, 0.12, -0.12, 0.2, -0.2, 0.3, -0.3]) if (tryMove(nx + rx * off, nz + rz * off)) break;
+    }
+    const cur = walkData.floors.filter(q => q.e <= walk.h + 0.3).pop();
+    if (cur && cur.f !== fid) { fid = cur.f; app.walkFloor && app.walkFloor(fid); }
+  }
 
   /* ---------- цикл ---------- */
   let pending = false, last = performance.now(), running = false;
@@ -791,21 +855,13 @@ function View3D(canvas, app) {
     if (!running) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (pending) { pending = false; build(); }
+    // холст меняет размер вместе с боковой панелью — иначе картинка растянута и мышь промахивается
+    if (canvas.clientWidth && (canvas.clientWidth !== canvas.width / renderer.getPixelRatio() || canvas.clientHeight !== canvas.height / renderer.getPixelRatio())) resize();
     if (mode === 'walk' && walkData) {
       const k = walk.keys, sp = (k.ShiftLeft || k.ShiftRight ? 3.0 : 1.5) * dt;
       let f = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0), s = (k.KeyD || k.ArrowRight ? 1 : 0) - (k.KeyA || k.ArrowLeft ? 1 : 0);
       if (walk.touchMove) { f = Math.max(-1, Math.min(1, walk.touchMove.f)); s = Math.max(-1, Math.min(1, walk.touchMove.s)); }
-      if (f || s) {
-        const fx = -Math.sin(walk.yaw), fz = -Math.cos(walk.yaw), rx = Math.cos(walk.yaw), rz = -Math.sin(walk.yaw);
-        const nx = walk.x + (fx * f + rx * s) * sp, nz = walk.z + (fz * f + rz * s) * sp;
-        // мелкими шагами, чтобы плавно подниматься по ступеням
-        if (!tryMove(nx, nz) && !tryMove(nx, walk.z) && !tryMove(walk.x, nz)) {
-          // подруливание в дверной проём: пробуем сместиться вбок на 5–30 см
-          for (const off of [0.05, -0.05, 0.12, -0.12, 0.2, -0.2, 0.3, -0.3]) if (tryMove(nx + rx * off, nz + rz * off)) break;
-        }
-        const cur = walkData.floors.filter(q => q.e <= walk.h + 0.3).pop();
-        if (cur && cur.f !== fid) { fid = cur.f; app.walkFloor && app.walkFloor(fid); }
-      }
+      if (f || s) { walkStep(f, s, sp); carry(); }
       placeCam();
     }
     renderer.render(scene, cam);
@@ -835,6 +891,8 @@ function View3D(canvas, app) {
     walkFloor(f) { fid = f; startWalk(f); placeCam(); },
     shot() { renderer.render(scene, cam); return canvas.toDataURL('image/png'); },
     walkState: () => walk,
+    _dbg: () => ({ groundAt, blockedAt, walkStep, data: walkData }),
+    _cam: () => cam,
     setLights(on) { lightsOn = on; schedule(); },
     setPaint(on) { paint = on; schedule(); },
     exteriorShot(w, h) {
