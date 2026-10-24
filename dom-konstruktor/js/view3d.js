@@ -136,6 +136,7 @@ function View3D(canvas, app) {
     return mesh;
   }
   function poly(pts, m, ua, va) {
+    if (!m) return new T.Group();
     const pos = [], uv = [];
     for (let i = 1; i < pts.length - 1; i++) for (const q of [pts[0], pts[i], pts[i + 1]]) { pos.push(q[0], q[1], q[2]); uv.push(q[ua], q[va]); }
     const g = new T.BufferGeometry();
@@ -206,12 +207,16 @@ function View3D(canvas, app) {
       const acc = (a === 'upper' && (f === 'f2' || f === 'f3')) || (a === 'lower' && f === 'f1' && fl.length > (p.basement ? 2 : 1)) || (a === 'wings' && !onMain(w));
       return acc ? F.accent : F.main;
     };
+    const af = DK.atticFloor(p), ytRoof = af ? DK.elev(p, af) / 1000 + DK.knee(p) / 1000 : 0;
     for (const f of showFloors) {
       const y0 = DK.elev(p, f) / 1000, idx = fl.indexOf(f);
       const cutTop = mode === 'interior' && f === fid && cut;
-      const hWall = cutTop ? Math.min(1.2, hc) : hc;
+      // мансарда: стены строятся высокими и обрезаются скатами — получаются колено и фронтоны
+      const isAttic = f === af, n0 = root.children.length;
+      const hWall = cutTop ? Math.min(1.2, hc) : isAttic ? 20 : hc;
       const regs = DK.rooms(p, f);
-      buildFloor(p, f, y0, hWall, hc, ext, F, zone, regs, cutTop ? hWall : hc + sl, f === 'f1' && !p.basement ? F.wainscot / 1000 : 0);
+      buildFloor(p, f, y0, hWall, hc, ext, F, zone, regs, cutTop ? hWall : isAttic ? 20 : hc + sl, f === 'f1' && !p.basement ? F.wainscot / 1000 : 0);
+      if (isAttic && mode === 'walk') slabCells(p, y0 + hc, 0.04, [], wallIn);
       if (idx > 0) slabCells(p, y0 - sl, sl, holesOf(p, f, regs), white);
       else slabCells(p, y0 - 0.1, 0.1, [], white);
       // чистовой пол — без проёма лестницы на верхних этажах
@@ -233,12 +238,14 @@ function View3D(canvas, app) {
       }
       if (p.stair && idx < fl.length - 1) stair3d(p, y0);
       clipNow = false;
+      if (isAttic) clipAttic(p, n0, ytRoof);
       if (outside && F.belt && f !== 'b' && idx < fl.length - 1) belt(p, y0 + hc + sl / 2, ext, mat({ c: F.trim }));
     }
     if (outside) {
-      const top = fl[fl.length - 1], yt = DK.elev(p, top) / 1000 + hc;
-      slabCells(p, yt, sl, [], white);
-      roof(p, yt + sl, ext, F);
+      const top = fl[fl.length - 1], yt = af ? ytRoof : DK.elev(p, top) / 1000 + hc;
+      if (!af) slabCells(p, yt, sl, [], white);
+      roof(p, af ? yt : yt + sl, ext, F, !!af);
+      if (af) roofWindows(p, af, ytRoof, F);
       if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), yt + sl);
       if (!p.basement) porch(p, ext, F);
     }
@@ -257,6 +264,55 @@ function View3D(canvas, app) {
     walkData = mode === 'walk' ? walkPrep(p) : null;
   }
 
+  /* плоскости скатов для каждого прямоугольника кровли: всё, что выше, отсекается */
+  function atticPlanes(p, ytRoof) {
+    const t = p.roof.type;
+    return DK.roofRects(p).map(R => {
+      const tn = Math.tan(R.pitch), W = R.W, y = ytRoof - 0.15, out = [];
+      const V0 = (R.ridgeX ? W.y0 : W.x0) / 1000, V1 = (R.ridgeX ? W.y1 : W.x1) / 1000, U0 = (R.ridgeX ? W.x0 : W.y0) / 1000, U1 = (R.ridgeX ? W.x1 : W.y1) / 1000;
+      const vAx = R.ridgeX ? 'z' : 'x', uAx = R.ridgeX ? 'x' : 'z';
+      // оставляем точки, где  y ≤ y0 + k·(coord − c0):  −y + k·coord + (y0 − k·c0) ≥ 0
+      const pl = (ax, k, y0, c0) => { const n = new T.Vector3(ax === 'x' ? k : 0, -1, ax === 'z' ? k : 0); return new T.Plane(n, y0 - k * c0).normalize(); };
+      if (t === 'shed') out.push(pl(vAx, tn, y, V0));
+      else if (t === 'mansard') { const a = (V1 - V0) / 2 * 0.22, k1 = Math.tan(62 * Math.PI / 180); out.push(pl(vAx, k1, y, V0), pl(vAx, -k1, y, V1), pl(vAx, tn, y + a * k1, V0 + a), pl(vAx, -tn, y + a * k1, V1 - a)); }
+      else { out.push(pl(vAx, tn, y, V0), pl(vAx, -tn, y, V1)); if (t === 'hip' || t === 'pyramid') { if (!(R.ridgeX ? R.j.x0 : R.j.z0)) out.push(pl(uAx, tn, y, U0)); if (!(R.ridgeX ? R.j.x1 : R.j.z1)) out.push(pl(uAx, -tn, y, U1)); } }
+      return { W: { x0: W.x0 / 1000, x1: W.x1 / 1000, z0: W.y0 / 1000, z1: W.y1 / 1000 }, planes: out };
+    });
+  }
+  const clipCache = {};
+  function clipAttic(p, n0, ytRoof) {
+    const sets = atticPlanes(p, ytRoof), bb = new T.Box3(), c = new T.Vector3();
+    root.children.slice(n0).forEach(obj => {
+      obj.updateMatrixWorld(true);
+      obj.traverse(o => {
+        if (!o.isMesh || !o.material) return;
+        bb.setFromObject(o); bb.getCenter(c);
+        let k = sets.findIndex(S => c.x >= S.W.x0 - 0.01 && c.x <= S.W.x1 + 0.01 && c.z >= S.W.z0 - 0.01 && c.z <= S.W.z1 + 0.01);
+        if (k < 0) k = 0;
+        const m = o.material, key = m.uuid + '|' + k + '|' + ytRoof;
+        if (!clipCache[key]) { const m2 = m.clone(); m2.clippingPlanes = (m.clippingPlanes || []).concat(sets[k].planes); m2.clipShadows = true; clipCache[key] = m2; }
+        o.material = clipCache[key];
+      });
+    });
+  }
+  /* мансардные окна в скатах: стекло с окладом по плоскости кровли */
+  function roofWindows(p, af, ytRoof, F) {
+    const ext = DK.extT(p) / 1000, frame = mat({ c: '#4a4d52' }, { metalness: 0.4, roughness: 0.5 });
+    const glass = new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7 });
+    for (const o of p.levels[af].open.filter(q => DK.slopeWin(p, af, q))) {
+      const w = DK.walls(p, af).find(v => v.id === o.wall); if (!w) continue;
+      const R = DK.roofRects(p).find(r => (w.axis === 'x' ? o.c >= r.W.x0 && o.c <= r.W.x1 : o.c >= r.W.y0 && o.c <= r.W.y1)) || DK.roofRects(p)[0];
+      const pitch = R.pitch, tn = Math.tan(pitch), mid = ((o.sill || 900) + (o.h || 1200) / 2 - DK.knee(p) + 150) / 1000;
+      const d = Math.max(0.4, mid / tn), face = (w.line + w.out * DK.extT(p)) / 1000, inward = face - w.out * d;
+      const L = Math.min(1.6, Math.max(0.9, (o.h || 1200) / 1000 / Math.sin(pitch) * 0.6)), W2 = Math.min(1.4, o.w / 1000);
+      const g = new T.Group();
+      g.add(box(W2 + 0.1, 0.08, L + 0.1, frame, 0, 0.04, 0)); g.add(box(W2 - 0.06, 0.09, L - 0.06, glass, 0, 0.05, 0));
+      const y = ytRoof + d * tn + 0.01;
+      if (w.axis === 'x') { g.position.set(o.c / 1000, y, inward); g.rotation.x = w.out > 0 ? pitch : -pitch; }
+      else { g.position.set(inward, y, o.c / 1000); g.rotation.order = 'YXZ'; g.rotation.y = Math.PI / 2; g.rotation.x = w.out > 0 ? pitch : -pitch; }
+      root.add(g);
+    }
+  }
   function holesOf(p, f, regs) {
     const h = [];
     const r = DK.stairRect(p); if (r) h.push(r);
@@ -284,7 +340,7 @@ function View3D(canvas, app) {
     const ws = DK.walls(p, f), ops = p.levels[f].open;
     const logg = regs.filter(r => r.type === 'loggia');
     for (const w of ws) {
-      let my = ops.filter(o => o.wall === w.id).map(o => Object.assign({}, o, DK.opSize(p, o)));
+      let my = ops.filter(o => o.wall === w.id && !DK.slopeWin(p, f, o)).map(o => Object.assign({}, o, DK.opSize(p, o)));
       if (w.kind === 'outer') for (const r of logg.filter(q => q.sides.has(w.id))) {
         // лоджия: вместо стены — парапет 1,0 м, выше открыто до перекрытия
         const lo = w.axis === 'x' ? r.x0 : r.y0, hi = w.axis === 'x' ? r.x1 : r.y1;
@@ -864,10 +920,11 @@ function View3D(canvas, app) {
   }
 
   /* ---------- кровли: разбиение контура на прямоугольники, крылья заходят в основной объём ---------- */
-  function roof(p, yt, ext, F) {
+  function roof(p, yt, ext, F, noGable) {
     const t = p.roof.type, e = ext / 1000;
     const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
-    const gm = mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });
+    // у мансарды фронтоны — настоящие стены этажа (с окнами), треугольники не нужны
+    const gm = noGable ? null : mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });
     if (t === 'flat') {
       const P = DK.offsetPoly(p, ext);
       root.add(extrudePoly(P, yt, 0.05, mat({ c: '#5a5d62' })));
@@ -880,22 +937,9 @@ function View3D(canvas, app) {
       }
       return;
     }
-    const rects = DK.decompose(p).map(r => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, j: {} }));
-    for (let k = 1; k < rects.length; k++) {
-      const r = rects[k];
-      for (let q = 0; q < k; q++) {
-        const o = rects[q], ox = Math.min(r.x1, o.x1) - Math.max(r.x0, o.x0), oz = Math.min(r.y1, o.y1) - Math.max(r.y0, o.y0);
-        if (r.y0 === o.y1 && ox > 0) { r.y0 -= (o.y1 - o.y0) / 2; r.j.z0 = 1; break; }
-        if (r.y1 === o.y0 && ox > 0) { r.y1 += (o.y1 - o.y0) / 2; r.j.z1 = 1; break; }
-        if (r.x0 === o.x1 && oz > 0) { r.x0 -= (o.x1 - o.x0) / 2; r.j.x0 = 1; break; }
-        if (r.x1 === o.x0 && oz > 0) { r.x1 += (o.x1 - o.x0) / 2; r.j.x1 = 1; break; }
-      }
-    }
-    rects.forEach((r, k) => {
-      const W = { x0: r.x0 / 1000 - (r.j.x0 ? 0 : e), x1: r.x1 / 1000 + (r.j.x1 ? 0 : e), z0: r.y0 / 1000 - (r.j.z0 ? 0 : e), z1: r.y1 / 1000 + (r.j.z1 ? 0 : e) };
-      const longX = (W.x1 - W.x0) >= (W.z1 - W.z0);
-      const ridgeX = k === 0 && p.roof.ridge === 'short' ? !longX : longX;
-      roofRect(W, r.j, ridgeX, t, yt, (p.roof.pitch || DK.ROOFS[t].pitch) * Math.PI / 180, rm, sm, fm, gm);
+    DK.roofRects(p).forEach(R => {
+      const W = { x0: R.W.x0 / 1000, x1: R.W.x1 / 1000, z0: R.W.y0 / 1000, z1: R.W.y1 / 1000 };
+      roofRect(W, R.j, R.ridgeX, t, yt, (p.roof.pitch || DK.ROOFS[t].pitch) * Math.PI / 180, rm, sm, fm, gm);
     });
   }
   function roofRect(W, J, ridgeX, t, yt, pitch, rm, sm, fm, gm) {
@@ -1007,6 +1051,8 @@ function View3D(canvas, app) {
     // на лестнице держат только перепады высоты: стены рядом не мешают подъёму
     if (DK.stairHeight(D.p, x * 1000, z * 1000) != null) return false;
     const ctx = D.floors.filter(f => f.e <= h + 0.3).pop() || D.floors[0];
+    // под скатом мансарды ниже 1,75 м не пройти
+    if (ctx.f === DK.atticFloor(D.p) && DK.inside(D.p.poly, x * 1000, z * 1000) && DK.atticH(D.p, x * 1000, z * 1000) < 1750) return true;
     return ctx.solid.some(r => x > r[0] - rad && x < r[2] + rad && z > r[1] - rad && z < r[3] + rad);
   }
   function tryMove(nx, nz) {

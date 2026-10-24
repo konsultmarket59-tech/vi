@@ -62,6 +62,7 @@ function findOp(id) { for (const f of DK.floorsOf(P)) { const o = P.levels[f].op
 function refresh() {
   if (!DK.floorsOf(P).includes(fid)) fid = 'f1';
   $('#hClear').value = P.hClear; $('#basement').checked = P.basement;
+  $('#attic').checked = !!P.attic; $('#attic').disabled = P.floors < 2; $('#kneeRow').hidden = !DK.atticOn(P); $('#knee').value = DK.knee(P);
   seg($('#floorsN'), P.floors, 'n'); seg($('#wallMat'), P.wallMat, 'k'); seg($('#insul'), P.insul, 'k');
   $('#clad').value = P.clad;
   seg($('#blind'), P.blind || 0, 'k'); $('#blindMat').value = P.blindMat || 'paving';
@@ -102,9 +103,10 @@ function refresh() {
   refreshInfo(); renderSel(); plan.render();
 }
 function refreshFloors() {
-  $('#floorTabs').innerHTML = DK.floorsOf(P).map(f => `<button data-f="${f}" aria-pressed="${!siteOn && f === fid}">${DK.FLOORS.find(x => x.id === f).n}</button>`).join('') + `<button data-f="site" aria-pressed="${siteOn}">Участок</button>`;
+  const fname = (f) => f === DK.atticFloor(P) ? 'Мансарда' : DK.FLOORS.find(x => x.id === f).n;
+  $('#floorTabs').innerHTML = DK.floorsOf(P).map(f => `<button data-f="${f}" aria-pressed="${!siteOn && f === fid}">${fname(f)}</button>`).join('') + `<button data-f="site" aria-pressed="${siteOn}">Участок</button>`;
   $$('#floorTabs button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
-  $('#walkFloors').innerHTML = DK.floorsOf(P).map(f => `<button class="btn sm" data-f="${f}" aria-pressed="${f === fid}">${DK.floorName(f)}</button>`).join('');
+  $('#walkFloors').innerHTML = DK.floorsOf(P).map(f => `<button class="btn sm" data-f="${f}" aria-pressed="${f === fid}">${fname(f)}</button>`).join('');
   $$('#walkFloors button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
 }
 /* фасад: готовые сочетания и материал/цвет каждой зоны */
@@ -339,7 +341,8 @@ function hint() {
     walk: 'Нажмите на сцену и идите: W A S D, мышь — взгляд. Сквозь стены не пройти — только через двери.',
     ext: 'Тяните окно — сдвиг по горизонтали; нажмите — панорамное, створки, ширина.',
   };
-  $('#hint').textContent = view === 'plan' ? H.plan : H[view];
+  const att = view === 'plan' && fid === DK.atticFloor(P) && t === 'select' ? ` Мансарда: пунктир — высота ${DK.fmtM(DK.atticH0(P))} м, ниже площадь считается ×0,7; окна в скатах — мансардные.` : '';
+  $('#hint').textContent = view === 'plan' ? H.plan + att : H[view];
   $('#toolHint').textContent = view === 'plan' ? H.plan : '';
 }
 function setView(v) {
@@ -402,6 +405,8 @@ function renderSite() {
   }
 }
 function bind() {
+  $('#attic').onchange = (e) => { P.attic = e.target.checked; if (P.attic && P.roof.type === 'flat') { P.roof.type = 'gable'; toast('Мансарда — под скатной кровлей: поставил двускатную'); } if (P.attic && (P.roof.pitch || 30) < 35) P.roof.pitch = 40; app.commit(P.attic ? 'Мансардный этаж' : 'Полноценный этаж'); refreshFloors(); };
+  $('#knee').onchange = (e) => { P.knee = +e.target.value; app.commit('Колено мансарды'); };
   $('#sitePal').innerHTML = Object.entries(DK.SITE_OBJ).map(([k, o]) => `<button class="btn sm" data-site="${k}">+ ${esc(o.n)}</button>`).join('');
   $$('[data-site]').forEach(b => b.onclick = () => { const r = DK.siteAdd(P, b.dataset.site); site.select(r.o.id); if (!r.ok) toast('По нормам места не нашлось — поставил в центр, передвиньте или увеличьте участок'); app.commit(DK.SITE_OBJ[b.dataset.site].n); });
   const dimSite = (k, v) => { P.site[k] = Math.max(8000, Math.min(200000, Math.round(v * 2) * 500)); DK.sitePlaceHouse(P); app.commit('Участок'); site.fit(); };

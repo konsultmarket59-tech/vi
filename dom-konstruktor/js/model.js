@@ -162,6 +162,66 @@ function decompose(p) {
   return rects;
 }
 function mainRect(p) { return decompose(p)[0]; }
+
+/* ---------- кровля по прямоугольникам и мансарда ---------- */
+/* прямоугольники кровли (мм, по облицовке): крылья заходят в основной объём; ridgeX — конёк вдоль X */
+function roofRects(p) {
+  const e = extT(p), rects = decompose(p).map(r => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, j: {} }));
+  for (let k = 1; k < rects.length; k++) {
+    const r = rects[k];
+    for (let q = 0; q < k; q++) {
+      const o = rects[q], ox = Math.min(r.x1, o.x1) - Math.max(r.x0, o.x0), oz = Math.min(r.y1, o.y1) - Math.max(r.y0, o.y0);
+      if (r.y0 === o.y1 && ox > 0) { r.y0 -= (o.y1 - o.y0) / 2; r.j.z0 = 1; break; }
+      if (r.y1 === o.y0 && ox > 0) { r.y1 += (o.y1 - o.y0) / 2; r.j.z1 = 1; break; }
+      if (r.x0 === o.x1 && oz > 0) { r.x0 -= (o.x1 - o.x0) / 2; r.j.x0 = 1; break; }
+      if (r.x1 === o.x0 && oz > 0) { r.x1 += (o.x1 - o.x0) / 2; r.j.x1 = 1; break; }
+    }
+  }
+  const pitch = (p.roof.pitch || 30) * Math.PI / 180;
+  return rects.map((r, k) => {
+    const W = { x0: r.x0 - (r.j.x0 ? 0 : e), x1: r.x1 + (r.j.x1 ? 0 : e), y0: r.y0 - (r.j.z0 ? 0 : e), y1: r.y1 + (r.j.z1 ? 0 : e) };
+    const longX = (W.x1 - W.x0) >= (W.y1 - W.y0);
+    return { W, j: r.j, ridgeX: k === 0 && p.roof.ridge === 'short' ? !longX : longX, pitch };
+  });
+}
+function atticOn(p) { const fl = floorsOf(p).filter(f => f !== 'b'); return !!p.attic && fl.length > 1 && p.roof.type !== 'flat'; }
+function atticFloor(p) { const fl = floorsOf(p).filter(f => f !== 'b'); return atticOn(p) ? fl[fl.length - 1] : null; }
+function knee(p) { return p.knee || 1200; }
+/* высота низа кровли над карнизом в точке (мм); null — вне кровли */
+function roofRise(p, X, Y) {
+  const t = p.roof.type; let best = null;
+  for (const R of roofRects(p)) {
+    const W = R.W; if (X < W.x0 || X > W.x1 || Y < W.y0 || Y > W.y1) continue;
+    const tn = Math.tan(R.pitch), u = R.ridgeX ? X : Y, v = R.ridgeX ? Y : X;
+    const V0 = R.ridgeX ? W.y0 : W.x0, V1 = R.ridgeX ? W.y1 : W.x1, U0 = R.ridgeX ? W.x0 : W.y0, U1 = R.ridgeX ? W.x1 : W.y1;
+    const jU0 = R.ridgeX ? R.j.x0 : R.j.z0, jU1 = R.ridgeX ? R.j.x1 : R.j.z1;
+    const dv = Math.min(v - V0, V1 - v), du = Math.min(jU0 ? 1e9 : u - U0, jU1 ? 1e9 : U1 - u);
+    let h;
+    if (t === 'shed') h = (v - V0) * tn;
+    else if (t === 'hip' || t === 'pyramid') h = Math.min(dv, du) * tn;
+    else if (t === 'mansard') { const a = (V1 - V0) / 2 * 0.22, k1 = Math.tan(62 * Math.PI / 180); h = Math.min(dv * k1, a * k1 + (dv - a) * tn); }
+    else h = dv * tn;
+    if (best == null || h > best) best = h;
+  }
+  return best;
+}
+/* высота потолка мансарды в точке, мм (низ кровли минус её толщина) */
+function atticH(p, X, Y) { const r = roofRise(p, X, Y); return r == null ? 0 : knee(p) + r - 150; }
+/* высота, ниже которой площадь мансарды считается с коэффициентом 0,7 (СП 54.13330): 30° — 1,5 м, 45° — 1,1 м, 60° — 0,5 м */
+function atticH0(p) { const a = p.roof.pitch || 30; return a <= 30 ? 1500 : a >= 60 ? 500 : a <= 45 ? 1500 - (a - 30) / 15 * 400 : 1100 - (a - 45) / 15 * 600; }
+/* площадь помещения мансарды с понижающим коэффициентом: сетка 200 мм */
+function atticArea(p, r) {
+  const h0 = atticH0(p); let n = 0, k = 0;
+  for (const c of r.cells) for (let x = c[0] + 100; x < c[2]; x += 200) for (let y = c[1] + 100; y < c[3]; y += 200) { n++; k += atticH(p, x, y) < h0 ? 0.7 : 1; }
+  return n ? r.area * k / n : r.area;
+}
+/* окно в скате: на мансарде в наружной стене выше колена — становится мансардным окном */
+function slopeWin(p, fid, o) {
+  if (o.kind !== 'win' || fid !== atticFloor(p)) return false;
+  const w = walls(p, fid).find(v => v.id === o.wall); if (!w || w.kind !== 'outer') return false;
+  const X = w.axis === 'x' ? o.c : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : o.c;
+  return atticH(p, X, Y) < (o.sill || 0) + (o.h || 1500) + 100;
+}
 /* интервал линии внутри контура (по наружным граням); для несущей стены */
 function lineSpan(p, axis, pos, prefer) {
   const cr = edges(p).filter(e => e.axis === (axis === 'h' ? 'y' : 'x') && pos > e.lo && pos < e.hi).map(e => e.line).sort((a, b) => a - b);
@@ -442,6 +502,11 @@ function checks(p) {
   if (st && ![[st.x0, st.y0], [st.x1, st.y0], [st.x0, st.y1], [st.x1, st.y1]].every(([x, y]) => inside(p.poly, x, y))) add('err', 'Лестница выходит за контур дома');
   if (fl.length > 1 && !p.stair) add('warn', 'Добавьте лестницу между этажами');
   if (st && fl.length > 1) fl.slice(1).forEach(fid => { if (!stairExitOk(p, fid)) add('err', `${floorName(fid)}: выход с лестницы упирается в стену — оставьте площадку 0,8 м за верхней ступенью или разверните лестницу`, fid); });
+  if (atticOn(p)) {
+    if ((p.roof.pitch || 30) < 30) add('warn', `Мансарда при уклоне ${p.roof.pitch}° тесная — лучше 35–45°`, atticFloor(p));
+    const nw = (p.levels[atticFloor(p)].open || []).filter(o => slopeWin(p, atticFloor(p), o)).length;
+    add('ok', `Мансарда: колено ${fmtM(knee(p))} м, площадь ниже ${fmtM(atticH0(p))} м — с коэффициентом 0,7${nw ? `; окон в скатах — ${nw}` : ''}`, atticFloor(p));
+  }
   if (p.site && DK.siteChecks) DK.siteChecks(p).filter(c => c.lv === 'err').forEach(c => add('err', 'Участок: ' + c.txt));
   const boilers = [];
   fl.forEach((fid, k) => {
@@ -544,6 +609,8 @@ function tzItems(p) {
     }
   }
   fl.forEach(fid => rooms(p, fid).filter(r => r.type === 'loggia').forEach(r => out.push(`${floorName(fid)}: лоджия ${fmtA(r.area)} м² — плита перекрытия опирается на боковые стены, утепление стен, граничащих с лоджией, гидроизоляция пола с уклоном наружу, ограждение 1,0 м`)));
+  if (atticOn(p)) { const af = atticFloor(p), nw = p.levels[af].open.filter(o => slopeWin(p, af, o)).length;
+    out.push(`Мансардный этаж: колено ${knee(p)} мм с армопоясом под мауэрлат, утеплённые скаты 200 мм с пароизоляцией и вентзазором${nw ? `, мансардные окна в скатах — ${nw} шт. с окладами` : ''}; фронтоны — кладка из материала стен`); }
   if (p.site && DK.siteTz) out.push(...DK.siteTz(p));
   if (p.blind) out.push(`Отмостка ${fmtM(p.blind)} м по периметру (${p.blindMat === 'concrete' ? 'бетон' : 'тротуарная плитка'}): утепление ЭППС 50 мм, щебёночная подготовка, уклон 2–3 % от дома, водоотвод от водосточных труб`);
   if (fl.some(f => rooms(p, f).some(r => r.type === 'boiler'))) out.push('Котельная: коаксиальный дымоход или дымоход через наружную стену, приточная вентиляция, дверь EI 30 — по ТУ газовой службы');
@@ -551,7 +618,8 @@ function tzItems(p) {
 }
 
 function areas(p) {
-  const per = floorsOf(p).map(fid => ({ fid, n: floorName(fid), area: rooms(p, fid).filter(r => r.type !== 'void' && r.type !== 'loggia').reduce((s, r) => s + r.area, 0) }));
+  const af = atticFloor(p);
+  const per = floorsOf(p).map(fid => ({ fid, n: fid === af ? 'Мансарда' : floorName(fid), area: rooms(p, fid).filter(r => r.type !== 'void' && r.type !== 'loggia').reduce((s, r) => s + (fid === af ? atticArea(p, r) : r.area), 0) }));
   const ext = extT(p);
   const loggia = floorsOf(p).reduce((s, f) => s + rooms(p, f).filter(r => r.type === 'loggia').reduce((a, r) => a + r.area, 0), 0);
   const outdoor = (p.ext || []).filter(x => x.kind !== 'garage').reduce((s, x) => s + x.w * x.d / 1e6, 0);
@@ -745,6 +813,8 @@ function addBump(p, eid, c, w, d) {
 
 function normalize(p) {
   cleanPoly(p);
+  // мансарда — только под скатной кровлей; колено 0,6–1,8 м
+  if (p.attic) { if (p.roof.type === 'flat') p.roof.type = 'gable'; p.knee = Math.max(600, Math.min(1800, p.knee || 1200)); }
   const mx = Math.min(...p.poly.map(v => v.x)), my = Math.min(...p.poly.map(v => v.y));
   shiftAll(p, -mx, -my);
   p.W = Math.max(...p.poly.map(v => v.x)); p.D = Math.max(...p.poly.map(v => v.y));
@@ -927,7 +997,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { GARAGE, GARAGE_TYPES, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

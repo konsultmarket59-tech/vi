@@ -92,6 +92,7 @@ function Plan2D(canvas, app) {
       for (let y = 1000; y < p.D; y += 1000) line(c, X(0), Y(y), X(p.W), Y(y));
       c.restore();
     }
+    if (fid === DK.atticFloor(p)) drawAttic(c, p, X, Y, L, t);
     if (p.stair) drawStair(c, p, fid, X, Y, L, o.sel && o.sel.kind === 'stair');
     if (o.furn !== false) lv.furn.forEach(f => drawFurn(c, f, X, Y, L, o.sel && o.sel.kind === 'furn' && o.sel.id === f.id));
     // стены
@@ -184,6 +185,38 @@ function Plan2D(canvas, app) {
         c.fillStyle = '#fff'; c.lineWidth = 2;
         extHandles(p, x).forEach(h => { c.beginPath(); c.rect(X(h.x) - 5, Y(h.y) - 5, 10, 10); c.fill(); c.stroke(); });
       }
+    }
+  }
+  /* мансарда: зона под скатом ниже нормативной высоты (площадь ×0,7) и линия этой высоты; окна в скатах */
+  function drawAttic(c, p, X, Y, L, t) {
+    const h0 = DK.atticH0(p), k = DK.knee(p), typ = p.roof.type;
+    c.save(); path(c, DK.offsetPoly(p, -t), X, Y); c.clip();
+    for (const R of DK.roofRects(p)) {
+      const tn = Math.tan(typ === 'mansard' ? 62 * Math.PI / 180 : R.pitch), d = (h0 + 150 - k) / tn, W = R.W;
+      if (d <= 0) continue;
+      const strips = [];
+      if (R.ridgeX) { strips.push([W.x0, W.y0, W.x1, W.y0 + d], [W.x0, W.y1 - d, W.x1, W.y1]); if (typ === 'hip' || typ === 'pyramid') { if (!R.j.x0) strips.push([W.x0, W.y0, W.x0 + d, W.y1]); if (!R.j.x1) strips.push([W.x1 - d, W.y0, W.x1, W.y1]); } }
+      else { strips.push([W.x0, W.y0, W.x0 + d, W.y1], [W.x1 - d, W.y0, W.x1, W.y1]); if (typ === 'hip' || typ === 'pyramid') { if (!R.j.z0) strips.push([W.x0, W.y0, W.x1, W.y0 + d]); if (!R.j.z1) strips.push([W.x0, W.y1 - d, W.x1, W.y1]); } }
+      if (typ === 'shed') strips.splice(1, 1);
+      for (const q of strips) {
+        c.fillStyle = 'rgba(160,120,60,.10)'; c.fillRect(X(q[0]), Y(q[1]), L(q[2] - q[0]), L(q[3] - q[1]));
+        c.strokeStyle = 'rgba(140,100,50,.7)'; c.lineWidth = 1; c.setLineDash([6, 3, 2, 3]);
+        // линия высоты — внутренняя граница полосы
+        if (q[3] - q[1] <= d + 1 && q[1] === W.y0) line(c, X(q[0]), Y(q[3]), X(q[2]), Y(q[3]));
+        else if (q[3] - q[1] <= d + 1) line(c, X(q[0]), Y(q[1]), X(q[2]), Y(q[1]));
+        else if (q[0] === W.x0) line(c, X(q[2]), Y(q[1]), X(q[2]), Y(q[3]));
+        else line(c, X(q[0]), Y(q[1]), X(q[0]), Y(q[3]));
+        c.setLineDash([]);
+      }
+    }
+    c.restore();
+    // мансардные окна: пунктир в скате у стены
+    const af = DK.atticFloor(p);
+    for (const o of p.levels[af].open.filter(q => DK.slopeWin(p, af, q))) {
+      const w = DK.walls(p, af).find(v => v.id === o.wall); if (!w) continue;
+      const a0 = o.c - Math.min(1400, o.w) / 2, a1 = o.c + Math.min(1400, o.w) / 2, t0 = w.line - w.out * t, t1 = t0 - w.out * 1100;
+      const r = w.axis === 'x' ? [a0, Math.min(t0, t1), a1 - a0, Math.abs(t1 - t0)] : [Math.min(t0, t1), a0, Math.abs(t1 - t0), a1 - a0];
+      c.strokeStyle = COL.glass; c.lineWidth = 1.5; c.setLineDash([4, 3]); c.strokeRect(X(r[0]), Y(r[1]), L(r[2]), L(r[3])); c.setLineDash([]);
     }
   }
   /* гараж: стены (у навеса — стойки), ворота на дальней стороне, места машин */

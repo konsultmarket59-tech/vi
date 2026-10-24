@@ -113,6 +113,7 @@ function counts(p) {
 }
 
 /* разрез 1-1 по середине основного объёма, поперёк длинной стороны */
+DK.section = section;
 function section(p) {
   const c = document.createElement('canvas'); c.width = 1500; c.height = 980;
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
@@ -121,7 +122,7 @@ function section(p) {
   const cut = alongX ? (M.x0 + M.x1) / 2 : (M.y0 + M.y1) / 2, ax = alongX ? 'v' : 'h';
   const sp = DK.lineSpan(p, ax, cut) || (alongX ? [M.y0, M.y1] : [M.x0, M.x1]);
   const t = DK.ts(p), ext = DK.extT(p), fl = DK.floorsOf(p), H = DK.storey(p), hc = p.hClear, sl = p.slab;
-  const yt = DK.elev(p, fl[fl.length - 1]) + hc + sl, span = sp[1] - sp[0];
+  const af = DK.atticFloor(p), yt = af ? DK.elev(p, af) + DK.knee(p) : DK.elev(p, fl[fl.length - 1]) + hc + sl, span = sp[1] - sp[0];
   const pitch = (p.roof.pitch || 30) * Math.PI / 180, ov = 550;
   const ridgeAcross = p.roof.type !== 'flat' && ((p.roof.ridge === 'short') ? !alongX : alongX);
   const yR = p.roof.type === 'flat' ? yt + 600 : ridgeAcross ? yt + (span / 2 + ext) * Math.tan(pitch) : yt + (Math.min(M.x1 - M.x0, M.y1 - M.y0) / 2 + ext) * Math.tan(pitch);
@@ -140,6 +141,8 @@ function section(p) {
   R(sp[0], sp[1], -120, 0, CUT);
   for (const f of fl) {
     const e = DK.elev(p, f), ws = DK.walls(p, f), regs = DK.rooms(p, f);
+    // мансарда: стены по высоте под скатом в линии разреза
+    const hAt = (u) => f === af ? Math.min(hc, DK.atticH(p, alongX ? cut : u, alongX ? u : cut)) : hc;
     // стены в разрезе
     for (const w of ws) {
       const crosses = alongX ? (w.axis === 'x' && w.x0 < cut && w.x1 > cut) : (w.axis === 'y' && w.y0 < cut && w.y1 > cut);
@@ -147,17 +150,19 @@ function section(p) {
       const u0 = alongX ? w.y0 : w.x0, u1 = alongX ? w.y1 : w.x1;
       const op = p.levels[f].open.find(o => o.wall === w.id && Math.abs(o.c - cut) < o.w / 2);
       const col = w.kind === 'part' ? '#b9c2ca' : CUT;
-      if (op) { const sz = DK.opSize(p, op); R(u0, u1, e, e + sz.sill, col); R(u0, u1, e + sz.sill + sz.h, e + hc, col);
+      const hw = w.kind === 'outer' && f === af ? DK.knee(p) : hAt((u0 + u1) / 2);
+      if (op && !DK.slopeWin(p, f, op)) { const sz = DK.opSize(p, op); R(u0, u1, e, e + sz.sill, col); R(u0, u1, e + sz.sill + sz.h, e + hw, col);
         if (op.kind === 'win') { g.fillStyle = '#cfe0ea'; g.fillRect(X(u0) + (u1 - u0) * k * 0.4, Y(e + sz.sill + sz.h), (u1 - u0) * k * 0.2, sz.h * k); } }
-      else R(u0, u1, e, e + hc, col);
-      if (w.kind === 'outer') { const o2 = w.out < 0 ? [u0 - ext, u0] : [u1, u1 + ext]; R(o2[0], o2[1], e, e + hc + sl, '#c9b9a5'); }
+      else R(u0, u1, e, e + hw, col);
+      if (w.kind === 'outer') { const o2 = w.out < 0 ? [u0 - ext, u0] : [u1, u1 + ext]; R(o2[0], o2[1], e, e + (f === af ? DK.knee(p) : hc + sl), '#c9b9a5'); }
     }
     // перекрытие над этажом
     const holes = [];
     const sr = DK.stairRect(p); if (sr && fl.indexOf(f) < fl.length - 1 && (alongX ? sr.x0 < cut && sr.x1 > cut : sr.y0 < cut && sr.y1 > cut)) holes.push(alongX ? [sr.y0, sr.y1] : [sr.x0, sr.x1]);
     const up = fl[fl.indexOf(f) + 1];
     if (up) DK.rooms(p, up).filter(r => r.type === 'void').forEach(r => r.cells.forEach(q => { if (alongX ? q[0] < cut && q[2] > cut : q[1] < cut && q[3] > cut) holes.push(alongX ? [q[1], q[3]] : [q[0], q[2]]); }));
-    let a = sp[0]; holes.sort((m, n) => m[0] - n[0]).forEach(hh => { R(a, hh[0], e + hc, e + hc + sl, CUT); a = hh[1]; }); R(a, sp[1], e + hc, e + hc + sl, CUT);
+    let a = sp[0];
+    if (f !== af) { holes.sort((m, n) => m[0] - n[0]).forEach(hh => { R(a, hh[0], e + hc, e + hc + sl, CUT); a = hh[1]; }); R(a, sp[1], e + hc, e + hc + sl, CUT); }
     // названия помещений
     g.fillStyle = INK; g.font = '600 15px Raleway, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     regs.filter(r => r.type !== 'none' && r.type !== 'void' && r.cells.some(q => alongX ? q[0] < cut && q[2] > cut : q[1] < cut && q[3] > cut)).forEach(r => {
