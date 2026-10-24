@@ -470,37 +470,41 @@ function View3D(canvas, app) {
   function siteBuild(p, F, gy) {
     const s = p.site, W = s.W / 1000, D = s.D / 1000, ox = -s.hx / 1000, oz = -s.hy / 1000, y = gy;
     const st = s.street || 'S';
-    root.add(box(W, 0.02, D, mat({ m: 'grass', c: '#7fa166' }), ox + W / 2, y + 0.01, oz + D / 2, { noShadow: true }));
+    // газон по контуру участка (прямоугольник или сложная форма)
+    const SP = DK.sitePoly(s), sh = new T.Shape();
+    SP.forEach((q, i) => { const X = q.x / 1000 + ox, Z = q.y / 1000 + oz; if (i) sh.lineTo(X, -Z); else sh.moveTo(X, -Z); });
+    const lawn = new T.Mesh(new T.ShapeGeometry(sh), mat({ m: 'grass', c: '#7fa166' })); lawn.rotation.x = -Math.PI / 2; lawn.position.y = y + 0.02; lawn.receiveShadow = true; root.add(lawn);
     const pave = mat({ m: 'paving', c: '#b4aca1' });
     const path = DK.sitePath(p) || [];
     for (let i = 0; i < path.length - 1; i++) { const a = path[i], b = path[i + 1], x0 = Math.min(a.x, b.x) / 1000 - 0.6 + ox, x1 = Math.max(a.x, b.x) / 1000 + 0.6 + ox, z0 = Math.min(a.y, b.y) / 1000 - 0.6 + oz, z1 = Math.max(a.y, b.y) / 1000 + 0.6 + oz; root.add(box(x1 - x0, 0.03, z1 - z0, pave, (x0 + x1) / 2, y + 0.03, (z0 + z1) / 2, { noShadow: true })); }
     const drives = DK.siteDrives(p);
     drives.forEach(r => root.add(box((r.x1 - r.x0) / 1000, 0.03, (r.y1 - r.y0) / 1000, mat({ m: 'paving', c: '#a39b90' }), (r.x0 + r.x1) / 2000 + ox, y + 0.03, (r.y0 + r.y1) / 2000 + oz, { noShadow: true })));
-    // забор: столбы как цоколь дома, заполнение — планкен; на улице проёмы под калитку и заезд
+    // забор по каждой стороне: столбы как цоколь дома, заполнение — планкен; на улице проёмы под калитку и заезд
     const pillarM = mat(F.plinth), panelM = mat({ m: 'planken', c: F.accentOn !== 'none' && F.accent ? F.accent.c : '#7a5a3c' }), gateM = mat({ c: F.frame === '#ffffff' ? '#3a3c40' : F.frame }, { metalness: 0.4, roughness: 0.5 });
     const gate = path.length ? path[path.length - 1] : null, H = 1.8;
-    const sides = { N: [[0, 0], [s.W, 0]], S: [[0, s.D], [s.W, s.D]], W: [[0, 0], [0, s.D]], E: [[s.W, 0], [s.W, s.D]] };
-    for (const [k, [a, b]] of Object.entries(sides)) {
-      const ax = a[1] === b[1], len = ax ? s.W : s.D, gaps = [];
-      if (k === st) {
-        if (gate) gaps.push([(ax ? gate.x : gate.y) - 600, (ax ? gate.x : gate.y) + 600]);
-        drives.forEach(r => gaps.push(ax ? [r.x0, r.x1] : [r.y0, r.y1]));
+    const rbox = (w, h, d, m, x, yy, z, ang) => { const b = box(w, h, d, m, x, yy, z); b.rotation.y = -ang; root.add(b); return b; };
+    for (const e of DK.siteEdges(s)) {
+      const len = e.len, ux = (e.b.x - e.a.x) / len, uy = (e.b.y - e.a.y) / len, ang = Math.atan2(uy, ux), gaps = [], street = e.street;
+      // параметр точки вдоль стороны, если она на этой стороне
+      const along = (x, y2) => { if (DK.segDist(x, y2, e.a.x, e.a.y, e.b.x, e.b.y) > 400) return null; return (x - e.a.x) * ux + (y2 - e.a.y) * uy; };
+      if (street) {
+        if (gate) { const t = along(gate.x, gate.y); if (t != null) gaps.push([t - 600, t + 600, 'gate']); }
+        drives.forEach(r => { const cs = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]].map(([x, y2]) => along(x, y2)).filter(v => v != null); if (cs.length >= 2) gaps.push([Math.min(...cs), Math.max(...cs), 'drive']); });
       }
       gaps.sort((m, n) => m[0] - n[0]);
       let at = 0; const segs = [];
       for (const g of gaps) { if (g[0] > at) segs.push([at, g[0]]); at = Math.max(at, g[1]); }
       if (at < len) segs.push([at, len]);
-      const P2 = (t) => ax ? [t / 1000 + ox, a[1] / 1000 + oz] : [a[0] / 1000 + ox, t / 1000 + oz];
+      const P2 = (t) => [(e.a.x + ux * t) / 1000 + ox, (e.a.y + uy * t) / 1000 + oz];
       for (const [u, v] of segs) {
         if (v - u < 50) continue;
         const n = Math.max(1, Math.round((v - u) / 2800));
-        for (let i = 0; i <= n; i++) { const q = P2(u + (v - u) * i / n); root.add(box(k === st ? 0.36 : 0.08, k === st ? H + 0.15 : H, k === st ? 0.36 : 0.08, k === st ? pillarM : gateM, q[0], y + (k === st ? H + 0.15 : H) / 2, q[1])); }
+        for (let i = 0; i <= n; i++) { const q = P2(u + (v - u) * i / n); rbox(street ? 0.36 : 0.08, street ? H + 0.15 : H, street ? 0.36 : 0.08, street ? pillarM : gateM, q[0], y + (street ? H + 0.15 : H) / 2, q[1], ang); }
         const c = P2((u + v) / 2), L = (v - u) / 1000;
-        root.add(box(ax ? L : 0.03, H - 0.25, ax ? 0.03 : L, panelM, c[0], y + 0.15 + (H - 0.25) / 2, c[1]));
+        rbox(L, H - 0.25, 0.03, panelM, c[0], y + 0.15 + (H - 0.25) / 2, c[1], ang);
       }
       // калитка и откатные ворота
-      if (k === st && gate) { const c = P2(ax ? gate.x : gate.y); root.add(box(ax ? 1.0 : 0.04, H - 0.2, ax ? 0.04 : 1.0, gateM, c[0], y + 0.1 + (H - 0.2) / 2, c[1])); }
-      if (k === st) drives.forEach(r => { const c = P2(ax ? (r.x0 + r.x1) / 2 : (r.y0 + r.y1) / 2), L = (ax ? r.x1 - r.x0 : r.y1 - r.y0) / 1000; root.add(box(ax ? L : 0.05, H - 0.2, ax ? 0.05 : L, gateM, c[0], y + 0.1 + (H - 0.2) / 2, c[1])); });
+      gaps.forEach(([u, v, k]) => { const c = P2((u + v) / 2); rbox(k === 'gate' ? 1.0 : (v - u) / 1000, H - 0.2, k === 'gate' ? 0.04 : 0.05, gateM, c[0], y + 0.1 + (H - 0.2) / 2, c[1], ang); });
     }
     s.objs.forEach(o => siteObj(p, o, F, y, ox, oz));
   }

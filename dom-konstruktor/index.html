@@ -345,11 +345,13 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 
         <div class="grp" data-v="site">
           <h3>Участок <small id="siteArea"></small></h3>
-          <div class="row2"><label class="fld">Ширина, м<input type="number" id="siteW" step="0.5" min="8"></label><label class="fld">Длина, м<input type="number" id="siteD" step="0.5" min="8"></label></div>
+          <div class="row2"><label class="fld"><span id="siteWl">Ширина, м</span><input type="number" id="siteW" step="0.5" min="8"></label><label class="fld"><span id="siteDl">Длина, м</span><input type="number" id="siteD" step="0.5" min="8"></label></div>
           <label class="fld">Улица<div class="seg" id="siteStreet"><button data-k="S">снизу</button><button data-k="N">сверху</button><button data-k="W">слева</button><button data-k="E">справа</button></div></label>
           <label class="rng"><span>Север</span><input type="range" id="siteNorth" min="0" max="345" step="15"><output id="siteNorthV"></output></label>
+          <div class="row"><button class="btn sm" id="sitePolyEdit" aria-pressed="false">Править контур</button><button class="btn sm ghost" id="sitePolyReset" hidden>Сделать прямоугольным</button></div>
+          <div class="muted" id="sitePolyHint" hidden>Тяните вершины участка; «+» на стороне — новый угол; двойной клик по вершине — убрать её; Shift — ровно по горизонтали или вертикали.</div>
           <div class="row"><button class="btn sm" id="siteHouse">Дом по нормам</button><button class="btn sm" id="siteAll">Расставить всё по нормам</button></div>
-          <div class="muted">Дом — 5 м от улицы и 3 м от соседей. Тяните дом и постройки мышью; красный пунктир — граница зоны застройки.</div>
+          <div class="muted">Дом — 5 м от улицы и 3 м от соседей. Тяните дом и постройки мышью; красная полоса вдоль границ — отступы, где дом ставить нельзя.</div>
           <h3>Постройки</h3>
           <div class="row" id="sitePal"></div>
           <div class="sel" id="siteSelBox" hidden></div>

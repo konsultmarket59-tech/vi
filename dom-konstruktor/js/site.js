@@ -39,13 +39,72 @@ DK.siteHouseBox = function (p) {
     add(e.axis === 'x' ? { x0: a0, x1: a1, y0: Math.min(f0, f1), y1: Math.max(f0, f1) } : { y0: a0, y1: a1, x0: Math.min(f0, f1), x1: Math.max(f0, f1) }); }
   return b;
 };
+/* контур участка: произвольный многоугольник s.poly (мм, по часовой на экране) или прямоугольник W × D */
+DK.sitePoly = function (s) { return s.poly && s.poly.length >= 3 ? s.poly : [{ x: 0, y: 0 }, { x: s.W, y: 0 }, { x: s.W, y: s.D }, { x: 0, y: s.D }]; };
+DK.siteArea = function (s) { const P = DK.sitePoly(s); let a = 0; P.forEach((q, i) => { const r = P[(i + 1) % P.length]; a += q.x * r.y - r.x * q.y; }); return Math.abs(a) / 2; };
+const STDIR = { S: [0, 1], N: [0, -1], W: [-1, 0], E: [1, 0] };
+/* стороны участка: отрезок, внешняя нормаль, уличная ли сторона */
+function siteEdges(s) {
+  const P = DK.sitePoly(s), n = P.length, st = STDIR[s.street || 'S'];
+  let a = 0; P.forEach((q, i) => { const r = P[(i + 1) % n]; a += q.x * r.y - r.x * q.y; });
+  const sg = a > 0 ? 1 : -1; // ориентация обхода
+  const E = P.map((q, i) => { const r = P[(i + 1) % n], dx = r.x - q.x, dy = r.y - q.y, l = Math.hypot(dx, dy) || 1; const nx = sg * dy / l, ny = -sg * dx / l; return { a: q, b: r, len: l, nx, ny, dot: nx * st[0] + ny * st[1], i }; });
+  const best = Math.max(...E.map(e => e.dot));
+  E.forEach(e => { e.street = e.dot >= Math.min(0.5, best - 1e-6); });
+  return E;
+}
+DK.siteEdges = siteEdges;
+function insideP(P, x, y) { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const a = P[i], b = P[j]; if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) c = !c; } return c; }
+const segPt = (x, y, a, b) => DK.segDist(x, y, a.x, a.y, b.x, b.y);
+function segHitsRect(a, b, r) {
+  // отрезок пересекает прямоугольник: отсечение Лианга — Барски
+  let t0 = 0, t1 = 1; const dx = b.x - a.x, dy = b.y - a.y;
+  for (const [pp, q] of [[-dx, a.x - r.x0], [dx, r.x1 - a.x], [-dy, a.y - r.y0], [dy, r.y1 - a.y]]) {
+    if (pp === 0) { if (q < 0) return false; continue; }
+    const t = q / pp; if (pp < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return true;
+}
+function rectSegDist(r, a, b) {
+  if (segHitsRect(a, b, r)) return 0;
+  const cs = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]];
+  const pr = (q) => Math.hypot(Math.max(0, r.x0 - q.x, q.x - r.x1), Math.max(0, r.y0 - q.y, q.y - r.y1));
+  return Math.min(pr(a), pr(b), ...cs.map(([x, y]) => segPt(x, y, a, b)));
+}
+/* луч из точки до границы участка */
+function rayHit(s, x, y, dx, dy) {
+  let best = Infinity;
+  for (const e of siteEdges(s)) {
+    const ex = e.b.x - e.a.x, ey = e.b.y - e.a.y, den = dx * ey - dy * ex; if (Math.abs(den) < 1e-9) continue;
+    const t = ((e.a.x - x) * ey - (e.a.y - y) * ex) / den, u = ((e.a.x - x) * dy - (e.a.y - y) * dx) / den;
+    if (t > 1e-6 && u >= -1e-9 && u <= 1 + 1e-9) best = Math.min(best, t);
+  }
+  return best;
+}
+DK.siteRay = rayHit;
+/* перенос контура так, чтобы габарит начинался с 0,0; дом и постройки едут вместе */
+DK.siteNormalize = function (p) {
+  const s = p.site; if (!s.poly) return;
+  const x0 = Math.min(...s.poly.map(q => q.x)), y0 = Math.min(...s.poly.map(q => q.y));
+  s.poly = s.poly.map(q => ({ x: Math.round(q.x - x0), y: Math.round(q.y - y0) }));
+  s.W = Math.max(...s.poly.map(q => q.x)); s.D = Math.max(...s.poly.map(q => q.y));
+  s.hx -= x0; s.hy -= y0; s.objs.forEach(o => { o.x -= x0; o.y -= y0; });
+  // контур-прямоугольник по габариту — снова «простой»
+  if (s.poly.length === 4 && s.poly.every(q => (q.x === 0 || q.x === s.W) && (q.y === 0 || q.y === s.D))) delete s.poly;
+};
 function houseRect(p) { const s = p.site, b = DK.siteHouseBox(p); return { x0: b.x0 + s.hx, y0: b.y0 + s.hy, x1: b.x1 + s.hx, y1: b.y1 + s.hy }; }
 function objRect(o) { const T = DK.SITE_OBJ[o.type], rot = (o.a || 0) % 180 === 90, w = o.w || T.w, d = o.d || T.d, sw = rot ? d : w, sd = rot ? w : d; return { x0: o.x - sw / 2, y0: o.y - sd / 2, x1: o.x + sw / 2, y1: o.y + sd / 2 }; }
 function rectDist(a, b) { const dx = Math.max(0, a.x0 - b.x1, b.x0 - a.x1), dy = Math.max(0, a.y0 - b.y1, b.y0 - a.y1); return Math.hypot(dx, dy); }
 /* расстояния до сторон участка: до улицы и до ближайшей соседской границы */
 function bounds(s, r) {
-  const d = { N: r.y0, S: s.D - r.y1, W: r.x0, E: s.W - r.x1 }, st = s.street || 'S';
-  return { street: d[st], side: Math.min(...Object.keys(d).filter(k => k !== st).map(k => d[k])), all: d };
+  const st = s.street || 'S';
+  if (!s.poly) { const d = { N: r.y0, S: s.D - r.y1, W: r.x0, E: s.W - r.x1 }; return { street: d[st], side: Math.min(...Object.keys(d).filter(k => k !== st).map(k => d[k])), all: d }; }
+  // участок сложной формы: прямоугольник должен быть внутри, расстояние — до ближайшей стороны каждого типа
+  const P = s.poly, cs = [[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]], E = siteEdges(s);
+  if (!cs.every(([x, y]) => insideP(P, x, y))) return { street: -1, side: -1, all: {} };
+  let street = Infinity, side = Infinity;
+  for (const e of E) { const d = rectSegDist(r, e.a, e.b); if (d === 0) return { street: -1, side: -1, all: {} }; if (e.street) street = Math.min(street, d); else side = Math.min(side, d); }
+  return { street, side, all: {} };
 }
 DK.siteHouseRect = houseRect; DK.siteObjRect = objRect;
 
@@ -66,6 +125,11 @@ DK.sitePath = function (p) {
   let mid = away;
   if (st === 'S' || st === 'N') { if (away.x > H.x0 - 300 && away.x < H.x1 + 300 && (st === 'S' ? away.y < H.y1 : away.y > H.y0)) mid = { x: E.out[0] > 0 ? H.x1 + 1200 : H.x0 - 1200, y: away.y }; }
   else if (away.y > H.y0 - 300 && away.y < H.y1 + 300 && (st === 'E' ? away.x < H.x1 : away.x > H.x0)) mid = { x: away.x, y: E.out[1] > 0 ? H.y1 + 1200 : H.y0 - 1200 };
+  if (s.poly) {
+    // сложный участок: калитка — там, куда луч от дорожки выходит на уличную сторону
+    const d = STDIR[st], hit = rayHit(s, mid.x, mid.y, d[0], d[1]);
+    if (hit < Infinity) { const gate = { x: Math.round(mid.x + d[0] * hit), y: Math.round(mid.y + d[1] * hit) }; return [{ x: E.x, y: E.y }, mid, gate]; }
+  }
   const gate = st === 'S' ? { x: clamp(mid.x, 1500, s.W - 1500), y: s.D } : st === 'N' ? { x: clamp(mid.x, 1500, s.W - 1500), y: 0 } : st === 'W' ? { x: 0, y: clamp(mid.y, 1500, s.D - 1500) } : { x: s.W, y: clamp(mid.y, 1500, s.D - 1500) };
   const bend = st === 'S' || st === 'N' ? { x: gate.x, y: mid.y } : { x: mid.x, y: gate.y };
   return [{ x: E.x, y: E.y }, mid, bend, gate];
@@ -80,8 +144,10 @@ DK.siteDrives = function (p) {
     const d = g === 'far' ? nv : g === 'near' ? [-nv[0], -nv[1]] : g === 'left' ? [-uv[0], -uv[1]] : uv;
     if (d[0] !== dirs[0] || d[1] !== dirs[1]) continue;
     const R = { x0: r.x0 + s.hx, y0: r.y0 + s.hy, x1: r.x1 + s.hx, y1: r.y1 + s.hy };
-    if (st === 'S' || st === 'N') { R.x0 += 300; R.x1 -= 300; if (st === 'S') { R.y0 = R.y1; R.y1 = s.D; } else { R.y1 = R.y0; R.y0 = 0; } }
-    else { R.y0 += 300; R.y1 -= 300; if (st === 'E') { R.x0 = R.x1; R.x1 = s.W; } else { R.x1 = R.x0; R.x0 = 0; } }
+    // длина заезда — до границы участка по лучу от ворот (для сложного контура — по середине ворот)
+    const reach = (x, y) => { const h = rayHit(s, x, y, dirs[0], dirs[1]); return h < Infinity ? h : 0; };
+    if (st === 'S' || st === 'N') { R.x0 += 300; R.x1 -= 300; const mx = (R.x0 + R.x1) / 2; if (st === 'S') { const h = reach(mx, R.y1); R.y0 = R.y1; R.y1 = R.y0 + h; } else { const h = reach(mx, R.y0); R.y1 = R.y0; R.y0 = R.y1 - h; } }
+    else { R.y0 += 300; R.y1 -= 300; const my = (R.y0 + R.y1) / 2; if (st === 'E') { const h = reach(R.x1, my); R.x0 = R.x1; R.x1 = R.x0 + h; } else { const h = reach(R.x0, my); R.x1 = R.x0; R.x0 = R.x1 - h; } }
     if (R.x1 > R.x0 && R.y1 > R.y0) out.push(R);
   }
   return out;
@@ -98,6 +164,18 @@ DK.siteDefault = function (p) {
 DK.sitePlaceHouse = function (p) {
   const s = p.site, b = DK.siteHouseBox(p), hw = b.x1 - b.x0, hd = b.y1 - b.y0, st = s.street || 'S';
   const front = HOUSE_STREET + 1000;
+  if (s.poly) {
+    // перебор положений: в отступах, ближе к улице (6 м), подальше от соседей
+    let best = null;
+    for (let y = 0; y <= s.D - hd; y += 250) for (let x = 0; x <= s.W - hw; x += 250) {
+      const B = bounds(s, { x0: x, y0: y, x1: x + hw, y1: y + hd });
+      if (B.street < HOUSE_STREET || B.side < HOUSE_SIDE) continue;
+      const sc = Math.abs(B.street - front) - Math.min(B.side, 8000) * 0.4;
+      if (!best || sc < best.sc) best = { sc, x, y };
+    }
+    if (best) { s.hx = Math.round(best.x - b.x0); s.hy = Math.round(best.y - b.y0); return true; }
+    return false;
+  }
   if (st === 'S' || st === 'N') {
     s.hx = Math.round(Math.max(HOUSE_SIDE, (s.W - hw) / 2) - b.x0);
     s.hy = Math.round((st === 'S' ? s.D - front - hd : front) - b.y0);
@@ -181,14 +259,16 @@ DK.siteChecks = function (p) {
   const s = p.site; if (!s) return [];
   const out = [], f = (v) => DK.fmtM(Math.max(0, v));
   const H = houseRect(p), BH = bounds(s, H);
-  if (BH.street < HOUSE_STREET) out.push({ lv: 'err', txt: `Дом ближе ${f(HOUSE_STREET)} м к улице (${f(BH.street)} м)` });
-  if (BH.side < HOUSE_SIDE) out.push({ lv: 'err', txt: `Дом ближе ${f(HOUSE_SIDE)} м к соседнему участку (${f(BH.side)} м)` });
+  if (BH.street < 0) out.push({ lv: 'err', txt: 'Дом выходит за границу участка' });
+  else if (BH.street < HOUSE_STREET) out.push({ lv: 'err', txt: `Дом ближе ${f(HOUSE_STREET)} м к улице (${f(BH.street)} м)` });
+  if (BH.side >= 0 && BH.side < HOUSE_SIDE) out.push({ lv: 'err', txt: `Дом ближе ${f(HOUSE_SIDE)} м к соседнему участку (${f(BH.side)} м)` });
   if (BH.street >= HOUSE_STREET && BH.side >= HOUSE_SIDE) out.push({ lv: 'ok', txt: `Дом: ${f(BH.street)} м до улицы, ${f(BH.side)} м до соседей — в норме` });
   for (const o of s.objs) {
     const T = DK.SITE_OBJ[o.type], r = objRect(o), B = bounds(s, r), dh = rectDist(r, H);
     const bad = [];
-    if (B.side < T.b) bad.push(`${f(B.side)} м до забора (нужно ${f(T.b)})`);
-    if (B.street < T.street) bad.push(`${f(B.street)} м до улицы (нужно ${f(T.street)})`);
+    if (B.side < 0) bad.push('за границей участка');
+    else if (B.side < T.b) bad.push(`${f(B.side)} м до забора (нужно ${f(T.b)})`);
+    if (B.street >= 0 && B.street < T.street) bad.push(`${f(B.street)} м до улицы (нужно ${f(T.street)})`);
     if (dh < T.house) bad.push(`${f(dh)} м до дома (нужно ${f(T.house)})`);
     if (T.fire) s.objs.filter(q => q !== o && (q.type === 'bath' || q.type === 'play' || q.type === 'greenhouse')).forEach(q => { const d = rectDist(r, objRect(q)); if (d < T.fire) bad.push(`${f(d)} м до «${DK.SITE_OBJ[q.type].n.toLowerCase()}» (нужно ${f(T.fire)})`); });
     out.push(bad.length ? { lv: 'err', txt: `${T.n}: ${bad.join(', ')}` } : { lv: 'ok', txt: `${T.n}: ${T.rule} — в норме` });
@@ -198,7 +278,7 @@ DK.siteChecks = function (p) {
 DK.siteTz = function (p) {
   const s = p.site; if (!s) return [];
   const st = { S: 'юга', N: 'севера', W: 'запада', E: 'востока' };
-  const out = [`Участок ${DK.fmtM(s.W)} × ${DK.fmtM(s.D)} м (${DK.fmtA(s.W * s.D / 1e8)} сот.), улица с ${st[s.street || 'S']} плана; дом — ${DK.fmtM(bounds(s, houseRect(p)).street)} м от улицы`];
+  const out = [`Участок ${s.poly ? 'сложной формы (' + s.poly.length + ' углов), габарит ' : ''}${DK.fmtM(s.W)} × ${DK.fmtM(s.D)} м (${DK.fmtA(DK.siteArea(s) / 1e8)} сот.), улица с ${st[s.street || 'S']} плана; дом — ${DK.fmtM(Math.max(0, bounds(s, houseRect(p)).street))} м от улицы`];
   if (s.objs.length) out.push('На участке: ' + s.objs.map(o => DK.SITE_OBJ[o.type].n.toLowerCase()).join(', ') + ' — в одном стиле с домом, фундаменты по геологии');
   return out;
 };
@@ -206,7 +286,7 @@ DK.siteTz = function (p) {
 /* ---------- план участка ---------- */
 DK.SitePlan = function (canvas, app) {
   const ctx = canvas.getContext('2d'), view = { k: 0.02, ox: 40, oy: 40 };
-  let dpr = 1, drag = null, sel = null;
+  let dpr = 1, drag = null, sel = null, editPoly = false, hotV = -1, lastTap = { i: -1, t: 0 };
   const INK = '#2f3237', SEL = '#e3a21a';
   function size() { dpr = window.devicePixelRatio || 1; const r = canvas.getBoundingClientRect(); canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr)); render(); }
   function fit() {
@@ -227,18 +307,20 @@ DK.SitePlan = function (canvas, app) {
     o = o || {};
     const s = p.site, k = view.k, X = (x) => view.ox + x * k, Y = (y) => view.oy + y * k, L = (v) => v * k;
     const F = DK.facadeOf(p), st = s.street || 'S';
-    // газон, зона застройки (отступы), граница
-    c.fillStyle = '#e4ecd9'; c.fillRect(X(0), Y(0), L(s.W), L(s.D));
-    const z = { x0: st === 'W' ? HOUSE_STREET : HOUSE_SIDE, y0: st === 'N' ? HOUSE_STREET : HOUSE_SIDE, x1: s.W - (st === 'E' ? HOUSE_STREET : HOUSE_SIDE), y1: s.D - (st === 'S' ? HOUSE_STREET : HOUSE_SIDE) };
-    c.strokeStyle = 'rgba(190,70,60,.55)'; c.lineWidth = 1; c.setLineDash([8, 4, 2, 4]); c.strokeRect(X(z.x0), Y(z.y0), L(z.x1 - z.x0), L(z.y1 - z.y0)); c.setLineDash([]);
-    c.strokeStyle = INK; c.lineWidth = 2.2; c.strokeRect(X(0), Y(0), L(s.W), L(s.D));
-    // улица — красная линия
+    // газон, зона застройки (отступы), граница по контуру
+    const SP = DK.sitePoly(s), SE = siteEdges(s), path0 = () => { c.beginPath(); SP.forEach((q, i) => i ? c.lineTo(X(q.x), Y(q.y)) : c.moveTo(X(q.x), Y(q.y))); c.closePath(); };
+    c.fillStyle = '#e4ecd9'; path0(); c.fill();
+    // полоса отступов дома: 5 м от улицы, 3 м от соседей (внутри контура)
+    c.save(); path0(); c.clip(); c.strokeStyle = 'rgba(190,70,60,.10)'; c.lineCap = 'round';
+    SE.forEach(e => { c.lineWidth = L(2 * (e.street ? HOUSE_STREET : HOUSE_SIDE)); line(c, X(e.a.x), Y(e.a.y), X(e.b.x), Y(e.b.y)); });
+    c.restore();
+    c.strokeStyle = INK; c.lineWidth = 2.2; c.lineJoin = 'round'; path0(); c.stroke(); c.lineJoin = 'miter';
+    // улица — красная линия по уличным сторонам
     c.strokeStyle = '#c0392b'; c.lineWidth = 3;
-    const sl = { S: [0, s.D, s.W, s.D], N: [0, 0, s.W, 0], W: [0, 0, 0, s.D], E: [s.W, 0, s.W, s.D] }[st];
-    line(c, X(sl[0]), Y(sl[1]), X(sl[2]), Y(sl[3]));
+    SE.filter(e => e.street).forEach(e => line(c, X(e.a.x), Y(e.a.y), X(e.b.x), Y(e.b.y)));
     c.font = '700 12px Raleway, sans-serif'; c.fillStyle = '#c0392b'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    const so = { S: [s.W / 2, s.D + 1600], N: [s.W / 2, -1600], W: [-1800, s.D / 2], E: [s.W + 1800, s.D / 2] }[st];
-    c.fillText('УЛИЦА', X(so[0]), Y(so[1]));
+    const se = SE.filter(e => e.street).sort((a, b) => b.len - a.len)[0];
+    if (se) c.fillText('УЛИЦА', X((se.a.x + se.b.x) / 2 + se.nx * 1800), Y((se.a.y + se.b.y) / 2 + se.ny * 1800));
     // заезды и дорожка
     c.fillStyle = '#d8d3ca'; DK.siteDrives(p).forEach(r => c.fillRect(X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0)));
     const path = DK.sitePath(p);
@@ -295,18 +377,25 @@ DK.SitePlan = function (canvas, app) {
       c.font = `600 ${fs}px Raleway, sans-serif`; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
       if (R[2] > 40) c.fillText(T.n, R[0] + R[2] / 2, R[1] + R[3] / 2);
     }
-    // размеры участка
-    c.font = '600 12px "JetBrains Mono", monospace'; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText(DK.fmtM(s.W) + ' м', X(s.W / 2), Y(0) - 14); c.save(); c.translate(X(0) - 16, Y(s.D / 2)); c.rotate(-Math.PI / 2); c.fillText(DK.fmtM(s.D) + ' м', 0, 0); c.restore();
+    // длины сторон участка — снаружи у каждой стороны
+    c.font = '600 11px "JetBrains Mono", monospace'; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
+    SE.forEach(e => { if (L(e.len) < 34) return; const mx = X((e.a.x + e.b.x) / 2) + e.nx * 14, my = Y((e.a.y + e.b.y) / 2) + e.ny * 14; let ang = Math.atan2(e.b.y - e.a.y, e.b.x - e.a.x); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+      c.save(); c.translate(mx, my); c.rotate(ang); c.fillText(DK.fmtM(e.len) + ' м', 0, 0); c.restore(); });
+    if (!o.noSel) { c.font = '600 12px Raleway, sans-serif'; c.textAlign = 'left'; c.fillStyle = INK; c.fillText(`${DK.fmtA(DK.siteArea(s) / 1e8)} сот.${s.poly ? ' · ' + s.poly.length + ' углов' : ''}`, X(0), Y(0) - 30); }
+    // правка контура: вершины и «+» на серединах сторон
+    if (editPoly && !o.noSel) {
+      SE.forEach(e => { const mx = X((e.a.x + e.b.x) / 2), my = Y((e.a.y + e.b.y) / 2); c.fillStyle = '#fff'; c.strokeStyle = SEL; c.lineWidth = 1.5; c.beginPath(); c.arc(mx, my, 6, 0, 7); c.fill(); c.stroke(); c.strokeStyle = INK; line(c, mx - 3, my, mx + 3, my); line(c, mx, my - 3, mx, my + 3); });
+      SP.forEach((q, i) => { c.fillStyle = i === hotV ? SEL : '#fff'; c.strokeStyle = INK; c.lineWidth = 1.8; c.beginPath(); c.arc(X(q.x), Y(q.y), 7, 0, 7); c.fill(); c.stroke(); });
+    }
     // выделение и расстояния до границ
     const selR = sel === 'house' ? houseRect(p) : sel ? (() => { const q = s.objs.find(v => v.id === sel); return q && objRect(q); })() : null;
     if (selR && !o.noSel) {
       c.strokeStyle = SEL; c.lineWidth = 2.5; c.strokeRect(X(selR.x0) - 2, Y(selR.y0) - 2, L(selR.x1 - selR.x0) + 4, L(selR.y1 - selR.y0) + 4);
       const cx = (selR.x0 + selR.x1) / 2, cy = (selR.y0 + selR.y1) / 2;
-      dimText(c, X(selR.x0), Y(cy), X(0), Y(cy), DK.fmtM(selR.x0));
-      dimText(c, X(selR.x1), Y(cy), X(s.W), Y(cy), DK.fmtM(s.W - selR.x1));
-      dimText(c, X(cx), Y(selR.y0), X(cx), Y(0), DK.fmtM(selR.y0));
-      dimText(c, X(cx), Y(selR.y1), X(cx), Y(s.D), DK.fmtM(s.D - selR.y1));
+      // до границы — лучом от середины каждой стороны (работает и для сложного контура)
+      [[selR.x0, cy, -1, 0], [selR.x1, cy, 1, 0], [cx, selR.y0, 0, -1], [cx, selR.y1, 0, 1]].forEach(([x, y, dx, dy]) => {
+        const h = rayHit(s, x, y, dx, dy); if (h < Infinity) dimText(c, X(x), Y(y), X(x + dx * h), Y(y + dy * h), DK.fmtM(h));
+      });
     }
     // роза ветров: стрелка на север
     const cr = 26, ccx = X(s.W) + (o.compass || 46), ccy = Y(0) + 30;
@@ -337,6 +426,17 @@ DK.SitePlan = function (canvas, app) {
     const p = app.p(), s = p.site; if (!s) return;
     canvas.setPointerCapture(e.pointerId);
     const w = toW(e), q = s.objs.slice().reverse().find(o => inR(objRect(o), w));
+    if (editPoly) {
+      const P = DK.sitePoly(s), near = (x, y) => Math.hypot(X0(x) - w.sx, Y0(y) - w.sy) < 10;
+      const vi = P.findIndex(v => near(v.x, v.y));
+      if (vi >= 0) {
+        const dbl = lastTap.i === vi && Date.now() - lastTap.t < 400; lastTap = { i: vi, t: Date.now() };
+        if (dbl && P.length > 3) { s.poly = P.filter((_, i) => i !== vi); DK.siteNormalize(p); app.commit('Контур участка'); render(); return; }
+        s.poly = P.map(v => ({ x: v.x, y: v.y })); hotV = vi; drag = { kind: 'vertex', i: vi }; render(); return;
+      }
+      const ei = P.findIndex((v, i) => { const b = P[(i + 1) % P.length]; return near((v.x + b.x) / 2, (v.y + b.y) / 2); });
+      if (ei >= 0) { const a = P[ei], b = P[(ei + 1) % P.length]; s.poly = P.map(v => ({ x: v.x, y: v.y })); s.poly.splice(ei + 1, 0, { x: Math.round((a.x + b.x) / 2), y: Math.round((a.y + b.y) / 2) }); hotV = ei + 1; drag = { kind: 'vertex', i: ei + 1 }; render(); return; }
+    }
     if (q) { sel = q.id; drag = { kind: 'obj', o: q, w0: w, x0: q.x, y0: q.y }; }
     else if (inR(houseRect(p), w)) { sel = 'house'; drag = { kind: 'house', w0: w, x0: s.hx, y0: s.hy }; }
     else { sel = null; drag = { kind: 'pan', sx: w.sx, sy: w.sy, ox: view.ox, oy: view.oy }; }
@@ -345,12 +445,23 @@ DK.SitePlan = function (canvas, app) {
   canvas.addEventListener('pointermove', (e) => {
     if (!drag) return;
     const p = app.p(), s = p.site, w = toW(e), snap = (v) => Math.round(v / 100) * 100;
+    if (drag.kind === 'vertex') {
+      // вершина: шаг 100 мм, Shift — по горизонтали или вертикали к соседней вершине
+      const P = s.poly, v = P[drag.i], pv = P[(drag.i - 1 + P.length) % P.length];
+      let x = snap(w.x), y = snap(w.y);
+      if (e.shiftKey) { if (Math.abs(x - pv.x) < Math.abs(y - pv.y)) x = pv.x; else y = pv.y; }
+      v.x = x; v.y = y; drag.moved = true; render(); return;
+    }
     if (drag.kind === 'pan') { view.ox = drag.ox + w.sx - drag.sx; view.oy = drag.oy + w.sy - drag.sy; }
     else if (drag.kind === 'obj') { drag.o.x = snap(drag.x0 + w.x - drag.w0.x); drag.o.y = snap(drag.y0 + w.y - drag.w0.y); drag.moved = true; }
     else { s.hx = snap(drag.x0 + w.x - drag.w0.x); s.hy = snap(drag.y0 + w.y - drag.w0.y); drag.moved = true; }
     render();
   });
-  const up = () => { if (drag && drag.moved) app.commit(drag.kind === 'house' ? 'Дом на участке' : DK.SITE_OBJ[drag.o.type].n); drag = null; };
+  const up = () => {
+    if (drag && drag.kind === 'vertex') { DK.siteNormalize(app.p()); hotV = -1; app.commit('Контур участка'); drag = null; render(); return; }
+    if (drag && drag.moved) app.commit(drag.kind === 'house' ? 'Дом на участке' : DK.SITE_OBJ[drag.o.type].n); drag = null;
+  };
+  const X0 = (x) => view.ox + x * view.k, Y0 = (y) => view.oy + y * view.k;
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(-e.deltaY * 0.0015), e); }, { passive: false });
   function zoom(f, e) {
@@ -358,6 +469,6 @@ DK.SitePlan = function (canvas, app) {
     const nk = Math.max(0.002, Math.min(0.3, view.k * f)); view.ox = sx - (sx - view.ox) * nk / view.k; view.oy = sy - (sy - view.oy) * nk / view.k; view.k = nk; render();
   }
   window.addEventListener('resize', () => { if (!canvas.hidden) size(); });
-  return { size, fit, render, zoom, toImage, view, sel: () => sel, select(v) { sel = v; render(); } };
+  return { size, fit, render, zoom, toImage, view, sel: () => sel, select(v) { sel = v; render(); }, edit(v) { editPoly = !!v; hotV = -1; render(); }, editing: () => editPoly };
 };
 })();

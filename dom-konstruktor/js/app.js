@@ -392,7 +392,10 @@ function renderSite() {
   const s = P.site; if (!s) return;
   $('#siteW').value = s.W / 1000; $('#siteD').value = s.D / 1000; seg($('#siteStreet'), s.street || 'S', 'k');
   $('#siteNorth').value = s.north || 0; $('#siteNorthV').textContent = (s.north || 0) + '°';
-  $('#siteArea').textContent = DK.fmtA(s.W * s.D / 1e8) + ' сот.';
+  $('#siteArea').textContent = DK.fmtA(DK.siteArea(s) / 1e8) + ' сот.' + (s.poly ? ` · ${s.poly.length} углов` : '');
+  $('#siteWl').textContent = s.poly ? 'Габарит по ширине, м' : 'Ширина, м'; $('#siteDl').textContent = s.poly ? 'Габарит по длине, м' : 'Длина, м';
+  const ed = site.editing(); $('#sitePolyEdit').setAttribute('aria-pressed', String(ed)); $('#sitePolyEdit').textContent = ed ? 'Готово' : 'Править контур';
+  $('#sitePolyHint').hidden = !ed; $('#sitePolyReset').hidden = !s.poly;
   $('#siteChecks').innerHTML = DK.siteChecks(P).map(c => `<li class="${c.lv}">${esc(c.txt)}</li>`).join('');
   const id = site.sel(), q = s.objs.find(o => o.id === id), box = $('#siteSelBox');
   box.hidden = !q && id !== 'house';
@@ -414,7 +417,14 @@ function bind() {
   $('#knee').onchange = (e) => { P.knee = +e.target.value; app.commit('Колено мансарды'); };
   $('#sitePal').innerHTML = Object.entries(DK.SITE_OBJ).map(([k, o]) => `<button class="btn sm" data-site="${k}">+ ${esc(o.n)}</button>`).join('');
   $$('[data-site]').forEach(b => b.onclick = () => { const r = DK.siteAdd(P, b.dataset.site); site.select(r.o.id); if (!r.ok) toast('По нормам места не нашлось — поставил в центр, передвиньте или увеличьте участок'); app.commit(DK.SITE_OBJ[b.dataset.site].n); });
-  const dimSite = (k, v) => { P.site[k] = Math.max(8000, Math.min(200000, Math.round(v * 2) * 500)); DK.sitePlaceHouse(P); app.commit('Участок'); site.fit(); };
+  const dimSite = (k, v) => {
+    const s = P.site, nv = Math.max(8000, Math.min(200000, Math.round(v * 2) * 500));
+    // у сложного контура габарит меняем растяжением по этой оси
+    if (s.poly) { const f = nv / s[k]; s.poly = s.poly.map(q => k === 'W' ? { x: Math.round(q.x * f), y: q.y } : { x: q.x, y: Math.round(q.y * f) }); }
+    s[k] = nv; DK.sitePlaceHouse(P); app.commit('Участок'); site.fit();
+  };
+  $('#sitePolyEdit').onclick = () => { site.edit(!site.editing()); if (!site.editing()) { DK.sitePlaceHouse(P); app.commit('Контур участка'); } renderSite(); };
+  $('#sitePolyReset').onclick = () => { delete P.site.poly; DK.sitePlaceHouse(P); app.commit('Прямоугольный участок'); site.fit(); };
   $('#siteW').onchange = (e) => dimSite('W', +e.target.value || 20); $('#siteD').onchange = (e) => dimSite('D', +e.target.value || 30);
   $$('#siteStreet button').forEach(b => b.onclick = () => { P.site.street = b.dataset.k; DK.siteRearrange(P); app.commit('Улица'); site.fit(); });
   $('#siteNorth').oninput = (e) => { P.site.north = +e.target.value; $('#siteNorthV').textContent = P.site.north + '°'; site.render(); };
