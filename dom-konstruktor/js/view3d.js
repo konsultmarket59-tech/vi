@@ -205,12 +205,15 @@ function View3D(canvas, app) {
       buildFloor(p, f, y0, hWall, hc, ext, F, zone, regs, cutTop ? hWall : hc + sl, f === 'f1' && !p.basement ? F.wainscot / 1000 : 0);
       if (idx > 0) slabCells(p, y0 - sl, sl, holesOf(p, f, regs), white);
       else slabCells(p, y0 - 0.1, 0.1, [], white);
+      // чистовой пол — без проёма лестницы на верхних этажах
+      const sr = idx > 0 && p.stair ? DK.stairRect(p) : null;
       regs.forEach(r => {
         if (r.type === 'void') return;
         const wet = (DK.ROOM[r.type] || {}).wet;
         const m = wet ? mat({ m: 'tilefloor', c: '#dfe2e3' }) : mat({ m: 'wood', c: '#c9a77d' });
-        r.cells.forEach(q => root.add(box((q[2] - q[0]) / 1000, 0.012, (q[3] - q[1]) / 1000, m, (q[0] + q[2]) / 2000, y0 + 0.006, (q[1] + q[3]) / 2000, { noShadow: true })));
+        r.cells.forEach(q0 => subRect(q0, sr).forEach(q => root.add(box((q[2] - q[0]) / 1000, 0.012, (q[3] - q[1]) / 1000, m, (q[0] + q[2]) / 2000, y0 + 0.006, (q[1] + q[3]) / 2000, { noShadow: true }))));
       });
+      if (sr) stairRails(p, f, sr, y0);
       const voids = regs.filter(r => r.type === 'void');
       const inVoid = (it) => voids.some(r => r.cells.some(c => it.x > c[0] && it.x < c[2] && it.y > c[1] && it.y < c[3]));
       clipNow = cutTop; cutPlane.constant = y0 + hWall + 0.01;
@@ -303,6 +306,36 @@ function View3D(canvas, app) {
         else pieces(cr, 0, hClad, zm, pk);
       }
       for (const o of my) root.add(opening(p, f, w, o, y0, hWall, ext / 1000, F, regs));
+    }
+  }
+  /* прямоугольник минус проём: до четырёх кусков */
+  function subRect(q, h) {
+    if (!h || h.x0 >= q[2] || h.x1 <= q[0] || h.y0 >= q[3] || h.y1 <= q[1]) return [q];
+    const out = [], x0 = Math.max(q[0], h.x0), x1 = Math.min(q[2], h.x1);
+    if (h.y0 > q[1]) out.push([q[0], q[1], q[2], h.y0]);
+    if (h.y1 < q[3]) out.push([q[0], h.y1, q[2], q[3]]);
+    const y0 = Math.max(q[1], h.y0), y1 = Math.min(q[3], h.y1);
+    if (x0 > q[0]) out.push([q[0], y0, x0, y1]);
+    if (x1 < q[2]) out.push([x1, y0, q[2], y1]);
+    return out;
+  }
+  /* ограждение проёма лестницы на верхнем этаже: по всем краям, кроме выхода и стен */
+  function stairRails(p, f, sr, y0) {
+    const z = DK.stairExit(p), ws = DK.walls(p, f);
+    const edges = [['x', sr.y0, sr.x0, sr.x1, -1], ['x', sr.y1, sr.x0, sr.x1, 1], ['y', sr.x0, sr.y0, sr.y1, -1], ['y', sr.x1, sr.y0, sr.y1, 1]];
+    for (const [axis, m, a0, a1] of edges) {
+      let segs = [[a0, a1]];
+      // выход: зона за верхней ступенью примыкает к этому краю
+      if (z) {
+        const touch = axis === 'x' ? (Math.abs(z.y1 - m) < 60 || Math.abs(z.y0 - m) < 60) : (Math.abs(z.x1 - m) < 60 || Math.abs(z.x0 - m) < 60);
+        const lo = axis === 'x' ? z.x0 : z.y0, hi = axis === 'x' ? z.x1 : z.y1;
+        if (touch) segs = segs.flatMap(([u, v]) => [[u, Math.min(v, lo)], [Math.max(u, hi), v]]).filter(([u, v]) => v - u > 150);
+      }
+      for (const [u, v] of segs) {
+        const t = axis === 'x' ? { x0: u + 100, x1: v - 100, y0: m - 80, y1: m + 80 } : { x0: m - 80, x1: m + 80, y0: u + 100, y1: v - 100 };
+        if (ws.some(w => w.x0 < t.x1 && w.x1 > t.x0 && w.y0 < t.y1 && w.y1 > t.y0)) continue;
+        railing({ axis, a0: u, a1: v, m }, y0);
+      }
     }
   }
   function railing(w, y0) {
