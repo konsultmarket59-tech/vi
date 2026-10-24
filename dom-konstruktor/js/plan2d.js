@@ -197,21 +197,18 @@ function Plan2D(canvas, app) {
       const inn = { x0: r.x0 + T, y0: r.y0 + T, x1: r.x1 - T, y1: r.y1 - T };
       if (x.gtype === 'attached') { if (e.axis === 'x') { if (e.out > 0) inn.y0 = r.y0; else inn.y1 = r.y1; } else { if (e.out > 0) inn.x0 = r.x0; else inn.x1 = r.x1; } }
       c.fillStyle = '#efede8'; c.fillRect(X(inn.x0), Y(inn.y0), L(inn.x1 - inn.x0), L(inn.y1 - inn.y0));
-      const gw = DK.GARAGE.gate, step = (x.w - 2 * T) / n;
-      for (let i = 0; i < n; i++) {
-        const gc = a0 + T + step * (i + 0.5), [p0, p1] = [P(gc - gw / 2, r.far - e.out * T), P(gc + gw / 2, r.far)];
-        c.fillStyle = '#efede8'; c.fillRect(Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.abs(p1[0] - p0[0]) || 1, Math.abs(p1[1] - p0[1]) || 1);
-        c.strokeStyle = COL.ink; c.lineWidth = 1.5; const q0 = P(gc - gw / 2, r.far - e.out * T / 2), q1 = P(gc + gw / 2, r.far - e.out * T / 2); line(c, q0[0], q0[1], q1[0], q1[1]);
+      // ворота — светлые разрывы в стене со стороны ворот
+      for (const [q0, q1] of DK.garageGates(p, x)) {
+        c.strokeStyle = '#efede8'; c.lineWidth = L(300) + 1; line(c, X(q0.x), Y(q0.y), X(q1.x), Y(q1.y));
+        c.strokeStyle = COL.ink; c.lineWidth = 1.5; line(c, X(q0.x), Y(q0.y), X(q1.x), Y(q1.y));
       }
     } else {
       c.strokeStyle = COL.ink; c.lineWidth = 1; c.setLineDash([6, 4]); c.strokeRect(R[0], R[1], R[2], R[3]); c.setLineDash([]);
       c.fillStyle = COL.ink; DK.extColumns(p, x).forEach(q => c.fillRect(X(q.x - 100), Y(q.y - 100), L(200), L(200)));
     }
-    // машины пунктиром
+    // машины пунктиром, длинной стороной от ворот
     c.strokeStyle = 'rgba(70,74,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]);
-    const step = (x.w - 2 * T) / n;
-    for (let i = 0; i < n; i++) { const ac = a0 + T + step * (i + 0.5), tm = (r.face + r.far) / 2, A = P(ac - 925, tm - 2300), B = P(ac + 925, tm + 2300);
-      rr(c, Math.min(A[0], B[0]), Math.min(A[1], B[1]), Math.abs(B[0] - A[0]), Math.abs(B[1] - A[1]), L(300)); c.stroke(); }
+    for (const q of DK.garageCars(p, x)) { const hw = q.a ? 2300 : 925, hd = q.a ? 925 : 2300; rr(c, X(q.x - hw), Y(q.y - hd), L(2 * hw), L(2 * hd), L(300)); c.stroke(); }
     c.setLineDash([]);
     c.strokeStyle = COL.ink; c.lineWidth = 1.2; c.strokeRect(R[0], R[1], R[2], R[3]);
     const fs = Math.max(9, Math.min(13, L(800))), cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;

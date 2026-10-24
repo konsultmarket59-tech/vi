@@ -200,8 +200,8 @@ function renderSel() {
       <label class="fld">Как стоит<div class="seg" id="gType">${Object.entries(DK.GARAGE_TYPES).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.gtype || 'attached') === k}">${n.replace('Пристрой к дому', 'Пристрой').replace('Отдельно у дома', 'Отдельно')}</button>`).join('')}</div></label>
       <div class="row2"><label class="fld">Ширина, мм<input type="number" id="xW" step="100" value="${x.w}"></label><label class="fld">Глубина, мм<input type="number" id="xD" step="100" value="${x.d}"></label></div>
       ${x.gtype === 'detached' ? `<label class="fld">От дома, мм<input type="number" id="gGap" step="100" value="${x.gap || DK.GARAGE.gap}"></label>` : ''}
-      <div class="muted">${x.gtype === 'carport' ? 'Навес на стойках, кровля с уклоном от дома.' : x.gtype === 'detached' ? 'Отдельный гараж в стиле дома: те же стены и кровля.' : 'Пристроен к стене дома; общая стена противопожарная, дверь в дом EI 30.'} Ворота — со стороны, дальней от дома, по 2,5 м на машину.</div>
-      <button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
+      <div class="muted">${x.gtype === 'carport' ? 'Навес на стойках, кровля с уклоном от дома.' : x.gtype === 'detached' ? 'Отдельный гараж в стиле дома: те же стены и кровля.' : 'Пристроен к стене дома; общая стена противопожарная, дверь в дом EI 30.'} Ворота по 2,5 м на машину — ${{ far: 'со стороны, дальней от дома', near: 'со стороны дома', left: 'с левого торца', right: 'с правого торца' }[DK.garageGate(x)]}; «Повернуть» переносит их на другую сторону.</div>
+      <div class="row"><button type="button" class="btn sm" id="gRot">Повернуть (R)</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
     else h = `<h3>${D.n} <small>${DK.fmtA(x.w * x.d / 1e6)} м²</small></h3>
       <div class="row2"><label class="fld">Ширина, мм<input type="number" id="xW" step="100" value="${x.w}"></label><label class="fld">Глубина, мм<input type="number" id="xD" step="100" value="${x.d}"></label></div>
       ${x.kind !== 'balcony' ? `<div class="seg" id="xRoof">${Object.entries(DK.EXT_ROOF).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.roof || 'open') === k}">${n.split(' ')[0]}</button>`).join('')}</div>` : ''}
@@ -256,7 +256,8 @@ function renderSel() {
     on('xW', 'change', (e) => { x.w = +e.target.value || x.w; app.commit(); });
     on('xD', 'change', (e) => { x.d = +e.target.value || x.d; app.commit(); });
     $$('#xRoof button', box).forEach(b => b.onclick = () => { x.roof = b.dataset.k; app.commit(); });
-    $$('#gCars button', box).forEach(b => b.onclick = () => { x.cars = +b.dataset.k; x.w = DK.GARAGE.w[x.cars]; app.commit(DK.garageName(x)); });
+    $$('#gCars button', box).forEach(b => b.onclick = () => { x.cars = +b.dataset.k; const sideG = DK.garageGate(x) === 'left' || DK.garageGate(x) === 'right'; if (sideG) x.d = DK.GARAGE.w[x.cars]; else x.w = DK.GARAGE.w[x.cars]; app.commit(DK.garageName(x)); });
+    on('gRot', 'click', () => { DK.garageRotate(x); app.commit('Гараж повёрнут'); });
     $$('#gType button', box).forEach(b => b.onclick = () => { x.gtype = b.dataset.k; app.commit(DK.GARAGE_TYPES[x.gtype]); });
     on('gGap', 'change', (e) => { x.gap = Math.max(1000, Math.min(15000, +e.target.value || DK.GARAGE.gap)); app.commit(); });
     $$('#xShape button', box).forEach(b => b.onclick = () => { x.shape = b.dataset.k; app.commit(); });
@@ -319,6 +320,7 @@ function rotSel() {
   if (!sel) return;
   if (sel.kind === 'furn') { const f = P.levels[fid].furn.find(q => q.id === sel.id); if (f) { f.a = (DK.furnAngle(f) + 90) % 360; delete f.rot; app.commit(); } }
   if (sel.kind === 'stair' && P.stair) { P.stair.rot = (P.stair.rot + 1) % 4; app.commit(); }
+  if (sel.kind === 'ext') { const x = (P.ext || []).find(q => q.id === sel.id); if (x && x.kind === 'garage') { DK.garageRotate(x); app.commit('Гараж повёрнут'); } }
 }
 
 /* ---------- виды ---------- */

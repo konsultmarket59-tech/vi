@@ -574,6 +574,46 @@ const EXT = {
 const GARAGE = { w: { 1: 4000, 2: 6500, 3: 9500 }, d: 6500, gate: 2500, gap: 2000, h: 2800 };
 const GARAGE_TYPES = { attached: 'Пристрой к дому', detached: 'Отдельно у дома', carport: 'Навес' };
 function garageName(x) { const n = x.cars || 1; return `${x.gtype === 'carport' ? 'Навес' : 'Гараж'} на ${n} ${n === 1 ? 'машину' : 'машины'}`; }
+/* сторона ворот гаража: far — от дома, near — к дому (только отдельный), left/right — вдоль стены дома */
+function garageGate(x) { const g = x.gate || 'far'; return g === 'near' && x.gtype === 'attached' ? 'far' : g; }
+/* поворот гаража вокруг оси: ворота переходят на следующую сторону, габарит разворачивается */
+function garageRotate(x) {
+  const order = x.gtype === 'attached' ? ['far', 'right', 'left'] : ['far', 'right', 'near', 'left'];
+  const g0 = garageGate(x), g1 = order[(order.indexOf(g0) + 1) % order.length];
+  const side = (g) => g === 'left' || g === 'right';
+  if (side(g0) !== side(g1)) { const w = x.w; x.w = x.d; x.d = w; }
+  x.gate = g1;
+}
+/* в координатах плана: перевод из локальных u (вдоль стены, от начала гаража) и v (от дома) */
+function garageLocal(p, x) {
+  const r = extRect(p, x); if (!r) return null;
+  const e = r.e, u0 = x.c - x.w / 2;
+  return { r, at: (u, v) => e.axis === 'x' ? { x: u0 + u, y: r.face + e.out * v } : { x: r.face + e.out * v, y: u0 + u } };
+}
+/* места машин: центр и угол (длинная сторона машины — от ворот вглубь) */
+function garageCars(p, x) {
+  const L = garageLocal(p, x); if (!L) return [];
+  const g = garageGate(x), cars = x.cars || 1, T = x.gtype === 'carport' ? 0 : 300, alongU = g === 'far' || g === 'near';
+  const len = alongU ? x.w : x.d, st = (len - 2 * T) / cars, out = [];
+  for (let i = 0; i < cars; i++) {
+    const s = T + st * (i + 0.5), q = alongU ? L.at(s, x.d / 2) : L.at(x.w / 2, s);
+    const vAlongY = L.r.e.axis === 'x';
+    out.push({ x: q.x, y: q.y, a: (alongU ? vAlongY : !vAlongY) ? 0 : 90, s });
+  }
+  return out;
+}
+/* проёмы ворот на плане: отрезки по стороне ворот */
+function garageGates(p, x) {
+  const L = garageLocal(p, x); if (!L) return [];
+  const g = garageGate(x), T = 300, gw = GARAGE.gate;
+  return garageCars(p, x).map(c => {
+    const s0 = c.s - gw / 2, s1 = c.s + gw / 2;
+    if (g === 'far') return [L.at(s0, x.d - T / 2), L.at(s1, x.d - T / 2)];
+    if (g === 'near') return [L.at(s0, T / 2), L.at(s1, T / 2)];
+    if (g === 'left') return [L.at(T / 2, s0), L.at(T / 2, s1)];
+    return [L.at(x.w - T / 2, s0), L.at(x.w - T / 2, s1)];
+  });
+}
 function extName(x) { return x.kind === 'garage' ? garageName(x) : EXT[x.kind].n; }
 const EXT_ROOF = { open: 'Открытая', covered: 'Крытая на колоннах', glazed: 'Застеклённая' };
 const BALCONY_CANT = 1500; // предельный вылет консольной плиты с терморазрывом, мм
@@ -887,7 +927,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { GARAGE, GARAGE_TYPES, garageName, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { GARAGE, GARAGE_TYPES, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

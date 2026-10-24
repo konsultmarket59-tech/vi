@@ -499,59 +499,72 @@ function View3D(canvas, app) {
   }
   /* гараж: пристрой или отдельный в стиле дома, навес на стойках; ворота на дальней стороне */
   function garageBuild(p, x, F, gy, r) {
-    const e = r.e, n = e.out, ax = e.axis === 'x', car = x.gtype !== 'carport', cars = x.cars || 1;
-    const A0 = (x.c - x.w / 2) / 1000, A1 = (x.c + x.w / 2) / 1000, ac = x.c / 1000, face = r.face / 1000, far = r.far / 1000, wd = x.w / 1000;
+    const e = r.e, n = e.out, ax = e.axis === 'x', car = x.gtype !== 'carport', cars = x.cars || 1, gs = DK.garageGate(x);
+    const A0 = (x.c - x.w / 2) / 1000, A1 = (x.c + x.w / 2) / 1000, ac = x.c / 1000, face = r.face / 1000, far = r.far / 1000, D = x.d / 1000;
+    const tv = (v) => face + n * v;                                        // локально: u — вдоль стены дома, v — от дома
     const B = (a0, a1, t0, t1, y0, y1, m, o) => { const L = Math.abs(a1 - a0), Tt = Math.abs(t1 - t0); root.add(ax ? box(L, y1 - y0, Tt, m, (a0 + a1) / 2, (y0 + y1) / 2, (t0 + t1) / 2, o) : box(Tt, y1 - y0, L, m, (t0 + t1) / 2, (y0 + y1) / 2, (a0 + a1) / 2, o)); };
     const P = (a, y, t) => ax ? [a, y, t] : [t, y, a];
     const H = DK.GARAGE.h / 1000, TW = 0.3, y0 = gy + 0.15, rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
     B(A0, A1, face, far, gy, y0, mat({ m: 'concrete', c: '#b9b6b0' }));
-    const step = (x.w / 1000 - 2 * (car ? TW : 0)) / cars;
+    // сторона: вдоль u (far/near) или вдоль v (left/right); s — координата вдоль стороны
+    const sideLen = (sd) => sd === 'far' || sd === 'near' ? A1 - A0 : D;
+    const seg = (sd, s0, s1, ya, yb, m, th, off) => {
+      th = th || TW; off = off || 0;
+      if (sd === 'far') B(A0 + s0, A0 + s1, tv(D - off - th), tv(D - off), ya, yb, m);
+      else if (sd === 'near') B(A0 + s0, A0 + s1, tv(off), tv(off + th), ya, yb, m);
+      else if (sd === 'left') B(A0 + off, A0 + off + th, tv(s0), tv(s1), ya, yb, m);
+      else B(A1 - off - th, A1 - off, tv(s0), tv(s1), ya, yb, m);
+    };
+    const gateAt = (i) => { const L = sideLen(gs), st = (L - 2 * TW) / cars; return TW + st * (i + 0.5); };
     if (car) {
-      const wm = mat(F.main), pm = mat(F.plinth), gm2 = mat({ m: 'sectional', c: F.door === '#ffffff' ? '#e9e9e6' : '#d9d8d4' }, { roughness: 0.5 });
-      const tFar0 = far - n * TW, attached = x.gtype === 'attached';
-      // боковые стены, дальняя стена с воротами, у отдельного — ещё стена к дому
-      B(A0, A0 + TW, face, far, y0, y0 + H, wm); B(A1 - TW, A1, face, far, y0, y0 + H, wm);
-      if (!attached) B(A0, A1, face, face + n * TW, y0, y0 + H, wm);
-      const gw = DK.GARAGE.gate / 1000, gh = 2.1;
-      let a = A0 + TW;
-      for (let i = 0; i < cars; i++) {
-        const gc = A0 + TW + step * (i + 0.5);
-        B(a, gc - gw / 2, tFar0, far, y0, y0 + H, wm); a = gc + gw / 2;
-        B(gc - gw / 2, gc + gw / 2, tFar0, far, y0 + gh, y0 + H, wm);
-        B(gc - gw / 2, gc + gw / 2, far - n * 0.12, far - n * 0.08, y0, y0 + gh, gm2);
+      const wm = mat(F.main), wm2 = mat(F.main, { side: T.DoubleSide }), pm = mat(F.plinth), gm2 = mat({ m: 'sectional', c: F.door === '#ffffff' ? '#e9e9e6' : '#d9d8d4' }, { roughness: 0.5 });
+      const attached = x.gtype === 'attached', gw = DK.GARAGE.gate / 1000, gh = 2.1;
+      for (const sd of ['far', 'near', 'left', 'right']) {
+        if (sd === 'near' && attached) continue;
+        const L = sideLen(sd);
+        if (sd !== gs) { seg(sd, 0, L, y0, y0 + H, wm); seg(sd, 0, L, gy, y0 + 0.3, pm, 0.02, -0.02); continue; }
+        // стена с воротами: простенки, перемычки, полотна секционных ворот
+        let at = 0;
+        for (let i = 0; i < cars; i++) {
+          const gc = gateAt(i);
+          seg(sd, at, gc - gw / 2, y0, y0 + H, wm); at = gc + gw / 2;
+          seg(sd, gc - gw / 2, gc + gw / 2, y0 + gh, y0 + H, wm);
+          seg(sd, gc - gw / 2, gc + gw / 2, y0, y0 + gh, gm2, 0.04, 0.1);
+        }
+        seg(sd, at, L, y0, y0 + H, wm);
       }
-      B(a, A1 - TW, tFar0, far, y0, y0 + H, wm);
-      // цоколь по низу стен
-      B(A0 - 0.02, A1 + 0.02, far - n * 0.02, far + n * 0.02, gy, y0 + 0.3, pm, { noShadow: true });
       const yt = y0 + H, ov = 0.35;
       if (attached || p.roof.type === 'flat' || p.roof.type === 'shed') {
-        // односкатная от дома
-        const yHi = yt + (x.d / 1000) * Math.tan(10 * Math.PI / 180), tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov;
+        // односкатная от дома; треугольники боковых стен видны с обеих сторон
+        const yHi = yt + D * Math.tan(10 * Math.PI / 180), tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov;
         const pts = n > 0 ? [P(a1, yHi, face), P(a0, yHi, face), P(a0, yt, tF), P(a1, yt, tF)] : [P(a0, yHi, face), P(a1, yHi, face), P(a1, yt, tF), P(a0, yt, tF)];
         roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
-        for (const aa of [A0, A1]) root.add(poly([P(aa, yt, face), P(aa, yt, far), P(aa, yHi, face)], wm, ax ? 2 : 0, 1));
+        for (const aa of [A0 + TW / 2, A1 - TW / 2]) { root.add(poly([P(aa - TW / 2, yt, face), P(aa - TW / 2, yt, far), P(aa - TW / 2, yHi, face)], wm2, ax ? 2 : 0, 1)); root.add(poly([P(aa + TW / 2, yt, face), P(aa + TW / 2, yt, far), P(aa + TW / 2, yHi, face)], wm2, ax ? 2 : 0, 1)); }
         if (!attached) B(A0, A1, face, face + n * TW, yt, yHi, wm);
       } else {
         // двускатная, фронтон над воротами — как у дома
-        const pitch = Math.min(35, p.roof.pitch || 30) * Math.PI / 180, yR = yt + (wd / 2) * Math.tan(pitch), t0 = face - n * ov * 0.3, tF = far + n * ov;
-        const L0 = A0 - ov, L1 = A1 + ov, yE = yt - ov * Math.tan(pitch);
-        roofPlane([P(L0, yE, t0), P(L0, yE, tF), P(ac, yR, tF), P(ac, yR, t0)].map(q => q), rm, sm, fm);
-        roofPlane([P(L1, yE, tF), P(L1, yE, t0), P(ac, yR, t0), P(ac, yR, tF)], rm, sm, fm);
-        const gmat = mat(F.gable || F.main, { side: T.DoubleSide });
-        for (const tt of [face, far]) root.add(poly([P(A0, yt, tt), P(A1, yt, tt), P(ac, yR - 0.05, tt)], gmat, ax ? 0 : 2, 1));
+        const pitch = Math.min(35, p.roof.pitch || 30) * Math.PI / 180, gmat = mat(F.gable || F.main, { side: T.DoubleSide });
+        if (gs === 'far' || gs === 'near') {
+          const yR = yt + ((A1 - A0) / 2) * Math.tan(pitch), t0 = face - n * ov, tF = far + n * ov, L0 = A0 - ov, L1 = A1 + ov, yE = yt - ov * Math.tan(pitch);
+          roofPlane([P(L0, yE, t0), P(L0, yE, tF), P(ac, yR, tF), P(ac, yR, t0)], rm, sm, fm);
+          roofPlane([P(L1, yE, tF), P(L1, yE, t0), P(ac, yR, t0), P(ac, yR, tF)], rm, sm, fm);
+          for (const tt of [face, far]) root.add(poly([P(A0, yt, tt), P(A1, yt, tt), P(ac, yR - 0.05, tt)], gmat, ax ? 0 : 2, 1));
+        } else {
+          const vm = D / 2, yR = yt + vm * Math.tan(pitch), yE = yt - ov * Math.tan(pitch), L0 = A0 - ov, L1 = A1 + ov, tm = tv(vm), t0 = tv(-ov), t1 = tv(D + ov);
+          roofPlane(n > 0 ? [P(L1, yE, t0), P(L0, yE, t0), P(L0, yR, tm), P(L1, yR, tm)] : [P(L0, yE, t0), P(L1, yE, t0), P(L1, yR, tm), P(L0, yR, tm)].map(q => q), rm, sm, fm);
+          roofPlane(n > 0 ? [P(L0, yE, t1), P(L1, yE, t1), P(L1, yR, tm), P(L0, yR, tm)] : [P(L1, yE, t1), P(L0, yE, t1), P(L0, yR, tm), P(L1, yR, tm)], rm, sm, fm);
+          for (const aa of [A0, A1]) root.add(poly([P(aa, yt, face), P(aa, yt, far), P(aa, yR - 0.05, tm)], gmat, ax ? 2 : 0, 1));
+        }
       }
       return;
     }
-    // навес: стойки, односкатная кровля от дома, машины под ним
-    const colM = mat(F.accentOn !== 'none' ? F.accent : { c: F.trim }), yt = y0 + 2.5, yHi = yt + (x.d / 1000) * Math.tan(8 * Math.PI / 180);
+    // навес: стойки, односкатная кровля от дома, машины под ним заездом со стороны ворот
+    const colM = mat(F.accentOn !== 'none' ? F.accent : { c: F.trim }), yt = y0 + 2.5, yHi = yt + D * Math.tan(8 * Math.PI / 180);
     DK.extColumns(p, x).forEach(q => { const t = (Math.abs((ax ? q.y : q.x) - r.face)) / 1000; const yy = yHi - t * Math.tan(8 * Math.PI / 180); root.add(box(0.15, yy - y0, 0.15, colM, q.x / 1000, (y0 + yy) / 2, q.y / 1000)); });
     const ov = 0.3, tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov, t0 = face;
     const pts = n > 0 ? [P(a1, yHi, t0), P(a0, yHi, t0), P(a0, yt, tF), P(a1, yt, tF)] : [P(a0, yHi, t0), P(a1, yHi, t0), P(a1, yt, tF), P(a0, yt, tF)];
     roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
-    for (let i = 0; i < cars; i++) {
-      const gc = (x.c - x.w / 2 + 1000 * step * (i + 0.5)), tm = (r.face + r.far) / 2;
-      root.add(furn({ type: 'car', x: ax ? gc : tm, y: ax ? tm : gc, a: ax ? 0 : 90 }, y0, 2.5));
-    }
+    DK.garageCars(p, x).forEach(c => root.add(furn({ type: 'car', x: c.x, y: c.y, a: c.a }, y0, 2.5)));
   }
   function extBuild(p, x, F, gy, hc) {
     const r = DK.extRect(p, x); if (!r) return;

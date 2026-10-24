@@ -66,10 +66,12 @@ DK.siteDrives = function (p) {
   for (const x of p.ext || []) {
     if (x.kind !== 'garage') continue;
     const r = DK.extRect(p, x); if (!r) continue;
-    const o = r.e.axis === 'x' ? [0, r.e.out] : [r.e.out, 0]; if (o[0] !== dirs[0] || o[1] !== dirs[1]) continue;
-    const a0 = x.c - x.w / 2 + 300, a1 = x.c + x.w / 2 - 300;
-    const R = r.e.axis === 'x' ? { x0: a0 + s.hx, x1: a1 + s.hx } : { y0: a0 + s.hy, y1: a1 + s.hy };
-    if (st === 'S') { R.y0 = r.far + s.hy; R.y1 = s.D; } else if (st === 'N') { R.y1 = r.far + s.hy; R.y0 = 0; } else if (st === 'E') { R.x0 = r.far + s.hx; R.x1 = s.W; } else { R.x1 = r.far + s.hx; R.x0 = 0; }
+    const e = r.e, g = DK.garageGate(x), nv = e.axis === 'x' ? [0, e.out] : [e.out, 0], uv = e.axis === 'x' ? [1, 0] : [0, 1];
+    const d = g === 'far' ? nv : g === 'near' ? [-nv[0], -nv[1]] : g === 'left' ? [-uv[0], -uv[1]] : uv;
+    if (d[0] !== dirs[0] || d[1] !== dirs[1]) continue;
+    const R = { x0: r.x0 + s.hx, y0: r.y0 + s.hy, x1: r.x1 + s.hx, y1: r.y1 + s.hy };
+    if (st === 'S' || st === 'N') { R.x0 += 300; R.x1 -= 300; if (st === 'S') { R.y0 = R.y1; R.y1 = s.D; } else { R.y1 = R.y0; R.y0 = 0; } }
+    else { R.y0 += 300; R.y1 -= 300; if (st === 'E') { R.x0 = R.x1; R.x1 = s.W; } else { R.x1 = R.x0; R.x0 = 0; } }
     if (R.x1 > R.x0 && R.y1 > R.y0) out.push(R);
   }
   return out;
