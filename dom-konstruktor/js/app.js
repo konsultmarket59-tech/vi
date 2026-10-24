@@ -32,6 +32,14 @@ const app = {
   live() { refreshInfo(); if (v3 && view !== 'plan') v3.rebuild(); },
   toast,
   setTool(t, arg) { plan.setTool(t, arg); $$('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t))); hint(); },
+  paint3d(key) {
+    const F = facadeEdit(); F.paint = F.paint || {};
+    const cur = F.paint[key] || null, order = [null, 'accent', 'plinth', 'main'];
+    const nx = order[(order.indexOf(cur) + 1) % order.length];
+    if (nx) F.paint[key] = nx; else delete F.paint[key];
+    toast(nx ? `Участок: ${{ accent: 'акцент', plinth: 'как цоколь', main: 'основной' }[nx]}` : 'Участок: как задано по зонам');
+    app.commit('Акцент');
+  },
   pick3d(pk) { sel = pk ? { kind: pk.kind, id: pk.id } : null; renderSel(); },
   walkFloor(f) { fid = f; refreshFloors(); },
 };
@@ -79,7 +87,7 @@ function refresh() {
   // фасад
   $('#roofs').innerHTML = Object.entries(DK.ROOFS).map(([k, r]) => `<button data-k="${k}" aria-pressed="${P.roof.type === k}">${roofIcon(k)}${esc(r.n)}</button>`).join('');
   $$('#roofs button').forEach(bt => bt.onclick = () => { P.roof.type = bt.dataset.k; P.roof.pitch = DK.ROOFS[bt.dataset.k].pitch || P.roof.pitch; app.commit('Кровля'); });
-  $('#pitchRow').hidden = P.roof.type === 'flat'; $('#ridgeRow').hidden = P.roof.type === 'flat' || P.roof.type === 'hip';
+  $('#pitchRow').hidden = P.roof.type === 'flat'; $('#ridgeRow').hidden = ['flat', 'hip', 'pyramid'].includes(P.roof.type);
   $('#pitch').value = P.roof.pitch; $('#pitchV').textContent = P.roof.pitch + '°';
   seg($('#ridge'), P.roof.ridge, 'k');
   renderFacade();
@@ -148,7 +156,7 @@ function varIcon(v) {
   return `<i><svg viewBox="0 0 30 24"><rect x="3" y="3" width="24" height="18" fill="none" stroke="#2f3237" stroke-width="1.6"/>${s}</svg></i>`;
 }
 function roofIcon(k) {
-  const d = { gable: 'M3 18 L12 6 L21 18', hip: 'M3 18 L8 8 H16 L21 18', mansard: 'M3 18 L5 11 L12 6 L19 11 L21 18', shed: 'M3 18 V10 L21 6 V18', flat: 'M3 18 V9 H21 V18' }[k];
+  const d = { gable: 'M3 18 L12 6 L21 18', hip: 'M3 18 L8 8 H16 L21 18', mansard: 'M3 18 L5 11 L12 6 L19 11 L21 18', halfhip: 'M3 18 L7 11 V8 L12 5 L17 8 V11 L21 18', pyramid: 'M3 18 L12 5 L21 18 M12 5 V18', shed: 'M3 18 V10 L21 6 V18', flat: 'M3 18 V9 H21 V18' }[k];
   return `<i style="background:none;box-shadow:none"><svg viewBox="0 0 24 24" width="22" height="22"><path d="${d}" fill="none" stroke="#2f3237" stroke-width="1.8"/><path d="M3 18H21" stroke="#2f3237" stroke-width="1.8"/></svg></i>`;
 }
 
@@ -345,6 +353,8 @@ function bind() {
   $('#accentOn').innerHTML = Object.entries(DK.ACCENT_ON).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
   $('#accentOn').addEventListener('change', (e) => { facadeEdit().accentOn = e.target.value; app.commit(); });
   $('#wainscot').addEventListener('change', (e) => { facadeEdit().wainscot = +e.target.value; app.commit(); });
+  $('#fPaint').onclick = (e) => { const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'; e.currentTarget.setAttribute('aria-pressed', on); if (v3) v3.setPaint(on); toast(on ? 'Нажимайте на участки фасада: акцент → цоколь → основной → как по зонам' : 'Кисть выключена'); };
+  $('#fPaintReset').onclick = () => { const F = facadeEdit(); delete F.paint; app.commit('Акценты сброшены'); };
   [['fSur', 'surrounds'], ['fBelt', 'belt'], ['fCorn', 'corners']].forEach(([i, k]) => $('#' + i).addEventListener('change', (e) => { facadeEdit()[k] = e.target.checked; app.commit(); }));
   $('#hClear').addEventListener('change', (e) => { P.hClear = +e.target.value; app.commit(); });
   $('#basement').addEventListener('change', (e) => { P.basement = e.target.checked; if (P.basement) fid = 'b'; app.commit(); });
@@ -385,11 +395,25 @@ function bind() {
   $('#zOut').onclick = () => view === 'plan' ? zoomPlan(0.8) : v3 && v3.zoom(1.25);
   $('#fit').onclick = () => view === 'plan' ? plan.fit() : v3 && v3.fit();
   $('#undo').onclick = undo; $('#redo').onclick = redo;
-  $('#shot').onclick = () => {
+  $('#shot').onclick = async () => {
     const name = (P.name || 'dom').replace(/\s+/g, '-');
-    if (view === 'plan') download(`${name}-${fid}-plan.png`, plan.toImage(fid));
-    else if (v3) download(`${name}-${view}.png`, v3.shot());
+    if (view === 'plan') download(`${name}-${fid}-plan.png`, await DK.shotWithExplication(plan.toImage(fid, { numbers: DK.roomNumbers(P) }), P, [fid], true));
+    else if (v3) download(`${name}-${view}.png`, await DK.shotWithExplication(v3.shot(), P, view === 'ext' ? DK.floorsOf(P) : [fid]));
   };
+  let skPages = [];
+  $('[data-close]', $('#sketchDlg')).onclick = () => $('#sketchDlg').close();
+  $('#sketchBtn').onclick = async () => {
+    $('#sketchDlg').showModal(); $('#skSheets').innerHTML = ''; $('#skPdf').disabled = true; $('#skStep').textContent = 'Загружаю 3D…';
+    try {
+      await DK.loadThree();
+      if (!v3) v3 = DK._view = DK.View3D($('#c3d'), app);
+      skPages = await DK.makeSketch(P, plan, v3, (t) => { $('#skStep').textContent = t; });
+      $('#skSheets').innerHTML = skPages.map((c, i) => `<img src="${c.toDataURL('image/jpeg', 0.85)}" alt="Лист ${i + 1}">`).join('');
+      $$('#skSheets img').forEach(im => im.onclick = () => im.classList.toggle('big'));
+      $('#skStep').textContent = `Готово: ${skPages.length} листов`; $('#skPdf').disabled = false;
+    } catch (err) { $('#skStep').textContent = 'Не получилось собрать листы: ' + err.message; }
+  };
+  $('#skPdf').onclick = async () => { $('#skPdf').disabled = true; try { await DK.sketchPdf(skPages, 'eskiznyj-proekt.pdf'); } catch (e) { toast('PDF не собрался — проверьте интернет'); } $('#skPdf').disabled = false; };
   // файл
   $('#saveFile').onclick = () => download('proekt-doma.json', 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(P, null, 1)));
   $('#openFile').onclick = () => $('#fileIn').click();

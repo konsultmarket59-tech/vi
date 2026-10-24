@@ -135,7 +135,8 @@ function Plan2D(canvas, app) {
       c.fillStyle = r.type === 'none' ? COL.muted : COL.ink;
       c.font = `600 ${fs}px Raleway, sans-serif`;
       const cy = Y(r.cy) - fs * 0.7;
-      c.fillText(R.n, X(r.cx), cy);
+      const num = o.numbers && o.numbers[fid] && o.numbers[fid].get(r.i);
+      c.fillText(num ? num + '. ' + R.n : R.n, X(r.cx), cy);
       c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`;
       c.fillStyle = COL.ink; c.fillText(DK.fmtA(r.area) + ' м²', X(r.cx), cy + fs * 1.25);
       if (r.rect && o.dims !== false) {
@@ -705,8 +706,8 @@ function Plan2D(canvas, app) {
     c.fillStyle = '#fff'; c.fillRect(0, 0, px, hpx);
     c.fillStyle = COL.ink; c.font = '700 22px Raleway, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'top';
     const A = DK.rooms(p, fid).filter(r => r.type !== 'void').reduce((s, r) => s + r.area, 0);
-    c.fillText(DK.floorName(fid) + ' · ' + DK.fmtA(A) + ' м²', 24, 18);
-    draw(c, { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 }, p, fid, { clean: true, dimOpen: true });
+    if (!opt.noTitle) c.fillText(DK.floorName(fid) + ' · ' + DK.fmtA(A) + ' м²', 24, 18);
+    draw(c, { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 }, p, fid, { clean: true, dimOpen: true, numbers: opt.numbers });
     return cv.toDataURL('image/png');
   }
 

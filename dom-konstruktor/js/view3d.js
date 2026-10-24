@@ -37,7 +37,7 @@ function View3D(canvas, app) {
   sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
   scene.add(sun); scene.add(sun.target);
   const amb = new T.AmbientLight(0xffffff, 0.08); scene.add(amb);
-  let root = null, mode = 'interior', fid = 'f1', cut = true, showFurn = true, picks = [];
+  let root = null, mode = 'interior', fid = 'f1', cut = true, showFurn = true, picks = [], paint = false;
   const orbit = { tx: 0, ty: 0, tz: 0, r: 20, az: -0.7, el: 0.75 };
   const walk = { x: 0, z: 0, h: 0, yaw: 0, pitch: 0, keys: {} };
   let walkData = null;
@@ -184,12 +184,14 @@ function View3D(canvas, app) {
     const plinthH = 0.6, gy = p.basement ? DK.elev(p, 'b') / 1000 + 1.4 : -plinthH;
     const cx = p.W / 2000, cz = p.D / 2000;
     const gm = box(160, 0.05, 160, outside ? mat({ m: 'grass', c: '#86a06c' }) : mat({ c: '#dfe2dc' }), cx, gy - 0.025, cz, { noShadow: true });
-    gm.castShadow = false; root.add(gm);
+    gm.castShadow = false; root.add(gm); root.userData.ground = gm;
     if (!p.basement) root.add(extrudePoly(DK.offsetPoly(p, ext + 25), gy, -gy, mat(F.plinth)));
     const M = DK.mainRect(p);
     const onMain = (w) => w.axis === 'x' ? ((w.line === M.y0 || w.line === M.y1) && w.edge.lo >= M.x0 - 1 && w.edge.hi <= M.x1 + 1)
                                          : ((w.line === M.x0 || w.line === M.x1) && w.edge.lo >= M.y0 - 1 && w.edge.hi <= M.y1 + 1);
     const zone = (f, w) => {
+      const own = F.paint && F.paint[f + ':' + w.id];
+      if (own) return F[own] || F.main;
       if (f === 'b') return F.plinth;
       const a = F.accentOn;
       const acc = (a === 'upper' && (f === 'f2' || f === 'f3')) || (a === 'lower' && f === 'f1' && fl.length > (p.basement ? 2 : 1)) || (a === 'wings' && !onMain(w));
@@ -273,11 +275,13 @@ function View3D(canvas, app) {
       my.sort((a, b) => a.c - b.c);
       if (w.rail) { railing(w, y0); continue; }
       const outer = w.kind === 'outer';
-      const pieces = (sec, hLo, hHi, m) => {
+      const pieces = (sec, hLo, hHi, m, pk) => {
         const seg = (a0, a1, h0, h1) => {
           if (a1 - a0 < 1 || h1 - h0 < 0.001) return;
           const L = (a1 - a0) / 1000, Tt = (sec.t1 - sec.t0) / 1000, ac = (a0 + a1) / 2000, tc = (sec.t0 + sec.t1) / 2000;
-          root.add(box(w.axis === 'x' ? L : Tt, h1 - h0, w.axis === 'x' ? Tt : L, m, w.axis === 'x' ? ac : tc, y0 + (h0 + h1) / 2, w.axis === 'x' ? tc : ac));
+          const mesh = box(w.axis === 'x' ? L : Tt, h1 - h0, w.axis === 'x' ? Tt : L, m, w.axis === 'x' ? ac : tc, y0 + (h0 + h1) / 2, w.axis === 'x' ? tc : ac);
+          if (pk && paint) { mesh.userData.pickRoot = mesh; mesh.userData.pick = pk; picks.push(mesh); }
+          root.add(mesh);
         };
         let a = sec.a0;
         for (const o of my) {
@@ -294,8 +298,9 @@ function View3D(canvas, app) {
       pieces({ t0, t1, a0: w.a0, a1: w.a1 }, 0, hWall, outer ? white : wallIn);
       if (outer && ext > 0) {
         const cr = DK.cladRect(p, w, ext), zm = mat(zone(f, w));
-        if (wains > 0) { pieces(cr, 0, Math.min(wains, hClad), mat(F.plinth)); pieces(cr, wains, hClad, zm); }
-        else pieces(cr, 0, hClad, zm);
+        const pk = { kind: 'clad', key: f + ':' + w.id };
+        if (wains > 0) { pieces(cr, 0, Math.min(wains, hClad), mat(F.plinth), pk); pieces(cr, wains, hClad, zm, pk); }
+        else pieces(cr, 0, hClad, zm, pk);
       }
       for (const o of my) root.add(opening(p, f, w, o, y0, hWall, ext / 1000, F, regs));
     }
@@ -575,6 +580,18 @@ function View3D(canvas, app) {
       roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(U0, yR, vc), P(U1, yR, vc)], rm, sm, fm);
       if (!jU0) root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yR, vc)], gm, uvA, 1));
       if (!jU1) root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yR, vc)], gm, uvA, 1));
+    } else if (t === 'halfhip') {
+      const yR = yt + half * tn, yK = yt + half * tn * 0.6, a = half * 0.4;
+      roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(U1, yK, vc - a), P(U1 - a, yR, vc), P(U0 + a, yR, vc), P(U0, yK, vc - a)], rm, sm, fm);
+      roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(U0, yK, vc + a), P(U0 + a, yR, vc), P(U1 - a, yR, vc), P(U1, yK, vc + a)], rm, sm, fm);
+      if (!jU0) { roofPlane([P(U0, yK, vc + a), P(U0, yK, vc - a), P(U0 + a, yR, vc)], rm, sm, fm); root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yK, vc + a), P(wU0, yK, vc - a)], gm, uvA, 1)); }
+      if (!jU1) { roofPlane([P(U1, yK, vc - a), P(U1, yK, vc + a), P(U1 - a, yR, vc)], rm, sm, fm); root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yK, vc + a), P(wU1, yK, vc - a)], gm, uvA, 1)); }
+    } else if (t === 'pyramid') {
+      const uc = (U0 + U1) / 2, yR = yE + Math.min((V1 - V0) / 2, (U1 - U0) / 2) * tn;
+      roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(uc, yR, vc)], rm, sm, fm);
+      roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(uc, yR, vc)], rm, sm, fm);
+      roofPlane([P(U0, yE, V1), P(U0, yE, V0), P(uc, yR, vc)], rm, sm, fm);
+      roofPlane([P(U1, yE, V0), P(U1, yE, V1), P(uc, yR, vc)], rm, sm, fm);
     } else if (t === 'hip') {
       const hv = (V1 - V0) / 2, yR = yE + hv * tn, uc = (U0 + U1) / 2, rl = Math.max(0, (U1 - U0) / 2 - hv);
       const a = uc - rl, b = uc + rl;
@@ -715,6 +732,7 @@ function View3D(canvas, app) {
       return;
     }
     const h = mode === 'exterior' ? hit(e) : null;
+    if (h && e.button === 0 && h.object.userData.pick && h.object.userData.pick.kind === 'clad') { app.paint3d(h.object.userData.pick.key); return; }
     if (h && e.button === 0) {
       const pk = h.object.userData.pickRoot.userData.pick;
       app.pick3d(pk);
@@ -818,6 +836,7 @@ function View3D(canvas, app) {
     shot() { renderer.render(scene, cam); return canvas.toDataURL('image/png'); },
     walkState: () => walk,
     setLights(on) { lightsOn = on; schedule(); },
+    setPaint(on) { paint = on; schedule(); },
     exteriorShot(w, h) {
       const keep = { mode, fid, cut, showFurn, o: Object.assign({}, orbit), size: renderer.getSize(new T.Vector2()), aspect: cam.aspect };
       mode = 'exterior'; build(); frame(); orbit.az = -0.6; orbit.el = 0.22;
@@ -826,6 +845,42 @@ function View3D(canvas, app) {
       mode = keep.mode; fid = keep.fid; cut = keep.cut; showFurn = keep.showFurn; Object.assign(orbit, keep.o);
       renderer.setSize(keep.size.x, keep.size.y, false); cam.aspect = keep.aspect; build(); placeCam(); renderer.render(scene, cam);
       return url;
+    },
+    /* серия снимков для эскизного проекта: перспективы и ортогональные фасады с привязкой масштаба */
+    shots(list, w, h) {
+      const keep = { mode, fid, cut, showFurn, lightsOn, o: Object.assign({}, orbit), size: renderer.getSize(new T.Vector2()), aspect: cam.aspect, bg: null };
+      mode = 'exterior'; lightsOn = false; build();
+      const p = app.p(), out = [], fl = DK.floorsOf(p), hc = p.hClear / 1000, sl = p.slab / 1000;
+      const yt = DK.elev(p, fl[fl.length - 1]) / 1000 + hc + sl;
+      const M = DK.mainRect(p), span = Math.min(M.x1 - M.x0, M.y1 - M.y0) / 1000 + 1.2;
+      const ridge = p.roof.type === 'flat' ? yt + 0.6 : yt + span / 2 * Math.tan((p.roof.pitch || 30) * Math.PI / 180);
+      const gy = p.basement ? DK.elev(p, 'b') / 1000 + 1.4 : -0.6, e = DK.extT(p) / 1000;
+      renderer.setSize(w, h, false);
+      for (const it of list) {
+        if (it.type === 'persp') {
+          frame(); orbit.az = it.az; orbit.el = it.el; if (it.r) orbit.r *= it.r;
+          scene.background = SKY; root.userData.ground.visible = true;
+          cam.aspect = w / h; placeCam(); renderer.render(scene, cam);
+          out.push({ url: canvas.toDataURL('image/jpeg', 0.9) });
+        } else {
+          const side = it.side, alongX = side === 'S' || side === 'N';
+          const minA = -e - 3, maxA = (alongX ? p.W : p.D) / 1000 + e + 3, span2 = maxA - minA;
+          const top = ridge + 1.2, bottom = gy - 1.0, vh = top - bottom, aspect = w / h;
+          let vw = span2; if (vw / vh < aspect) vw = vh * aspect; const vh2 = vw / aspect;
+          const ocam = new T.OrthographicCamera(-vw / 2, vw / 2, vh2 / 2, -vh2 / 2, 0.1, 400);
+          const cx = p.W / 2000, cz = p.D / 2000, cyM = (top + bottom) / 2, far = 120;
+          const pos = { S: [cx, cyM, cz + far], N: [cx, cyM, cz - far], E: [cx + far, cyM, cz], W: [cx - far, cyM, cz] }[side];
+          ocam.position.set(pos[0], pos[1], pos[2]); ocam.lookAt(cx, cyM, cz); ocam.updateProjectionMatrix();
+          scene.background = new T.Color('#ffffff'); root.userData.ground.visible = false;
+          renderer.render(scene, ocam);
+          const pxm = w / vw;
+          out.push({ url: canvas.toDataURL('image/jpeg', 0.92), pxm, yPx: (y) => h / 2 - (y - cyM) * pxm, levels: { gy, ridge, yt } });
+        }
+      }
+      root.userData.ground.visible = true;
+      mode = keep.mode; fid = keep.fid; cut = keep.cut; showFurn = keep.showFurn; lightsOn = keep.lightsOn; Object.assign(orbit, keep.o);
+      renderer.setSize(keep.size.x, keep.size.y, false); cam.aspect = keep.aspect; build(); placeCam(); renderer.render(scene, cam);
+      return out;
     },
     resize,
   };

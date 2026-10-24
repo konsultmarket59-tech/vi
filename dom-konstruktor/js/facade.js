@@ -12,6 +12,8 @@ DK.ROOFS = {
   gable: { n: 'Двускатная', pitch: 30 },
   hip: { n: 'Вальмовая', pitch: 25 },
   mansard: { n: 'Ломаная мансардная', pitch: 25 },
+  halfhip: { n: 'Полувальмовая', pitch: 35 },
+  pyramid: { n: 'Шатровая', pitch: 30 },
   shed: { n: 'Односкатная', pitch: 10 },
   flat: { n: 'Плоская', pitch: 0 },
 };
