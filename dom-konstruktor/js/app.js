@@ -392,7 +392,10 @@ function renderSite() {
   else if (q) {
     const T = DK.SITE_OBJ[q.type];
     box.innerHTML = `<h3>${esc(T.n)} <small>${DK.fmtM(q.w || T.w)} × ${DK.fmtM(q.d || T.d)} м</small></h3><div class="muted">Нормы: ${esc(T.rule)}.</div>
+      ${T.g === 'tree' || q.type === 'tennis' ? '' : `<div class="row2"><label class="fld">Ширина, м<input type="number" id="soW" step="0.5" value="${(q.w || T.w) / 1000}"></label><label class="fld">Длина, м<input type="number" id="soD" step="0.5" value="${(q.d || T.d) / 1000}"></label></div>`}
       <div class="row"><button class="btn sm" id="soAuto">По нормам</button><button class="btn sm" id="soRot">Повернуть (R)</button><button class="btn sm ghost" id="soDel">Удалить</button></div>`;
+    const dimO = (k, v) => { const val = Math.max(1000, Math.min(60000, Math.round(v * 2) * 500)); if (val === T[k]) delete q[k]; else q[k] = val; app.commit(T.n); };
+    if ($('#soW')) { $('#soW').onchange = (e) => dimO('w', +e.target.value || T.w / 1000); $('#soD').onchange = (e) => dimO('d', +e.target.value || T.d / 1000); }
     $('#soAuto').onclick = () => { if (!DK.siteAuto(P, q)) toast('Места по нормам нет — увеличьте участок'); app.commit(T.n); };
     $('#soRot').onclick = () => { q.a = ((q.a || 0) + 90) % 180; app.commit('Поворот'); };
     $('#soDel').onclick = () => { s.objs = s.objs.filter(o => o !== q); site.select(null); app.commit('Удалено'); };
@@ -401,7 +404,7 @@ function renderSite() {
 function bind() {
   $('#sitePal').innerHTML = Object.entries(DK.SITE_OBJ).map(([k, o]) => `<button class="btn sm" data-site="${k}">+ ${esc(o.n)}</button>`).join('');
   $$('[data-site]').forEach(b => b.onclick = () => { const r = DK.siteAdd(P, b.dataset.site); site.select(r.o.id); if (!r.ok) toast('По нормам места не нашлось — поставил в центр, передвиньте или увеличьте участок'); app.commit(DK.SITE_OBJ[b.dataset.site].n); });
-  const dimSite = (k, v) => { P.site[k] = Math.max(8000, Math.min(200000, Math.round(v * 2) * 500)); app.commit('Участок'); };
+  const dimSite = (k, v) => { P.site[k] = Math.max(8000, Math.min(200000, Math.round(v * 2) * 500)); DK.sitePlaceHouse(P); app.commit('Участок'); site.fit(); };
   $('#siteW').onchange = (e) => dimSite('W', +e.target.value || 20); $('#siteD').onchange = (e) => dimSite('D', +e.target.value || 30);
   $$('#siteStreet button').forEach(b => b.onclick = () => { P.site.street = b.dataset.k; DK.siteRearrange(P); app.commit('Улица'); site.fit(); });
   $('#siteNorth').oninput = (e) => { P.site.north = +e.target.value; $('#siteNorthV').textContent = P.site.north + '°'; site.render(); };

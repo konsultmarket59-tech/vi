@@ -14,6 +14,16 @@ DK.SITE_OBJ = {
   play:   { n: 'Игровая зона', w: 5000, d: 4000, b: 2000, street: 6000, house: 2000, sep: 3000, rule: '2 м до забора, 6 м до улицы, видна из дома, 5 м от мангала' },
   flower: { n: 'Клумба', w: 2400, d: 1000, b: 500, street: 1000, house: 800, sep: 600, rule: 'у входа и дорожки' },
   greenhouse: { n: 'Теплица', w: 3000, d: 6000, b: 1000, street: 5000, house: 4000, sep: 2000, rule: '1 м до забора, торцами на север-юг, не в тени дома' },
+  beds:   { n: 'Грядки', w: 6000, d: 4000, b: 1000, street: 5000, house: 2000, sep: 1500, rule: '1 м до забора, на солнечной стороне' },
+  poolRect:  { n: 'Бассейн бетонный 8 × 4', g: 'pool', w: 8000, d: 4000, b: 2000, street: 5000, house: 3000, sep: 2500, rule: '2 м до забора, 3 м от фундамента дома' },
+  poolRound: { n: 'Бассейн каркасный Ø 4,6', g: 'pool', w: 4600, d: 4600, b: 2000, street: 5000, house: 3000, sep: 2000, rule: '2 м до забора, 3 м от дома' },
+  poolCover: { n: 'Бассейн с павильоном', g: 'pool', w: 9000, d: 5000, b: 2000, street: 5000, house: 3000, sep: 2500, rule: '2 м до забора, 3 м от дома' },
+  spa:       { n: 'Купель / хот-тоб', g: 'pool', w: 2200, d: 2200, b: 1000, street: 5000, house: 2000, sep: 1500, rule: '1 м до забора, рядом с баней или террасой' },
+  tennis: { n: 'Теннисный корт', w: 18300, d: 36600, b: 1000, street: 5000, house: 5000, sep: 3000, rule: '1 м до забора, 5 м от дома, длинной осью север–юг' },
+  volley: { n: 'Волейбольная площадка', w: 14000, d: 22000, b: 1000, street: 5000, house: 5000, sep: 3000, rule: '1 м до забора, 5 м от дома' },
+  treeFruit:   { n: 'Плодовое дерево', g: 'tree', w: 4000, d: 4000, b: 2000, street: 3000, house: 3000, sep: 3000, rule: 'среднерослое — 2 м до забора, 3 м от дома' },
+  treeDecor:   { n: 'Декоративное дерево', g: 'tree', w: 6000, d: 6000, b: 4000, street: 2000, house: 5000, sep: 3000, rule: 'высокорослое — 4 м до забора, 5 м от дома' },
+  treeConifer: { n: 'Ель / туя', g: 'tree', w: 3000, d: 3000, b: 2000, street: 1500, house: 4000, sep: 2000, rule: 'хвойное — 2 м до забора, 4 м от дома' },
 };
 DK.SITE_SIDES = { S: 'снизу (юг плана)', N: 'сверху', W: 'слева', E: 'справа' };
 
@@ -119,11 +129,19 @@ function fits(p, type, r, skip, paths) {
 function score(p, type, r) {
   const s = p.site, B = bounds(s, r), H = houseRect(p), dh = rectDist(r, H), cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
   const near = (t) => { const o = s.objs.find(q => q.type === t); return o ? Math.hypot(o.x - cx, o.y - cy) : null; };
+  // корт и теплица — длинной осью север–юг
+  const th = (s.north || 0) * Math.PI / 180, alongY = (r.y1 - r.y0) >= (r.x1 - r.x0), ns = alongY ? Math.abs(Math.cos(th)) : Math.abs(Math.sin(th)), nsPen = (1 - ns) * 20000;
   if (type === 'bath') return -B.street + B.side * 0.6;
   if (type === 'gazebo') return dh - B.street * 0.15;
   if (type === 'bbq') { const g = near('gazebo'); return (g != null ? Math.abs(g - 4500) * 1.5 : 0) + dh * 0.3 - B.street * 0.1; }
   if (type === 'play') return dh * 1.2 - B.street * 0.1 + B.side * 0.05;
-  if (type === 'greenhouse') return -B.street * 0.6 + B.side * 0.4;
+  if (type === 'greenhouse') return -B.street * 0.6 + B.side * 0.4 + nsPen * 0.3;
+  if (type === 'beds') { const g = near('greenhouse'); return -B.street * 0.4 + (g != null ? g * 0.3 : B.side * 0.3); }
+  if (type === 'poolRect' || type === 'poolCover' || type === 'poolRound') return dh * 1.0 - B.street * 0.15;
+  if (type === 'spa') { const b2 = near('bath'); return b2 != null ? b2 : dh; }
+  if (type === 'tennis' || type === 'volley') return -B.street + B.side * 0.3 + (type === 'tennis' ? nsPen : 0);
+  if (type === 'treeFruit') { const others = s.objs.filter(o => o.type === 'treeFruit'); return -B.street * 0.4 + B.side * 0.2 + others.reduce((m, o) => Math.min(m, Math.abs(Math.hypot(o.x - cx, o.y - cy) - 4500)), 0) * 0.5; }
+  if (type === 'treeDecor' || type === 'treeConifer') return B.side * 1.2 + B.street * 0.1;
   if (type === 'flower') { const E = DK.siteEntry(p); const ds = E ? Math.hypot(E.x - cx, E.y - cy) : dh; return Math.abs(ds - 2200); }
   return dh;
 }
@@ -154,7 +172,7 @@ DK.siteAdd = function (p, type) {
 DK.siteRearrange = function (p) {
   const s = p.site, objs = s.objs.slice();
   DK.sitePlaceHouse(p);
-  const order = ['bath', 'greenhouse', 'gazebo', 'bbq', 'play', 'flower'];
+  const order = ['tennis', 'volley', 'poolCover', 'poolRect', 'poolRound', 'bath', 'spa', 'greenhouse', 'beds', 'gazebo', 'bbq', 'play', 'treeDecor', 'treeConifer', 'treeFruit', 'flower'];
   s.objs = [];
   objs.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type)).forEach(o => { DK.siteAuto(p, o); s.objs.push(o); });
 };
@@ -242,12 +260,35 @@ DK.SitePlan = function (canvas, app) {
     // постройки
     for (const q of s.objs) {
       const T = DK.SITE_OBJ[q.type], r = objRect(q), R = [X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0)];
-      const fill = { bath: '#c8a57c', gazebo: '#d9c3a0', bbq: '#cfc6b8', play: '#ead9a5', flower: '#c9dfb4', greenhouse: '#d7e7ee' }[q.type];
-      c.fillStyle = fill; c.fillRect(...R); c.strokeStyle = INK; c.lineWidth = 1.2; c.strokeRect(...R);
+      const fill = { bath: '#c8a57c', gazebo: '#d9c3a0', bbq: '#cfc6b8', play: '#ead9a5', flower: '#c9dfb4', greenhouse: '#d7e7ee', beds: '#b59a78',
+        poolRect: '#7cc4dd', poolRound: '#7cc4dd', poolCover: '#9fd3e3', spa: '#8cc7d6', tennis: '#5f8f74', volley: '#ead9a5' }[q.type];
+      if (T.g === 'tree') {
+        // дерево — крона кругом, ствол точкой
+        const cx2 = R[0] + R[2] / 2, cy2 = R[1] + R[3] / 2, rad = Math.min(R[2], R[3]) / 2;
+        c.fillStyle = q.type === 'treeFruit' ? 'rgba(110,160,80,.75)' : q.type === 'treeConifer' ? 'rgba(50,100,70,.8)' : 'rgba(80,130,70,.7)';
+        c.beginPath(); c.arc(cx2, cy2, rad, 0, 7); c.fill(); c.strokeStyle = 'rgba(40,70,40,.7)'; c.lineWidth = 1; c.stroke();
+        if (q.type === 'treeConifer') { c.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; c.moveTo(cx2, cy2); c.lineTo(cx2 + Math.cos(a) * rad, cy2 + Math.sin(a) * rad); } c.stroke(); }
+        if (q.type === 'treeFruit') for (let i = 0; i < 6; i++) { c.fillStyle = i % 2 ? '#d9534f' : '#e8b23a'; c.beginPath(); c.arc(cx2 + Math.cos(i) * rad * 0.55, cy2 + Math.sin(i * 1.7) * rad * 0.55, Math.max(1.5, rad * 0.1), 0, 7); c.fill(); }
+        c.fillStyle = '#6b4f36'; c.beginPath(); c.arc(cx2, cy2, Math.max(1.5, rad * 0.12), 0, 7); c.fill();
+        continue;
+      }
+      c.fillStyle = fill;
+      if (q.type === 'poolRound' || q.type === 'spa') { c.beginPath(); c.ellipse(R[0] + R[2] / 2, R[1] + R[3] / 2, R[2] / 2, R[3] / 2, 0, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(); }
+      else { c.fillRect(...R); c.strokeStyle = INK; c.lineWidth = 1.2; c.strokeRect(...R); }
       c.save(); c.beginPath(); c.rect(...R); c.clip(); c.strokeStyle = 'rgba(60,64,70,.35)'; c.lineWidth = 1;
       if (q.type === 'bath' || q.type === 'gazebo' || q.type === 'greenhouse') { line(c, R[0], R[1], R[0] + R[2], R[1] + R[3]); line(c, R[0] + R[2], R[1], R[0], R[1] + R[3]); }
       if (q.type === 'flower') for (let i = 0; i < 8; i++) { c.fillStyle = ['#d65a7a', '#e8b23a', '#9b6bd6', '#e06a3a'][i % 4]; c.beginPath(); c.arc(R[0] + R[2] * ((i * 37) % 10 + 0.5) / 10, R[1] + R[3] * ((i * 53) % 7 + 0.5) / 7, Math.max(2, L(140)), 0, 7); c.fill(); }
       if (q.type === 'play') { c.strokeStyle = 'rgba(160,120,40,.6)'; c.strokeRect(R[0] + L(400), R[1] + L(400), L(1500), L(1500)); }
+      if (q.type === 'tennis' || q.type === 'volley') {
+        // игровое поле и разметка
+        const rot = R[2] > R[3], fw = q.type === 'tennis' ? 10970 : 9000, fl = q.type === 'tennis' ? 23770 : 18000;
+        const pw = L(rot ? fl : fw), ph = L(rot ? fw : fl), px = R[0] + (R[2] - pw) / 2, py = R[1] + (R[3] - ph) / 2;
+        c.fillStyle = q.type === 'tennis' ? '#4a6fa5' : '#e3cf9c'; c.fillRect(px, py, pw, ph); c.strokeStyle = '#fff'; c.lineWidth = 1.2; c.strokeRect(px, py, pw, ph);
+        if (rot) line(c, px + pw / 2, py - 4, px + pw / 2, py + ph + 4); else line(c, px - 4, py + ph / 2, px + pw + 4, py + ph / 2);
+      }
+      if (q.type === 'poolRect' || q.type === 'poolCover') { c.strokeStyle = '#e8e2d6'; c.lineWidth = Math.max(2, L(300)); c.strokeRect(R[0] + L(150), R[1] + L(150), R[2] - L(300), R[3] - L(300)); }
+      if (q.type === 'poolCover') { c.strokeStyle = 'rgba(60,64,70,.4)'; c.lineWidth = 1; for (let i = 1; i < 6; i++) { const xx = R[2] > R[3] ? R[0] + R[2] * i / 6 : null; if (xx) line(c, xx, R[1], xx, R[1] + R[3]); else line(c, R[0], R[1] + R[3] * i / 6, R[0] + R[2], R[1] + R[3] * i / 6); } }
+      if (q.type === 'beds') { c.fillStyle = '#5a4636'; const n2 = Math.max(2, Math.round((R[2] > R[3] ? R[2] : R[3]) / L(1600))); for (let i = 0; i < n2; i++) { if (R[2] > R[3]) c.fillRect(R[0] + R[2] * (i + 0.15) / n2, R[1] + L(300), R[2] * 0.7 / n2, R[3] - L(600)); else c.fillRect(R[0] + L(300), R[1] + R[3] * (i + 0.15) / n2, R[2] - L(600), R[3] * 0.7 / n2); } }
       if (q.type === 'bbq') { c.fillStyle = '#8c5a46'; c.fillRect(R[0] + R[2] / 2 - L(600), R[1] + L(150), L(1200), L(600)); }
       c.restore();
       const fs = Math.max(9, Math.min(12, L(700)));

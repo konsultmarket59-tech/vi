@@ -483,6 +483,82 @@ function View3D(canvas, app) {
         const m = new T3.Mesh(new T3.SphereGeometry(0.09 + (i % 3) * 0.03, 10, 8), mat({ c: i % 4 === 3 ? '#4f7a3a' : cols[i % cols.length] }, { roughness: 0.95 }));
         m.position.set((((i * 37) % 97) / 97 - 0.5) * (w - 0.3), 0.3 + (i % 2) * 0.08, (((i * 53) % 89) / 89 - 0.5) * (d - 0.3)); m.castShadow = true; g.add(m);
       }
+    } else if (T.g === 'pool') {
+      const water = new T3.MeshStandardMaterial({ color: lin('#3aa6c8'), roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.88 });
+      const stone = mat({ m: 'paving', c: '#ddd6c9' });
+      if (o.type === 'poolRound') {
+        // каркасный: стенка 1,2 м над землёй, лестница
+        const r = Math.min(w, d) / 2, wall = new T3.Mesh(new T3.CylinderGeometry(r, r, 1.2, 40, 1, true), mat({ c: '#4c86b0' }, { side: T3.DoubleSide })); wall.position.y = 0.6; g.add(wall);
+        const top = new T3.Mesh(new T3.TorusGeometry(r, 0.04, 8, 48), mat({ c: '#e9eef2' })); top.rotation.x = Math.PI / 2; top.position.y = 1.2; g.add(top);
+        const wt = new T3.Mesh(new T3.CylinderGeometry(r - 0.03, r - 0.03, 0.02, 40), water); wt.position.y = 1.05; g.add(wt);
+        for (const s2 of [-1, 1]) { const l = B(0.04, 1.4, 0.04, mat({ c: '#cfd4d8' }, { metalness: 0.6 }), s2 * 0.25, 0.7, r + 0.25); l.rotation.x = -0.2; }
+        for (let i = 0; i < 4; i++) B(0.5, 0.03, 0.12, mat({ c: '#cfd4d8' }), 0, 0.25 + i * 0.3, r + 0.2 - i * 0.05);
+      } else if (o.type === 'spa') {
+        // купель: деревянная бочка с водой и ступенькой
+        const r = Math.min(w, d) / 2 - 0.2, tub = new T3.Mesh(new T3.CylinderGeometry(r, r, 1.0, 28, 1, true), mat({ m: 'wood', c: '#a8784e' }, { side: T3.DoubleSide })); tub.position.y = 0.5; g.add(tub);
+        const wt = new T3.Mesh(new T3.CylinderGeometry(r - 0.05, r - 0.05, 0.02, 28), water); wt.position.y = 0.85; g.add(wt);
+        for (const yy of [0.2, 0.8]) { const hoop = new T3.Mesh(new T3.TorusGeometry(r + 0.01, 0.015, 6, 32), dark); hoop.rotation.x = Math.PI / 2; hoop.position.y = yy; g.add(hoop); }
+        B(0.8, 0.4, 0.4, wood, 0, 0.2, r + 0.3);
+      } else {
+        // бетонная чаша: бортик из камня, вода вровень с землёй, лестница; у павильона — арочный купол из поликарбоната
+        const cw = 0.35;
+        B(w, 0.08, cw, stone, 0, 0.04, -d / 2 + cw / 2); B(w, 0.08, cw, stone, 0, 0.04, d / 2 - cw / 2);
+        B(cw, 0.08, d - 2 * cw, stone, -w / 2 + cw / 2, 0.04, 0); B(cw, 0.08, d - 2 * cw, stone, w / 2 - cw / 2, 0.04, 0);
+        B(w - 2 * cw, 0.02, d - 2 * cw, water, 0, 0.03, 0);
+        B(w + 2.4, 0.04, 1.2, deck, 0, 0.02, d / 2 + 0.6); B(1.2, 0.04, d, deck, w / 2 + 0.6, 0.02, 0);
+        for (const s2 of [-1, 1]) { const l = B(0.04, 0.9, 0.04, mat({ c: '#cfd4d8' }, { metalness: 0.6 }), -w / 2 + 0.8 + s2 * 0.25, 0.45, -d / 2 + 0.2); l.rotation.x = 0.25; }
+        for (let i = 0; i < 2; i++) B(1.2, 0.05, 0.6, mat({ c: '#e4e7e0' }), w / 2 - 1.4 + i * 0.7, 0.85, d / 2 + 0.7);
+        if (o.type === 'poolCover') {
+          const gl = new T3.MeshStandardMaterial({ color: lin('#dfeef4'), transparent: true, opacity: 0.3, roughness: 0.1, side: T3.DoubleSide });
+          const arch = new T3.Mesh(new T3.CylinderGeometry(d / 2 + 0.1, d / 2 + 0.1, w + 0.2, 32, 1, true, -Math.PI / 2, Math.PI), gl);
+          arch.rotation.z = Math.PI / 2; arch.position.y = 0.05; arch.scale.set(0.45, 1, 1); g.add(arch);
+          for (let i = 0; i <= 5; i++) { const rib = new T3.Mesh(new T3.TorusGeometry(d / 2 + 0.1, 0.03, 6, 24, Math.PI), mat({ c: '#e9eef2' })); rib.position.set(-w / 2 - 0.1 + (w + 0.2) * i / 5, 0.05, 0); rib.rotation.y = Math.PI / 2; rib.scale.set(1, 0.45, 1); g.add(rib); }
+        }
+      }
+    } else if (o.type === 'tennis' || o.type === 'volley') {
+      const ten = o.type === 'tennis', fw = (ten ? 10.97 : 9), fl = (ten ? 23.77 : 18), long = d >= w;
+      B(w, 0.03, d, mat({ c: ten ? '#3e7a5c' : '#d9c48c' }), 0, 0.015, 0);
+      const pw = long ? fw : fl, pd = long ? fl : fw, white = mat({ c: '#f4f4f4' });
+      B(pw, 0.035, pd, mat({ c: ten ? '#4a6fa5' : '#e6d49e' }), 0, 0.02, 0);
+      const ln = 0.05;
+      B(pw, 0.04, ln, white, 0, 0.022, -pd / 2); B(pw, 0.04, ln, white, 0, 0.022, pd / 2); B(ln, 0.04, pd, white, -pw / 2, 0.022, 0); B(ln, 0.04, pd, white, pw / 2, 0.022, 0);
+      if (ten) { const sl = (pw === fw ? 8.23 : 8.23); B(long ? ln : pw, 0.04, long ? pd : ln, white, 0, 0.022, 0); if (long) { B(ln, 0.04, pd, white, -sl / 2, 0.022, 0); B(ln, 0.04, pd, white, sl / 2, 0.022, 0); B(sl, 0.04, ln, white, 0, 0.022, -6.4); B(sl, 0.04, ln, white, 0, 0.022, 6.4); } }
+      // сетка поперёк длинной оси
+      const nh = ten ? 1.07 : 2.43, netM = new T3.MeshStandardMaterial({ color: 0x222222, transparent: true, opacity: 0.55, side: T3.DoubleSide });
+      if (long) { B(pw + 1, 0.9, 0.02, netM, 0, nh - 0.45, 0); for (const sx of [-1, 1]) B(0.08, nh + 0.05, 0.08, dark, sx * (pw / 2 + 0.5), (nh + 0.05) / 2, 0); }
+      else { B(0.02, 0.9, pd + 1, netM, 0, nh - 0.45, 0); for (const sz of [-1, 1]) B(0.08, nh + 0.05, 0.08, dark, 0, (nh + 0.05) / 2, sz * (pd / 2 + 0.5)); }
+      if (ten) { // ограждение корта 3 м: стойки и сетка
+        const mesh = new T3.MeshStandardMaterial({ color: 0x2f3a33, transparent: true, opacity: 0.22, side: T3.DoubleSide });
+        B(w, 3, 0.02, mesh, 0, 1.5, -d / 2); B(w, 3, 0.02, mesh, 0, 1.5, d / 2); B(0.02, 3, d, mesh, -w / 2, 1.5, 0); B(0.02, 3, d, mesh, w / 2, 1.5, 0);
+        for (let i = 0; i <= 6; i++) for (const sx of [-1, 1]) B(0.06, 3, 0.06, dark, sx * w / 2, 1.5, -d / 2 + d * i / 6);
+        for (let i = 0; i <= 3; i++) for (const sz of [-1, 1]) B(0.06, 3, 0.06, dark, -w / 2 + w * i / 3, 1.5, sz * d / 2);
+      }
+    } else if (T.g === 'tree') {
+      const trunk = mat({ c: '#6b4f36' }, { roughness: 1 }), r = Math.min(w, d) / 2;
+      const seed = Math.abs(Math.round(o.x * 7 + o.y * 13)) % 100 / 100;
+      if (o.type === 'treeConifer') {
+        const t = new T3.Mesh(new T3.CylinderGeometry(0.12, 0.16, 1.2, 8), trunk); t.position.y = 0.6; g.add(t);
+        const cm = mat({ c: '#2f5a3a' }, { roughness: 0.95 }), h = 5.5 + seed * 2;
+        for (let i = 0; i < 4; i++) { const cn = new T3.Mesh(new T3.ConeGeometry(r * (1 - i * 0.2), h * 0.42, 12), cm); cn.position.y = 1.0 + i * h * 0.2 + h * 0.21; cn.castShadow = true; g.add(cn); }
+      } else {
+        const fruit = o.type === 'treeFruit', th2 = fruit ? 1.6 : 2.6 + seed;
+        const t = new T3.Mesh(new T3.CylinderGeometry(fruit ? 0.1 : 0.16, fruit ? 0.14 : 0.22, th2 + r * 0.4, 8), trunk); t.position.y = (th2 + r * 0.4) / 2; t.castShadow = true; g.add(t);
+        const cm = mat({ c: fruit ? '#5f8f3e' : '#4b7a3a' }, { roughness: 0.95 });
+        const blobs = fruit ? [[0, 0, 0, 1], [0.45, -0.1, 0.2, 0.7], [-0.4, -0.05, -0.25, 0.7], [0.1, 0.35, -0.1, 0.65]] : [[0, 0, 0, 1], [0.5, -0.15, 0.3, 0.75], [-0.45, -0.1, -0.3, 0.75], [0, 0.45, 0, 0.7], [0.3, 0.2, -0.45, 0.6]];
+        for (const [bx, by, bz, bs] of blobs) { const m = new T3.Mesh(new T3.SphereGeometry(r * 0.62 * bs, 14, 10), cm); m.position.set(bx * r, th2 + r * 0.55 + by * r, bz * r); m.castShadow = true; g.add(m); }
+        if (fruit) for (let i = 0; i < 14; i++) { const a = i * 2.4, el = (i % 5) / 5 - 0.3; const m = new T3.Mesh(new T3.SphereGeometry(0.07, 8, 6), mat({ c: i % 3 ? '#c8302c' : '#e0b034' })); m.position.set(Math.cos(a) * r * 0.62, th2 + r * 0.55 + el * r * 0.8, Math.sin(a) * r * 0.62); g.add(m); }
+      }
+    } else if (o.type === 'beds') {
+      // высокие грядки из доски с землёй и зеленью
+      const long = w >= d, n = Math.max(2, Math.round((long ? w : d) / 1.6)), bw = (long ? w : d) / n * 0.7, bl = (long ? d : w) - 0.6;
+      const soil = mat({ c: '#4e3b2c' }, { roughness: 1 }), greens = ['#5e9b3c', '#7bb04a', '#3f7a35'];
+      for (let i = 0; i < n; i++) {
+        const c0 = -(long ? w : d) / 2 + (long ? w : d) * (i + 0.5) / n;
+        const bx = long ? c0 : 0, bz = long ? 0 : c0, sw = long ? bw : bl, sd = long ? bl : bw;
+        B(sw, 0.3, sd, wood, bx, 0.15, bz); B(sw - 0.06, 0.02, sd - 0.06, soil, bx, 0.3, bz);
+        const k = Math.round((long ? sd : sw) / 0.35);
+        for (let j = 0; j < k; j++) { const m = new T3.Mesh(new T3.SphereGeometry(0.12 + (j % 3) * 0.03, 8, 6), mat({ c: greens[(i + j) % 3] }, { roughness: 0.95 })); const tt = -(long ? sd : sw) / 2 + (j + 0.5) * (long ? sd : sw) / k; m.position.set(long ? bx : tt, 0.4, long ? tt : bz); g.add(m); }
+      }
     } else if (o.type === 'greenhouse') {
       B(w, 0.2, d, wood, 0, 0.1, 0);
       const wm = new T3.MeshStandardMaterial({ color: lin('#dfeef4'), transparent: true, opacity: 0.35, roughness: 0.1, side: T3.DoubleSide });
