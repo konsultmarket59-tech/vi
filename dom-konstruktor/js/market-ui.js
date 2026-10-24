@@ -5,14 +5,15 @@ const DK = window.DK;
 const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const esc = (s) => DK.esc(s);
 const TK = 'dk-token';
-let token = null, user = null;
+let token = null, user = null, readyOk;
+const readyP = new Promise(r => { readyOk = r; }); // кабинет ждёт проверки входа, даже если открыт по ссылке до init()
 try { token = localStorage.getItem(TK); } catch (e) { /* без хранилища — вход на сессию */ }
 
 async function api(path, data, method) {
   if (location.protocol === 'file:') throw new Error('Нужен сервер площадки (node server.js)');
   const r = await fetch((DK.CONFIG.api || '') + path, { method: method || (data ? 'POST' : 'GET'), headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: data ? JSON.stringify(data) : undefined });
   let j = {}; try { j = await r.json(); } catch (e) { throw new Error('Сервер площадки недоступен'); }
-  if (!r.ok) { const er = new Error(j.error || 'Ошибка ' + r.status); er.status = r.status; throw er; }
+  if (!r.ok) { const er = new Error(j.error || 'Ошибка ' + r.status); er.status = r.status; er.data = j; throw er; }
   return j;
 }
 function setToken(t) { token = t; try { t ? localStorage.setItem(TK, t) : localStorage.removeItem(TK); } catch (e) { /* ignore */ } }
@@ -54,6 +55,11 @@ function bindAuth() {
   $$('#authTabs button').forEach(b => b.onclick = () => setTab(b.dataset.t));
   $('[data-close]', $('#authDlg')).onclick = () => $('#authDlg').close();
   $('#aArch').onchange = (e) => { $('#aArchBox').hidden = !e.target.checked; };
+  // компания: города работы, банки аккредитации
+  const chip = (n, v) => `<label><input type="checkbox" name="${n}" value="${esc(v)}">${esc(v)}</label>`;
+  if ($('#aCities')) $('#aCities').innerHTML = DK.CITIES.map(c => chip('city_w', c)).join('');
+  if ($('#aBanks')) $('#aBanks').innerHTML = DK.BANKS.map(b => chip('bank', b)).join('');
+  $$('#aReg [name=accr]').forEach(r => r.onchange = () => { $('#aBanks').hidden = $('#aReg').accr.value !== 'yes'; });
   $('#aLogin').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
     try { const r = await api('/api/auth/login', { email: f.email.value, password: f.password.value }); setToken(r.token); user = r.user; done(); }
@@ -66,7 +72,11 @@ function bindAuth() {
       if (authKind === 'company') {
         // строительная компания: аккаунт и карточка, проверка менеджером в CRM
         if (!f.company.value.trim()) throw new Error('Укажите название компании');
-        const r = await api('/api/company/register', { name: f.company.value, contact: f.name.value, inn: f.inn.value, regions: f.regions.value, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
+        const cities = $$('#aCities input:checked').map(i => i.value).concat(f.regions.value.split(',').map(x => x.trim()).filter(Boolean));
+        if (!cities.length) throw new Error('Отметьте города, где вы строите');
+        const banks = f.accr.value === 'yes' ? $$('#aBanks input:checked').map(i => i.value) : [];
+        if (f.accr.value === 'yes' && !banks.length) throw new Error('Отметьте банки, в которых есть аккредитация');
+        const r = await api('/api/company/register', { name: f.company.value, contact: f.name.value, inn: f.inn.value, cities, banks, escrow: f.escrow.checked, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
         setToken(r.token); user = r.user; $('#authDlg').close(); paintHeader(); afterAuth = null; DK.goPage('company'); return;
       }
       const r = await api('/api/auth/register', { name: f.name.value, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
@@ -82,27 +92,55 @@ function bindAuth() {
   function done() { $('#authDlg').close(); paintHeader(); const t = afterAuth; afterAuth = null; if (user && user.role === 'company') DK.goPage('company'); else if (t) t(); else DK.goPage('cab'); }
 }
 
-/* ---------- публикация ---------- */
-async function openPublish() {
-  if (!user) { openAuth(openPublish, 'reg'); return; }
-  const A = DK.areas(DK.appApi.project());
-  const f = $('#pubForm'); f.reset(); f.title.value = DK.appApi.project().name && DK.appApi.project().name !== 'Мой дом' ? DK.appApi.project().name : `Дом ${DK.fmtA(A.total)} м²`;
-  $('#pErr').textContent = ''; $('#pubInfo').textContent = `${DK.fmtA(A.total)} м², ${DK.floorsOf(DK.appApi.project()).length} эт., ${DK.fmtM(A.outW)} × ${DK.fmtM(A.outD)} м`;
+/* ---------- публикация и сохранение в кабинет: сначала фильтр качества ---------- */
+let pubVis = 'published';
+const qLi = (lv, c) => `<li class="${lv}">${esc(c.txt)}${c.fid ? `<button type="button" data-fid="${esc(c.fid)}">показать</button>` : ''}</li>`;
+function qualityBox(q) {
+  const el = $('#pubQ'); el.hidden = false; el.className = 'qbox' + (q.ok ? ' ok' : '');
+  el.innerHTML = q.ok ? `<b>Проверка пройдена — проект можно сохранить</b>${q.warns.length ? `<span class="muted">Замечаний: ${q.warns.length}. Их можно поправить и позже.</span>` : ''}`
+    : `<b>${q.errs.length ? `Проект пока нельзя сохранить — исправьте ошибки (${q.errs.length})` : `Слишком много замечаний: ${q.warns.length} (допустимо до ${DK.QUALITY.maxWarn}) — исправьте хотя бы часть`}</b>
+      <ul>${q.errs.map(c => qLi('err', c)).join('')}${q.warns.slice(0, 12).map(c => qLi('warn', c)).join('')}</ul><div><button type="button" class="btn sm primary" id="qFix">Исправить в конструкторе</button></div>`;
+  const fix = (fid) => { $('#pubDlg').close(); DK.goPage('project'); if (fid) DK.appApi.floor(fid); const c = $('#checks'); if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'center' }); c.classList.add('flash'); setTimeout(() => c.classList.remove('flash'), 1600); } };
+  $$('button[data-fid]', el).forEach(b => b.onclick = () => fix(b.dataset.fid));
+  if ($('#qFix')) $('#qFix').onclick = () => fix(null);
+  $('button[type=submit]', $('#pubForm')).disabled = !q.ok;
+}
+function setVis(v) {
+  pubVis = v; $$('#pubVis button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  const P = DK.appApi.project(), upd = !!P.cloudId;
+  $('#pubTitle').textContent = v === 'private' ? (upd ? 'Обновить проект в кабинете' : 'Сохранить проект в кабинет') : (upd ? 'Обновить и опубликовать' : 'Опубликовать проект');
+  $('button[type=submit]', $('#pubForm')).textContent = v === 'private' ? 'Сохранить в кабинет' : 'Опубликовать';
+}
+async function openPublish(vis) {
+  if (!user) { openAuth(() => openPublish(vis), 'reg'); return; }
+  const P = DK.appApi.project(), A = DK.areas(P);
+  const f = $('#pubForm'); f.reset(); f.title.value = P.cloudTitle || (P.name && P.name !== 'Мой дом' ? P.name : `Дом ${DK.fmtA(A.total)} м²`);
+  $('#pErr').textContent = ''; $('#pubInfo').textContent = `${DK.fmtA(A.total)} м², ${DK.floorsOf(P).length} эт., ${DK.fmtM(A.outW)} × ${DK.fmtM(A.outD)} м${P.cloudId ? ' · обновит сохранённый проект' : ''}`;
+  setVis(typeof vis === 'string' ? vis : 'published');
+  qualityBox(DK.quality(P));
   $('#pubDlg').showModal();
 }
 function bindPublish() {
   $('[data-close]', $('#pubDlg')).onclick = () => $('#pubDlg').close();
+  $$('#pubVis button').forEach(b => b.onclick = () => setVis(b.dataset.v));
   $('#pubForm').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
     if (!f.own.checked) { $('#pErr').textContent = 'Подтвердите, что проект ваш и вы согласны с правилами'; return; }
-    const btn = $('button[type=submit]', f); btn.disabled = true; btn.textContent = 'Публикую…';
+    const q = DK.quality(DK.appApi.project()); if (!q.ok) { qualityBox(q); return; }
+    const btn = $('button[type=submit]', f), label = btn.textContent; btn.disabled = true; btn.textContent = 'Сохраняю…';
     try {
       const p = DK.appApi.project(), A = DK.areas(p), imgs = await DK.appApi.images();
-      const r = await api('/api/projects', { title: f.title.value, about: f.about.value, price: +f.price.value || 0, license: f.license.value, project: p, images: imgs,
+      const r = await api('/api/projects', { id: p.cloudId || undefined, visibility: pubVis, title: f.title.value, about: f.about.value, price: +f.price.value || 0, license: f.license.value, project: p, images: imgs,
         area: Math.round(A.total * 10) / 10, floors: DK.floorsOf(p).length, size: `${DK.fmtM(A.outW)} × ${DK.fmtM(A.outD)} м` });
-      $('#pubDlg').close(); DK.toast && DK.toast('Проект опубликован'); DK.goPage('projects'); setTimeout(() => openProject(r.id), 300);
-    } catch (er) { $('#pErr').textContent = er.message; }
-    btn.disabled = false; btn.textContent = 'Опубликовать';
+      DK.appApi.setCloud(r.id, f.title.value);
+      $('#pubDlg').close();
+      if (pubVis === 'private') { DK.toast && DK.toast(r.updated ? 'Проект обновлён в кабинете' : 'Проект сохранён в кабинет'); }
+      else { DK.toast && DK.toast(r.updated ? 'Проект обновлён' : 'Проект опубликован'); DK.goPage('projects'); setTimeout(() => openProject(r.id), 300); }
+    } catch (er) {
+      if (er.status === 403 && /не ваш/.test(er.message)) { DK.appApi.setCloud(null); $('#pErr').textContent = 'Это чужой проект — сохраним его как ваш новый. Нажмите ещё раз.'; }
+      else { $('#pErr').textContent = er.message; if (er.data && er.data.quality) qualityBox(er.data.quality); }
+    }
+    btn.disabled = false; btn.textContent = label;
   };
 }
 
@@ -145,7 +183,7 @@ async function openProject(id) {
     try { const r = await api(`/api/projects/${id}/rate`, { stars: +b.dataset.s }); $('#prRate').textContent = `${r.rating.avg.toFixed(1)} из 5 · оценок: ${r.rating.n}`; $$('button', sr).forEach((q, i) => q.classList.toggle('on', i < +b.dataset.s)); }
     catch (e) { $('#prRate').textContent = e.message; }
   });
-  const op = $('#prOpen'); if (op) op.onclick = () => { DK.appApi.load(x.project); $('#prDlg').close(); DK.goPage('project'); DK.toast && DK.toast('Проект открыт в конструкторе — правьте под себя'); };
+  const op = $('#prOpen'); if (op) op.onclick = () => { DK.appApi.load(x.project); DK.appApi.setCloud(x.mine ? x.id : null, x.mine ? x.title : null); $('#prDlg').close(); DK.goPage('project'); DK.toast && DK.toast('Проект открыт в конструкторе — правьте под себя'); };
   $('#prReq').onclick = () => { $('#prForm').hidden = false; };
   $('#prForm').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
@@ -157,6 +195,7 @@ async function openProject(id) {
 /* ---------- кабинет ---------- */
 async function renderCab() {
   const el = $('#cabBody');
+  await readyP;
   if (!user) { el.innerHTML = '<div class="empty"><b>Войдите или зарегистрируйтесь</b><p>В кабинете — ваши проекты, запросы покупателей, рейтинг и статус архитектора.</p><button class="btn primary" id="cabLogin">Войти</button></div>'; $('#cabLogin').onclick = () => openAuth(); return; }
   let d; try { d = await api('/api/my'); } catch (e) { el.innerHTML = `<div class="empty"><b>Кабинет недоступен</b><p>${esc(e.message)}</p></div>`; return; }
   user = d.user; paintHeader();
@@ -171,16 +210,19 @@ async function renderCab() {
         <div class="nav"><span class="err-t" id="arErr"></span><button class="btn primary" type="submit">Отправить на проверку</button></div></form>` : ''}
       <div class="row"><button class="btn" id="cabPub">Опубликовать текущий проект</button><button class="btn ghost" id="cabOut">Выйти</button></div></div>
     <div class="card"><h2>Мои проекты</h2>${d.projects.length ? d.projects.map(x => `<div class="mine"><div class="row between"><b>${esc(x.title)}</b>${stars(x.rating.avg)}</div>
-      <div class="row"><span class="muted">${DK.fmtA(x.area)} м² · ${x.status === 'published' ? 'опубликован' : 'скрыт'}</span>
-      <label class="fld" style="flex-direction:row;align-items:center;gap:6px">Цена, ₽ <input type="number" data-price="${esc(x.id)}" value="${x.price}" step="500" min="0" style="width:110px"></label>
-      <button class="btn sm ghost" data-hide="${esc(x.id)}" data-st="${x.status === 'published' ? 'hidden' : 'published'}">${x.status === 'published' ? 'Скрыть' : 'Показать'}</button></div>
-      ${x.requests.length ? `<div class="muted">Запросы: ${x.requests.map(r => `${esc(r.name)} — ${new Date(r.at).toLocaleDateString('ru-RU')}`).join('; ')}</div>` : '<div class="muted">Запросов пока нет</div>'}</div>`).join('') : '<div class="muted">Пока нет опубликованных проектов.</div>'}
+      <div class="row"><span class="muted">${DK.fmtA(x.area)} м² · ${{ published: 'опубликован', hidden: 'скрыт', private: 'сохранён в кабинете', blocked: 'заблокирован модератором' }[x.status] || x.status}${x.boost ? ' · ▲ в подборке' : ''}</span>
+      <button class="btn sm" data-open="${esc(x.id)}">Открыть в конструкторе</button>
+      ${x.status === 'blocked' ? '' : `<label class="fld" style="flex-direction:row;align-items:center;gap:6px">Цена, ₽ <input type="number" data-price="${esc(x.id)}" value="${x.price}" step="500" min="0" style="width:110px"></label>
+      <button class="btn sm ghost" data-hide="${esc(x.id)}" data-st="${x.status === 'published' ? 'hidden' : 'published'}">${x.status === 'published' ? 'Скрыть' : 'Опубликовать'}</button>`}</div>
+      ${x.status === 'blocked' ? `<div class="err-t">Причина: ${esc(x.blockReason || 'не соответствует правилам')}. Исправьте проект и напишите нам.</div>` : ''}
+      ${x.requests.length ? `<div class="muted">Запросы: ${x.requests.map(r => `${esc(r.name)} — ${new Date(r.at).toLocaleDateString('ru-RU')}`).join('; ')}</div>` : '<div class="muted">Запросов пока нет</div>'}</div>`).join('') : '<div class="muted">Пока нет сохранённых проектов. Кнопка «Сохранить в кабинет» — в конструкторе, в блоке «Проект».</div>'}
       ${d.asked.length ? `<h2 style="margin-top:12px">Мои запросы</h2>${d.asked.map(a => `<div class="mine"><b>${esc(a.title)}</b> <span class="muted">${money(a.price)} · ${a.granted ? 'доступ открыт' : 'ждёт оплаты'}</span></div>`).join('')}` : ''}
     </div></div>`;
   $('#cabOut').onclick = async () => { try { await api('/api/auth/logout', {}); } catch (e) { /* уже вышли */ } setToken(null); user = null; paintHeader(); renderCab(); };
   $('#cabPub').onclick = () => { DK.goPage('project'); openPublish(); };
   $$('[data-price]', el).forEach(i => i.onchange = async () => { await api('/api/my/project/' + i.dataset.price, { price: +i.value || 0 }); DK.toast && DK.toast('Цена сохранена'); });
-  $$('[data-hide]', el).forEach(b => b.onclick = async () => { await api('/api/my/project/' + b.dataset.hide, { status: b.dataset.st }); renderCab(); });
+  $$('[data-hide]', el).forEach(b => b.onclick = async () => { try { await api('/api/my/project/' + b.dataset.hide, { status: b.dataset.st }); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); } });
+  $$('[data-open]', el).forEach(b => b.onclick = async () => { try { const x = await api('/api/projects/' + b.dataset.open); DK.appApi.load(x.project); DK.appApi.setCloud(x.id, x.title); DK.goPage('project'); } catch (er) { DK.toast && DK.toast(er.message); } });
   const af = $('#archForm');
   if (af) af.onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
@@ -202,9 +244,9 @@ DK.Market = {
     $('[data-close]', $('#prDlg')) && ($('[data-close]', $('#prDlg')).onclick = () => $('#prDlg').close());
     $('#projQ').oninput = (e) => { flt.q = e.target.value; clearTimeout(this.t); this.t = setTimeout(renderProjects, 250); };
     $('#projSort').onchange = (e) => { flt.sort = e.target.value; renderProjects(); };
-    this.ready = refreshMe();
+    refreshMe().then(readyOk, readyOk);
   },
-  renderProjects, renderCab, openPublish,
+  renderProjects, renderCab, openPublish, ready: readyP,
   /* кабинет по роли: компания — кабинет заявок, остальные — кабинет пользователя */
   async openCabinet(kind) {
     await (this.ready || Promise.resolve());

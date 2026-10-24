@@ -1075,3 +1075,32 @@ Object.assign(DK, { outline, diagWalls, segDist, chamferOf, roofRects, atticOn, 
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,
   fromTemplate, autoWindows, starter, fmtM, fmtA, sideName });
 })();
+
+/* Фильтр качества перед сохранением и публикацией: ошибки проверок, «пустые» и недоделанные проекты.
+   Работает и в браузере, и на сервере (market.js загружает модель в vm), чтобы проверку нельзя было обойти. */
+(function () {
+'use strict';
+const DK = window.DK;
+DK.QUALITY = { maxWarn: 8, minArea: 30 };
+DK.quality = function (p) {
+  const errs = [], warns = [];
+  let ch = [];
+  try { ch = DK.checks(p); } catch (e) { errs.push({ txt: 'Проект повреждён — откройте шаблон заново', fid: null }); }
+  ch.forEach(c => { if (c.lv === 'err') errs.push({ txt: c.txt, fid: c.fid || null }); else if (c.lv === 'warn') warns.push({ txt: c.txt, fid: c.fid || null }); });
+  let A = null; try { A = DK.areas(p); } catch (e) { /* выше уже ошибка */ }
+  if (A && A.total < DK.QUALITY.minArea) errs.push({ txt: `Площадь ${DK.fmtA(A.total)} м² — это не дом: меньше ${DK.QUALITY.minArea} м²`, fid: 'f1' });
+  const fl = (() => { try { return DK.floorsOf(p); } catch (e) { return []; } })();
+  let named = 0, rooms = 0, wins = 0, entry = 0;
+  fl.forEach(fid => {
+    try { DK.rooms(p, fid).forEach(r => { rooms++; if (r.type && r.type !== 'none') named++; }); } catch (e) { /* пропуск */ }
+    const lv = p.levels[fid] || { open: [] }, ws = (() => { try { return DK.walls(p, fid); } catch (e) { return []; } })();
+    (lv.open || []).forEach(o => { const w = ws.find(v => v.id === o.wall); if (!w || w.kind !== 'outer') return; if (o.kind === 'win' || o.kind === 'pano') wins++; if (o.kind === 'entry' || (fid === 'f1' && o.kind === 'door')) entry++; });
+  });
+  if (rooms && named < Math.max(2, Math.ceil(rooms * 0.6))) errs.push({ txt: `Назначено помещений: ${named} из ${rooms} — подпишите комнаты на плане (кухня, спальня, санузел…)`, fid: 'f1' });
+  if (!wins) errs.push({ txt: 'В доме нет ни одного окна', fid: 'f1' });
+  if (!entry) errs.push({ txt: 'Нет входной двери на 1 этаже', fid: 'f1' });
+  const tooMany = warns.length > DK.QUALITY.maxWarn;
+  const score = Math.max(0, 100 - errs.length * 25 - warns.length * 4);
+  return { ok: !errs.length && !tooMany, errs, warns, tooMany, score, area: A ? A.total : 0 };
+};
+})();

@@ -7,9 +7,9 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function crm(ctx) {
-  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited } = ctx;
+  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality } = ctx;
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
-  const COMP = path.join(DATA, 'companies.json'), PRICES = path.join(DATA, 'prices.json'), SETTINGS = path.join(DATA, 'settings.json'), OUTBOX = path.join(DATA, 'outbox.json');
+  const PROJ = path.join(DATA, 'projects'), COMP = path.join(DATA, 'companies.json'), PRICES = path.join(DATA, 'prices.json'), SETTINGS = path.join(DATA, 'settings.json'), OUTBOX = path.join(DATA, 'outbox.json');
   const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
   const hash = (pw, salt) => crypto.scryptSync(String(pw), salt, 64).toString('hex');
   const users = () => readJSON(USERS, []);
@@ -48,22 +48,39 @@ module.exports = function crm(ctx) {
   const leadFile = (id) => /^[\w-]+$/.test(id) ? path.join(LEADS, id, 'lead.json') : null;
   const allLeads = () => { try { return fs.readdirSync(LEADS).map(id => readJSON(path.join(LEADS, id, 'lead.json'), null)).filter(Boolean); } catch (e) { return []; } };
   const companies = () => readJSON(COMP, []);
+  const allProj = () => { try { return fs.readdirSync(PROJ).map(id => readJSON(path.join(PROJ, id, 'project.json'), null)).filter(Boolean); } catch (e) { return []; } };
+  const projFile = (id) => /^[\w-]+$/.test(id) ? path.join(PROJ, id, 'project.json') : null;
+  function projCard(pr, us) {
+    const o = us.find(x => x.id === pr.owner) || {}, v = Object.values(pr.votes || {});
+    return { id: pr.id, title: pr.title, about: pr.about, area: pr.area, floors: pr.floors, size: pr.size, price: pr.price, license: pr.license, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '',
+      at: pr.at, updatedAt: pr.updatedAt || pr.at, files: pr.files || [], cover: (pr.files || []).find(f => f.startsWith('exterior')) || (pr.files || [])[0] || null, quality: pr.quality || null,
+      rating: { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }, requests: (pr.requests || []).length,
+      owner: { id: o.id, name: o.name || '—', email: o.email || '', phone: o.phone || '', city: o.city || '', role: o.role || 'user', archStatus: o.archStatus || 'none' } };
+  }
   const staffPub = (u) => ({ id: u.id, name: u.name, email: u.email, staffRole: u.staffRole });
   const fileOut = (res, l, fn) => { fn = path.basename(fn || ''); if (!(l.files || []).includes(fn)) return send(res, 404, { ok: false }); send(res, 200, fs.readFileSync(path.join(LEADS, l.id, fn)), TYPES[path.extname(fn)] || 'application/octet-stream'); };
   function summary(l) {
     const a = l.answers || {}, c = l.client || {};
     return { id: l.id, at: l.at, status: l.status, name: c.name || a.name, phone: c.phone || a.phone, city: c.city || a.city, cls: a.cls, area: l.estimate && l.estimate.area,
-      est: l.est && l.est.total || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null, grade: grade(l), leadPrice: leadPrice(l), bids: (l.bids || []).length, rfq: (l.rfq || []).length, manager: l.manager || null };
+      est: l.est && l.est.total || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null, grade: grade(l), leadPrice: leadPrice(l), bids: (l.bids || []).length, rfq: (l.rfq || []).length, manager: l.manager || null,
+      deal: (l.deal || []).map(id => ((l.bids || []).find(b => b.company === id) || {}).name || id) };
   }
   // для компании: без контактов клиента, пока клиент не выбрал компанию
   function forCompany(l, cid) {
     const shared = (l.shareWith || []).includes(cid), a = l.answers || {}, c = l.client || {};
     return { id: l.id, at: l.at, city: c.city || a.city, area: l.estimate && l.estimate.area, cls: a.cls, material: a.material, term: a.term, plot: a.plot, slope: a.slope,
       brief: l.brief || [], tz: l.tz || [], changes: l.changes || [], files: l.files || [], project: l.project || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null,
-      grade: grade(l), leadPrice: leadPrice(l), myBid: (l.bids || []).find(b => b.company === cid) || null, rows: BID_ROWS,
+      grade: grade(l), leadPrice: leadPrice(l), myBid: (l.bids || []).find(b => b.company === cid) || null, rows: BID_ROWS, deal: (l.deal || []).includes(cid),
       contacts: shared ? { name: c.name || a.name, phone: c.phone || a.phone } : null };
   }
   const json = (res, v) => send(res, 200, v);
+  // профиль компании: города работы, аккредитация в банках, эскроу
+  function profile(d) {
+    const list = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map(s => str(s, 80)).filter(Boolean);
+    const cities = Array.from(new Set(list(d.cities != null ? d.cities : d.regions))).slice(0, 40);
+    const banks = Array.from(new Set(list(d.banks))).slice(0, 20);
+    return { cities, regions: cities, banks, escrow: !!d.escrow };
+  }
 
   return async function handle(req, res, url) {
     const p = url.pathname, M = req.method, parts = p.split('/').filter(Boolean);
@@ -86,8 +103,10 @@ module.exports = function crm(ctx) {
         if (d.inn && !/^\d{10}(\d{2})?$/.test(String(d.inn))) return send(res, 400, { ok: false, error: 'ИНН — 10 или 12 цифр' }), true;
         const list = users(); if (list.some(u => u.email === email)) return send(res, 409, { ok: false, error: 'Почта уже зарегистрирована — войдите' }), true;
         const cs = companies(), cid = 'c' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-        cs.push({ id: cid, status: 'pending', at: now(), type: 'builder', name: str(d.name), inn: str(d.inn, 12), city: str(d.city, 80), regions: (Array.isArray(d.regions) ? d.regions : String(d.regions || '').split(',')).map(s => str(s, 80)).filter(Boolean).slice(0, 20),
-          materials: (Array.isArray(d.materials) ? d.materials : []).slice(0, 10).map(s => str(s, 20)), phone: str(d.phone, 40), email, site: str(d.site, 200), about: str(d.about, 2000), classes: [], rating: null, reviews: 0 });
+        const prof = profile(d);
+        if (!prof.cities.length) prof.cities = [str(d.city, 80)];
+        cs.push(Object.assign({ id: cid, status: 'pending', at: now(), type: 'builder', name: str(d.name), inn: str(d.inn, 12), city: str(d.city, 80),
+          materials: (Array.isArray(d.materials) ? d.materials : []).slice(0, 10).map(s => str(s, 20)), phone: str(d.phone, 40), email, site: str(d.site, 200), about: str(d.about, 2000), classes: [], rating: null, reviews: 0 }, prof));
         writeJSON(COMP, cs);
         const salt = crypto.randomBytes(16).toString('hex'), u = { id: 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), email, name: str(d.contact || d.name, 100), phone: str(d.phone, 40), city: str(d.city, 80), salt, pass: hash(d.password, salt), role: 'company', companyId: cid, at: now() };
         list.push(u); writeJSON(USERS, list);
@@ -100,6 +119,12 @@ module.exports = function crm(ctx) {
         if (p === '/api/company/me' && M === 'GET') {
           const reqs = comp && comp.status === 'approved' ? allLeads().filter(l => (l.rfq || []).some(r => r.companies.includes(comp.id))).map(l => { const v = forCompany(l, comp.id); delete v.project; return v; }).sort((a, b) => b.at.localeCompare(a.at)) : [];
           return json(res, { company: comp, requests: reqs, grid: settings().grid, qual: QUAL }), true;
+        }
+        if (p === '/api/company/me' && M === 'POST') {
+          const d = await body(req, 50e3), cs = companies(), c = cs.find(x => x.id === u.companyId); if (!c) return send(res, 404, { ok: false }), true;
+          Object.assign(c, profile(d)); if (d.phone != null) c.phone = str(d.phone, 40); if (d.site != null) c.site = str(d.site, 200); if (d.about != null) c.about = str(d.about, 2000);
+          if (!c.cities.length) return send(res, 400, { ok: false, error: 'Укажите хотя бы один город' }), true;
+          writeJSON(COMP, cs); return json(res, c), true;
         }
         const l = parts[2] === 'lead' && parts[3] ? readJSON(leadFile(parts[3]) || '', null) : null;
         if (!l || !comp || !(l.rfq || []).some(r => r.companies.includes(comp.id))) return send(res, 404, { ok: false }), true;
@@ -160,11 +185,39 @@ module.exports = function crm(ctx) {
           if (d.agreed != null) l.agreed = Math.max(0, +d.agreed || 0);
           if (d.manager != null) l.manager = str(d.manager, 100);
           if (Array.isArray(d.shareWith)) l.shareWith = d.shareWith.filter(x => /^c\w+$/.test(x));
+          if (Array.isArray(d.deal)) {
+            const nd = d.deal.filter(x => /^c\w+$/.test(x)), was = l.deal || [], cn = (id) => ((l.bids || []).find(b => b.company === id) || {}).name || id;
+            nd.filter(x => !was.includes(x)).forEach(x => (l.log = l.log || []).push({ at: now(), text: `${u.name}: готовы к сделке с «${cn(x)}»` }));
+            was.filter(x => !nd.includes(x)).forEach(x => (l.log = l.log || []).push({ at: now(), text: `${u.name}: сделка с «${cn(x)}» снята` }));
+            l.deal = nd;
+          }
           if (d.tz && Array.isArray(d.tz)) l.tz = d.tz.slice(0, 60).map(s => str(s, 500));
           if (d.est && can('estimator')) l.est = { ov: d.est.ov || {}, cls: str(d.est.cls, 20), total: +d.est.total || 0, min: +d.est.min || 0, max: +d.est.max || 0, by: u.name, at: now() };
           if (str(d.note, 4000)) (l.notes = l.notes || []).push({ at: now(), by: u.name, text: str(d.note, 4000) });
           writeJSON(f, l);
           return json(res, Object.assign({}, l, { grade: grade(l), leadPrice: leadPrice(l), homeValue: homeValue(l) })), true;
+        }
+      }
+      /* проекты пользователей: модерация — блокировка мусора, «поднять» удачные */
+      if (p === '/api/crm/projects' && M === 'GET') { const us = users(); return json(res, allProj().map(x => projCard(x, us)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))), true; }
+      if (parts[2] === 'project' && parts[3]) {
+        const f = projFile(parts[3]), pr = f && readJSON(f, null); if (!pr) return send(res, 404, { ok: false }), true;
+        if (M === 'GET' && parts[4] === 'file') { const fn = path.basename(parts[5] || ''); if (!(pr.files || []).includes(fn)) return send(res, 404, { ok: false }), true; return send(res, 200, fs.readFileSync(path.join(PROJ, pr.id, fn)), TYPES[path.extname(fn)] || 'application/octet-stream'), true; }
+        if (M === 'GET') return json(res, Object.assign(projCard(pr, users()), { project: pr.project, requestsList: pr.requests || [], modLog: pr.modLog || [], qualityNow: quality ? quality(pr.project) : null })), true;
+        if (M === 'POST') {
+          if (!can('manager', 'marketer')) return send(res, 403, { ok: false, error: 'Нет прав' }), true;
+          const d = await body(req, 20e3), log = (t) => (pr.modLog = pr.modLog || []).push({ at: now(), by: u.name, text: t });
+          if (['published', 'hidden', 'blocked', 'private'].includes(d.status) && d.status !== pr.status) {
+            if (d.status === 'blocked') { pr.blockReason = str(d.reason, 500) || 'Не соответствует правилам площадки'; pr.boost = false; }
+            else pr.blockReason = '';
+            log({ published: 'опубликован', hidden: 'скрыт', blocked: 'заблокирован: ' + pr.blockReason, private: 'только в кабинете автора' }[d.status]);
+            pr.status = d.status;
+            const ow = users().find(x => x.id === pr.owner);
+            if (ow && d.status === 'blocked') mail(ow.email, `Проект «${pr.title}» снят с публикации`, `Здравствуйте!\n\nПроект «${pr.title}» снят модератором: ${pr.blockReason}.\nИсправьте проект в конструкторе и напишите нам — мы проверим ещё раз.\n\nСвой Дом`);
+          }
+          if (d.boost != null && !!d.boost !== !!pr.boost) { pr.boost = !!d.boost && pr.status !== 'blocked'; log(pr.boost ? 'поднят вверх каталога' : 'снят с поднятия'); }
+          if (str(d.note, 1000)) log('заметка: ' + str(d.note, 1000));
+          writeJSON(f, pr); return json(res, projCard(pr, users())), true;
         }
       }
       if (p === '/api/crm/companies' && M === 'GET') {
@@ -178,6 +231,7 @@ module.exports = function crm(ctx) {
         if (['pending', 'approved', 'rejected'].includes(d.status)) c.status = d.status;
         if (d.rating != null) c.rating = Math.max(0, Math.min(5, +d.rating)) || null;
         if (Array.isArray(d.classes)) c.classes = d.classes.filter(k => ['eco', 'comfort', 'premium'].includes(k));
+        if (d.cities != null || d.banks != null || d.escrow != null) Object.assign(c, profile(Object.assign({ cities: c.cities || c.regions, banks: c.banks, escrow: c.escrow }, d)));
         writeJSON(COMP, cs);
         if (was !== 'approved' && c.status === 'approved') users().filter(a => a.companyId === c.id).forEach(a => mail(a.email, 'Компания проверена — заявки открыты', `«${c.name}» прошла проверку. Запросы на расчёт будут приходить на эту почту и в кабинет: ${site()}/#company`));
         return json(res, c), true;

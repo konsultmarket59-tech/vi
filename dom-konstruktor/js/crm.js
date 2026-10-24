@@ -36,7 +36,7 @@ async function start() {
 }
 function go(s) {
   section = s; $$('#nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.s === s)));
-  ({ leads: renderLeads, companies: renderCompanies, prices: renderPrices, grid: renderGrid, outbox: renderOutbox, staff: renderStaff })[s]();
+  ({ leads: renderLeads, projects: renderProjects, companies: renderCompanies, prices: renderPrices, grid: renderGrid, outbox: renderOutbox, staff: renderStaff })[s]();
 }
 
 /* ---------- заявки ---------- */
@@ -54,14 +54,14 @@ async function renderLeads() {
     $('#lt').innerHTML = list.filter(l => (!leadFilter.status || l.status === leadFilter.status) && (!q || [l.id, l.name, l.phone, l.city].join(' ').toLowerCase().includes(q))).map(l => `<tr class="click" data-id="${l.id}">
       <td>${esc(l.id)}</td><td>${dt(l.at)}</td><td>${esc(l.name)}<br><small class="muted">${esc(l.phone)}</small></td><td>${esc(l.city)}</td><td class="num">${l.area ? Math.round(l.area) + ' м²' : ''}</td>
       <td class="num">${l.est ? mln(l.est) : l.range ? l.range[0] + '–' + l.range[1] + ' млн' : ''}</td><td><span class="badge ${l.grade}">${GRADE[l.grade]}</span>${l.leadPrice ? `<br><small>${rub(l.leadPrice)}</small>` : ''}</td>
-      <td>${STATUS[l.status] || l.status}</td><td class="num">${l.bids}/${l.rfq ? 'отпр.' : '—'}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Заявок нет</td></tr>';
+      <td>${STATUS[l.status] || l.status}${(l.deal || []).length ? `<br><small class="badge warm">сделка: ${esc(l.deal.join(', '))}</small>` : ''}</td><td class="num">${l.bids}/${l.rfq ? 'отпр.' : '—'}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Заявок нет</td></tr>';
     $$('#lt tr.click').forEach(tr => tr.onclick = () => openLead(tr.dataset.id));
   };
   $('#lq').oninput = (e) => { leadFilter.q = e.target.value; draw(); }; $('#ls').onchange = (e) => { leadFilter.status = e.target.value; draw(); };
   draw();
 }
 
-let L = null, tab = 'client', companiesCache = null;
+let L = null, tab = 'client', companiesCache = null, rf = null;
 async function openLead(id) {
   section = 'leads'; $$('#nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.s === 'leads')));
   history.replaceState(null, '', '#' + id);
@@ -76,7 +76,8 @@ function drawLead() {
   <div class="tabs">${[['client', 'Клиент'], ['project', 'Эскиз и ТЗ'], ['calc', 'Расчёт'], ['bids', 'Компании и ответы'], ['log', 'История']].map(([k, n]) => `<button data-t="${k}" aria-pressed="${tab === k}">${n}</button>`).join('')}</div><div id="tab"></div>`;
   $('#back').onclick = () => go('leads');
   $('#st').onchange = (e) => save({ status: e.target.value });
-  $$('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; drawLead(); });
+  // ответы компаний и история приходят без нас — перечитываем заявку
+  $$('.tabs button').forEach(b => b.onclick = async () => { tab = b.dataset.t; if (tab === 'bids' || tab === 'log') { try { L = await api('/api/crm/lead/' + L.id); } catch (e) { /* покажем что есть */ } } drawLead(); });
   ({ client: tabClient, project: tabProject, calc: tabCalc, bids: tabBids, log: tabLog })[tab]();
 }
 async function save(d, msg) { L = await api('/api/crm/lead/' + L.id, d); toast(msg || 'Сохранено'); drawLead(); }
@@ -157,9 +158,13 @@ function tabCalc() {
 /* рассылка компаниям и сравнение ответов */
 async function tabBids() {
   if (!companiesCache) companiesCache = await api('/api/crm/companies');
-  const city = ((L.client || {}).city || (L.answers || {}).city || '').toLowerCase();
-  const ok = companiesCache.filter(c => c.status === 'approved').sort((a, b) => (String(b.city).toLowerCase().includes(city) ? 1 : 0) - (String(a.city).toLowerCase().includes(city) ? 1 : 0));
-  const sent = new Set((L.rfq || []).flatMap(r => r.companies)), bids = L.bids || [], rows = META.rows, share = new Set(L.shareWith || []);
+  const city = (L.client || {}).city || (L.answers || {}).city || '';
+  if (!rf || rf.lead !== L.id) rf = { lead: L.id, city, bank: '', accr: false, escrow: false };
+  const approved = companiesCache.filter(c => c.status === 'approved');
+  const cityOpts = Array.from(new Set([city].concat(approved.flatMap(c => c.cities || c.regions || [c.city])).filter(Boolean)));
+  const ok = approved.filter(c => (!rf.city || DK.cityMatch(c.cities || c.regions || [c.city], rf.city)) && (!rf.accr || (c.banks || []).length) && (!rf.bank || (c.banks || []).includes(rf.bank)) && (!rf.escrow || c.escrow));
+  const sent = new Set((L.rfq || []).flatMap(r => r.companies)), bids = L.bids || [], rows = META.rows, share = new Set(L.shareWith || []), deal = new Set(L.deal || []);
+  const tags = (c) => `${(c.banks || []).length ? `<span class="badge approved" title="${esc(c.banks.join(', '))}">банки: ${c.banks.length}</span>` : '<span class="badge">без аккредитации</span>'} ${c.escrow ? '<span class="badge approved">эскроу</span>' : ''}`;
   // наш расчёт по тем же строкам
   let ours = null;
   if (L.project) {
@@ -171,14 +176,19 @@ async function tabBids() {
   }
   $('#tab').innerHTML = `<div class="box"><h2 style="margin-top:0">Отправить эскизный проект на расчёт</h2>
     <div class="muted">Компании получат письмо на почту и запрос в личном кабинете: эскиз, ТЗ и единую форму расчёта. Контакты клиента скрыты, пока вы их не откроете.</div>
-    <table style="margin:10px 0"><thead><tr><th></th><th>Компания</th><th>Город</th><th>Почта</th><th>Статус</th></tr></thead><tbody>${ok.map(c => `<tr><td><input type="checkbox" class="rc" value="${c.id}"${sent.has(c.id) ? ' disabled' : ''}></td><td>${esc(c.name)}</td><td>${esc(c.city)}</td><td>${esc(Array.from(new Set([c.email].concat(c.accounts || []).filter(Boolean))).join(', '))}</td><td>${sent.has(c.id) ? 'отправлено' : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Нет проверенных компаний — одобрите их в разделе «Компании».</td></tr>'}</tbody></table>
+    <div class="row" style="margin:10px 0"><label class="f" style="max-width:260px">Город строительства<select id="rfCity"><option value="">Все города</option>${cityOpts.map(c => `<option${rf.city === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="f" style="max-width:220px">Банк<select id="rfBank"><option value="">Любой</option>${DK.BANKS.map(b => `<option${rf.bank === b ? ' selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
+      <label class="row" style="margin-top:16px"><input type="checkbox" id="rfAccr"${rf.accr ? ' checked' : ''}> есть аккредитация в банках</label><label class="row" style="margin-top:16px"><input type="checkbox" id="rfEsc"${rf.escrow ? ' checked' : ''}> строят по эскроу</label>
+      <span class="muted" style="margin-top:16px">Подходит: ${ok.length} из ${approved.length}</span></div>
+    <table style="margin:10px 0"><thead><tr><th><input type="checkbox" id="rcAll" title="Отметить всех"></th><th>Компания</th><th>Города работы</th><th>Банки и эскроу</th><th>Почта</th><th>Статус</th></tr></thead><tbody>${ok.map(c => `<tr><td><input type="checkbox" class="rc" value="${c.id}"${sent.has(c.id) ? ' disabled' : ''}></td><td>${esc(c.name)}${c.rating ? ` <small class="muted">★ ${c.rating}</small>` : ''}</td><td><small>${esc((c.cities || c.regions || [c.city]).join(', '))}</small></td><td>${tags(c)}</td><td><small>${esc(Array.from(new Set([c.email].concat(c.accounts || []).filter(Boolean))).join(', '))}</small></td><td>${sent.has(c.id) ? 'отправлено' : ''}</td></tr>`).join('') || `<tr><td colspan="6" class="muted">${approved.length ? 'Под фильтр никто не подходит — смените город или снимите условия.' : 'Нет проверенных компаний — одобрите их в разделе «Компании».'}</td></tr>`}</tbody></table>
     <div class="row"><input id="rmsg" placeholder="Комментарий для компаний (необязательно)"><button class="btn primary" id="rsend">Отправить на расчёт</button></div></div>
   <div class="box" style="overflow:auto"><h2 style="margin-top:0">Ответы компаний</h2>${bids.length ? `<table><thead><tr><th>Раздел</th>${ours ? '<th class="num">Наш расчёт</th>' : ''}${bids.map(b => `<th class="num">${esc(b.name)}<br><small>${dt(b.at)}</small></th>`).join('')}</tr></thead><tbody>
     ${Object.entries(rows).map(([k, n]) => `<tr><td>${esc(n)}</td>${ours ? `<td class="num muted">${rub(ours[k])}</td>` : ''}${bids.map(b => `<td class="num">${rub(b.rows[k])}</td>`).join('')}</tr>`).join('')}
     <tr><td><b>Итого</b></td>${ours ? `<td class="num"><b>${rub(ours.total)}</b></td>` : ''}${bids.map(b => `<td class="num"><b>${rub(b.total)}</b>${ours ? `<br><small class="${b.total < ours.total * 0.85 ? 'err' : 'muted'}">${Math.round((b.total / ours.total - 1) * 100)} % к нашему</small>` : ''}</td>`).join('')}</tr>
     <tr><td>Срок, мес.</td>${ours ? '<td></td>' : ''}${bids.map(b => `<td class="num">${b.term || '—'}</td>`).join('')}</tr>
     <tr><td>Комментарий</td>${ours ? '<td></td>' : ''}${bids.map(b => `<td><small>${esc(b.comment)}</small></td>`).join('')}</tr>
-    <tr><td>Контакты клиента</td>${ours ? '<td></td>' : ''}${bids.map(b => `<td><label class="row"><input type="checkbox" class="sh" value="${b.company}"${share.has(b.company) ? ' checked' : ''}> открыть</label></td>`).join('')}</tr></tbody></table>
+    <tr><td>Контакты клиента</td>${ours ? '<td></td>' : ''}${bids.map(b => `<td><label class="row"><input type="checkbox" class="sh" value="${b.company}"${share.has(b.company) ? ' checked' : ''}> открыть</label></td>`).join('')}</tr>
+    <tr><td>Сделка</td>${ours ? '<td></td>' : ''}${bids.map(b => `<td style="text-align:right"><button class="btn sm ${deal.has(b.company) ? 'gold' : 'ghost'}" data-deal="${b.company}">${deal.has(b.company) ? '✓ Идём на сделку' : 'Готовы к сделке'}</button></td>`).join('')}</tr></tbody></table>
     <div class="muted">Красным — расчёт дешевле нашего больше чем на 15 %: проверьте состав работ.</div>` : '<div class="muted">Ответов пока нет.</div>'}</div>`;
   $('#rsend').onclick = async () => {
     const ids = $$('.rc:checked').map(i => i.value); if (!ids.length) return toast('Отметьте компании');
@@ -187,10 +197,71 @@ async function tabBids() {
     try { L = await api(`/api/crm/lead/${L.id}/rfq`, { companies: ids, message: $('#rmsg').value, tz }); toast('Отправлено: ' + ids.length); drawLead(); } catch (e) { toast(e.message); }
   };
   $$('.sh').forEach(i => i.onchange = () => save({ shareWith: $$('.sh:checked').map(x => x.value) }, i.checked ? 'Контакты открыты компании' : 'Контакты скрыты'));
+  $$('[data-deal]').forEach(b => b.onclick = () => { const id = b.dataset.deal, on = !deal.has(id), nd = Array.from(deal).filter(x => x !== id).concat(on ? [id] : []);
+    save(Object.assign({ deal: nd }, on && !share.has(id) ? { shareWith: Array.from(share).concat(id) } : {}), on ? 'Отмечено: идём на сделку, контакты клиента открыты компании' : 'Сделка снята'); });
+  $('#rfCity').onchange = (e) => { rf.city = e.target.value; tabBids(); };
+  $('#rfBank').onchange = (e) => { rf.bank = e.target.value; tabBids(); };
+  $('#rfAccr').onchange = (e) => { rf.accr = e.target.checked; tabBids(); };
+  $('#rfEsc').onchange = (e) => { rf.escrow = e.target.checked; tabBids(); };
+  $('#rcAll').onchange = (e) => $$('.rc:not(:disabled)').forEach(i => { i.checked = e.target.checked; });
 }
 function tabLog() {
   const items = [].concat((L.log || []).map(x => ({ at: x.at, t: x.text })), (L.notes || []).map(n => ({ at: n.at, t: (n.by ? n.by + ': ' : '') + n.text })), [{ at: L.at, t: 'Заявка с сайта' }]).sort((a, b) => b.at.localeCompare(a.at));
   $('#tab').innerHTML = `<div class="box timeline">${items.map(i => `<div><small>${dt(i.at)}</small><br>${esc(i.t)}</div>`).join('')}</div>`;
+}
+
+/* ---------- проекты пользователей: модерация ---------- */
+const PST = { published: 'опубликован', private: 'в кабинете автора', hidden: 'скрыт автором', blocked: 'заблокирован' };
+const PSTC = { published: 'approved', private: '', hidden: 'pending', blocked: 'rejected' };
+let projFilter = { q: '', st: '', bad: false };
+const authImg = (root) => $$('img[data-src]', root).forEach(async (img) => { try { const r = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + token } }); if (r.ok) img.src = URL.createObjectURL(await r.blob()); } catch (e) { /* нет */ } });
+async function renderProjects() {
+  history.replaceState(null, '', location.pathname);
+  const list = await api('/api/crm/projects');
+  $('#main').innerHTML = `<h1>Проекты пользователей</h1><div class="kpi"><div>Всего<b>${list.length}</b></div><div>Опубликовано<b>${list.filter(x => x.status === 'published').length}</b></div><div>Подняты<b>${list.filter(x => x.boost).length}</b></div><div>Заблокировано<b>${list.filter(x => x.status === 'blocked').length}</b></div></div>
+  <div class="row" style="margin:14px 0"><input id="pq" placeholder="Поиск: название, автор, почта" style="max-width:300px" value="${esc(projFilter.q)}"><select id="pst" style="max-width:200px"><option value="">Все статусы</option>${Object.entries(PST).map(([k, v]) => `<option value="${k}"${projFilter.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
+    <label class="row"><input type="checkbox" id="pbad"${projFilter.bad ? ' checked' : ''}> с замечаниями</label><span class="muted">Фильтр качества не даёт сохранить проект с ошибками — здесь видно, что прошло.</span></div><div class="pgrid" id="pg"></div>`;
+  const draw = () => {
+    const q = projFilter.q.toLowerCase();
+    const rows = list.filter(x => (!projFilter.st || x.status === projFilter.st) && (!projFilter.bad || (x.quality && x.quality.warns)) && (!q || [x.title, x.owner.name, x.owner.email].join(' ').toLowerCase().includes(q)))
+      .sort((a, b) => (b.boost ? 1 : 0) - (a.boost ? 1 : 0));
+    $('#pg').innerHTML = rows.map(x => `<div class="pcard${x.status === 'blocked' ? ' blocked' : ''}" data-id="${x.id}">${x.cover ? `<img alt="" data-src="/api/crm/project/${x.id}/file/${encodeURIComponent(x.cover)}">` : '<div class="noimg"></div>'}
+      <div class="pb"><b>${x.boost ? '<span class="boost">▲ </span>' : ''}${esc(x.title)}</b><small class="muted">${Math.round(x.area)} м² · ${x.floors} эт. · ${esc(x.owner.name)}${x.owner.archStatus === 'verified' ? ' ✓' : ''}</small>
+      <div class="row"><span class="badge ${PSTC[x.status]}">${PST[x.status] || x.status}</span>${x.quality ? `<span class="badge" title="Оценка качества при сохранении">качество ${x.quality.score}</span>` : ''}${x.rating.n ? `<small>★ ${x.rating.avg} (${x.rating.n})</small>` : ''}</div>
+      <small class="muted">${dt(x.updatedAt)}${x.requests ? ' · запросов: ' + x.requests : ''}</small></div></div>`).join('') || '<div class="muted">Проектов нет</div>';
+    authImg($('#pg')); $$('#pg .pcard').forEach(c => c.onclick = () => openProj(c.dataset.id));
+  };
+  $('#pq').oninput = (e) => { projFilter.q = e.target.value; draw(); }; $('#pst').onchange = (e) => { projFilter.st = e.target.value; draw(); }; $('#pbad').onchange = (e) => { projFilter.bad = e.target.checked; draw(); };
+  draw();
+}
+async function openProj(id) {
+  const x = await api('/api/crm/project/' + id), q = x.qualityNow || { errs: [], warns: [], score: 0 }, canMod = me.staffRole !== 'estimator';
+  $('#main').innerHTML = `<div class="row"><button class="btn sm ghost" id="pback">← Проекты</button><h1 style="margin:0">${x.boost ? '▲ ' : ''}${esc(x.title)}</h1><span class="badge ${PSTC[x.status]}">${PST[x.status]}</span>${x.blockReason ? `<span class="err">${esc(x.blockReason)}</span>` : ''}</div>
+  <div class="row" style="margin:12px 0"><a class="btn primary" href="/?crmp=${encodeURIComponent(x.id)}" target="_blank">Открыть в конструкторе</a><button class="btn" id="pIfc">Скачать IFC (ArchiCAD, Revit)</button><button class="btn" id="pDxf">Скачать DXF (планы)</button><span style="flex:1"></span>
+    ${canMod ? `${x.status !== 'blocked' ? `<button class="btn ${x.boost ? 'gold' : ''}" id="pBoost">${x.boost ? '▲ Поднят — снять' : '▲ Поднять вверх'}</button>` : ''}
+    ${x.status === 'blocked' ? '<button class="btn" id="pUnblock">Разблокировать</button>' : '<button class="btn" id="pBlock" style="border-color:var(--err);color:var(--err)">Заблокировать</button>'}` : ''}</div>
+  <div class="box"><div class="thumbs">${x.files.map(f => `<img alt="" data-src="/api/crm/project/${x.id}/file/${encodeURIComponent(f)}">`).join('')}</div>${x.about ? `<p>${esc(x.about)}</p>` : ''}</div>
+  <div class="grid2"><div class="box"><h2 style="margin-top:0">Проект</h2><div>${Math.round(x.area)} м² · ${x.floors} эт. · ${esc(x.size || '')} · ${x.price ? rub(x.price) : 'бесплатно'} · ${x.license === 'build' ? 'право построить' : 'для ознакомления'}</div>
+    <div class="muted">Создан ${dt(x.at)}, обновлён ${dt(x.updatedAt)} · ★ ${x.rating.avg} (${x.rating.n}) · запросов: ${x.requests}</div>
+    <h2>Автор</h2><div>${esc(x.owner.name)} ${x.owner.archStatus === 'verified' ? '<span class="badge approved">архитектор ✓</span>' : ''}<br>${esc(x.owner.email)} ${esc(x.owner.phone)} ${esc(x.owner.city)}</div>
+    ${x.requestsList.length ? `<h2>Запросы покупателей</h2><div class="timeline">${x.requestsList.map(r => `<div><small>${dt(r.at)}</small><br>${esc(r.name)}, ${esc(r.phone)} ${esc(r.comment || '')}</div>`).join('')}</div>` : ''}</div>
+  <div class="box"><h2 style="margin-top:0">Качество сейчас: ${q.score} из 100</h2><div class="muted">${q.ok ? 'Проверки пройдены' : 'Есть ошибки — автор не смог бы сохранить проект в таком виде'}</div>
+    <ul class="qlist">${q.errs.map(c => `<li class="err">${esc(c.txt)}</li>`).join('')}${q.warns.map(c => `<li class="warn">${esc(c.txt)}</li>`).join('')}</ul>
+    <h2>Модерация</h2><div class="timeline">${x.modLog.slice().reverse().map(l => `<div><small>${dt(l.at)} · ${esc(l.by)}</small><br>${esc(l.text)}</div>`).join('') || '<span class="muted">Действий не было</span>'}</div>
+    ${canMod ? '<form id="pnote" class="row" style="margin-top:8px"><input name="note" placeholder="Заметка модератора"><button class="btn">Добавить</button></form>' : ''}</div></div>`;
+  authImg($('#main'));
+  const mod = async (d, msg) => { try { await api('/api/crm/project/' + id, d); toast(msg); openProj(id); } catch (e) { toast(e.message); } };
+  $('#pback').onclick = () => go('projects');
+  if ($('#pBoost')) $('#pBoost').onclick = () => mod({ boost: !x.boost }, x.boost ? 'Снят с поднятия' : 'Проект поднят вверх каталога');
+  if ($('#pUnblock')) $('#pUnblock').onclick = () => mod({ status: 'published' }, 'Проект снова опубликован');
+  if ($('#pBlock')) $('#pBlock').onclick = () => {
+    const r = prompt('Причина блокировки (уйдёт автору на почту):', q.errs.length ? 'Проект с ошибками: ' + q.errs[0].txt : 'Мусор / тестовый проект, не планировка дома');
+    if (r !== null) mod({ status: 'blocked', reason: r }, 'Проект заблокирован');
+  };
+  if ($('#pnote')) $('#pnote').onsubmit = (e) => { e.preventDefault(); if (e.target.note.value.trim()) mod({ note: e.target.note.value }, 'Заметка сохранена'); };
+  const prep = () => { const p = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(x.project)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!p.levels[k]) p.levels[k] = DK.emptyLevel(); }); return p; };
+  $('#pIfc').onclick = () => DK.exportIFC ? DK.download(DK.exportIFC(prep(), { name: x.title }), `${x.id}.ifc`, 'application/x-step') : toast('Экспорт недоступен');
+  $('#pDxf').onclick = () => DK.exportDXF ? DK.download(DK.exportDXF(prep()), `${x.id}.dxf`, 'application/dxf') : toast('Экспорт недоступен');
 }
 
 /* ---------- компании ---------- */
@@ -198,13 +269,22 @@ async function renderCompanies() {
   history.replaceState(null, '', location.pathname);
   const list = companiesCache = await api('/api/crm/companies');
   $('#main').innerHTML = `<h1>Строительные компании</h1><div class="muted" style="margin-bottom:10px">Одобренные компании получают запросы на расчёт и видны в каталоге. После одобрения компании уходит письмо.</div>
-  <div class="box" style="padding:0;overflow:auto"><table><thead><tr><th>Компания</th><th>Город и регионы</th><th>Контакты</th><th>Аккаунт</th><th>ИНН</th><th>Статус</th><th>Рейтинг</th></tr></thead><tbody>
-  ${list.map(c => `<tr data-id="${c.id}"><td><b>${esc(c.name)}</b><br><small class="muted">${dt(c.at)}</small></td><td>${esc([c.city].concat(c.regions || []).join(', '))}</td><td>${esc(c.phone)}<br>${esc(c.email || '')}</td><td>${esc((c.accounts || []).join(', ') || '—')}</td><td>${esc(c.inn || '')}</td>
+  <div class="row" style="margin-bottom:10px"><input id="cq" placeholder="Поиск: название, город, банк" style="max-width:320px"><label class="row"><input type="checkbox" id="cEsc"> только эскроу</label></div>
+  <div class="box" style="padding:0;overflow:auto"><table><thead><tr><th>Компания</th><th>Города работы</th><th>Банки</th><th>Эскроу</th><th>Контакты</th><th>ИНН</th><th>Статус</th><th>Рейтинг</th></tr></thead><tbody>
+  ${list.map(c => `<tr data-id="${c.id}" data-q="${esc([c.name, c.city].concat(c.cities || c.regions || [], c.banks || []).join(' ').toLowerCase())}" data-esc="${c.escrow ? 1 : 0}"><td><b>${esc(c.name)}</b><br><small class="muted">${dt(c.at)} · офис: ${esc(c.city)}</small></td>
+    <td><input class="ccit" value="${esc((c.cities || c.regions || []).join(', '))}" title="Через запятую" style="min-width:180px"></td>
+    <td><details><summary><small>${(c.banks || []).length ? esc(c.banks.join(', ')) : 'нет аккредитации'}</small></summary><div class="chipsC">${DK.BANKS.map(b => `<label class="row"><input type="checkbox" class="cbank" value="${esc(b)}"${(c.banks || []).includes(b) ? ' checked' : ''}> ${esc(b)}</label>`).join('')}</div></details></td>
+    <td><input type="checkbox" class="cesc"${c.escrow ? ' checked' : ''}></td>
+    <td>${esc(c.phone)}<br><small>${esc(c.email || '')}</small><br><small class="muted">${esc((c.accounts || []).join(', '))}</small></td><td>${esc(c.inn || '')}</td>
     <td><select class="cs">${['pending', 'approved', 'rejected'].map(s => `<option value="${s}"${c.status === s ? ' selected' : ''}>${{ pending: 'На проверке', approved: 'Одобрена', rejected: 'Отклонена' }[s]}</option>`).join('')}</select></td>
-    <td><input class="cr" type="number" min="0" max="5" step="0.1" value="${c.rating || ''}" style="width:70px"></td></tr>`).join('') || '<tr><td colspan="7" class="muted">Компаний нет</td></tr>'}</tbody></table></div>`;
+    <td><input class="cr" type="number" min="0" max="5" step="0.1" value="${c.rating || ''}" style="width:70px"></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Компаний нет</td></tr>'}</tbody></table></div>`;
+  const flt = () => { const q = $('#cq').value.toLowerCase(), e = $('#cEsc').checked; $$('#main tr[data-id]').forEach(tr => { tr.hidden = (q && !tr.dataset.q.includes(q)) || (e && tr.dataset.esc !== '1'); }); };
+  $('#cq').oninput = flt; $('#cEsc').onchange = flt;
   $$('#main tr[data-id]').forEach(tr => {
     $('.cs', tr).onchange = async (e) => { try { await api('/api/crm/company/' + tr.dataset.id, { status: e.target.value }); toast('Статус обновлён'); } catch (er) { toast(er.message); } };
     $('.cr', tr).onchange = async (e) => { try { await api('/api/crm/company/' + tr.dataset.id, { rating: +e.target.value }); toast('Рейтинг сохранён'); } catch (er) { toast(er.message); } };
+    const prof = async () => { try { await api('/api/crm/company/' + tr.dataset.id, { cities: $('.ccit', tr).value, banks: $$('.cbank:checked', tr).map(i => i.value), escrow: $('.cesc', tr).checked }); companiesCache = null; toast('Профиль компании сохранён'); } catch (er) { toast(er.message); } };
+    $('.ccit', tr).onchange = prof; $('.cesc', tr).onchange = prof; $$('.cbank', tr).forEach(i => i.onchange = prof);
   });
 }
 

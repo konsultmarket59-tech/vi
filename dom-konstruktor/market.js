@@ -4,7 +4,7 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function market(ctx) {
-  const { send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL } = ctx;
+  const { send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality } = ctx;
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), PROJ = path.join(DATA, 'projects'), DOCS = path.join(DATA, 'docs');
   fs.mkdirSync(PROJ, { recursive: true }); fs.mkdirSync(DOCS, { recursive: true });
   const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
@@ -26,7 +26,7 @@ module.exports = function market(ctx) {
   function card(pr, all) {
     const u = (all || users()).find(x => x.id === pr.owner) || {};
     return { id: pr.id, title: pr.title, about: pr.about, price: pr.price, license: pr.license, area: pr.area, floors: pr.floors, size: pr.size, at: pr.at,
-      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status };
+      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', quality: pr.quality || null, updatedAt: pr.updatedAt || pr.at };
   }
   function saveFile(dir, url, name, okTypes) {
     const m = /^data:([\w/+.-]+);base64,(.+)$/.exec(String(url || '')); if (!m) return null;
@@ -82,32 +82,44 @@ module.exports = function market(ctx) {
         const d = await body(req, 30e6);
         if (!str(d.title)) return send(res, 400, { ok: false, error: 'Назовите проект' }), true;
         if (!d.project || !d.project.poly) return send(res, 400, { ok: false, error: 'Нет данных проекта' }), true;
-        const id = 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), dir = path.join(PROJ, id); fs.mkdirSync(dir, { recursive: true });
+        // фильтр качества: с ошибками проекта не сохраняем — интерфейс предлагает исправить
+        const q = quality ? quality(d.project) : { ok: true, errs: [], warns: [], score: 100 };
+        if (!q.ok) return send(res, 422, { ok: false, error: q.errs.length ? `Исправьте ошибки в проекте (${q.errs.length}): ${q.errs[0].txt}` : `Слишком много замечаний (${q.warns.length}) — исправьте хотя бы часть`, quality: q }), true;
+        // повторное сохранение своего проекта — обновляем его
+        const old = d.id && projFile(String(d.id)) ? readJSON(projFile(String(d.id)), null) : null;
+        if (old && old.owner !== u.id) return send(res, 403, { ok: false, error: 'Это не ваш проект' }), true;
+        if (old && old.status === 'blocked') return send(res, 403, { ok: false, error: 'Проект заблокирован модератором' + (old.blockReason ? ': ' + old.blockReason : '') }), true;
+        const id = old ? old.id : 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), dir = path.join(PROJ, id); fs.mkdirSync(dir, { recursive: true });
+        if (old) (old.files || []).forEach(fn => { try { fs.unlinkSync(path.join(dir, fn)); } catch (e) { /* нет файла */ } });
         const files = [];
         const im = d.images || {};
         (im.plans || []).slice(0, 4).forEach((x, i) => { const f = saveFile(dir, x, 'plan-' + (i + 1), ['.png', '.jpg']); if (f) files.push(f); });
         const ex = saveFile(dir, im.exterior, 'exterior', ['.png', '.jpg']); if (ex) files.unshift(ex);
-        const pr = { id, owner: u.id, title: str(d.title, 120), about: str(d.about, 3000), price: Math.max(0, Math.min(1e6, Math.round(+d.price || 0))), license: d.license === 'build' ? 'build' : 'view',
-          area: +d.area || 0, floors: +d.floors || 1, size: str(d.size, 40), project: d.project, files, votes: {}, requests: [], status: 'published', at: new Date().toISOString() };
+        const pr = Object.assign(old || { id, owner: u.id, votes: {}, requests: [], at: new Date().toISOString() }, { title: str(d.title, 120), about: str(d.about, 3000), price: Math.max(0, Math.min(1e6, Math.round(+d.price || 0))), license: d.license === 'build' ? 'build' : 'view',
+          area: +d.area || 0, floors: +d.floors || 1, size: str(d.size, 40), project: d.project, files, status: d.visibility === 'private' ? 'private' : 'published', updatedAt: new Date().toISOString(),
+          quality: { score: q.score, errs: q.errs.length, warns: q.warns.length } });
         writeJSON(path.join(dir, 'project.json'), pr);
-        tg(TG_OWNER, `Новый проект на площадке: «${pr.title}», ${pr.area} м², ${pr.price ? pr.price + ' ₽' : 'бесплатно'} — ${u.name}`);
-        return send(res, 200, { ok: true, id }), true;
+        if (!old) tg(TG_OWNER, `Новый проект на площадке: «${pr.title}», ${pr.area} м², ${pr.price ? pr.price + ' ₽' : 'бесплатно'} — ${u.name}`);
+        return send(res, 200, { ok: true, id, updated: !!old, status: pr.status }), true;
       }
       if (p === '/api/projects' && M === 'GET') {
         const all = users(), q = (url.searchParams.get('q') || '').toLowerCase();
         let list = allProjects().filter(x => x.status === 'published').map(x => card(x, all)).filter(x => !q || (x.title + ' ' + x.about).toLowerCase().includes(q));
         const sort = url.searchParams.get('sort');
         list.sort(sort === 'new' ? (a, b) => b.at.localeCompare(a.at) : sort === 'price' ? (a, b) => a.price - b.price : (a, b) => (b.rating.avg * Math.min(1, b.rating.n / 3)) - (a.rating.avg * Math.min(1, a.rating.n / 3)) || b.at.localeCompare(a.at));
+        // поднятые модератором — сверху при любой сортировке
+        list.sort((a, b) => (b.boost ? 1 : 0) - (a.boost ? 1 : 0));
         return send(res, 200, list), true;
       }
       const mm = /^\/api\/projects\/([\w-]+)(?:\/(\w+)(?:\/([\w.-]+))?)?$/.exec(p);
       if (mm) {
         const f = projFile(mm[1]), pr = f && readJSON(f, null);
-        if (!pr || (pr.status !== 'published' && !adminOk(req))) return send(res, 404, { ok: false }), true;
         const act = mm[2], u = me(req);
+        if (!pr || (pr.status !== 'published' && !adminOk(req) && !(u && u.id === pr.owner))) return send(res, 404, { ok: false }), true;
         if (!act && M === 'GET') {
           const out = card(pr); const mine = u && u.id === pr.owner, granted = u && (pr.grants || []).includes(u.id);
           if (!pr.price || mine || granted) out.project = pr.project;
+          out.mine = !!mine;
           return send(res, 200, out), true;
         }
         if (act === 'file' && M === 'GET') {
@@ -136,7 +148,7 @@ module.exports = function market(ctx) {
       if (p === '/api/my' && M === 'GET') {
         const u = me(req); if (!u) return send(res, 401, { ok: false }), true;
         const all = allProjects();
-        const mine = all.filter(x => x.owner === u.id).map(x => Object.assign(card(x), { requests: (x.requests || []).map(r => ({ at: r.at, name: r.name, phone: r.phone, comment: r.comment, status: r.status })) }));
+        const mine = all.filter(x => x.owner === u.id).sort((a, b) => (b.updatedAt || b.at).localeCompare(a.updatedAt || a.at)).map(x => Object.assign(card(x), { requests: (x.requests || []).map(r => ({ at: r.at, name: r.name, phone: r.phone, comment: r.comment, status: r.status })) }));
         const asked = all.filter(x => (x.requests || []).some(r => r.user === u.id)).map(x => ({ id: x.id, title: x.title, price: x.price, granted: (x.grants || []).includes(u.id) }));
         return send(res, 200, { ok: true, user: pub(u), projects: mine, asked }), true;
       }
@@ -145,7 +157,9 @@ module.exports = function market(ctx) {
         if (!u || !pr || pr.owner !== u.id) return send(res, 404, { ok: false }), true;
         const d = await body(req, 20e3);
         if (d.price != null) pr.price = Math.max(0, Math.min(1e6, Math.round(+d.price)));
-        if (['published', 'hidden'].includes(d.status)) pr.status = d.status;
+        if (pr.status === 'blocked' && d.status) return send(res, 403, { ok: false, error: 'Проект заблокирован модератором' + (pr.blockReason ? ': ' + pr.blockReason : '') }), true;
+        if (d.status === 'published' && quality) { const q = quality(pr.project); if (!q.ok) return send(res, 422, { ok: false, error: 'Сначала исправьте ошибки в проекте', quality: q }), true; }
+        if (['published', 'hidden', 'private'].includes(d.status)) pr.status = d.status;
         if (str(d.title)) pr.title = str(d.title, 120);
         writeJSON(f, pr); return send(res, 200, { ok: true }), true;
       }

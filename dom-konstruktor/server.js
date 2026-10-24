@@ -6,7 +6,7 @@
 'use strict';
 const http = require('http'), https = require('https'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 
-const ROOT = __dirname, DATA = path.join(ROOT, 'data', 'runtime'), LEADS = path.join(DATA, 'leads');
+const ROOT = __dirname, DATA = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data', 'runtime'), LEADS = path.join(DATA, 'leads');
 const PORT = +process.env.PORT || 8080, ADMIN_KEY = process.env.ADMIN_KEY || '';
 const TG = process.env.TG_BOT_TOKEN || '', TG_OWNER = process.env.TG_OWNER_CHAT || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
@@ -160,7 +160,7 @@ function stat(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(ROOT, p));
-  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || /\/(server|market|pages|content|crm-api|mailer)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
@@ -169,8 +169,9 @@ function stat(req, res, url) {
 }
 
 const mail = require('./mailer.js')(DATA);
-const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited });
-const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL });
+const MODEL = require('./model-vm.js')(ROOT);
+const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, ROOT, quality: MODEL.quality });
+const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail });
 const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA });
 
 http.createServer(async (req, res) => {

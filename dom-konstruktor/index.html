@@ -89,6 +89,7 @@ nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
 .fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
 .chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}
 .chk input{accent-color:var(--brand);width:16px;height:16px;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.chips label{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer;color:var(--ink)}.chips label:has(input:checked){background:var(--brand);color:#fff;border-color:var(--brand)}.chips input{display:none}
 .rng{display:grid;grid-template-columns:92px 1fr 52px;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
 .rng input{accent-color:var(--brand);width:100%;margin:0}
 .rng output{font:500 11.5px var(--mono);color:var(--ink);text-align:right}
@@ -117,6 +118,7 @@ nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
 .furn .btn{padding:4px 9px;font-size:11.5px}
 .checks{display:grid;gap:5px;font-size:12px;list-style:none;margin:0;padding:0}
 .checks li{display:grid;grid-template-columns:16px 1fr;gap:6px;align-items:start}
+.checks.flash{outline:3px solid var(--accent);outline-offset:4px;border-radius:8px;transition:outline-color .3s}
 .checks li::before{content:"";width:9px;height:9px;border-radius:50%;margin-top:4px;background:var(--ok)}
 .checks li.warn::before{background:var(--warn)}
 .checks li.err::before{background:var(--err)}
@@ -252,6 +254,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
 .thumbs img{width:100%;border-radius:8px;border:1px solid var(--line);background:#fff}
 .err-t{color:var(--err);font-size:12.5px}
+.qbox{border-radius:12px;padding:10px 12px;background:#fdf0ee;border:1px solid #f1c9c2;display:grid;gap:6px;font-size:13px}.qbox.ok{background:#eef7f1;border-color:#cfe6d7}.qbox ul{margin:0;padding-left:18px;display:grid;gap:3px;max-height:180px;overflow:auto}.qbox li.err{color:var(--err)}.qbox li.warn{color:#9a6a00}.qbox li button{border:0;background:none;color:var(--ink);text-decoration:underline;cursor:pointer;font:inherit;padding:0 0 0 6px}
 
 @media (max-width:900px){
   .work{display:flex;flex-direction:column;height:auto}
@@ -428,6 +431,8 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
             <button class="btn sm ghost" id="resetProj">Начать заново</button>
             <input type="file" id="fileIn" accept=".json,application/json" hidden>
           </div>
+          <div class="row" style="margin-top:6px"><button class="btn sm" id="saveCloud" title="Сохранить в личный кабинет без публикации">Сохранить в кабинет</button></div>
+          <div class="row" style="margin-top:6px"><span class="muted" style="font-size:12px">Для архитектора:</span><button class="btn sm" id="expIfc" title="IFC 2x3: ArchiCAD откроет как модель и сохранит в .pln; также Revit, Renga">IFC → ArchiCAD</button><button class="btn sm" id="expDxf" title="Планы этажей по слоям: AutoCAD, nanoCAD, подложка в ArchiCAD">DXF</button></div>
         </div>
         <button class="btn gold big" data-act="lead">Подобрать строителя под проект</button>
         <button class="btn big" data-act="publish">Опубликовать проект и зарабатывать</button>
@@ -625,7 +630,10 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       </div>
       <div id="aCompBox" class="q" hidden>
         <div class="row2"><label class="fld">Название компании<input name="company"></label><label class="fld">ИНН<input name="inn" inputmode="numeric"></label></div>
-        <label class="fld">Регионы работы (через запятую)<input name="regions" placeholder="Пермский край, Свердловская обл."></label>
+        <div class="fld">Города и районы, где строите<div class="chips" id="aCities"></div><input name="regions" placeholder="Другие города через запятую: Нытва, Оса, Пермский край"></div>
+        <div class="fld">Аккредитация в банках (ипотека на строительство)<div class="row" style="gap:14px"><label class="chk"><input type="radio" name="accr" value="no" checked>Нет</label><label class="chk"><input type="radio" name="accr" value="yes">Есть</label></div>
+          <div class="chips" id="aBanks" hidden></div></div>
+        <label class="chk"><input type="checkbox" name="escrow">Готовы строить по эскроу-счёту (214-ФЗ для ИЖС)</label>
         <div class="muted">После проверки менеджером запросы на расчёт будут приходить на эту почту и в кабинет. Платите только за горячий лид — 2 % от стоимости домовладения.</div>
       </div>
       <label class="chk"><input type="checkbox" name="agree">Согласен на обработку персональных данных и с правилами публикации</label>
@@ -637,7 +645,9 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 
 <dialog id="pubDlg">
   <form class="dlg" id="pubForm">
-    <header><div><h2>Опубликовать проект</h2><div class="muted" id="pubInfo"></div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
+    <header><div><h2 id="pubTitle">Опубликовать проект</h2><div class="muted" id="pubInfo"></div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
+    <div id="pubQ" class="qbox" hidden></div>
+    <div class="seg" id="pubVis" style="align-self:start"><button type="button" data-v="published" aria-pressed="true">Опубликовать в каталоге</button><button type="button" data-v="private" aria-pressed="false">Только в моём кабинете</button></div>
     <label class="fld">Название<input name="title" required maxlength="120"></label>
     <label class="fld">Описание<textarea name="about" rows="3" placeholder="Для кого дом, чем удобна планировка, какие материалы"></textarea></label>
     <div class="row2"><label class="fld">Цена за использование, ₽ (0 — бесплатно)<input name="price" type="number" min="0" step="500" value="0"></label>
@@ -671,6 +681,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 <script src="js/estimate.js"></script>
 <script src="js/lead.js"></script>
 <script src="js/sketch.js"></script>
+<script src="js/export-cad.js"></script>
 <script src="js/market-ui.js"></script>
 <script src="js/company-ui.js"></script>
 <script src="js/catalog.js"></script>

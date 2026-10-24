@@ -24,16 +24,26 @@ async function render(openId) {
   if (!c) { box.innerHTML = '<p>Карточка компании не найдена — напишите нам.</p>'; return; }
   const st = { pending: 'на проверке — запросы начнут приходить после одобрения', approved: 'проверена — запросы приходят на почту и сюда', rejected: 'отклонена — свяжитесь с нами' }[c.status];
   box.innerHTML = `<div class="card"><b>${esc(c.name)}</b> · ${esc(c.city)} · статус: ${esc(st)}<div class="muted">Цена лида: холодный — ${d.grid.cold} %, тёплый — ${d.grid.warm} %, горячий (${Object.values(d.qual).join(', ').toLowerCase()}) — ${d.grid.hot} % от стоимости домовладения.</div></div>
+    <details class="card"><summary><b>Профиль: где строите, банки, эскроу</b> <span class="muted">— ${esc((c.cities || c.regions || []).join(', ') || 'города не указаны')}${(c.banks || []).length ? ' · банки: ' + esc(c.banks.join(', ')) : ''}${c.escrow ? ' · эскроу' : ''}</span></summary>
+      <form id="cProf" class="q" style="margin-top:10px"><div class="fld">Города и районы, где строите<div class="chips">${Array.from(new Set(DK.CITIES.concat(c.cities || []))).map(x => `<label><input type="checkbox" name="cw" value="${esc(x)}"${(c.cities || []).includes(x) ? ' checked' : ''}>${esc(x)}</label>`).join('')}</div><input name="more" placeholder="Ещё города через запятую"></div>
+      <div class="fld">Аккредитация в банках<div class="chips">${DK.BANKS.map(b => `<label><input type="checkbox" name="bk" value="${esc(b)}"${(c.banks || []).includes(b) ? ' checked' : ''}>${esc(b)}</label>`).join('')}</div></div>
+      <label class="chk"><input type="checkbox" name="escrow"${c.escrow ? ' checked' : ''}>Готовы строить по эскроу-счёту</label>
+      <div><button class="btn primary">Сохранить профиль</button></div></form></details>
     <h2>Запросы на расчёт</h2><div id="compList">${d.requests.length ? d.requests.map(r => `<div class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;cursor:pointer" data-id="${esc(r.id)}">
       <b>№ ${esc(r.id)}</b><span>${dt(r.at)}</span><span>${esc(r.city)}</span><span>${r.area ? Math.round(r.area) + ' м²' : ''}</span><span>${esc(r.material || '')}</span>
-      <span style="flex:1"></span>${r.myBid ? `<span class="badge">ваш расчёт ${rub(r.myBid.total)}</span>` : '<span class="badge" style="background:#fbf1da">ждёт расчёта</span>'}</div>`).join('') : '<p class="muted">Запросов пока нет.</p>'}</div><div id="compReq"></div>`;
+      <span style="flex:1"></span>${r.deal ? '<span class="badge" style="background:#dff2e6">вас выбрали для сделки</span>' : ''}${r.myBid ? `<span class="badge">ваш расчёт ${rub(r.myBid.total)}</span>` : '<span class="badge" style="background:#fbf1da">ждёт расчёта</span>'}</div>`).join('') : '<p class="muted">Запросов пока нет.</p>'}</div><div id="compReq"></div>`;
   $$('#compList [data-id]').forEach(el => el.onclick = () => openReq(el.dataset.id));
+  $('#cProf').onsubmit = async (e) => {
+    e.preventDefault(); const f = e.target, cities = $$('[name=cw]:checked', f).map(i => i.value).concat(f.more.value.split(',').map(x => x.trim()).filter(Boolean));
+    try { await DK.Market.api('/api/company/me', { cities, banks: $$('[name=bk]:checked', f).map(i => i.value), escrow: f.escrow.checked }); DK.toast('Профиль сохранён'); render(); } catch (er) { DK.toast(er.message); }
+  };
   if (openId) openReq(openId);
 }
 async function openReq(id) {
   const r = await DK.Market.api('/api/company/lead/' + encodeURIComponent(id)), box = $('#compReq'), b = r.myBid || { rows: {} };
   box.innerHTML = `<div class="card"><h2 style="margin-top:0">Запрос № ${esc(r.id)} — ${esc(r.city)}${r.area ? ', ' + Math.round(r.area) + ' м²' : ''}</h2>
     <div class="muted">Участок: ${esc(r.plot)} · уклон: ${esc(r.slope)} · срок: ${esc(r.term)} · класс: ${esc(r.cls)}${r.range ? ` · предварительная оценка ${r.range[0]}–${r.range[1]} млн ₽` : ''}</div>
+    ${r.deal ? '<p class="card" style="background:#dff2e6"><b>Клиент готов к сделке с вашей компанией.</b> Менеджер «Свой Дом» свяжется с вами, чтобы согласовать встречу.</p>' : ''}
     ${r.contacts ? `<p><b>Контакты клиента:</b> ${esc(r.contacts.name)}, ${esc(r.contacts.phone)}</p>` : '<p class="muted">Контакты клиента откроются, когда клиент выберет вашу компанию.</p>'}
     <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">${r.files.map(f => `<img data-src="/api/company/lead/${encodeURIComponent(r.id)}/file/${encodeURIComponent(f)}" alt="${esc(f)}" style="height:140px;border:1px solid #e2e4e7;border-radius:8px;background:#fff">`).join('')}</div>
     ${r.project ? `<p><a class="btn" href="/?company=${encodeURIComponent(r.id)}" target="_blank">Открыть эскиз в конструкторе — размеры, 3D, рулетка</a></p>` : ''}

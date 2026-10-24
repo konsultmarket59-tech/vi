@@ -9,7 +9,7 @@ const KEY = 'dk-project-v2';
 /* ---------- состояние ---------- */
 function load() { try { return DK.migrate(JSON.parse(localStorage.getItem(KEY)) || JSON.parse(localStorage.getItem('dk-project-v1'))); } catch (e) { return null; } }
 // просмотр эскиза заявки (?crm=номер — сотрудник, ?company=номер — компания): свой проект в браузере не трогаем
-const VIEW = (() => { const q = new URLSearchParams(location.search); return q.get('crm') ? { kind: 'crm', id: q.get('crm') } : q.get('company') ? { kind: 'company', id: q.get('company') } : null; })();
+const VIEW = (() => { const q = new URLSearchParams(location.search); return q.get('crm') ? { kind: 'crm', id: q.get('crm') } : q.get('crmp') ? { kind: 'crmp', id: q.get('crmp') } : q.get('company') ? { kind: 'company', id: q.get('company') } : null; })();
 function save() { if (VIEW) return; try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e) { /* приватный режим */ } }
 let P = load() || DK.starter();
 ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
@@ -504,6 +504,10 @@ function bind() {
   // файл
   $('#saveFile').onclick = () => download('proekt-doma.json', 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(P, null, 1)));
   $('#openFile').onclick = () => $('#fileIn').click();
+  $('#saveCloud').onclick = () => DK.Market.openPublish('private');
+  const cadName = () => 'proekt-doma-' + Math.round(DK.areas(P).total) + 'm2'; // латиницей: кириллица в имени файла ломается в части браузеров и CAD
+  $('#expIfc').onclick = () => { DK.download(DK.exportIFC(P, { name: P.cloudTitle || P.name }), cadName() + '.ifc', 'application/x-step'); DK.toast('IFC: откройте в ArchiCAD (Файл → Открыть) и сохраните как .pln'); };
+  $('#expDxf').onclick = () => DK.download(DK.exportDXF(P), cadName() + '.dxf', 'application/dxf');
   $('#fileIn').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try {
@@ -676,6 +680,8 @@ DK.goPage = (id) => page(id);
 DK.toast = toast;
 DK.appApi = {
   project: () => P,
+  floor: (f) => { if (DK.floorsOf(P).includes(f)) { siteOn = false; setFloor(f); } },
+  setCloud(id, title) { if (id) { P.cloudId = id; if (title) P.cloudTitle = title; } else { delete P.cloudId; delete P.cloudTitle; } save(); },
   load(d) { P = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(d)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!P.levels[k]) P.levels[k] = DK.emptyLevel(); }); sel = null; fid = 'f1'; app.commit('Проект открыт'); plan.fit(); },
   async images() {
     const nums = DK.roomNumbers(P), out = { plans: DK.floorsOf(P).map(f => plan.toImage(f, { width: 1400, numbers: nums })) };
@@ -687,14 +693,14 @@ bind();
 DK.Market.init();
 DK.loadPrices && DK.loadPrices().then(() => refreshInfo());
 if (VIEW) (async () => {
-  const tk = VIEW.kind === 'crm' ? localStorage.getItem('crm-token') : localStorage.getItem('dk-token');
+  const tk = VIEW.kind === 'company' ? localStorage.getItem('dk-token') : localStorage.getItem('crm-token');
   try {
-    const r = await fetch((VIEW.kind === 'crm' ? '/api/crm/lead/' : '/api/company/lead/') + encodeURIComponent(VIEW.id), { headers: { Authorization: 'Bearer ' + tk } });
+    const r = await fetch(({ crm: '/api/crm/lead/', crmp: '/api/crm/project/', company: '/api/company/lead/' })[VIEW.kind] + encodeURIComponent(VIEW.id), { headers: { Authorization: 'Bearer ' + tk } });
     const l = await r.json(); if (!r.ok || !l.project) throw new Error(l.error || 'Эскиз недоступен');
     P = DK.normalize(DK.migrate(l.project)); ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
     hist.length = 0; hist.push(JSON.stringify(P)); hi = 0; sel = null; fid = 'f1'; refresh(); plan.fit();
     const bar = document.createElement('div'); bar.className = 'viewbar';
-    bar.innerHTML = `Эскиз заявки № ${esc(VIEW.id)} — просмотр: размеры, 3D, рулетка. Изменения не сохраняются. <button class="btn sm" id="vbMeasure">Рулетка</button>`;
+    bar.innerHTML = `${VIEW.kind === 'crmp' ? 'Проект пользователя «' + esc(l.title || VIEW.id) + '»' : 'Эскиз заявки № ' + esc(VIEW.id)} — просмотр: размеры, 3D, рулетка. Изменения не сохраняются. <button class="btn sm" id="vbMeasure">Рулетка</button>`;
     document.body.prepend(bar); $('#vbMeasure').onclick = () => { setView('plan'); app.setTool('measure'); };
   } catch (e) { toast(e.message); }
 })();
