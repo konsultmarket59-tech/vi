@@ -1,0 +1,180 @@
+/* Проекты пользователей: аккаунты, заявка архитектора с документами, публикация с ценой, рейтинг, запросы эскизного проекта.
+   Подключается из server.js; хранит данные в data/runtime (users.json, sessions.json, projects/<id>/, docs/<user>/). */
+'use strict';
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
+
+module.exports = function market(ctx) {
+  const { send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL } = ctx;
+  const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), PROJ = path.join(DATA, 'projects'), DOCS = path.join(DATA, 'docs');
+  fs.mkdirSync(PROJ, { recursive: true }); fs.mkdirSync(DOCS, { recursive: true });
+  const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
+
+  const hash = (pw, salt) => crypto.scryptSync(String(pw), salt, 64).toString('hex');
+  const users = () => readJSON(USERS, []);
+  const pub = (u) => u && { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, archStatus: u.archStatus, about: u.about || '', city: u.city || '' };
+  function me(req) {
+    const t = String(req.headers.authorization || '').replace(/^Bearer\s+/, '');
+    if (!t) return null;
+    const s = readJSON(SESS, {})[t]; if (!s) return null;
+    return users().find(u => u.id === s) || null;
+  }
+  function session(uid) { const t = crypto.randomBytes(24).toString('hex'), s = readJSON(SESS, {}); s[t] = uid; writeJSON(SESS, s); return t; }
+  function adminOk(req) { const k = req.headers['x-admin-key'] || ''; return ADMIN_KEY && k.length === ADMIN_KEY.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(ADMIN_KEY)); }
+  const projFile = (id) => /^[\w-]+$/.test(id) ? path.join(PROJ, id, 'project.json') : null;
+  const allProjects = () => fs.readdirSync(PROJ).map(id => readJSON(path.join(PROJ, id, 'project.json'), null)).filter(Boolean);
+  const rating = (pr) => { const v = Object.values(pr.votes || {}); return { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }; };
+  function card(pr, all) {
+    const u = (all || users()).find(x => x.id === pr.owner) || {};
+    return { id: pr.id, title: pr.title, about: pr.about, price: pr.price, license: pr.license, area: pr.area, floors: pr.floors, size: pr.size, at: pr.at,
+      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status };
+  }
+  function saveFile(dir, url, name, okTypes) {
+    const m = /^data:([\w/+.-]+);base64,(.+)$/.exec(String(url || '')); if (!m) return null;
+    const ext = { 'image/png': '.png', 'image/jpeg': '.jpg', 'application/pdf': '.pdf' }[m[1]];
+    if (!ext || (okTypes && !okTypes.includes(ext))) return null;
+    const buf = Buffer.from(m[2], 'base64'); if (buf.length > 8e6) return null;
+    const fn = name.replace(/[^\w-]/g, '') + ext; fs.writeFileSync(path.join(dir, fn), buf); return fn;
+  }
+
+  return async function handle(req, res, url) {
+    const p = url.pathname, M = req.method;
+    try {
+      /* ---- аккаунт ---- */
+      if (p === '/api/auth/register' && M === 'POST') {
+        if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много попыток' }), true;
+        const d = await body(req, 50e3), email = str(d.email, 120).toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Проверьте почту' }), true;
+        if (String(d.password || '').length < 8) return send(res, 400, { ok: false, error: 'Пароль — от 8 символов' }), true;
+        if (!str(d.name)) return send(res, 400, { ok: false, error: 'Как вас зовут?' }), true;
+        const list = users();
+        if (list.some(u => u.email === email)) return send(res, 409, { ok: false, error: 'Такая почта уже зарегистрирована — войдите' }), true;
+        const salt = crypto.randomBytes(16).toString('hex');
+        const u = { id: 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), email, name: str(d.name, 100), phone: str(d.phone, 40), city: str(d.city, 80), salt, pass: hash(d.password, salt), role: 'user', archStatus: 'none', docs: [], at: new Date().toISOString() };
+        list.push(u); writeJSON(USERS, list);
+        return send(res, 200, { ok: true, token: session(u.id), user: pub(u) }), true;
+      }
+      if (p === '/api/auth/login' && M === 'POST') {
+        if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много попыток' }), true;
+        const d = await body(req, 50e3), u = users().find(x => x.email === str(d.email, 120).toLowerCase());
+        if (!u || !crypto.timingSafeEqual(Buffer.from(hash(d.password || '', u.salt), 'hex'), Buffer.from(u.pass, 'hex'))) return send(res, 401, { ok: false, error: 'Неверная почта или пароль' }), true;
+        return send(res, 200, { ok: true, token: session(u.id), user: pub(u) }), true;
+      }
+      if (p === '/api/auth/logout' && M === 'POST') {
+        const t = String(req.headers.authorization || '').replace(/^Bearer\s+/, ''), s = readJSON(SESS, {}); delete s[t]; writeJSON(SESS, s);
+        return send(res, 200, { ok: true }), true;
+      }
+      if (p === '/api/me' && M === 'GET') { const u = me(req); return send(res, u ? 200 : 401, u ? { ok: true, user: pub(u) } : { ok: false }), true; }
+      /* заявка на статус архитектора: диплом, свидетельство СРО или портфолио */
+      if (p === '/api/architect/apply' && M === 'POST') {
+        const u = me(req); if (!u) return send(res, 401, { ok: false, error: 'Войдите' }), true;
+        const d = await body(req, 30e6), dir = path.join(DOCS, u.id); fs.mkdirSync(dir, { recursive: true });
+        const saved = (Array.isArray(d.files) ? d.files : []).slice(0, 6).map((f, i) => saveFile(dir, f.data, 'doc' + Date.now().toString(36) + i, ['.png', '.jpg', '.pdf'])).filter(Boolean);
+        if (!saved.length) return send(res, 400, { ok: false, error: 'Приложите скан диплома (PDF, JPG или PNG до 8 МБ)' }), true;
+        const list = users(), x = list.find(q => q.id === u.id);
+        Object.assign(x, { archStatus: 'pending', docs: (x.docs || []).concat(saved), diploma: str(d.diploma, 300), about: str(d.about, 2000), sro: str(d.sro, 200), site: str(d.site, 200) });
+        writeJSON(USERS, list);
+        tg(TG_OWNER, `Заявка архитектора: ${x.name}, ${x.email}, ${x.phone}\nДиплом: ${x.diploma}\nДокументов: ${saved.length}` + (PUBLIC_URL ? `\n${PUBLIC_URL}/admin.html` : ''));
+        return send(res, 200, { ok: true, user: pub(x) }), true;
+      }
+      /* ---- проекты ---- */
+      if (p === '/api/projects' && M === 'POST') {
+        const u = me(req); if (!u) return send(res, 401, { ok: false, error: 'Войдите, чтобы опубликовать' }), true;
+        const d = await body(req, 30e6);
+        if (!str(d.title)) return send(res, 400, { ok: false, error: 'Назовите проект' }), true;
+        if (!d.project || !d.project.poly) return send(res, 400, { ok: false, error: 'Нет данных проекта' }), true;
+        const id = 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), dir = path.join(PROJ, id); fs.mkdirSync(dir, { recursive: true });
+        const files = [];
+        const im = d.images || {};
+        (im.plans || []).slice(0, 4).forEach((x, i) => { const f = saveFile(dir, x, 'plan-' + (i + 1), ['.png', '.jpg']); if (f) files.push(f); });
+        const ex = saveFile(dir, im.exterior, 'exterior', ['.png', '.jpg']); if (ex) files.unshift(ex);
+        const pr = { id, owner: u.id, title: str(d.title, 120), about: str(d.about, 3000), price: Math.max(0, Math.min(1e6, Math.round(+d.price || 0))), license: d.license === 'build' ? 'build' : 'view',
+          area: +d.area || 0, floors: +d.floors || 1, size: str(d.size, 40), project: d.project, files, votes: {}, requests: [], status: 'published', at: new Date().toISOString() };
+        writeJSON(path.join(dir, 'project.json'), pr);
+        tg(TG_OWNER, `Новый проект на площадке: «${pr.title}», ${pr.area} м², ${pr.price ? pr.price + ' ₽' : 'бесплатно'} — ${u.name}`);
+        return send(res, 200, { ok: true, id }), true;
+      }
+      if (p === '/api/projects' && M === 'GET') {
+        const all = users(), q = (url.searchParams.get('q') || '').toLowerCase();
+        let list = allProjects().filter(x => x.status === 'published').map(x => card(x, all)).filter(x => !q || (x.title + ' ' + x.about).toLowerCase().includes(q));
+        const sort = url.searchParams.get('sort');
+        list.sort(sort === 'new' ? (a, b) => b.at.localeCompare(a.at) : sort === 'price' ? (a, b) => a.price - b.price : (a, b) => (b.rating.avg * Math.min(1, b.rating.n / 3)) - (a.rating.avg * Math.min(1, a.rating.n / 3)) || b.at.localeCompare(a.at));
+        return send(res, 200, list), true;
+      }
+      const mm = /^\/api\/projects\/([\w-]+)(?:\/(\w+)(?:\/([\w.-]+))?)?$/.exec(p);
+      if (mm) {
+        const f = projFile(mm[1]), pr = f && readJSON(f, null);
+        if (!pr || (pr.status !== 'published' && !adminOk(req))) return send(res, 404, { ok: false }), true;
+        const act = mm[2], u = me(req);
+        if (!act && M === 'GET') {
+          const out = card(pr); const mine = u && u.id === pr.owner, granted = u && (pr.grants || []).includes(u.id);
+          if (!pr.price || mine || granted) out.project = pr.project;
+          return send(res, 200, out), true;
+        }
+        if (act === 'file' && M === 'GET') {
+          const fn = path.basename(mm[3] || ''); if (!pr.files.includes(fn)) return send(res, 404, { ok: false }), true;
+          res.writeHead(200, { 'Content-Type': IMG[path.extname(fn)] || 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' });
+          return fs.createReadStream(path.join(PROJ, pr.id, fn)).pipe(res), true;
+        }
+        if (act === 'rate' && M === 'POST') {
+          if (!u) return send(res, 401, { ok: false, error: 'Войдите, чтобы оценить' }), true;
+          if (u.id === pr.owner) return send(res, 400, { ok: false, error: 'Свой проект оценить нельзя' }), true;
+          const d = await body(req, 5e3), st = Math.max(1, Math.min(5, Math.round(+d.stars || 0)));
+          pr.votes = pr.votes || {}; pr.votes[u.id] = st; writeJSON(f, pr);
+          return send(res, 200, { ok: true, rating: rating(pr) }), true;
+        }
+        if (act === 'request' && M === 'POST') {
+          if (limited(req)) return send(res, 429, { ok: false }), true;
+          const d = await body(req, 20e3);
+          const r = { id: 'r' + Date.now().toString(36), at: new Date().toISOString(), user: u ? u.id : null, name: str(d.name || (u && u.name), 100), phone: str(d.phone || (u && u.phone), 40), email: str(d.email || (u && u.email), 120), comment: str(d.comment, 2000), status: 'new' };
+          if (!r.name || r.phone.replace(/\D/g, '').length < 10) return send(res, 400, { ok: false, error: 'Нужны имя и телефон' }), true;
+          pr.requests = (pr.requests || []).concat(r); writeJSON(f, pr);
+          const au = users().find(x => x.id === pr.owner) || {};
+          tg(TG_OWNER, `Запрос эскизного проекта «${pr.title}» (${pr.price ? pr.price + ' ₽' : 'бесплатно'}) от ${r.name}, ${r.phone}. Автор: ${au.name || '—'} ${au.phone || ''}`);
+          return send(res, 200, { ok: true }), true;
+        }
+      }
+      if (p === '/api/my' && M === 'GET') {
+        const u = me(req); if (!u) return send(res, 401, { ok: false }), true;
+        const all = allProjects();
+        const mine = all.filter(x => x.owner === u.id).map(x => Object.assign(card(x), { requests: (x.requests || []).map(r => ({ at: r.at, name: r.name, phone: r.phone, comment: r.comment, status: r.status })) }));
+        const asked = all.filter(x => (x.requests || []).some(r => r.user === u.id)).map(x => ({ id: x.id, title: x.title, price: x.price, granted: (x.grants || []).includes(u.id) }));
+        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked }), true;
+      }
+      if (p.startsWith('/api/my/project/') && M === 'POST') {
+        const u = me(req), id = p.split('/').pop(), f = projFile(id), pr = f && readJSON(f, null);
+        if (!u || !pr || pr.owner !== u.id) return send(res, 404, { ok: false }), true;
+        const d = await body(req, 20e3);
+        if (d.price != null) pr.price = Math.max(0, Math.min(1e6, Math.round(+d.price)));
+        if (['published', 'hidden'].includes(d.status)) pr.status = d.status;
+        if (str(d.title)) pr.title = str(d.title, 120);
+        writeJSON(f, pr); return send(res, 200, { ok: true }), true;
+      }
+      /* ---- админка ---- */
+      if (p.startsWith('/api/admin/market/')) {
+        if (!adminOk(req)) return send(res, 401, { ok: false }), true;
+        const parts = p.split('/').filter(Boolean); // api admin market <what> <id> [file]
+        if (parts[3] === 'users' && M === 'GET') return send(res, 200, users().map(u => Object.assign(pub(u), { docs: u.docs || [], diploma: u.diploma, sro: u.sro, site: u.site, at: u.at }))), true;
+        if (parts[3] === 'user' && parts[4] && M === 'POST') {
+          const d = await body(req, 5e3), list = users(), x = list.find(q => q.id === parts[4]); if (!x) return send(res, 404, { ok: false }), true;
+          if (['none', 'pending', 'verified', 'rejected'].includes(d.archStatus)) { x.archStatus = d.archStatus; x.role = d.archStatus === 'verified' ? 'architect' : 'user'; }
+          writeJSON(USERS, list); return send(res, 200, pub(x)), true;
+        }
+        if (parts[3] === 'doc' && parts[4] && parts[5] && M === 'GET') {
+          const fn = path.basename(parts[5]), fp = path.join(DOCS, path.basename(parts[4]), fn);
+          if (!fs.existsSync(fp)) return send(res, 404, { ok: false }), true;
+          res.writeHead(200, { 'Content-Type': IMG[path.extname(fn)] || 'application/octet-stream' }); return fs.createReadStream(fp).pipe(res), true;
+        }
+        if (parts[3] === 'projects' && M === 'GET') { const all = users(); return send(res, 200, allProjects().map(x => Object.assign(card(x, all), { requests: x.requests || [], owner: x.owner }))), true; }
+        if (parts[3] === 'project' && parts[4] && M === 'POST') {
+          const f = projFile(parts[4]), pr = f && readJSON(f, null); if (!pr) return send(res, 404, { ok: false }), true;
+          const d = await body(req, 5e3);
+          if (['published', 'hidden', 'blocked'].includes(d.status)) pr.status = d.status;
+          if (d.grant) pr.grants = Array.from(new Set((pr.grants || []).concat(String(d.grant))));
+          writeJSON(f, pr); return send(res, 200, { ok: true }), true;
+        }
+        return send(res, 404, { ok: false }), true;
+      }
+    } catch (e) { console.error(e); return send(res, 400, { ok: false, error: 'Не получилось' }), true; }
+    return false;
+  };
+};

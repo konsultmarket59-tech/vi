@@ -30,7 +30,7 @@ a{color:inherit}
 .brand small{font:600 10.5px var(--text);letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
 .brand b{font:800 28px/1 var(--display);letter-spacing:.02em;text-transform:uppercase;color:var(--brand);margin-top:3px}
 nav.main{display:flex;gap:4px;flex-wrap:wrap}
-nav.main button{border:0;background:none;padding:8px 12px;border-radius:999px;font:600 13.5px var(--text);color:var(--muted)}
+nav.main button{border:0;background:none;padding:8px 10px;border-radius:999px;font:600 13.5px var(--text);color:var(--muted)}
 nav.main button:hover{background:var(--brand-soft);color:var(--ink)}
 nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
 .top .cta{margin-left:auto}
@@ -206,6 +206,21 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 .ch{margin:0;padding-left:18px;display:grid;gap:5px;font-size:13px}
 .box{background:var(--sheet);border-radius:12px;padding:12px 14px;display:grid;gap:6px;font-size:13px}
 .box b{font:700 13px var(--text)}
+.proj{background:var(--panel);border-radius:var(--r);overflow:hidden;border:1px solid var(--line);cursor:pointer;display:grid}
+.proj img,.proj .noimg{width:100%;aspect-ratio:16/10;object-fit:cover;background:#dfe3e8;display:block}
+.proj .pb{padding:12px 14px;display:grid;gap:6px}
+.proj h3{font:800 22px/1.05 var(--display);text-transform:uppercase;color:var(--brand)}
+.proj:hover{box-shadow:var(--shadow)}
+.row.between{justify-content:space-between}
+.stars{display:inline-flex;gap:1px}
+.stars button{border:0;background:none;padding:0;font-size:16px;line-height:1;color:#d5d7da;cursor:pointer}
+.stars.big button{font-size:26px}
+.stars button.on{color:var(--accent)}
+.badge{display:inline-block;background:var(--brand);color:#fff;border-radius:999px;padding:1px 8px;font:700 11px var(--text)}
+.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.gal img{width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:zoom-in}
+.gal img.big{grid-column:1/-1;cursor:zoom-out}
+.mine{border-top:1px solid var(--line);padding:9px 0;display:grid;gap:5px}
 .sheets{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;max-height:62vh;overflow:auto}
 .sheets img{width:100%;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:zoom-in}
 .sheets img.big{grid-column:1/-1;cursor:zoom-out}
@@ -230,9 +245,11 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <button data-page="project" aria-current="page">Мой проект</button>
       <button data-page="builders">Строительные компании</button>
       <button data-page="arch">Архитекторы</button>
+      <button data-page="projects">Проекты</button>
       <button data-page="how">Как это работает</button>
     </nav>
     <button class="btn gold cta" data-act="lead">Подобрать строителя</button>
+    <button class="btn" id="cabBtn">Войти</button>
   </header>
 
   <!-- конструктор -->
@@ -362,6 +379,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
           </div>
         </div>
         <button class="btn gold big" data-act="lead">Подобрать строителя под проект</button>
+        <button class="btn big" data-act="publish">Опубликовать проект и зарабатывать</button>
       </aside>
 
       <section class="stage" id="stage">
@@ -409,6 +427,19 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <div class="grid" id="list-arch"></div>
       <div class="join"><div><b>Вы архитектор?</b><p>Добавьте профиль и портфолио — клиенты с эскизами домов ищут исполнителя здесь.</p></div><button class="btn gold big" data-act="join">Добавить профиль</button></div>
     </div>
+  </main>
+  <main class="page" id="page-projects" hidden>
+    <div class="wrap">
+      <h1>Проекты пользователей</h1>
+      <p class="lead">Планировки и эскизы, которые сделали пользователи и архитекторы. Бесплатные открываются в конструкторе сразу, платные — после запроса и оплаты через площадку. Оценивайте звёздами — лучшие поднимаются выше.</p>
+      <div class="filters"><label class="fld">Поиск<input id="projQ" placeholder="Название, описание"></label>
+        <label class="fld">Сначала<select id="projSort"><option value="rating">с высоким рейтингом</option><option value="new">новые</option><option value="price">дешевле</option></select></label></div>
+      <div class="grid" id="projList"></div>
+      <div class="join"><div><b>Сделали хороший проект?</b><p>Опубликуйте его и назначьте цену за использование. Архитекторы с подтверждённым дипломом получают отметку ✓.</p></div><button class="btn gold big" data-act="publish">Опубликовать проект</button></div>
+    </div>
+  </main>
+  <main class="page" id="page-cab" hidden>
+    <div class="wrap"><h1>Личный кабинет</h1><div id="cabBody"></div></div>
   </main>
   <main class="page" id="page-how" hidden>
     <div class="wrap">
@@ -514,6 +545,44 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
   </form>
 </dialog>
 
+<dialog id="authDlg">
+  <div class="dlg">
+    <header><div><h2>Кабинет</h2><div class="muted">Чтобы публиковать проекты, оценивать и получать запросы</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
+    <div class="seg" id="authTabs"><button data-t="login">Вход</button><button data-t="reg">Регистрация</button></div>
+    <form id="aLogin" class="q"><label class="fld">Эл. почта<input name="email" type="email" autocomplete="email" required></label><label class="fld">Пароль<input name="password" type="password" autocomplete="current-password" required></label><button class="btn primary" type="submit">Войти</button></form>
+    <form id="aReg" class="q" hidden>
+      <div class="row2"><label class="fld">Имя и фамилия<input name="name" autocomplete="name" required></label><label class="fld">Телефон<input name="phone" type="tel" autocomplete="tel"></label></div>
+      <div class="row2"><label class="fld">Эл. почта<input name="email" type="email" autocomplete="email" required></label><label class="fld">Город<input name="city" list="cityList"></label></div>
+      <label class="fld">Пароль (от 8 символов)<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label class="chk"><input type="checkbox" name="arch" id="aArch">Я архитектор — подать заявку на подтверждение</label>
+      <div id="aArchBox" class="q" hidden>
+        <label class="fld">Диплом (вуз, специальность, год)<input name="diploma"></label>
+        <div class="row2"><label class="fld">СРО / членство (если есть)<input name="sro"></label><label class="fld">Сайт или портфолио<input name="site"></label></div>
+        <label class="fld">О себе<textarea name="about" rows="2"></textarea></label>
+        <label class="fld">Скан диплома и документов (PDF, JPG, PNG, до 8 МБ)<input type="file" name="docs" accept=".pdf,.jpg,.jpeg,.png" multiple></label>
+      </div>
+      <label class="chk"><input type="checkbox" name="agree">Согласен на обработку персональных данных и с правилами публикации</label>
+      <button class="btn primary" type="submit">Зарегистрироваться</button>
+    </form>
+    <div class="err-t" id="aErr"></div>
+  </div>
+</dialog>
+
+<dialog id="pubDlg">
+  <form class="dlg" id="pubForm">
+    <header><div><h2>Опубликовать проект</h2><div class="muted" id="pubInfo"></div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
+    <label class="fld">Название<input name="title" required maxlength="120"></label>
+    <label class="fld">Описание<textarea name="about" rows="3" placeholder="Для кого дом, чем удобна планировка, какие материалы"></textarea></label>
+    <div class="row2"><label class="fld">Цена за использование, ₽ (0 — бесплатно)<input name="price" type="number" min="0" step="500" value="0"></label>
+      <label class="fld">Что получает покупатель<select name="license"><option value="view">Эскиз для ознакомления и доработки</option><option value="build">Право построить один дом по эскизу</option></select></label></div>
+    <div class="muted">Планы этажей и вид снаружи прикрепятся автоматически. Площадка берёт комиссию с платных продаж; оплату и передачу эскиза ведёт менеджер.</div>
+    <label class="chk"><input type="checkbox" name="own">Проект мой, я согласен с правилами публикации</label>
+    <div class="nav"><span class="err-t" id="pErr"></span><button class="btn primary" type="submit">Опубликовать</button></div>
+  </form>
+</dialog>
+
+<dialog id="prDlg" style="width:min(900px,calc(100vw - 24px))"><div class="dlg" id="prBody"></div></dialog>
+
 <dialog id="sketchDlg" style="width:min(1100px,calc(100vw - 24px))">
   <div class="dlg">
     <header><div><h2>Эскизный проект</h2><div class="muted" id="skStep">Собираю листы…</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
@@ -533,6 +602,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 <script src="js/view3d.js"></script>
 <script src="js/lead.js"></script>
 <script src="js/sketch.js"></script>
+<script src="js/market-ui.js"></script>
 <script src="js/catalog.js"></script>
 <script src="js/app.js"></script>
 </body>

@@ -455,18 +455,19 @@ function undo() { if (hi > 0) { hi--; P = JSON.parse(hist[hi]); sel = null; save
 function redo() { if (hi < hist.length - 1) { hi++; P = JSON.parse(hist[hi]); sel = null; save(); refresh(); if (v3 && view !== 'plan') v3.rebuild(); } }
 
 function page(id, fromHash) {
-  if (!['project', 'builders', 'arch', 'how'].includes(id)) id = 'project';
+  if (!['project', 'builders', 'arch', 'how', 'projects', 'cab'].includes(id)) id = 'project';
+  $$('dialog[open]').forEach(d => { if (d.id !== 'leadDlg') d.close(); });
   $$('main.page').forEach(m => { m.hidden = m.id !== 'page-' + id; });
   $$('nav.main button').forEach(b => b.setAttribute('aria-current', b.dataset.page === id ? 'page' : 'false'));
   if (!fromHash) history.replaceState(null, '', id === 'project' ? location.pathname : '#' + id);
   if (id === 'project') { if (view === 'plan') plan.size(); else setView(view); }
-  else { if (v3) v3.stop(); renderLists(); }
+  else { if (v3) v3.stop(); if (id === 'projects') DK.Market.renderProjects(); else if (id === 'cab') DK.Market.renderCab(); else renderLists(); }
 }
 
 /* ---------- каталог ---------- */
 const filt = { builders: {}, arch: {} };
 function bindCatalog() {
-  $$('.filters').forEach(el => {
+  $$('.filters[data-for]').forEach(el => {
     const k = el.dataset.for;
     el.innerHTML = `<label class="fld">Город<input data-f="city" list="cityList" placeholder="Любой"></label>
       <label class="fld">Материал<select data-f="mat"><option value="">Любой</option>${Object.entries(DK.MATS).map(([m, n]) => `<option value="${m}">${n}</option>`).join('')}</select></label>
@@ -578,7 +579,19 @@ async function submit() {
 }
 
 /* ---------- запуск ---------- */
+DK.goPage = (id) => page(id);
+DK.toast = toast;
+DK.appApi = {
+  project: () => P,
+  load(d) { P = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(d)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!P.levels[k]) P.levels[k] = DK.emptyLevel(); }); sel = null; fid = 'f1'; app.commit('Проект открыт'); plan.fit(); },
+  async images() {
+    const nums = DK.roomNumbers(P), out = { plans: DK.floorsOf(P).map(f => plan.toImage(f, { width: 1400, numbers: nums })) };
+    try { await DK.loadThree(); if (!v3) v3 = DK._view = DK.View3D($('#c3d'), app); out.exterior = v3.exteriorShot(1400, 900); v3.rebuild(); } catch (e) { /* без 3D — только планы */ }
+    return out;
+  },
+};
 bind();
+DK.Market.init();
 setView('plan');
 refresh();
 requestAnimationFrame(() => { plan.size(); plan.fit(); app.setTool('select'); });

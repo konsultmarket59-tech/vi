@@ -39,7 +39,7 @@ textarea,input,select{border:1px solid var(--line);border-radius:10px;padding:7p
 <body>
 <header>
   <h1>Заявки</h1>
-  <div class="row"><button class="btn" data-tab="leads" aria-pressed="true">Заявки</button><button class="btn" data-tab="comp">Исполнители</button></div>
+  <div class="row"><button class="btn" data-tab="leads" aria-pressed="true">Заявки</button><button class="btn" data-tab="comp">Исполнители</button><button class="btn" data-tab="arch">Архитекторы</button><button class="btn" data-tab="proj">Проекты</button></div>
   <div class="row" style="margin-left:auto"><input type="password" id="key" placeholder="ADMIN_KEY" style="width:200px"><button class="btn primary" id="go">Войти</button></div>
 </header>
 <main id="m-leads">
@@ -49,6 +49,8 @@ textarea,input,select{border:1px solid var(--line);border-radius:10px;padding:7p
 <main id="m-comp" hidden style="grid-template-columns:1fr">
   <div class="card"><table><thead><tr><th>Компания</th><th>Город</th><th>Контакты</th><th>Статус</th><th></th></tr></thead><tbody id="comps"></tbody></table></div>
 </main>
+<main id="m-arch" hidden style="grid-template-columns:1fr"><div class="card"><table><thead><tr><th>Пользователь</th><th>Диплом и данные</th><th>Документы</th><th>Статус</th><th></th></tr></thead><tbody id="archs"></tbody></table></div></main>
+<main id="m-proj" hidden style="grid-template-columns:1fr"><div class="card"><table><thead><tr><th>Проект</th><th>Автор</th><th>Цена</th><th>Запросы</th><th>Статус</th><th></th></tr></thead><tbody id="projs"></tbody></table></div></main>
 <script>
 (function () {
 'use strict';
@@ -97,10 +99,31 @@ async function comps() {
     <td><span class="st">${esc(c.status)}</span></td><td class="row"><button class="btn" data-id="${esc(c.id)}" data-s="approved">Опубликовать</button><button class="btn" data-id="${esc(c.id)}" data-s="rejected">Отклонить</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Регистраций пока нет</td></tr>';
   document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => { await api('company/' + b.dataset.id, { status: b.dataset.s }); comps(); });
 }
+const ARCH = { none: 'нет заявки', pending: 'на проверке', verified: 'подтверждён', rejected: 'отклонён' };
+async function archs() {
+  const list = await api('market/users');
+  $('#archs').innerHTML = list.sort((a, b) => (b.archStatus === 'pending') - (a.archStatus === 'pending')).map(u => `<tr><td><b>${esc(u.name)}</b><div class="muted">${esc(u.email)} · ${esc(u.phone || '')} · ${esc(u.city || '')}</div></td>
+    <td>${esc(u.diploma || '—')}<div class="muted">${esc(u.sro || '')} ${esc(u.site || '')}</div><div class="muted">${esc(u.about || '')}</div></td>
+    <td>${(u.docs || []).map(d => `<button class="btn" data-doc="${esc(u.id)}/${esc(d)}">${esc(d)}</button>`).join(' ') || '—'}</td>
+    <td><span class="st">${ARCH[u.archStatus] || u.archStatus}</span></td>
+    <td class="row"><button class="btn" data-u="${esc(u.id)}" data-a="verified">Подтвердить</button><button class="btn" data-u="${esc(u.id)}" data-a="rejected">Отклонить</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Пользователей пока нет</td></tr>';
+  document.querySelectorAll('[data-doc]').forEach(b => b.onclick = async () => { const r = await fetch('/api/admin/market/doc/' + b.dataset.doc, { headers: { 'X-Admin-Key': key } }); window.open(URL.createObjectURL(await r.blob()), '_blank'); });
+  document.querySelectorAll('[data-u]').forEach(b => b.onclick = async () => { await api('market/user/' + b.dataset.u, { archStatus: b.dataset.a }); archs(); });
+}
+async function projs() {
+  const list = await api('market/projects');
+  $('#projs').innerHTML = list.map(x => `<tr><td><b>${esc(x.title)}</b><div class="muted">${x.area} м² · ${new Date(x.at).toLocaleDateString('ru-RU')} · ★ ${x.rating.avg} (${x.rating.n})</div></td>
+    <td>${esc(x.author.name)}${x.author.verified ? ' ✓' : ''}</td><td>${x.price ? x.price.toLocaleString('ru-RU') + ' ₽' : 'бесплатно'}</td>
+    <td>${x.requests.map(r => `<div>${esc(r.name)}, ${esc(r.phone)}${r.comment ? ' — ' + esc(r.comment) : ''}${r.user ? ` <button class="btn" data-grant="${esc(x.id)}" data-user="${esc(r.user)}">Открыть доступ</button>` : ''}</div>`).join('') || '—'}</td>
+    <td><span class="st">${esc(x.status)}</span></td>
+    <td class="row"><button class="btn" data-p="${esc(x.id)}" data-s="published">Показать</button><button class="btn" data-p="${esc(x.id)}" data-s="hidden">Скрыть</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Проектов пока нет</td></tr>';
+  document.querySelectorAll('[data-p]').forEach(b => b.onclick = async () => { await api('market/project/' + b.dataset.p, { status: b.dataset.s }); projs(); });
+  document.querySelectorAll('[data-grant]').forEach(b => b.onclick = async () => { await api('market/project/' + b.dataset.grant, { grant: b.dataset.user }); b.textContent = 'Доступ открыт'; b.disabled = true; });
+}
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  $('#m-leads').hidden = b.dataset.tab !== 'leads'; $('#m-comp').hidden = b.dataset.tab !== 'comp';
-  b.dataset.tab === 'leads' ? leads() : comps();
+  ['leads', 'comp', 'arch', 'proj'].forEach(t => { $('#m-' + t).hidden = b.dataset.tab !== t; });
+  ({ leads, comp: comps, arch: archs, proj: projs })[b.dataset.tab]();
 });
 $('#go').onclick = () => { key = $('#key').value; sessionStorage.setItem('dk-admin', key); leads(); };
 if (key) leads();

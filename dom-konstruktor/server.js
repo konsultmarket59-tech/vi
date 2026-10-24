@@ -156,7 +156,7 @@ function stat(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(ROOT, p));
-  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || /server\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || /(server|market)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
@@ -164,9 +164,12 @@ function stat(req, res, url) {
   });
 }
 
-http.createServer((req, res) => {
+const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL });
+
+http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
+    if (url.pathname.startsWith('/api/') && await marketHandle(req, res, url)) return;
     if (url.pathname === '/api/lead' && req.method === 'POST') return lead(req, res);
     if (url.pathname === '/api/register' && req.method === 'POST') return register(req, res);
     if (url.pathname === '/api/catalog' && req.method === 'GET') {
