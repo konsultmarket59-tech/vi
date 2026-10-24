@@ -1,0 +1,44 @@
+name: Release dom-konstruktor
+
+# Каждый пуш в конструктор обновляет релиз: архив папки и одностраничный HTML
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+      - "claude/home-design-platform-*"
+    paths:
+      - "dom-konstruktor/**"
+      - ".github/workflows/release_dom_konstruktor.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check scripts
+        run: for f in dom-konstruktor/js/*.js dom-konstruktor/server.js dom-konstruktor/market.js; do node --check "$f"; done
+
+      - name: Build single-file HTML and archive
+        run: |
+          python3 dom-konstruktor/build_single.py release/konstruktor-doma.html
+          zip -qr release/dom-konstruktor.zip dom-konstruktor -x "dom-konstruktor/data/runtime/*" "dom-konstruktor/dist/*"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dom-konstruktor
+          name: "Конструктор дома — последняя версия"
+          body: |
+            Автоматический релиз из ветки `${{ github.ref_name }}`, коммит ${{ github.sha }}.
+
+            - `konstruktor-doma.html` — всё в одном файле, открывается двойным щелчком (нужен интернет для 3D и шрифтов).
+            - `dom-konstruktor.zip` — полная версия с сервером: `ADMIN_KEY=ключ node server.js`, затем http://localhost:8080.
+          prerelease: true
+          files: |
+            release/konstruktor-doma.html
+            release/dom-konstruktor.zip
