@@ -134,6 +134,47 @@ function offsetPoly(p, d) {
   }
   return pts;
 }
+/* ---------- срезанные углы и диагональные стены ---------- */
+/* срез угла: p.chamfers = { idВершины: c } — по 45°, c — длина среза вдоль каждой стены по наружной грани несущего слоя */
+function chamferOf(p, vid) { return (p.chamfers && p.chamfers[vid]) || 0; }
+/* контур со срезанными углами на смещении d (наружу +): общий для плана, 3D, площади застройки */
+function outline(p, d) {
+  const P = offsetPoly(p, d || 0), n = P.length, out = [];
+  if (!p.chamfers || !Object.keys(p.chamfers).length) return P;
+  const k = 2 - Math.SQRT2;
+  for (let i = 0; i < n; i++) {
+    const c = chamferOf(p, p.poly[i].id);
+    if (!c) { out.push(P[i]); continue; }
+    const a = P[(i - 1 + n) % n], v = P[i], b = P[(i + 1) % n], cd = c + (d || 0) * k;
+    const la = Math.hypot(v.x - a.x, v.y - a.y), lb = Math.hypot(b.x - v.x, b.y - v.y);
+    out.push({ x: v.x - (v.x - a.x) / la * cd, y: v.y - (v.y - a.y) / la * cd }, { x: v.x + (b.x - v.x) / lb * cd, y: v.y + (b.y - v.y) / lb * cd });
+  }
+  return out;
+}
+/* косые стены: срезы углов (наружные) и диагональные перегородки — осевая линия, толщина */
+function diagWalls(p, fid) {
+  const out = [], t = ts(p), ext = extT(p);
+  if (p.chamfers && Object.keys(p.chamfers).length) {
+    const P0 = offsetPoly(p, 0), n = P0.length, k = 2 - Math.SQRT2;
+    const pts = (d, i, c) => { const P = offsetPoly(p, d), a = P[(i - 1 + n) % n], v = P[i], b = P[(i + 1) % n], cd = c + d * k, la = Math.hypot(v.x - a.x, v.y - a.y), lb = Math.hypot(b.x - v.x, b.y - v.y);
+      return [{ x: v.x - (v.x - a.x) / la * cd, y: v.y - (v.y - a.y) / la * cd }, { x: v.x + (b.x - v.x) / lb * cd, y: v.y + (b.y - v.y) / lb * cd }]; };
+    p.poly.forEach((v, i) => {
+      const c = chamferOf(p, v.id); if (!c) return;
+      const [A0, B0] = pts(0, i, c), [A1, B1] = pts(-t, i, c), [A2, B2] = pts(ext, i, c);
+      const nx = ((A1.x + B1.x) - (A0.x + B0.x)) / 2, ny = ((A1.y + B1.y) - (A0.y + B0.y)) / 2, nl = Math.hypot(nx, ny);
+      out.push({ id: 'C' + v.id, kind: 'outer', diag: true, x1: (A0.x + A1.x) / 2, y1: (A0.y + A1.y) / 2, x2: (B0.x + B1.x) / 2, y2: (B0.y + B1.y) / 2, t,
+        face: [A0, B0], inner: [A1, B1], clad: [A2, B2], out: { x: -nx / nl, y: -ny / nl }, vid: v.id, side: 'chamfer' });
+    });
+  }
+  const lv = p.levels[fid];
+  if (lv) lv.parts.forEach(w => { if (w.x1 !== w.x2 && w.y1 !== w.y2) out.push({ id: w.id, kind: 'part', diag: true, rail: !!w.rail, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2, t: w.rail ? 60 : SPEC.part.t }); });
+  return out;
+}
+/* расстояние от точки до отрезка */
+function segDist(x, y, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy, k = l2 ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / l2)) : 0;
+  return Math.hypot(x - x1 - k * dx, y - y1 - k * dy);
+}
 /* разбиение контура на прямоугольники (жадно, крупные первыми) */
 function decompose(p) {
   const xs = Array.from(new Set(p.poly.map(v => v.x))).sort((a, b) => a - b), ys = Array.from(new Set(p.poly.map(v => v.y))).sort((a, b) => a - b);
@@ -241,6 +282,10 @@ function walls(p, fid) {
     const startLo = e.dir > 0;
     if (!e.convexA) { if (startLo) a0 -= t; else a1 += t; }
     if (!e.convexB) { if (startLo) a1 += t; else a0 -= t; }
+    // срез угла: стена укорачивается на длину среза, угол занимает косая стена
+    const cs = chamferOf(p, e.id), ce = chamferOf(p, p.poly[(e.i + 1) % p.poly.length].id);
+    if (cs) { if (startLo) a0 = e.lo + cs; else a1 = e.hi - cs; }
+    if (ce) { if (startLo) a1 = e.hi - ce; else a0 = e.lo + ce; }
     const t0 = e.out < 0 ? e.line : e.line - t, t1 = t0 + t;
     const w = e.axis === 'x' ? { x0: a0, x1: a1, y0: t0, y1: t1 } : { x0: t0, x1: t1, y0: a0, y1: a1 };
     out.push(Object.assign(w, { id: e.id, kind: 'outer', axis: e.axis, out: e.out, line: e.line, side: e.side, edge: e }));
@@ -254,6 +299,7 @@ function walls(p, fid) {
   });
   const ph = SPEC.part.t / 2, lv = p.levels[fid];
   if (lv) lv.parts.forEach(w => {
+    if (w.x1 !== w.x2 && w.y1 !== w.y2) return; // косые — в diagWalls
     const r = w.rail ? 30 : ph;
     if (w.y1 === w.y2) out.push({ id: w.id, kind: 'part', rail: !!w.rail, axis: 'x', x0: Math.min(w.x1, w.x2), x1: Math.max(w.x1, w.x2), y0: w.y1 - r, y1: w.y1 + r });
     else out.push({ id: w.id, kind: 'part', rail: !!w.rail, axis: 'y', x0: w.x1 - r, x1: w.x1 + r, y0: Math.min(w.y1, w.y2), y1: Math.max(w.y1, w.y2) });
@@ -270,23 +316,38 @@ function cladRect(p, w, ext) {
   const e = w.edge, P = offsetPoly(p, ext), n = P.length, i = e.i;
   const q0 = P[i], q1 = P[(i + 1) % n];
   const b0 = e.axis === 'x' ? Math.min(q0.x, q1.x) : Math.min(q0.y, q1.y), b1 = e.axis === 'x' ? Math.max(q0.x, q1.x) : Math.max(q0.y, q1.y);
-  const a0 = Math.min(e.lo, b0), a1 = Math.max(e.hi, b1);
+  let a0 = Math.min(e.lo, b0), a1 = Math.max(e.hi, b1);
+  const cs = chamferOf(p, e.id), ce = chamferOf(p, p.poly[(i + 1) % n].id), k = Math.SQRT2 - 1, lo = e.dir > 0;
+  if (cs) { if (lo) a0 = e.lo + cs - ext * k; else a1 = e.hi - cs + ext * k; }
+  if (ce) { if (lo) a1 = e.hi - ce + ext * k; else a0 = e.lo + ce - ext * k; }
   const t0 = e.out < 0 ? e.line - ext : e.line, t1 = t0 + ext;
   return { a0, a1, t0, t1 };
 }
 
 /* ---------- помещения ---------- */
+const roomsMemo = new Map();
 function rooms(p, fid) {
-  const ws = walls(p, fid), W = p.W, D = p.D;
+  // помещения считаются часто (каждая отрисовка) — запоминаем по всему, от чего они зависят
+  const lv0 = p.levels[fid], key = fid + JSON.stringify([p.poly, p.chamfers, p.bearing, p.wallMat, lv0 && lv0.parts, lv0 && lv0.names]);
+  const hit = roomsMemo.get(key); if (hit) return hit;
+  const res = roomsCalc(p, fid);
+  roomsMemo.set(key, res); if (roomsMemo.size > 24) roomsMemo.delete(roomsMemo.keys().next().value);
+  return res;
+}
+function roomsCalc(p, fid) {
+  const ws = walls(p, fid), dw = diagWalls(p, fid), W = p.W, D = p.D, ol = outline(p, 0);
   const uniq = (a) => Array.from(new Set(a.map(Math.round))).sort((m, n) => m - n);
-  const xs = uniq([0, W].concat(...ws.map(w => [w.x0, w.x1]), p.poly.map(v => v.x))).filter(v => v >= 0 && v <= W);
-  const ys = uniq([0, D].concat(...ws.map(w => [w.y0, w.y1]), p.poly.map(v => v.y))).filter(v => v >= 0 && v <= D);
+  // у косых стен сетка мельче — шаг 100 мм в их габарите
+  const fx = [], fy = [];
+  dw.forEach(d => { const m = d.t + 100; for (let x = Math.min(d.x1, d.x2) - m; x <= Math.max(d.x1, d.x2) + m; x += 100) fx.push(x); for (let y = Math.min(d.y1, d.y2) - m; y <= Math.max(d.y1, d.y2) + m; y += 100) fy.push(y); });
+  const xs = uniq([0, W].concat(...ws.map(w => [w.x0, w.x1]), p.poly.map(v => v.x), fx)).filter(v => v >= 0 && v <= W);
+  const ys = uniq([0, D].concat(...ws.map(w => [w.y0, w.y1]), p.poly.map(v => v.y), fy)).filter(v => v >= 0 && v <= D);
   const nx = xs.length - 1, ny = ys.length - 1, cell = new Int32Array(nx * ny).fill(-1);
   const cw = [];
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const x = (xs[i] + xs[i + 1]) / 2, y = (ys[j] + ys[j + 1]) / 2;
-    if (!inside(p.poly, x, y)) { cell[j * nx + i] = -3; continue; }
-    const w = ws.find(v => x > v.x0 && x < v.x1 && y > v.y0 && y < v.y1);
+    if (!inside(ol, x, y)) { cell[j * nx + i] = -3; continue; }
+    const w = ws.find(v => x > v.x0 && x < v.x1 && y > v.y0 && y < v.y1) || dw.find(d => segDist(x, y, d.x1, d.y1, d.x2, d.y2) < d.t / 2);
     if (w) { cell[j * nx + i] = -2; cw[j * nx + i] = w; }
   }
   const regs = [];
@@ -627,7 +688,7 @@ function areas(p) {
   return {
     per, total: per.reduce((s, f) => s + f.area, 0), loggia, outdoor, garage,
     outW: p.W + 2 * ext, outD: p.D + 2 * ext, inW: p.W - 2 * ts(p), inD: p.D - 2 * ts(p),
-    T: totalT(p), footprint: polyArea(offsetPoly(p, ext)) / 1e6,
+    T: totalT(p), footprint: Math.abs(polyArea(outline(p, ext))) / 1e6,
   };
 }
 
@@ -819,6 +880,17 @@ function normalize(p) {
   shiftAll(p, -mx, -my);
   p.W = Math.max(...p.poly.map(v => v.x)); p.D = Math.max(...p.poly.map(v => v.y));
   const t = ts(p);
+  // срезы углов: только на выпуклых углах, не длиннее стен (с запасом 0,6 м), не короче 0,6 м
+  if (p.chamfers) {
+    const E = edges(p), n = p.poly.length, keep = {};
+    p.poly.forEach((v, i) => {
+      const c = p.chamfers[v.id]; if (!c || !E[i].convexA) return;
+      const prev = E[(i - 1 + n) % n], next = E[i], other = (j) => chamferOf(p, p.poly[(j + n) % n].id);
+      const lim = Math.min(prev.hi - prev.lo - other(i - 1), next.hi - next.lo - other(i + 1)) - 600;
+      const cc = Math.round(Math.min(c, lim) / 50) * 50; if (cc >= 600) keep[v.id] = cc;
+    });
+    p.chamfers = keep;
+  }
   const vs = bearingVariants(p);
   const okNow = vs.find(v => JSON.stringify(v.walls) === JSON.stringify(p.bearing));
   const curOk = spanReport(p).every(x => x.ok) && p.bearing.every(b => lineSpan(p, b.axis, b.pos));
@@ -997,7 +1069,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

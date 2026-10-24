@@ -49,16 +49,16 @@ function Plan2D(canvas, app) {
     c.save();
     // отмостка по периметру — на плане 1 этажа
     if (p.blind && fid === DK.floorsOf(p).find(f => f !== 'b')) {
-      c.fillStyle = '#e7e4de'; path(c, DK.offsetPoly(p, ext + p.blind), X, Y); c.fill();
-      c.strokeStyle = '#a9a39a'; c.lineWidth = 1; c.setLineDash([5, 4]); path(c, DK.offsetPoly(p, ext + p.blind), X, Y); c.stroke(); c.setLineDash([]);
+      c.fillStyle = '#e7e4de'; path(c, DK.outline(p, ext + p.blind), X, Y); c.fill();
+      c.strokeStyle = '#a9a39a'; c.lineWidth = 1; c.setLineDash([5, 4]); path(c, DK.outline(p, ext + p.blind), X, Y); c.stroke(); c.setLineDash([]);
     }
     // облицовка, зазор, утеплитель, несущий слой
-    c.fillStyle = COL.clad[p.clad] || '#aaa'; path(c, DK.offsetPoly(p, ext), X, Y); c.fill();
-    if (cl.gap) { c.fillStyle = '#fff'; path(c, DK.offsetPoly(p, ext - cl.t), X, Y); c.fill(); }
-    if (p.insul) { c.fillStyle = COL.insul; path(c, DK.offsetPoly(p, p.insul), X, Y); c.fill(); }
+    c.fillStyle = COL.clad[p.clad] || '#aaa'; path(c, DK.outline(p, ext), X, Y); c.fill();
+    if (cl.gap) { c.fillStyle = '#fff'; path(c, DK.outline(p, ext - cl.t), X, Y); c.fill(); }
+    if (p.insul) { c.fillStyle = COL.insul; path(c, DK.outline(p, p.insul), X, Y); c.fill(); }
     drawExts(c, p, fid, X, Y, L, o.sel);
-    c.fillStyle = COL.gas; path(c, p.poly, X, Y); c.fill();
-    c.fillStyle = COL.sheet; path(c, DK.offsetPoly(p, -t), X, Y); c.fill();
+    c.fillStyle = COL.gas; path(c, DK.outline(p, 0), X, Y); c.fill();
+    c.fillStyle = COL.sheet; path(c, DK.outline(p, -t), X, Y); c.fill();
     // помещения
     regs.forEach(r => {
       const R = DK.ROOM[r.type] || DK.ROOM.none;
@@ -86,7 +86,7 @@ function Plan2D(canvas, app) {
       c.setLineDash([6, 4]); c.strokeStyle = COL.wetLine; c.lineWidth = tool === 'wet' ? 2 : 1.2; c.strokeRect(X(z.x), Y(z.y), L(z.w), L(z.h)); c.setLineDash([]);
     }
     if (!o.clean) {
-      c.save(); path(c, DK.offsetPoly(p, -t), X, Y); c.clip();
+      c.save(); path(c, DK.outline(p, -t), X, Y); c.clip();
       c.strokeStyle = 'rgba(0,0,0,.035)'; c.lineWidth = 1;
       for (let x = 1000; x < p.W; x += 1000) line(c, X(x), Y(0), X(x), Y(p.D));
       for (let y = 1000; y < p.D; y += 1000) line(c, X(0), Y(y), X(p.W), Y(y));
@@ -103,8 +103,18 @@ function Plan2D(canvas, app) {
       c.fillRect(X(w.x0), Y(w.y0), L(w.x1 - w.x0), L(w.y1 - w.y0));
       if (w.kind !== 'part') hatch(c, X(w.x0), Y(w.y0), L(w.x1 - w.x0), L(w.y1 - w.y0), w.kind === 'outer' ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,.35)', w.kind === 'outer' ? 7 : 5);
     });
+    // косые стены: срез угла (штриховка как у наружных) и диагональные перегородки
+    const dws = DK.diagWalls(p, fid);
+    dws.forEach(d => {
+      if (d.kind === 'outer') { c.save(); c.beginPath(); [d.face[0], d.face[1], d.inner[1], d.inner[0]].forEach((q, i) => i ? c.lineTo(X(q.x), Y(q.y)) : c.moveTo(X(q.x), Y(q.y))); c.closePath(); c.fillStyle = COL.gas; c.fill(); c.clip(); c.strokeStyle = 'rgba(0,0,0,.10)'; c.lineWidth = 1; for (let k = -2000; k < 2000; k += 7) line(c, X(d.x1) + k, Y(d.y1) - 300, X(d.x1) + k + 600, Y(d.y1) + 300); c.restore(); return; }
+      if (d.rail) { c.strokeStyle = COL.rail; c.lineWidth = 2; line(c, X(d.x1), Y(d.y1), X(d.x2), Y(d.y2)); return; }
+      c.strokeStyle = COL.part; c.lineWidth = Math.max(2, L(d.t)); c.lineCap = 'butt'; line(c, X(d.x1), Y(d.y1), X(d.x2), Y(d.y2));
+      const ang = Math.atan2(d.y2 - d.y1, d.x2 - d.x1), nx = -Math.sin(ang) * L(d.t) / 2, ny = Math.cos(ang) * L(d.t) / 2;
+      c.strokeStyle = 'rgba(43,46,51,.65)'; c.lineWidth = 1; line(c, X(d.x1) + nx, Y(d.y1) + ny, X(d.x2) + nx, Y(d.y2) + ny); line(c, X(d.x1) - nx, Y(d.y1) - ny, X(d.x2) - nx, Y(d.y2) - ny);
+      if (o.sel && o.sel.kind === 'part' && o.sel.id === d.id) { c.strokeStyle = COL.sel; c.lineWidth = 3; line(c, X(d.x1), Y(d.y1), X(d.x2), Y(d.y2)); c.fillStyle = COL.sel; [[d.x1, d.y1], [d.x2, d.y2]].forEach(([ex, ey]) => { c.beginPath(); c.arc(X(ex), Y(ey), 5, 0, 7); c.fill(); }); }
+    });
     c.strokeStyle = COL.ink; c.lineWidth = 1.4;
-    path(c, p.poly, X, Y); c.stroke(); path(c, DK.offsetPoly(p, -t), X, Y); c.stroke();
+    path(c, DK.outline(p, 0), X, Y); c.stroke(); path(c, DK.outline(p, -t), X, Y); c.stroke();
     ws.filter(w => w.kind !== 'outer').forEach(w => {
       const selW = o.sel && o.sel.kind === 'part' && o.sel.id === w.id;
       if (w.rail) {
@@ -190,7 +200,7 @@ function Plan2D(canvas, app) {
   /* мансарда: зона под скатом ниже нормативной высоты (площадь ×0,7) и линия этой высоты; окна в скатах */
   function drawAttic(c, p, X, Y, L, t) {
     const h0 = DK.atticH0(p), k = DK.knee(p), typ = p.roof.type;
-    c.save(); path(c, DK.offsetPoly(p, -t), X, Y); c.clip();
+    c.save(); path(c, DK.outline(p, -t), X, Y); c.clip();
     for (const R of DK.roofRects(p)) {
       const tn = Math.tan(typ === 'mansard' ? 62 * Math.PI / 180 : R.pitch), d = (h0 + 150 - k) / tn, W = R.W;
       if (d <= 0) continue;
@@ -457,7 +467,12 @@ function Plan2D(canvas, app) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, r.width, r.height);
     draw(ctx, view, p, app.fid(), { sel: app.sel(), dimOpen: app.opt('dimOpen'), furn: app.opt('furn') });
-    if (draft) {
+    if (draft && draft.diag) {
+      const X = (x) => view.ox + x * view.k, Y = (y) => view.oy + y * view.k, Lr = Math.round(Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1));
+      ctx.strokeStyle = 'rgba(227,162,26,.6)'; ctx.lineWidth = Math.max(2, DK.SPEC.part.t * view.k); ctx.beginPath(); ctx.moveTo(X(draft.x1), Y(draft.y1)); ctx.lineTo(X(draft.x2), Y(draft.y2)); ctx.stroke();
+      const ang = Math.round(Math.atan2(draft.y2 - draft.y1, draft.x2 - draft.x1) * 180 / Math.PI);
+      ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.fillStyle = COL.ink; ctx.textAlign = 'left'; ctx.fillText(`${Lr} мм · ${(ang % 180 + 180) % 180}°`, X(draft.x2) + 10, Y(draft.y2) - 10);
+    } else if (draft) {
       const X = (x) => view.ox + x * view.k, Y = (y) => view.oy + y * view.k;
       const h = DK.SPEC.part.t / 2;
       ctx.fillStyle = 'rgba(227,162,26,.55)';
@@ -556,6 +571,17 @@ function Plan2D(canvas, app) {
       return x > x0 && x < x1 && y > y0 && y < y1;
     });
   }
+  function hitDiag(p, fid, x, y) {
+    const tol = 8 / view.k;
+    return DK.diagWalls(p, fid).find(d => d.kind === 'part' && DK.segDist(x, y, d.x1, d.y1, d.x2, d.y2) < d.t / 2 + tol) || null;
+  }
+  /* выпуклый угол контура под курсором — для среза угла */
+  function hitCorner(p, x, y) {
+    const E = DK.edges(p), tol = Math.max(600, 24 / view.k);
+    let best = null;
+    p.poly.forEach((v, i) => { const d = Math.hypot(v.x - x, v.y - y); if (E[i].convexA && d < tol && (!best || d < best.d)) best = { v, d }; });
+    return best && best.v;
+  }
   function hitStair(p, x, y) { const r = DK.stairRect(p); return r && DK.floorsOf(p).length > 1 && x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1; }
   function hitPartEnd(p, fid, x, y) {
     const tol = 10 / view.k;
@@ -582,6 +608,16 @@ function Plan2D(canvas, app) {
     const { sx, sy } = pos(e), w = toW(sx, sy), p = app.p(), fid = app.fid();
     if (e.button === 1 || e.button === 2 || e.shiftKey) { drag = { kind: 'pan', sx, sy, ox: view.ox, oy: view.oy, moved: true }; return; }
     if (tool === 'wall') { const s = snapPt(p, fid, w.x, w.y); draft = { x1: s.x, y1: s.y, x2: s.x, y2: s.y }; drag = { kind: 'draft' }; render(); return; }
+    if (tool === 'wallD') { const s = snapPt(p, fid, w.x, w.y); draft = { x1: s.x, y1: s.y, x2: s.x, y2: s.y, diag: true }; drag = { kind: 'draft' }; render(); return; }
+    if (tool === 'chamfer') {
+      // срез угла: 1,5 м → 2 м → 1 м → без среза
+      const v = hitCorner(p, w.x, w.y); if (!v) { app.toast('Нажмите у выпуклого наружного угла'); return; }
+      p.chamfers = p.chamfers || {}; const cur = p.chamfers[v.id] || 0, next = { 0: 1500, 1500: 2000, 2000: 1000, 1000: 0 }[cur] ?? 0;
+      if (next) p.chamfers[v.id] = next; else delete p.chamfers[v.id];
+      app.commit(next ? 'Срез угла ' + DK.fmtM(next) + ' м' : 'Угол без среза');
+      if (next && !(p.chamfers || {})[v.id]) app.toast('Срез не помещается — стены у угла короткие');
+      return;
+    }
     if (tool === 'win' || tool === 'door' || tool === 'pass') { placeOpening(p, fid, w.x, w.y); return; }
     if (tool === 'furn') { placeFurn(p, fid, w.x, w.y); return; }
     if (tool === 'bump') { placeBump(p, fid, w.x, w.y); return; }
@@ -608,7 +644,9 @@ function Plan2D(canvas, app) {
     const f = app.opt('furn') !== false && hitFurn(p, fid, w.x, w.y);
     if (f) { app.select({ kind: 'furn', id: f.id }); drag = { kind: 'furn', f, w0: w, x0: f.x, y0: f.y }; return; }
     const pe = hitPartEnd(p, fid, w.x, w.y);
-    if (pe) { app.select({ kind: 'part', id: pe.q.id }); drag = { kind: 'pend', pe, ax: pe.q.y1 === pe.q.y2 ? 'x' : 'y' }; return; }
+    if (pe) { app.select({ kind: 'part', id: pe.q.id }); drag = { kind: 'pend', pe, ax: pe.q.x1 !== pe.q.x2 && pe.q.y1 !== pe.q.y2 ? 'd' : pe.q.y1 === pe.q.y2 ? 'x' : 'y' }; return; }
+    const pd = hitDiag(p, fid, w.x, w.y);
+    if (pd) { const part = p.levels[fid].parts.find(q => q.id === pd.id); app.select({ kind: 'part', id: pd.id }); drag = { kind: 'part', part, w0: w, s: Object.assign({}, part), ax: 'd' }; return; }
     const pw = hitWall(p, fid, w.x, w.y, ['part']);
     if (pw) { const part = p.levels[fid].parts.find(q => q.id === pw.id); app.select({ kind: 'part', id: pw.id }); drag = { kind: 'part', part, w0: w, s: Object.assign({}, part), ax: pw.axis }; return; }
     if (hitWall(p, fid, w.x, w.y, ['bearing'])) { app.select({ kind: 'bearing' }); drag = { kind: 'none' }; return; }
@@ -646,6 +684,24 @@ function Plan2D(canvas, app) {
     if (drag.kind === 'pan') {
       if (!drag.moved && Math.hypot(sx - drag.sx, sy - drag.sy) < 4) return;
       drag.moved = true; view.ox = drag.ox + sx - drag.sx; view.oy = drag.oy + sy - drag.sy; render(); return;
+    }
+    if (drag.kind === 'draft' && draft.diag) {
+      // косая перегородка: угол с шагом 15°, длина с шагом 50 мм, конец не выходит за дом
+      const t = DK.ts(p), a = Math.round(Math.atan2(w.y - draft.y1, w.x - draft.x1) / (Math.PI / 12)) * (Math.PI / 12);
+      let Lr = Math.round(Math.hypot(w.x - draft.x1, w.y - draft.y1) / 50) * 50;
+      // конец прилипает к ближайшей стене по направлению, если до неё меньше 0,4 м
+      const ux = Math.cos(a), uy = Math.sin(a); let hit = Infinity;
+      for (const r of DK.walls(p, fid)) {
+        let t0 = -Infinity, t1 = Infinity;
+        for (const [o, d, lo, hi] of [[draft.x1, ux, r.x0, r.x1], [draft.y1, uy, r.y0, r.y1]]) {
+          if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) { t0 = Infinity; } continue; }
+          const ta = (lo - o) / d, tb = (hi - o) / d; t0 = Math.max(t0, Math.min(ta, tb)); t1 = Math.min(t1, Math.max(ta, tb));
+        }
+        if (t0 <= t1 && t0 > 80) hit = Math.min(hit, t0);
+      }
+      if (Math.abs(hit - Lr) < 400) Lr = Math.round(hit + 20);
+      draft.x2 = Math.round(Math.max(t, Math.min(draft.x1 + Math.cos(a) * Lr, p.W - t))); draft.y2 = Math.round(Math.max(t, Math.min(draft.y1 + Math.sin(a) * Lr, p.D - t)));
+      render(); return;
     }
     if (drag.kind === 'draft') {
       const dx = Math.abs(w.x - draft.x1), dy = Math.abs(w.y - draft.y1);
@@ -698,11 +754,13 @@ function Plan2D(canvas, app) {
       drag.f.x = snap(drag.x0 + w.x - drag.w0.x); drag.f.y = snap(drag.y0 + w.y - drag.w0.y);
     } else if (drag.kind === 'part') {
       const t = DK.ts(p), q = drag.part, s = drag.s;
-      if (drag.ax === 'x') { const ny = Math.max(t + 60, Math.min(snap(s.y1 + w.y - drag.w0.y, 10), p.D - t - 60)); q.y1 = q.y2 = ny; }
+      if (drag.ax === 'd') { const dx = snap(w.x - drag.w0.x, 10), dy = snap(w.y - drag.w0.y, 10); q.x1 = s.x1 + dx; q.x2 = s.x2 + dx; q.y1 = s.y1 + dy; q.y2 = s.y2 + dy; }
+      else if (drag.ax === 'x') { const ny = Math.max(t + 60, Math.min(snap(s.y1 + w.y - drag.w0.y, 10), p.D - t - 60)); q.y1 = q.y2 = ny; }
       else { const nx = Math.max(t + 60, Math.min(snap(s.x1 + w.x - drag.w0.x, 10), p.W - t - 60)); q.x1 = q.x2 = nx; }
     } else if (drag.kind === 'pend') {
-      const q = drag.pe.q, k = drag.pe.k, sp = snapPt(p, fid, w.x, w.y, drag.ax === 'x' ? 'y' : 'x');
-      if (drag.ax === 'x') q['x' + k] = sp.x; else q['y' + k] = sp.y;
+      const q = drag.pe.q, k = drag.pe.k;
+      if (drag.ax === 'd') { const sp = snapPt(p, fid, w.x, w.y); q['x' + k] = sp.x; q['y' + k] = sp.y; }
+      else { const sp = snapPt(p, fid, w.x, w.y, drag.ax === 'x' ? 'y' : 'x'); if (drag.ax === 'x') q['x' + k] = sp.x; else q['y' + k] = sp.y; }
     } else if (drag.kind === 'stair') {
       p.stair.x = snap(drag.x0 + w.x - drag.w0.x); p.stair.y = snap(drag.y0 + w.y - drag.w0.y); DK.normalize(p);
     } else if (drag.kind === 'edge') {
@@ -734,6 +792,16 @@ function Plan2D(canvas, app) {
     const p = app.p(), fid = app.fid();
     if (!drag) return;
     if (drag.kind === 'measure') { drag = null; return; }
+    if (drag.kind === 'draft' && draft && draft.diag) {
+      const Lr = Math.round(Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1));
+      if (Lr >= 300) {
+        // строго горизонтальная или вертикальная — обычная перегородка
+        const q = { id: DK.id('w'), x1: draft.x1, y1: draft.y1, x2: draft.x2, y2: draft.y2 };
+        if (Math.abs(q.x2 - q.x1) < 20) q.x2 = q.x1; if (Math.abs(q.y2 - q.y1) < 20) q.y2 = q.y1;
+        p.levels[fid].parts.push(q); app.commit('Косая перегородка ' + Lr + ' мм'); app.select({ kind: 'part', id: q.id });
+      }
+      draft = null; drag = null; render(); return;
+    }
     if (drag.kind === 'draft' && draft) {
       const len = Math.abs(draft.x2 - draft.x1) + Math.abs(draft.y2 - draft.y1);
       if (len >= 300) {
@@ -816,7 +884,7 @@ function Plan2D(canvas, app) {
     const o = hitOpen(p, fid, x, y); if (o) { lv.open = lv.open.filter(q => q !== o); app.commit('Удалён проём'); return; }
     const xx = hitExt(p, fid, x, y); if (xx) { p.ext = p.ext.filter(q => q !== xx); app.commit('Удалено'); return; }
     const f = hitFurn(p, fid, x, y); if (f) { lv.furn = lv.furn.filter(q => q !== f); app.commit('Удалена мебель'); return; }
-    const w = hitWall(p, fid, x, y, ['part']); if (w) { lv.parts = lv.parts.filter(q => q.id !== w.id); lv.open = lv.open.filter(q => q.wall !== w.id); app.commit('Удалена перегородка'); }
+    const w = hitWall(p, fid, x, y, ['part']) || hitDiag(p, fid, x, y); if (w) { lv.parts = lv.parts.filter(q => q.id !== w.id); lv.open = lv.open.filter(q => q.wall !== w.id); app.commit('Удалена перегородка'); }
   }
 
   function toImage(fid, opt) {

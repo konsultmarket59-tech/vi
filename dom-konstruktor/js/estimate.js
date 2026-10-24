@@ -73,8 +73,8 @@ DK.estimateQty = function (p) {
   const fl = DK.floorsOf(p).filter(f => f !== 'b'), A = DK.areas(p), out = [];
   const add = (k, q, note) => { if (q > 0.001) out.push({ k, q: Math.round(q * 100) / 100, note }); };
   const t = DK.ts(p) / 1000, H = DK.storey(p) / 1000, hc = p.hClear / 1000;
-  const axis = DK.offsetPoly(p, -DK.ts(p) / 2), P = perimeter(axis) / 1000;           // периметр по оси стены
-  const foot = DK.polyArea(p.poly) / 1e6, inner = DK.polyArea(DK.offsetPoly(p, -DK.ts(p))) / 1e6;
+  const axis = DK.outline(p, -DK.ts(p) / 2), P = perimeter(axis) / 1000;           // периметр по оси стены (со срезами углов)
+  const foot = Math.abs(DK.polyArea(DK.outline(p, 0))) / 1e6, inner = Math.abs(DK.polyArea(DK.outline(p, -DK.ts(p)))) / 1e6;
   const bearingL = (DK.walls(p, 'f1').filter(w => w.kind === 'bearing').reduce((s, w) => s + (w.a1 - w.a0), 0)) / 1000;
   const attic = !!p.attic && fl.length > 1, top = fl[fl.length - 1];
   // фундамент: ростверк под наружными и несущими стенами, сваи через 1,5 м
@@ -104,7 +104,7 @@ DK.estimateQty = function (p) {
   const wallA = Math.max(0, outerA + gables - openA);
   add(p.wallMat === 'brick' ? 'brickWall' : 'gasWall', wallA * t, `${DK.fmtA(wallA)} м² × ${Math.round(t * 1000)} мм, фронтоны`);
   if (bearingL) add('brickWall', bearingL * hc * DK.SPEC.bearing.t / 1000 * fl.length, `несущая стена ${DK.fmtM(bearingL * 1000)} м × ${fl.length} эт.`);
-  let partL = 0; fl.forEach(f => p.levels[f].parts.filter(w => !w.rail).forEach(w => { partL += Math.hypot(w.x2 - w.x1, w.y2 - w.y1) / 1000; }));
+  let partL = 0; fl.forEach(f => p.levels[f].parts.filter(w => !w.rail).forEach(w => { partL += Math.hypot(w.x2 - w.x1, w.y2 - w.y1) / 1000; }));   // косые — по длине
   add('partWall', partL * hc, `перегородки ${DK.fmtM(partL * 1000)} м`);
   add('belt', (P + bearingL) * 0.25 * 0.2 * fl.length, 'по каждому этажу');
   add('lintel', lintels, 'окна и двери');
@@ -139,7 +139,7 @@ DK.estimateQty = function (p) {
     else if (x.kind === 'balcony') add('balcony', a, 'балкон');
     else { add('terrace', a, DK.EXT[x.kind].n); if ((x.roof || 'open') !== 'open') add('terraceRoof', a, 'навес'); if (x.roof === 'glazed') add('terraceGl', (x.w + 2 * x.d) / 1000 * 2.4, 'остекление'); }
   }
-  if (p.blind) add('blind', perimeter(DK.offsetPoly(p, DK.extT(p) + p.blind / 2)) / 1000 * p.blind / 1000, `ширина ${DK.fmtM(p.blind)} м`);
+  if (p.blind) add('blind', perimeter(DK.outline(p, DK.extT(p) + p.blind / 2)) / 1000 * p.blind / 1000, `ширина ${DK.fmtM(p.blind)} м`);
   return out;
 };
 

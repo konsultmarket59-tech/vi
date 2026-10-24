@@ -194,8 +194,8 @@ function View3D(canvas, app) {
     const cx = p.W / 2000, cz = p.D / 2000;
     const gm = box(160, 0.05, 160, outside ? mat({ m: 'grass', c: '#86a06c' }) : mat({ c: '#dfe2dc' }), cx, gy - 0.025, cz, { noShadow: true });
     gm.castShadow = false; root.add(gm); root.userData.ground = gm;
-    if (!p.basement) root.add(extrudePoly(DK.offsetPoly(p, ext + 25), gy, -gy, mat(F.plinth)));
-    if (p.blind && outside) root.add(extrudePoly(DK.offsetPoly(p, ext + p.blind), gy, 0.05, mat({ m: p.blindMat === 'concrete' ? 'concrete' : 'paving', c: p.blindMat === 'concrete' ? '#b7b4ae' : '#a9a197' })));
+    if (!p.basement) root.add(extrudePoly(DK.outline(p, ext + 25), gy, -gy, mat(F.plinth)));
+    if (p.blind && outside) root.add(extrudePoly(DK.outline(p, ext + p.blind), gy, 0.05, mat({ m: p.blindMat === 'concrete' ? 'concrete' : 'paving', c: p.blindMat === 'concrete' ? '#b7b4ae' : '#a9a197' })));
     const M = DK.mainRect(p);
     const onMain = (w) => w.axis === 'x' ? ((w.line === M.y0 || w.line === M.y1) && w.edge.lo >= M.x0 - 1 && w.edge.hi <= M.x1 + 1)
                                          : ((w.line === M.x0 || w.line === M.x1) && w.edge.lo >= M.y0 - 1 && w.edge.hi <= M.y1 + 1);
@@ -204,7 +204,7 @@ function View3D(canvas, app) {
       if (own) return F[own] || F.main;
       if (f === 'b') return F.plinth;
       const a = F.accentOn;
-      const acc = (a === 'upper' && (f === 'f2' || f === 'f3')) || (a === 'lower' && f === 'f1' && fl.length > (p.basement ? 2 : 1)) || (a === 'wings' && !onMain(w));
+      const acc = (a === 'upper' && (f === 'f2' || f === 'f3')) || (a === 'lower' && f === 'f1' && fl.length > (p.basement ? 2 : 1)) || (a === 'wings' && !w.diag && !onMain(w));
       return acc ? F.accent : F.main;
     };
     const af = DK.atticFloor(p), ytRoof = af ? DK.elev(p, af) / 1000 + DK.knee(p) / 1000 : 0;
@@ -321,14 +321,17 @@ function View3D(canvas, app) {
   }
   /* плита перекрытия по контуру дома с проёмами: ячейки сжатой сетки, слитые по строкам */
   function slabCells(p, y, th, holes, m) {
-    const xs = Array.from(new Set(p.poly.map(v => v.x).concat(...holes.map(h => [h.x0, h.x1])))).sort((a, b) => a - b);
-    const ys = Array.from(new Set(p.poly.map(v => v.y).concat(...holes.map(h => [h.y0, h.y1])))).sort((a, b) => a - b);
+    // у срезанных углов — мелкая сетка по 100 мм, чтобы плита шла по косой
+    const ol = DK.outline(p, 0), fx = [], fy = [];
+    DK.diagWalls(p, 'f1').filter(d => d.kind === 'outer').forEach(d => { const q = d.face.concat(d.inner); for (let x = Math.min(...q.map(v => v.x)) - 100; x <= Math.max(...q.map(v => v.x)) + 100; x += 100) fx.push(Math.round(x)); for (let z = Math.min(...q.map(v => v.y)) - 100; z <= Math.max(...q.map(v => v.y)) + 100; z += 100) fy.push(Math.round(z)); });
+    const xs = Array.from(new Set(p.poly.map(v => v.x).concat(...holes.map(h => [h.x0, h.x1]), fx))).sort((a, b) => a - b);
+    const ys = Array.from(new Set(p.poly.map(v => v.y).concat(...holes.map(h => [h.y0, h.y1]), fy))).sort((a, b) => a - b);
     for (let j = 0; j < ys.length - 1; j++) {
       let run = null;
       const flush = () => { if (run) { root.add(box((run[1] - run[0]) / 1000, th, (ys[j + 1] - ys[j]) / 1000, m, (run[0] + run[1]) / 2000, y + th / 2, (ys[j] + ys[j + 1]) / 2000)); run = null; } };
       for (let i = 0; i < xs.length - 1; i++) {
         const x = (xs[i] + xs[i + 1]) / 2, yy = (ys[j] + ys[j + 1]) / 2;
-        const ok = DK.inside(p.poly, x, yy) && !holes.some(h => x > h.x0 && x < h.x1 && yy > h.y0 && yy < h.y1);
+        const ok = DK.inside(ol, x, yy) && !holes.some(h => x > h.x0 && x < h.x1 && yy > h.y0 && yy < h.y1);
         if (ok) { if (run) run[1] = xs[i + 1]; else run = [xs[i], xs[i + 1]]; } else flush();
       }
       flush();
@@ -379,6 +382,29 @@ function View3D(canvas, app) {
       }
       for (const o of my) root.add(opening(p, f, w, o, y0, hWall, ext / 1000, F, regs));
     }
+    // косые стены: срез угла (несущий слой и облицовка) и диагональные перегородки
+    for (const d of DK.diagWalls(p, f)) {
+      const seg = (a, b, th, h0, h1, m, ext2) => {
+        const dx = (b.x - a.x) / 1000, dz = (b.y - a.y) / 1000, L = Math.hypot(dx, dz) + (ext2 || 0);
+        const mesh = box(L, h1 - h0, th / 1000, m, (a.x + b.x) / 2000, y0 + (h0 + h1) / 2, (a.y + b.y) / 2000);
+        mesh.rotation.y = -Math.atan2(dz, dx); root.add(mesh);
+      };
+      if (d.rail) {
+        const A = { x: d.x1, y: d.y1 }, Bp = { x: d.x2, y: d.y2 };
+        seg(A, Bp, 50, 0.95, 1.0, mat({ c: '#2f3237' }, { metalness: 0.5, roughness: 0.4 }));
+        seg(A, Bp, 12, 0.05, 0.95, new T.MeshStandardMaterial({ color: 0xcfe3ec, transparent: true, opacity: 0.3, roughness: 0.05 }));
+        continue;
+      }
+      if (d.kind === 'part') { seg({ x: d.x1, y: d.y1 }, { x: d.x2, y: d.y2 }, d.t, 0, hWall, wallIn); continue; }
+      const mid = (u, v) => ({ x: (u.x + v.x) / 2, y: (u.y + v.y) / 2 });
+      seg(mid(d.face[0], d.inner[0]), mid(d.face[1], d.inner[1]), d.t, 0, hWall, white, d.t * 0.0009);
+      if (ext > 0) {
+        const zm = mat(zone(f, { id: d.id, diag: true }));
+        const a = mid(d.face[0], d.clad[0]), b = mid(d.face[1], d.clad[1]);
+        if (wains > 0) { seg(a, b, ext, 0, Math.min(wains, hClad), mat(F.plinth), ext * 0.0009); seg(a, b, ext, wains, hClad, zm, ext * 0.0009); }
+        else seg(a, b, ext, 0, hClad, zm, ext * 0.0009);
+      }
+    }
   }
   /* прямоугольник минус проём: до четырёх кусков */
   function subRect(q, h) {
@@ -426,7 +452,7 @@ function View3D(canvas, app) {
   }
   function corners(p, ext, m, y0, y1) {
     const P = DK.offsetPoly(p, ext + 15), E = DK.edges(p);
-    P.forEach((q, i) => { if (E[(i - 1 + E.length) % E.length].convexB) root.add(box(0.15, y1 - y0, 0.15, m, q.x / 1000, (y0 + y1) / 2, q.y / 1000)); });
+    P.forEach((q, i) => { if (E[(i - 1 + E.length) % E.length].convexB && !DK.chamferOf(p, p.poly[i].id)) root.add(box(0.15, y1 - y0, 0.15, m, q.x / 1000, (y0 + y1) / 2, q.y / 1000)); });
   }
   function porch(p, ext, F) {
     const ent = p.levels.f1.open.find(o => o.kind === 'entry'); if (!ent) return;
@@ -926,7 +952,7 @@ function View3D(canvas, app) {
     // у мансарды фронтоны — настоящие стены этажа (с окнами), треугольники не нужны
     const gm = noGable ? null : mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });
     if (t === 'flat') {
-      const P = DK.offsetPoly(p, ext);
+      const P = DK.outline(p, ext);
       root.add(extrudePoly(P, yt, 0.05, mat({ c: '#5a5d62' })));
       const pm = mat(F.accentOn === 'upper' ? F.accent : F.main), cap = mat({ c: F.trim });
       for (const w of DK.walls(p, 'f1').filter(v => v.kind === 'outer')) {
@@ -1023,8 +1049,9 @@ function View3D(canvas, app) {
         solid.push([ox - t, oz - t, ox + S.W + t, oz + t], [ox - t, oz + S.D - t, ox + S.W + t, oz + S.D + t], [ox - t, oz, ox + t, oz + S.D], [ox + S.W - t, oz, ox + S.W + t, oz + S.D]);
         S.objs.filter(o => o.type === 'bath' || o.type === 'greenhouse').forEach(o => { const r = DK.siteObjRect(o); solid.push([r.x0 + ox, r.y0 + oz, r.x1 + ox, r.y1 + oz]); });
       }
+      const dsolid = DK.diagWalls(p, f).map(d => [d.x1 / 1000, d.y1 / 1000, d.x2 / 1000, d.y2 / 1000, d.t / 2000]);
       for (const it of p.levels[f].furn) { const F = DK.FURN[it.type]; if (F && !F.ceil && !F.wall && DK.furnSize(it).h > 300 && it.type !== 'boiler') { const b = DK.furnBox(it); solid.push([b.x0, b.y0, b.x1, b.y1]); } }
-      return { f, e: DK.elev(p, f) / 1000, solid: solid.map(r => r.map(v => v / 1000)), voids: regs.filter(r => r.type === 'void') };
+      return { f, e: DK.elev(p, f) / 1000, solid: solid.map(r => r.map(v => v / 1000)), dsolid, voids: regs.filter(r => r.type === 'void') };
     });
     return { p, fl, H, floors, sr: DK.stairRect(p) };
   }
@@ -1053,6 +1080,7 @@ function View3D(canvas, app) {
     const ctx = D.floors.filter(f => f.e <= h + 0.3).pop() || D.floors[0];
     // под скатом мансарды ниже 1,75 м не пройти
     if (ctx.f === DK.atticFloor(D.p) && DK.inside(D.p.poly, x * 1000, z * 1000) && DK.atticH(D.p, x * 1000, z * 1000) < 1750) return true;
+    if ((ctx.dsolid || []).some(d => DK.segDist(x, z, d[0], d[1], d[2], d[3]) < d[4] + rad)) return true;
     return ctx.solid.some(r => x > r[0] - rad && x < r[2] + rad && z > r[1] - rad && z < r[3] + rad);
   }
   function tryMove(nx, nz) {
