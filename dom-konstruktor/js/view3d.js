@@ -27,6 +27,9 @@ function View3D(canvas, app) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
   renderer.outputEncoding = T.sRGBEncoding;
+  renderer.localClippingEnabled = true;
+  const cutPlane = new T.Plane(new T.Vector3(0, -1, 0), 1e6); // срез мебели и лестницы в интерьере
+  let clipNow = false;
   const scene = new T.Scene();
   const cam = new T.PerspectiveCamera(50, 1, 0.05, 500);
   const hemi = new T.HemisphereLight(0xe8f0ff, 0x8a8170, 0.62); scene.add(hemi);
@@ -108,11 +111,12 @@ function View3D(canvas, app) {
   function lin(hex) { return new T.Color(hex).convertSRGBToLinear(); }
   function mat(spec, extra) {
     spec = typeof spec === 'string' ? { c: spec } : spec;
-    const key = (spec.m || '') + spec.c + JSON.stringify(extra || {});
+    const key = (spec.m || '') + spec.c + JSON.stringify(extra || {}) + (clipNow ? '|clip' : '');
     if (matCache[key]) return matCache[key];
     const o = Object.assign({ roughness: 0.9, metalness: 0, color: lin(spec.c) }, extra || {});
     if (spec.m && spec.m !== 'flat') { o.map = tex(spec.m); if (BUMP[spec.m]) { o.bumpMap = o.map; o.bumpScale = BUMP[spec.m]; } }
     if (spec.m === 'falz' || spec.m === 'mtile') { o.metalness = 0.35; o.roughness = 0.5; }
+    if (clipNow) { o.clippingPlanes = [cutPlane]; o.clipShadows = true; }
     return (matCache[key] = new T.MeshStandardMaterial(o));
   }
   function box(w, h, d, m, x, y, z, opt) {
@@ -173,6 +177,7 @@ function View3D(canvas, app) {
     if (root) { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
     root = new T.Group(); scene.add(root); picks = [];
     const ext = DK.extT(p), e = ext / 1000, fl = DK.floorsOf(p), hc = p.hClear / 1000, sl = p.slab / 1000;
+    lampCount = 0;
     const showFloors = mode === 'interior' ? fl.slice(0, fl.indexOf(fid) + 1) : fl;
     wallIn = mat({ c: '#f2f0ec' }); white = mat({ c: '#f4f3f0' });
     const outside = mode !== 'interior';
@@ -206,8 +211,10 @@ function View3D(canvas, app) {
       });
       const voids = regs.filter(r => r.type === 'void');
       const inVoid = (it) => voids.some(r => r.cells.some(c => it.x > c[0] && it.x < c[2] && it.y > c[1] && it.y < c[3]));
-      if (showFurn && mode !== 'exterior') p.levels[f].furn.forEach(it => { if (!inVoid(it)) root.add(furn(it, y0)); });
+      clipNow = cutTop; cutPlane.constant = y0 + hWall + 0.01;
+      if (showFurn && mode !== 'exterior') p.levels[f].furn.forEach(it => { if (!inVoid(it)) root.add(furn(it, y0, hc)); });
       if (p.stair && idx < fl.length - 1) stair3d(p, y0);
+      clipNow = false;
       if (outside && F.belt && f !== 'b' && idx < fl.length - 1) belt(p, y0 + hc + sl / 2, ext, mat({ c: F.trim }));
     }
     if (outside) {
@@ -217,11 +224,15 @@ function View3D(canvas, app) {
       if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), yt + sl);
       if (!p.basement) porch(p, ext, F);
     }
+    (p.ext || []).forEach(x => { if (x.kind === 'balcony' ? showFloors.includes(x.fid) : showFloors.includes('f1')) extBuild(p, x, F, gy, hc); });
     const R = Math.max(p.W, p.D) / 1000 * 1.6 + 8;
     sun.position.set(cx - R * 0.6, R * 0.95, cz + R * 0.8); sun.target.position.set(cx, 0, cz);
     const sc = sun.shadow.camera; sc.left = sc.bottom = -R * 0.8; sc.right = sc.top = R * 0.8; sc.near = 1; sc.far = R * 4; sc.updateProjectionMatrix();
     scene.background = outside ? SKY : new T.Color('#eceeef');
-    amb.intensity = mode === 'walk' ? 0.5 : mode === 'interior' ? 0.18 : 0.06;
+    const night = lightsOn && mode !== 'exterior';
+    amb.intensity = night ? 0.06 : mode === 'walk' ? 0.5 : mode === 'interior' ? 0.18 : 0.06;
+    sun.intensity = night ? 0.12 : 1.05; hemi.intensity = night ? 0.12 : 0.62;
+    if (night && outside) scene.background = new T.Color('#1d2533');
     walkData = mode === 'walk' ? walkPrep(p) : null;
   }
 
@@ -250,8 +261,16 @@ function View3D(canvas, app) {
   /* стены этажа: несущий слой, облицовка по зонам, перегородки, ограждения, проёмы */
   function buildFloor(p, f, y0, hWall, hc, ext, F, zone, regs, hClad, wains) {
     const ws = DK.walls(p, f), ops = p.levels[f].open;
+    const logg = regs.filter(r => r.type === 'loggia');
     for (const w of ws) {
-      const my = ops.filter(o => o.wall === w.id).map(o => Object.assign({}, o, DK.opSize(p, o))).sort((a, b) => a.c - b.c);
+      let my = ops.filter(o => o.wall === w.id).map(o => Object.assign({}, o, DK.opSize(p, o)));
+      if (w.kind === 'outer') for (const r of logg.filter(q => q.sides.has(w.id))) {
+        // лоджия: вместо стены — парапет 1,0 м, выше открыто до перекрытия
+        const lo = w.axis === 'x' ? r.x0 : r.y0, hi = w.axis === 'x' ? r.x1 : r.y1;
+        my = my.filter(o => o.c + o.w / 2 <= lo || o.c - o.w / 2 >= hi);
+        my.push({ id: 'lg' + r.i, kind: 'loggia', c: (lo + hi) / 2, w: hi - lo, sill: 1000, h: Math.round(hWall * 1000) });
+      }
+      my.sort((a, b) => a.c - b.c);
       if (w.rail) { railing(w, y0); continue; }
       const outer = w.kind === 'outer';
       const pieces = (sec, hLo, hHi, m) => {
@@ -301,12 +320,74 @@ function View3D(canvas, app) {
   }
   function porch(p, ext, F) {
     const ent = p.levels.f1.open.find(o => o.kind === 'entry'); if (!ent) return;
+    if ((p.ext || []).some(x => x.kind !== 'balcony' && x.wall === ent.wall && Math.abs(x.c - ent.c) < x.w / 2)) return;
     const w = DK.walls(p, 'f1').find(v => v.id === ent.wall); if (!w) return;
     const n = w.out, face = (w.line + n * ext) / 1000, ac = ent.c / 1000, wd = ent.w / 1000 + 1.4, cm = mat({ m: 'concrete', c: '#c9c6bf' });
     const P = (along, out, wA, dOut, y, h) => w.axis === 'x' ? box(wA, h, dOut, cm, along, y, face + n * out) : box(dOut, h, wA, cm, face + n * out, y, along);
     root.add(P(ac, 0.7, wd, 1.4, -0.3, 0.6));
     for (let k = 1; k <= 3; k++) root.add(P(ac, 1.4 + 0.15 + (k - 1) * 0.3, wd, 0.3, -0.6 + (0.6 - k * 0.15) / 2, 0.6 - k * 0.15));
     root.add(P(ac, 2.3 + 3.5, 1.3, 7, -0.595, 0.02));
+  }
+
+  /* терраса, крыльцо, балкон: настил, ступени, ограждение, колонны, навес, остекление */
+  function extBuild(p, x, F, gy, hc) {
+    const r = DK.extRect(p, x); if (!r) return;
+    const e = r.e, n = e.out, ax = e.axis === 'x';
+    const A0 = (x.c - x.w / 2) / 1000, A1 = (x.c + x.w / 2) / 1000, face = r.face / 1000, far = r.far / 1000, d = x.d / 1000, wd = x.w / 1000, ac = x.c / 1000;
+    const B = (a0, a1, t0, t1, y0, y1, m, o) => { const L = a1 - a0, Tt = Math.abs(t1 - t0); root.add(ax ? box(L, y1 - y0, Tt, m, (a0 + a1) / 2, (y0 + y1) / 2, (t0 + t1) / 2, o) : box(Tt, y1 - y0, L, m, (t0 + t1) / 2, (y0 + y1) / 2, (a0 + a1) / 2, o)); };
+    const balcony = x.kind === 'balcony', y0 = balcony ? DK.elev(p, x.fid) / 1000 : 0;
+    const deck = mat({ m: 'planken', c: balcony ? '#9a9da2' : '#8a6a4c' }), metal = mat({ c: '#2f3237' }, { metalness: 0.5, roughness: 0.4 });
+    const roof = x.roof || 'open';
+    if (balcony) B(A0, A1, face, far, y0 - 0.2, y0, deck);
+    else {
+      B(A0, A1, face, far, gy, -0.02, mat({ c: '#6f6a64' }));
+      B(A0, A1, face, far, -0.02, 0, deck);
+      if (x.kind === 'terrace' || x.kind === 'porch') { // ступени по центру внешнего края
+        const sw = Math.min(2.0, wd - 0.4), steps = Math.max(1, Math.round(-gy / 0.17));
+        for (let k = 1; k <= steps; k++) { const top = -k * (-gy / steps); B(ac - sw / 2, ac + sw / 2, far + n * 0.3 * (k - 1), far + n * 0.3 * k, gy, top + (-gy / steps) - (-gy / steps), mat({ m: 'concrete', c: '#bdb8b0' })); }
+      }
+    }
+    // ограждение: у открытой террасы — с проходом к ступеням, у балкона — по трём сторонам
+    const railH = 1.0, rails = [];
+    if (balcony || (x.kind === 'terrace' && roof !== 'glazed')) {
+      rails.push([A0, A0, face, far], [A1, A1, face, far]);
+      if (balcony) rails.push([A0, A1, far, far]); else { rails.push([A0, ac - 0.6 - (Math.min(2.0, wd - 0.4) / 2 - 0.6), far, far], [ac + Math.min(2.0, wd - 0.4) / 2, A1, far, far]); }
+    }
+    for (const [a0, a1, t0, t1] of rails) {
+      const isA = a0 !== a1, len = isA ? a1 - a0 : Math.abs(t1 - t0); if (len < 0.05) continue;
+      if (isA) B(a0, a1, t0 - 0.025, t0 + 0.025, y0 + railH - 0.05, y0 + railH, metal);
+      else B(a0 - 0.025, a0 + 0.025, Math.min(t0, t1), Math.max(t0, t1), y0 + railH - 0.05, y0 + railH, metal);
+      const cnt = Math.max(2, Math.round(len / 0.13));
+      for (let i = 0; i <= cnt; i++) { const q = i / cnt; if (isA) B(a0 + (a1 - a0) * q - 0.012, a0 + (a1 - a0) * q + 0.012, t0 - 0.012, t0 + 0.012, y0, y0 + railH, metal, { noShadow: i % 2 === 1 }); else { const t = Math.min(t0, t1) + len * q; B(a0 - 0.012, a0 + 0.012, t - 0.012, t + 0.012, y0, y0 + railH, metal, { noShadow: i % 2 === 1 }); } }
+    }
+    // колонны и навес
+    const cols = DK.extColumns(p, x), colM = mat(F.accentOn !== 'none' ? F.accent : { c: F.trim });
+    const topY = DK.elev(p, 'f1') / 1000 + hc - 0.05, pitch = 12 * Math.PI / 180;
+    const yFar = topY - (d + 0.3) * Math.tan(pitch);
+    cols.forEach(q => { const yb = balcony ? gy : 0, yt2 = balcony ? y0 - 0.2 : yFar + 0.1; const cx = q.x / 1000, cz = q.y / 1000; root.add(box(0.25, yt2 - yb, 0.25, colM, cx, (yb + yt2) / 2, cz)); });
+    if (!balcony && roof !== 'open') {
+      const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
+      const P = (a, y, t) => ax ? [a, y, t] : [t, y, a];
+      const tF = far + n * 0.3, a0 = A0 - 0.2, a1 = A1 + 0.2;
+      if (x.shape === 'gable') {
+        const yE = yFar, yR = yE + (wd / 2 + 0.2) * Math.tan(25 * Math.PI / 180);
+        roofPlane([P(a0, yE, face), P(a0, yE, tF), P(ac, yR, tF), P(ac, yR, face)].map(q => q), rm, sm, fm);
+        roofPlane([P(a1, yE, tF), P(a1, yE, face), P(ac, yR, face), P(ac, yR, tF)], rm, sm, fm);
+        root.add(poly([P(a0 + 0.2, yE, far), P(a1 - 0.2, yE, far), P(ac, yR - 0.1, far)], mat({ c: F.trim }, { side: T.DoubleSide }), ax ? 0 : 2, 1));
+      } else {
+        const pts = n > 0 ? [P(a1, topY, face), P(a0, topY, face), P(a0, yFar, tF), P(a1, yFar, tF)] : [P(a0, topY, face), P(a1, topY, face), P(a1, yFar, tF), P(a0, yFar, tF)];
+        roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
+      }
+      if (roof === 'glazed') {
+        const gl = new T.MeshStandardMaterial({ color: lin('#9fc0d3'), transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.3 }), fr = mat({ c: F.frame });
+        const h1 = yFar - 0.05;
+        B(A0, A1, far - 0.01, far + 0.01, 0, h1, gl, { noShadow: true });
+        B(A0 - 0.01, A0 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
+        B(A1 - 0.01, A1 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
+        for (let a = A0; a <= A1 + 0.001; a += Math.max(0.8, wd / Math.round(wd / 1.0))) B(a - 0.03, a + 0.03, far - 0.03, far + 0.03, 0, h1, fr);
+        B(A0, A1, far - 0.04, far + 0.04, 0.9, 0.96, fr);
+      }
+    }
   }
 
   function opening(p, f, w, o, y0, hWall, e, F, regs) {
@@ -337,8 +418,8 @@ function View3D(canvas, app) {
         g.add(place(mk(sur, oh, 0.05, tm), ac - ow / 2 - sur / 2, y0 + sill + oh / 2, tt));
         g.add(place(mk(sur, oh, 0.05, tm), ac + ow / 2 + sur / 2, y0 + sill + oh / 2, tt));
       }
-    } else if (o.kind === 'pass') {
-      // проём без двери — без коробки
+    } else if (o.kind === 'pass' || o.kind === 'loggia') {
+      // проём без двери и лоджия — без коробки
     } else {
       const entry = o.kind === 'entry';
       const dm = mat({ c: entry ? F.door : '#ebe7e0' }, { roughness: 0.6 });
@@ -368,48 +449,44 @@ function View3D(canvas, app) {
     return g;
   }
 
-  function furn(it, y0) {
+  /* мебель по рецептам из furniture.js; светильники дают свет, когда он включён */
+  let lightsOn = false, lampCount = 0;
+  function furn(it, y0, hc) {
     const F = DK.FURN[it.type], g = new T.Group();
     if (!F) return g;
-    const w = F.w / 1000, d = F.d / 1000, h = F.h / 1000, m = mat({ c: F.c }, { roughness: 0.85 });
-    const soft = mat({ c: '#f7f5f0' }), dark = mat({ c: '#3a3c40' }), wood = mat({ c: '#8e6a4b' });
-    const add = (bw, bh, bd, mm, x, y, z) => g.add(box(bw, bh, bd, mm, x, y, z));
-    const T0 = it.type;
-    if (T0.startsWith('bed')) {
-      add(w, 0.3, d, wood, 0, 0.15, 0); add(w - 0.06, 0.22, d - 0.12, soft, 0, 0.41, 0.04);
-      add(w, h - 0.3, 0.08, wood, 0, 0.3 + (h - 0.3) / 2, -d / 2 + 0.04);
-      add(w - 0.1, 0.06, d * 0.55, m, 0, 0.54, d * 0.2);
-      const n = T0 === 'bed160' ? 2 : 1;
-      for (let i = 0; i < n; i++) add(n === 2 ? w / 2 - 0.15 : w - 0.2, 0.12, 0.35, soft, n === 2 ? (i ? 1 : -1) * w / 4 : 0, 0.58, -d / 2 + 0.3);
-    } else if (T0 === 'sofa' || T0 === 'armchair') {
-      add(w, 0.42, d, m, 0, 0.21, 0); add(w, h - 0.42, 0.22, m, 0, 0.42 + (h - 0.42) / 2, -d / 2 + 0.11);
-      add(0.18, 0.62, d, m, -w / 2 + 0.09, 0.31, 0); add(0.18, 0.62, d, m, w / 2 - 0.09, 0.31, 0);
-    } else if (T0 === 'table' || T0 === 'desk' || T0 === 'coffee') {
-      add(w, 0.04, d, m, 0, h - 0.02, 0);
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(0.05, h - 0.04, 0.05, m, sx * (w / 2 - 0.06), (h - 0.04) / 2, sz * (d / 2 - 0.06));
-      if (T0 === 'table') for (const sz of [-1, 1]) for (const q of [-1, 0, 1]) { add(0.42, 0.45, 0.42, mat({ c: '#d9d2c6' }), q * 0.48, 0.225, sz * (d / 2 + 0.28)); add(0.42, 0.45, 0.05, mat({ c: '#d9d2c6' }), q * 0.48, 0.67, sz * (d / 2 + 0.47)); }
-    } else if (T0 === 'kitchen' || T0 === 'kitchenS' || T0 === 'island') {
-      add(w, 0.86, d, m, 0, 0.43, 0); add(w + 0.02, 0.04, d + 0.02, mat({ c: '#d8d4cc' }), 0, 0.88, 0);
-      add(0.55, 0.01, 0.45, dark, -w / 2 + 0.9, 0.905, 0);
-      if (T0 !== 'island') add(w, 0.7, 0.35, m, 0, 1.55 + 0.35, -d / 2 + 0.175);
-    } else if (T0 === 'toilet') {
-      add(w * 0.9, 0.4, 0.2, m, 0, 0.6, -d / 2 + 0.1); add(w * 0.85, 0.4, d - 0.2, m, 0, 0.2, 0.1);
-    } else if (T0 === 'sink') {
-      add(w, 0.15, d, m, 0, h - 0.075, 0); add(w * 0.8, h - 0.15, d * 0.8, mat({ c: '#c9b79c' }), 0, (h - 0.15) / 2, 0);
-    } else if (T0 === 'bath') {
-      add(w, h, d, m, 0, h / 2, 0); add(w - 0.12, 0.02, d - 0.12, mat({ c: '#cfe3ec' }), 0, h - 0.04, 0);
-    } else if (T0 === 'shower') {
-      add(w, 0.06, d, m, 0, 0.03, 0);
-      const gl = new T.MeshStandardMaterial({ color: 0xcfe3ec, transparent: true, opacity: 0.35 });
-      add(w, 1.95, 0.01, gl, 0, 1.0, d / 2); add(0.01, 1.95, d, gl, w / 2, 1.0, 0);
-    } else if (T0 === 'boiler') {
-      add(w, h, d, m, 0, F.wall / 1000 + h / 2, 0); add(0.08, 1.2, 0.08, mat({ c: '#c9c9c9' }), 0, F.wall / 1000 + h + 0.5, -d / 4);
-    } else if (T0 === 'car') {
-      add(w, 0.75, d, m, 0, 0.55, 0); add(w * 0.88, 0.5, d * 0.5, mat({ c: '#59606a' }), 0, 1.15, 0.1);
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(0.22, 0.6, 0.6, dark, sx * (w / 2 - 0.12), 0.3, sz * (d / 2 - 0.8));
-    } else add(w, h, d, m, 0, h / 2, 0);
-    g.position.set(it.x / 1000, y0 + 0.012, it.y / 1000);
-    g.rotation.y = -it.rot * Math.PI / 2;
+    const k = {
+      F, w: F.w / 1000, d: F.d / 1000, h: F.h / 1000, c: F.c,
+      add(bw, bh, bd, col, x, y, z, ry, o) {
+        const glow = o && o.glow;
+        const m = box(bw, bh, bd, glow ? new T.MeshStandardMaterial({ color: lin(col), emissive: lin(glow), emissiveIntensity: 1.2 }) : mat({ c: col }, { roughness: 0.82 }), x, y, z);
+        if (ry) m.rotation.y = ry; g.add(m); return m;
+      },
+      cyl(r, h, col, x, y, z, rx, shade) {
+        const mm = shade && lightsOn ? new T.MeshStandardMaterial({ color: lin(col), emissive: lin('#ffd9a0'), emissiveIntensity: 0.9, side: T.DoubleSide })
+          : mat({ c: col }, { roughness: 0.7, side: shade ? T.DoubleSide : T.FrontSide });
+        const m = new T.Mesh(new T.CylinderGeometry(r, r, h, 24, 1, !!shade), mm);
+        m.position.set(x, y, z); if (rx) m.rotation.x = rx; m.castShadow = !shade; m.receiveShadow = true; g.add(m); return m;
+      },
+      ball(r, col, x, y, z) { const m = new T.Mesh(new T.SphereGeometry(r, 16, 12), mat({ c: col }, { roughness: 0.95 })); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; },
+      glass(bw, bh, bd, x, y, z) { const m = box(bw, bh, bd, new T.MeshStandardMaterial({ color: 0xcfe3ec, transparent: true, opacity: 0.35, roughness: 0.05 }), x, y, z, { noShadow: true }); g.add(m); return m; },
+      chair(x, z, ry, col) {
+        const c2 = new T.Group(), M2 = mat({ c: col }, { roughness: 0.8 });
+        c2.add(box(0.42, 0.05, 0.42, M2, 0, 0.45, 0)); c2.add(box(0.42, 0.45, 0.05, M2, 0, 0.7, -0.19));
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) c2.add(box(0.035, 0.45, 0.035, M2, sx * 0.18, 0.225, sz * 0.18));
+        c2.position.set(x, 0, z); c2.rotation.y = ry || 0; g.add(c2); return c2;
+      },
+    };
+    const fn = DK.FURN3D[it.type] || DK.FURN3D[F.base] || ((q) => q.add(q.w, q.h, q.d, q.c, 0, q.h / 2, 0));
+    fn(k);
+    if (F.light && lightsOn && lampCount < 14) {
+      lampCount++;
+      const ly = { ceil: 0, pend: -0.1, floor: 1.5, table: 0.38 }[F.light];
+      const L = new T.PointLight(0xffd9a6, F.light === 'ceil' ? 1.4 : 0.9, F.light === 'ceil' ? 9 : 6, 2);
+      L.position.set(0, ly - 0.15, 0); g.add(L);
+    }
+    const lift = F.ceil ? hc - F.h / 1000 : (F.wall || 0) / 1000;
+    g.position.set(it.x / 1000, y0 + 0.012 + lift, it.y / 1000);
+    g.rotation.y = -DK.furnAngle(it) * Math.PI / 180;
     return g;
   }
 
@@ -527,11 +604,20 @@ function View3D(canvas, app) {
     const floors = fl.map(f => {
       const regs = DK.rooms(p, f), solid = [];
       for (const w of DK.walls(p, f)) {
-        const doors = p.levels[f].open.filter(o => o.wall === w.id && o.kind !== 'win').map(o => [o.c - o.w / 2 + 60, o.c + o.w / 2 - 60]).sort((a, b) => a[0] - b[0]);
+        const doors = p.levels[f].open.filter(o => o.wall === w.id && o.kind !== 'win').map(o => [o.c - o.w / 2 + 10, o.c + o.w / 2 - 10]).sort((a, b) => a[0] - b[0]);
         let a = w.a0;
         const push = (a0, a1) => { if (a1 > a0) solid.push(w.axis === 'x' ? [a0, w.y0, a1, w.y1] : [w.x0, a0, w.x1, a1]); };
         for (const d of doors) { push(a, d[0]); a = d[1]; }
         push(a, w.a1);
+      }
+      for (const x of (p.ext || []).filter(q => q.kind === 'balcony' ? q.fid === f : f === 'f1')) {
+        const r = DK.extRect(p, x); if (!r || (x.kind !== 'balcony' && (x.roof || 'open') === 'open' && x.kind !== 'terrace')) continue;
+        const t = 30, e = r.e;
+        const add2 = (a0, a1, t0, t1) => solid.push(e.axis === 'x' ? [a0, Math.min(t0, t1), a1, Math.max(t0, t1)] : [Math.min(t0, t1), a0, Math.max(t0, t1), a1]);
+        const a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
+        add2(a0 - t, a0 + t, r.face, r.far); add2(a1 - t, a1 + t, r.face, r.far);
+        if (x.kind === 'balcony' || x.roof === 'glazed') add2(a0, a1, r.far - t, r.far + t);
+        else { const sw = Math.min(2000, x.w - 400); add2(a0, x.c - sw / 2, r.far - t, r.far + t); add2(x.c + sw / 2, a1, r.far - t, r.far + t); }
       }
       for (const it of p.levels[f].furn) { const F = DK.FURN[it.type]; if (F && F.h > 300 && it.type !== 'boiler') { const b = DK.furnBox(it); solid.push([b.x0, b.y0, b.x1, b.y1]); } }
       return { f, e: DK.elev(p, f) / 1000, solid: solid.map(r => r.map(v => v / 1000)), voids: regs.filter(r => r.type === 'void') };
@@ -547,13 +633,19 @@ function View3D(canvas, app) {
       if (best != null) return best;
     }
     const cur = D.floors.reduce((a, b) => Math.abs(b.e - h) < Math.abs(a.e - h) ? b : a);
-    if (!DK.inside(p.poly, X, Z)) return cur.f === 'f1' || cur.f === D.fl[0] ? cur.e : null;
+    if (!DK.inside(p.poly, X, Z)) {
+      const onExt = (p.ext || []).find(x => { const r = DK.extRect(p, x); return r && X > r.x0 && X < r.x1 && Z > r.y0 && Z < r.y1 && (x.kind === 'balcony' ? x.fid === cur.f : cur.f === 'f1'); });
+      if (onExt) return cur.e;
+      return cur.f === 'f1' || cur.f === D.fl[0] ? cur.e : null;
+    }
     if (D.sr && X > D.sr.x0 && X < D.sr.x1 && Z > D.sr.y0 && Z < D.sr.y1 && cur !== D.floors[0]) return null;
     if (cur.voids.some(r => r.cells.some(c => X > c[0] && X < c[2] && Z > c[1] && Z < c[3]))) return null;
     return cur.e;
   }
   function blockedAt(x, z, h) {
-    const D = walkData, rad = 0.22;
+    const D = walkData, rad = 0.17;
+    // на лестнице держат только перепады высоты: стены рядом не мешают подъёму
+    if (DK.stairHeight(D.p, x * 1000, z * 1000) != null) return false;
     const ctx = D.floors.filter(f => f.e <= h + 0.3).pop() || D.floors[0];
     return ctx.solid.some(r => x > r[0] - rad && x < r[2] + rad && z > r[1] - rad && z < r[3] + rad);
   }
@@ -689,7 +781,10 @@ function View3D(canvas, app) {
         const fx = -Math.sin(walk.yaw), fz = -Math.cos(walk.yaw), rx = Math.cos(walk.yaw), rz = -Math.sin(walk.yaw);
         const nx = walk.x + (fx * f + rx * s) * sp, nz = walk.z + (fz * f + rz * s) * sp;
         // мелкими шагами, чтобы плавно подниматься по ступеням
-        if (!tryMove(nx, nz)) { tryMove(nx, walk.z); tryMove(walk.x, nz); }
+        if (!tryMove(nx, nz) && !tryMove(nx, walk.z) && !tryMove(walk.x, nz)) {
+          // подруливание в дверной проём: пробуем сместиться вбок на 5–30 см
+          for (const off of [0.05, -0.05, 0.12, -0.12, 0.2, -0.2, 0.3, -0.3]) if (tryMove(nx + rx * off, nz + rz * off)) break;
+        }
         const cur = walkData.floors.filter(q => q.e <= walk.h + 0.3).pop();
         if (cur && cur.f !== fid) { fid = cur.f; app.walkFloor && app.walkFloor(fid); }
       }
@@ -722,6 +817,7 @@ function View3D(canvas, app) {
     walkFloor(f) { fid = f; startWalk(f); placeCam(); },
     shot() { renderer.render(scene, cam); return canvas.toDataURL('image/png'); },
     walkState: () => walk,
+    setLights(on) { lightsOn = on; schedule(); },
     exteriorShot(w, h) {
       const keep = { mode, fid, cut, showFurn, o: Object.assign({}, orbit), size: renderer.getSize(new T.Vector2()), aspect: cam.aspect };
       mode = 'exterior'; build(); frame(); orbit.az = -0.6; orbit.el = 0.22;

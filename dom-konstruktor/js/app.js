@@ -21,7 +21,8 @@ const app = {
   fid: () => fid,
   sel: () => sel,
   opt: (k) => opts[k],
-  select(s) { sel = s; renderSel(); plan.render(); },
+  select(s) { sel = s; hideRoomPop(); renderSel(); plan.render(); },
+  roomPop(sx, sy) { roomPop(sx, sy); },
   commit(msg) {
     DK.normalize(P);
     const s = JSON.stringify(P);
@@ -137,7 +138,7 @@ function shapeSvg(T) {
 function refreshInfo() {
   const A = DK.areas(app.p());
   $('#areas').innerHTML = A.per.map(f => `<div><span>${esc(f.n)}</span><span>${DK.fmtA(f.area)} м²</span></div>`).join('') +
-    `<div class="tot"><span>Всего помещений</span><span>${DK.fmtA(A.total)} м²</span></div><div><span>Площадь застройки</span><span>${DK.fmtA(A.footprint)} м²</span></div>`;
+    `<div class="tot"><span>Всего помещений</span><span>${DK.fmtA(A.total)} м²</span></div>${A.loggia ? `<div><span>Лоджии</span><span>${DK.fmtA(A.loggia)} м²</span></div>` : ''}${A.outdoor ? `<div><span>Террасы, крыльца, балконы</span><span>${DK.fmtA(A.outdoor)} м²</span></div>` : ''}<div><span>Площадь застройки</span><span>${DK.fmtA(A.footprint)} м²</span></div>`;
   const pr = C.prices, lo = A.total * pr.eco.from / 1e6, hi2 = A.total * pr.premium.to / 1e6;
   $('#est').innerHTML = `<small>Ориентир под чистовую отделку</small><b>${money(Math.round(lo * 10) / 10)}–${money(Math.round(hi2 * 10) / 10)} млн ₽</b><small>${esc(C.priceNote)}</small>`;
   $('#checks').innerHTML = DK.checks(app.p()).map(c => `<li class="${c.lv}">${esc(c.txt)}</li>`).join('');
@@ -164,9 +165,9 @@ function renderSel() {
     if (o.kind === 'door' || o.kind === 'pass') h += `<div class="seg" id="sKind"><button data-k="door" aria-pressed="${o.kind === 'door'}">С дверью</button><button data-k="pass" aria-pressed="${o.kind === 'pass'}">Без двери</button></div>`;
     if (wl && wl.kind === 'bearing' && o.kind !== 'win') h += `<div class="muted">В несущей стене: ${o.w > DK.PASS.lintel ? 'усиленная перемычка по расчёту' : 'перемычка'} — добавлено в ТЗ. Ширина без двери до ${DK.PASS.maxBearing} мм.</div>`;
     else if (o.kind === 'door') h += `<div class="muted">Открывание ставится само: из котельной и санузлов — наружу, в комнату — из коридора.</div>`;
-    h += `
-      <div class="row2"><label class="fld">Ширина, мм<input type="number" id="sW" step="50" min="400" max="6000" value="${o.w}"></label>
-      <label class="fld">Сдвиг<span class="row"><button type="button" class="btn sm" id="sL">← 100</button><button type="button" class="btn sm" id="sR">100 →</button></span></label></div>`;
+    const lim = DK.opLimits(P, wl, o);
+    h += `<label class="fld">Ширина, мм · допустимо ${lim.min}–${lim.max}<span class="row"><button type="button" class="btn sm" id="sWm">− 100</button><input type="number" id="sW" step="50" min="${lim.min}" max="${lim.max}" value="${o.w}" style="width:76px"><button type="button" class="btn sm" id="sWp">+ 100</button></span></label>
+      <div class="row2"><label class="fld">Сдвиг<span class="row"><button type="button" class="btn sm" id="sL">← 100</button><button type="button" class="btn sm" id="sR">100 →</button></span></label></div>`;
     if (o.kind === 'win') {
       const sz = DK.opSize(P, o);
       h += `<div class="seg" id="sPano"><button data-k="0" aria-pressed="${!o.pano}">Обычное</button><button data-k="1" aria-pressed="${!!o.pano}">Панорамное</button></div>
@@ -179,6 +180,15 @@ function renderSel() {
     h = `<h3>${q.rail ? 'Ограждение' : 'Перегородка'} <small>${q.rail ? 'стекло и металл, 1,0 м' : 'кирпич 120 мм'}</small></h3><div class="muted">Длина ${Math.abs(q.x2 - q.x1) + Math.abs(q.y2 - q.y1)} мм. Тяните стену — сдвиг, тяните концы — длина.</div>
       <div class="seg" id="sRail"><button data-k="0" aria-pressed="${!q.rail}">Стена</button><button data-k="1" aria-pressed="${!!q.rail}">Ограждение</button></div>
       <button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
+  } else if (sel.kind === 'ext') {
+    const x = (P.ext || []).find(q => q.id === sel.id); if (!x) { box.hidden = true; return; }
+    const D = DK.EXT[x.kind], cant = x.kind === 'balcony' && x.d > DK.BALCONY_CANT;
+    h = `<h3>${D.n} <small>${DK.fmtA(x.w * x.d / 1e6)} м²</small></h3>
+      <div class="row2"><label class="fld">Ширина, мм<input type="number" id="xW" step="100" value="${x.w}"></label><label class="fld">Глубина, мм<input type="number" id="xD" step="100" value="${x.d}"></label></div>
+      ${x.kind !== 'balcony' ? `<div class="seg" id="xRoof">${Object.entries(DK.EXT_ROOF).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.roof || 'open') === k}">${n.split(' ')[0]}</button>`).join('')}</div>` : ''}
+      ${x.kind !== 'balcony' && (x.roof || 'open') !== 'open' ? `<label class="fld">Навес<div class="seg" id="xShape"><button data-k="shed" aria-pressed="${x.shape !== 'gable'}">Односкатный</button><button data-k="gable" aria-pressed="${x.shape === 'gable'}">Двускатный</button></div></label>` : ''}
+      <div class="muted">${x.kind === 'balcony' ? (cant ? `Вылет больше ${DK.fmtM(DK.BALCONY_CANT)} м — плита опирается на колонны до земли.` : `Консольная плита с терморазрывом, вылет до ${DK.fmtM(DK.BALCONY_CANT)} м.`) : 'Тяните террасу вдоль стены, квадратики — ширина и глубина. Мебель для улицы — в разделе «Терраса».'}${DK.extExit(P, x) || x.kind === 'porch' ? '' : ' <b>Нужен выход: дверь или панорамное окно.</b>'}</div>
+      <button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
   } else if (sel.kind === 'edge') {
     const e = DK.edges(P).find(x => x.id === sel.id); if (!e) { box.hidden = true; return; }
     h = `<h3>Наружная стена <small>фасад ${DK.sideName(e.side)}</small></h3><div class="muted">Длина ${e.hi - e.lo} мм. Тяните стену на плане — дом станет шире или уже, выступ глубже или меньше. Уберите выступ в ноль — он исчезнет.</div>
@@ -186,7 +196,7 @@ function renderSel() {
   } else if (sel.kind === 'furn') {
     const f = P.levels[fid].furn.find(q => q.id === sel.id); if (!f) { box.hidden = true; return; }
     const F = DK.FURN[f.type];
-    h = `<h3>${esc(F.n)} <small>${F.w} × ${F.d}</small></h3><div class="row"><button type="button" class="btn sm" id="sRot">Повернуть (R)</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
+    h = `<h3>${esc(F.n)} <small>${F.w} × ${F.d} · ${DK.furnAngle(f)}°</small></h3><div class="muted">Крутите за кружок над предметом (шаг 15°, с Alt — 1°) или нажмите R — 90°.</div><div class="row"><button type="button" class="btn sm" id="sRot">Повернуть на 90°</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
   } else if (sel.kind === 'room') {
     const r = DK.rooms(P, fid).at(sel.x, sel.y); if (!r) { box.hidden = true; return; }
     h = `<h3>Помещение <small>${DK.fmtA(r.area)} м²${r.rect ? ' · ' + Math.round(r.x1 - r.x0) + ' × ' + Math.round(r.y1 - r.y0) : ''}</small></h3>
@@ -204,7 +214,9 @@ function renderSel() {
   if (sel.kind === 'open') {
     const r = findOp(sel.id), o = r.o, ws = DK.walls(P, r.f), w = ws.find(v => v.id === o.wall);
     const clampC = () => { o.c = Math.max(w.a0 + o.w / 2, Math.min(o.c, w.a1 - o.w / 2)); };
-    on('sW', 'change', (e) => { o.w = Math.max(400, Math.min(+e.target.value || o.w, w.a1 - w.a0)); clampC(); app.commit(); });
+    const setW = (v) => { const lim = DK.opLimits(P, w, o); const nw = Math.max(lim.min, Math.min(v, lim.max)); if (nw !== v) toast(`Допустимо ${lim.min}–${lim.max} мм`); o.w = nw; clampC(); app.commit(); };
+    on('sW', 'change', (e) => setW(+e.target.value || o.w));
+    on('sWm', 'click', () => setW(o.w - 100)); on('sWp', 'click', () => setW(o.w + 100));
     on('sL', 'click', () => { o.c -= 100; clampC(); app.commit(); });
     on('sR', 'click', () => { o.c += 100; clampC(); app.commit(); });
     $$('#sPano button', box).forEach(b => b.onclick = () => { o.pano = b.dataset.k === '1'; if (o.pano && o.w < 1500) { o.w = 2000; clampC(); } app.commit(); });
@@ -215,17 +227,45 @@ function renderSel() {
     $$('#sKind button', box).forEach(b => b.onclick = () => { o.kind = b.dataset.k; if (o.kind === 'pass' && o.w < 900) o.w = 1200; if (o.kind === 'door' && o.w > 1000) o.w = 900; clampC(); app.commit(); });
   }
   if (sel.kind === 'part') { on('sDel', 'click', () => delSel()); $$('#sRail button', box).forEach(b => b.onclick = () => { const q = P.levels[fid].parts.find(w => w.id === sel.id); q.rail = b.dataset.k === '1'; P.levels[fid].open = P.levels[fid].open.filter(o => !(q.rail && o.wall === q.id)); app.commit(); }); }
+  if (sel.kind === 'ext') {
+    const x = (P.ext || []).find(q => q.id === sel.id);
+    on('xW', 'change', (e) => { x.w = +e.target.value || x.w; app.commit(); });
+    on('xD', 'change', (e) => { x.d = +e.target.value || x.d; app.commit(); });
+    $$('#xRoof button', box).forEach(b => b.onclick = () => { x.roof = b.dataset.k; app.commit(); });
+    $$('#xShape button', box).forEach(b => b.onclick = () => { x.shape = b.dataset.k; app.commit(); });
+    on('sDel', 'click', () => { P.ext = P.ext.filter(q => q !== x); sel = null; app.commit(); });
+  }
   if (sel.kind === 'edge') { const mv = (d) => { const e = DK.edges(P).find(x => x.id === sel.id); if (!DK.moveEdge(P, sel.id, d * e.out)) { toast('Так стену не сдвинуть'); return; } const mx = Math.min(...P.poly.map(v => v.x)), my = Math.min(...P.poly.map(v => v.y)); app.commit('Стена'); plan.view.ox += mx * plan.view.k; plan.view.oy += my * plan.view.k; plan.render(); };
     on('eIn', 'click', () => mv(-300)); on('eOut', 'click', () => mv(300)); }
   if (sel.kind === 'furn') { on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel()); }
   if (sel.kind === 'stair') { on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel()); }
-  if (sel.kind === 'room') on('sType', 'change', (e) => {
-    const regs = DK.rooms(P, fid), r = regs.at(sel.x, sel.y), lv = P.levels[fid];
-    lv.names = lv.names.filter(n => regs.at(n.x, n.y) !== r);
-    if (e.target.value !== 'none') lv.names.push({ x: Math.round(sel.x), y: Math.round(sel.y), type: e.target.value });
-    app.commit();
-  });
+  if (sel.kind === 'room') on('sType', 'change', (e) => setRoomType(sel.x, sel.y, e.target.value));
 }
+/* назначение помещения; котельная в доме одна — при переносе старая снимается */
+function setRoomType(x, y, type) {
+  const regs = DK.rooms(P, fid), r = regs.at(x, y), lv = P.levels[fid];
+  if (!r) return;
+  lv.names = lv.names.filter(n => regs.at(n.x, n.y) !== r);
+  if (type === 'boiler') {
+    let moved = false;
+    for (const f of DK.floorsOf(P)) { const rs = DK.rooms(P, f); P.levels[f].names = P.levels[f].names.filter(n => { const q = rs.at(n.x, n.y); const old = n.type === 'boiler' && !(f === fid && q === r); if (old) moved = true; return !old; }); }
+    if (moved) toast('Котельная перенесена сюда');
+  }
+  if (type !== 'none') lv.names.push({ x: Math.round(x), y: Math.round(y), type });
+  hideRoomPop(); app.commit();
+}
+const POP_TYPES = ['kl', 'living', 'kitchen', 'bed', 'kids', 'office', 'hall', 'corr', 'tamb', 'bath', 'laundry', 'boiler', 'dress', 'store', 'garage', 'sauna', 'void', 'loggia', 'none'];
+function roomPop(sx, sy) {
+  const r = DK.rooms(P, fid).at(sel.x, sel.y); if (!r) return;
+  const upper = DK.floorsOf(P).indexOf(fid) > 0 && fid !== 'b';
+  const pop = $('#roomPop');
+  pop.innerHTML = `<b>${DK.fmtA(r.area)} м² — назначение</b><div>${POP_TYPES.filter(k => DK.ROOM[k] && (!DK.ROOM[k].upper || upper)).map(k => `<button type="button" data-rt="${k}" aria-pressed="${r.type === k}">${esc(DK.ROOM[k].n)}</button>`).join('')}</div>`;
+  pop.hidden = false;
+  const st = $('#stage').getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(sx + 12, st.width - pw - 8)) + 'px'; pop.style.top = Math.max(56, Math.min(sy + 12, st.height - ph - 8)) + 'px';
+  $$('[data-rt]', pop).forEach(b => b.onclick = () => setRoomType(sel.x, sel.y, b.dataset.rt));
+}
+function hideRoomPop() { const p = $('#roomPop'); if (p) p.hidden = true; }
 function delSel() {
   if (!sel) return;
   const lv = P.levels[fid];
@@ -238,7 +278,7 @@ function delSel() {
 }
 function rotSel() {
   if (!sel) return;
-  if (sel.kind === 'furn') { const f = P.levels[fid].furn.find(q => q.id === sel.id); if (f) { f.rot = (f.rot + 1) % 4; app.commit(); } }
+  if (sel.kind === 'furn') { const f = P.levels[fid].furn.find(q => q.id === sel.id); if (f) { f.a = (DK.furnAngle(f) + 90) % 360; delete f.rot; app.commit(); } }
   if (sel.kind === 'stair' && P.stair) { P.stair.rot = (P.stair.rot + 1) % 4; app.commit(); }
 }
 
@@ -249,6 +289,8 @@ function hint() {
     plan: { select: 'Нажмите на помещение, чтобы назначить его; тяните мебель, проёмы и перегородки. Колёсико — масштаб, тяните пустое место — сдвиг.',
             wall: 'Тяните от стены до стены — перегородка в полкирпича прилипает к граням стен.', door: 'Нажмите на стену — дверь 800 мм, на наружной — входная 1000 мм.',
             win: 'Нажмите на наружную стену — окно 1500 мм.', pass: 'Нажмите на внутреннюю стену — проём без двери 1200 мм. В несущей стене в ТЗ добавится перемычка.',
+            terrace: 'Нажмите на наружную стену 1 этажа — терраса встанет у ближайшего панорамного окна или двери.', porch: 'Нажмите на наружную стену у входной двери.',
+            balcony: 'На плане 2 этажа нажмите на наружную стену — балкон встанет у двери или панорамного окна.',
             bump: 'Нажмите на наружную стену — появится выступ 3 × 1,2 м. Потом тяните его стены.', erase: 'Нажмите на перегородку, проём или мебель, чтобы удалить.', furn: 'Нажмите на план, чтобы поставить предмет.',
             wet: 'Тяните зону или её края. Зона общая для всех этажей.' }[t],
     int: 'Тяните — поворот, правая кнопка или Shift — сдвиг, колёсико — масштаб.',
@@ -321,6 +363,19 @@ function bind() {
   // интерьер
   $('#tCut').onclick = (e) => { opts.cut = !opts.cut; e.currentTarget.setAttribute('aria-pressed', opts.cut); if (v3) v3.show('interior', fid, { cut: opts.cut, furn: opts.furn }); };
   $('#tFurn').onclick = (e) => { opts.furn = !opts.furn; e.currentTarget.setAttribute('aria-pressed', opts.furn); if (v3) v3.show('interior', fid, { cut: opts.cut, furn: opts.furn }); plan.render(); };
+  let lights = false;
+  $$('[data-light]').forEach(b => b.onclick = () => { lights = !lights; $$('[data-light]').forEach(x => { x.setAttribute('aria-pressed', lights); x.textContent = lights ? 'Выключить свет' : 'Включить свет'; }); if (v3) v3.setLights(lights); });
+  $$('[data-lamps]').forEach(b => b.onclick = () => {
+    let n = 0;
+    for (const f of DK.floorsOf(P)) {
+      const lv = P.levels[f];
+      DK.rooms(P, f).filter(r => r.type !== 'void' && r.area > 2.5).forEach(r => {
+        if (lv.furn.some(it => DK.FURN[it.type] && DK.FURN[it.type].ceil && r.cells.some(c => it.x >= c[0] && it.x <= c[2] && it.y >= c[1] && it.y <= c[3]))) return;
+        lv.furn.push({ id: DK.id('f'), type: 'lampCeil', x: Math.round(r.cx), y: Math.round(r.cy), a: 0 }); n++;
+      });
+    }
+    app.commit('Люстры'); toast(n ? `Добавлено люстр: ${n}` : 'Во всех комнатах уже есть свет');
+  });
   $('#pitch').addEventListener('input', (e) => { P.roof.pitch = +e.target.value; $('#pitchV').textContent = e.target.value + '°'; if (v3) v3.rebuild(); });
   $('#pitch').addEventListener('change', () => app.commit());
   $$('#ridge button').forEach(b => b.onclick = () => { P.roof.ridge = b.dataset.k; app.commit(); });

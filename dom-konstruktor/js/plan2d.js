@@ -23,11 +23,17 @@ function Plan2D(canvas, app) {
     canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
     render();
   }
+  /* границы чертежа: дом с облицовкой, размерные цепочки, террасы и балконы */
+  function bounds(p) {
+    const m = DK.extT(p) + 1900, b = { x0: -m, y0: -m, x1: p.W + m, y1: p.D + m };
+    (p.ext || []).forEach(x => { const r = DK.extRect(p, x); if (r) { b.x0 = Math.min(b.x0, r.x0 - 600); b.y0 = Math.min(b.y0, r.y0 - 600); b.x1 = Math.max(b.x1, r.x1 + 600); b.y1 = Math.max(b.y1, r.y1 + 600); } });
+    return b;
+  }
   function fit() {
-    const p = app.p(), r = canvas.getBoundingClientRect(), ext = DK.extT(p) + 1900;
-    const k = Math.min((r.width - 40) / (p.W + 2 * ext), (r.height - 70) / (p.D + 2 * ext));
+    const p = app.p(), r = canvas.getBoundingClientRect(), b = bounds(p);
+    const k = Math.min((r.width - 40) / (b.x1 - b.x0), (r.height - 70) / (b.y1 - b.y0));
     view.k = Math.max(0.01, k);
-    view.ox = (r.width - p.W * view.k) / 2; view.oy = (r.height - p.D * view.k) / 2 + 20;
+    view.ox = (r.width - (b.x1 + b.x0) * view.k) / 2; view.oy = (r.height - (b.y1 + b.y0) * view.k) / 2 + 20;
     render();
   }
   const toW = (sx, sy) => ({ x: (sx - view.ox) / view.k, y: (sy - view.oy) / view.k });
@@ -45,6 +51,7 @@ function Plan2D(canvas, app) {
     c.fillStyle = COL.clad[p.clad] || '#aaa'; path(c, DK.offsetPoly(p, ext), X, Y); c.fill();
     if (cl.gap) { c.fillStyle = '#fff'; path(c, DK.offsetPoly(p, ext - cl.t), X, Y); c.fill(); }
     if (p.insul) { c.fillStyle = COL.insul; path(c, DK.offsetPoly(p, p.insul), X, Y); c.fill(); }
+    drawExts(c, p, fid, X, Y, L, o.sel);
     c.fillStyle = COL.gas; path(c, p.poly, X, Y); c.fill();
     c.fillStyle = COL.sheet; path(c, DK.offsetPoly(p, -t), X, Y); c.fill();
     // помещения
@@ -143,6 +150,40 @@ function Plan2D(canvas, app) {
     if (o.dims !== false) dims(c, p, fid, ws, X, Y, L, ext, o.dimOpen);
     c.restore();
   }
+  function extsOn(p, fid) { return (p.ext || []).filter(x => x.kind === 'balcony' ? x.fid === fid : fid === 'f1'); }
+  function drawExts(c, p, fid, X, Y, L, sel) {
+    for (const x of extsOn(p, fid)) {
+      const r = DK.extRect(p, x); if (!r) continue;
+      const e = r.e, R = [X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0)];
+      c.fillStyle = x.kind === 'balcony' ? '#e4e6e9' : '#eadfcb'; c.fillRect(R[0], R[1], R[2], R[3]);
+      c.save(); c.beginPath(); c.rect(R[0], R[1], R[2], R[3]); c.clip(); c.strokeStyle = 'rgba(120,90,60,.28)'; c.lineWidth = 1;
+      if (x.kind !== 'balcony') { if (e.axis === 'x') for (let a = r.x0; a < r.x1; a += 140) line(c, X(a), R[1], X(a), R[1] + R[3]); else for (let a = r.y0; a < r.y1; a += 140) line(c, R[0], Y(a), R[0] + R[2], Y(a)); }
+      c.restore();
+      c.strokeStyle = COL.ink; c.lineWidth = 1.2; c.strokeRect(R[0], R[1], R[2], R[3]);
+      // ограждение или остекление по свободным сторонам
+      const roof = x.roof || 'open', far = r.far, a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
+      const seg = (s0, s1, t0, t1) => e.axis === 'x' ? line(c, X(s0), Y(t0), X(s1), Y(t1)) : line(c, X(t0), Y(s0), X(t1), Y(s1));
+      c.lineWidth = roof === 'glazed' ? 3 : 2.2; c.strokeStyle = roof === 'glazed' ? COL.glass : COL.rail;
+      if (x.kind === 'balcony' || roof === 'glazed') { seg(a0, a1, far, far); seg(a0, a0, r.face, far); seg(a1, a1, r.face, far); }
+      else if (x.kind === 'terrace') { const gap = 600; seg(a0, x.c - gap, far, far); seg(x.c + gap, a1, far, far); seg(a0, a0, r.face, far); seg(a1, a1, r.face, far); }
+      c.fillStyle = COL.ink;
+      DK.extColumns(p, x).forEach(q => c.fillRect(X(q.x - 150), Y(q.y - 150), L(300), L(300)));
+      const fs = Math.max(9, Math.min(13, L(800)));
+      c.font = `600 ${fs}px Raleway, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
+      const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+      if (R[2] > 50 && R[3] > 24) { c.fillText(DK.EXT[x.kind].n, X(cx), Y(cy) - fs * 0.6); c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`; c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6); }
+      if (sel && sel.kind === 'ext' && sel.id === x.id) {
+        c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4);
+        c.fillStyle = '#fff'; c.lineWidth = 2;
+        extHandles(p, x).forEach(h => { c.beginPath(); c.rect(X(h.x) - 5, Y(h.y) - 5, 10, 10); c.fill(); c.stroke(); });
+      }
+    }
+  }
+  function extHandles(p, x) {
+    const r = DK.extRect(p, x), e = r.e, a0 = x.c - x.w / 2, a1 = x.c + x.w / 2, mid = (r.face + r.far) / 2;
+    const P = (a, t, k) => e.axis === 'x' ? { x: a, y: t, k } : { x: t, y: a, k };
+    return [P(x.c, r.far, 'd'), P(a0, mid, 'w0'), P(a1, mid, 'w1')];
+  }
   function line(c, x0, y0, x1, y1) { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); }
   function hatch(c, x, y, w, h, col, step) {
     c.save(); c.beginPath(); c.rect(x, y, w, h); c.clip(); c.strokeStyle = col; c.lineWidth = 1;
@@ -184,35 +225,66 @@ function Plan2D(canvas, app) {
       let d = t2a - t1a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
       c.beginPath(); c.arc(H[0], H[1], L(r), t1a, t2a, d < 0); c.stroke(); c.setLineDash([]);
     }
-    if (sel) { c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4); }
+    if (sel) {
+      c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4);
+      // ручки ширины на концах проёма
+      c.fillStyle = '#fff'; c.lineWidth = 2;
+      for (const a of [a0, a1]) { const q = P(a, m); c.beginPath(); c.rect(q[0] - 5, q[1] - 5, 10, 10); c.fill(); c.stroke(); }
+      c.fillStyle = COL.ink; c.font = '600 11px "JetBrains Mono", monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+      const q = P(op.c, w.axis === 'x' ? (w.out < 0 ? t0 : t1) : (w.out < 0 ? t0 : t1));
+      c.fillText(op.w + ' мм', q[0], q[1] - 6);
+    }
   }
 
   function drawFurn(c, f, X, Y, L, sel) {
     const F = DK.FURN[f.type]; if (!F) return;
-    const b = DK.furnBox(f);
+    const T = f.type, base = F.base || T, ang = DK.furnAngle(f) * Math.PI / 180;
     c.save();
-    c.translate(X(f.x), Y(f.y)); c.rotate(f.rot * Math.PI / 2);
-    const w = L(F.w), d = L(F.d);
+    c.translate(X(f.x), Y(f.y)); c.rotate(ang);
+    const w = L(F.w), d = L(F.d), l = (x0, y0, x1, y1) => line(c, x0, y0, x1, y1);
     c.fillStyle = F.c; c.strokeStyle = '#6f747b'; c.lineWidth = 1;
-    rr(c, -w / 2, -d / 2, w, d, Math.min(4, L(60))); c.fill(); c.stroke();
+    const round = ['tableR', 'coffeeR', 'pouf', 'tank', 'plant', 'lampCeil', 'lampFloor', 'lampTable', 'umbrella', 'barstool'].includes(base);
+    if (base === 'kitchenL' || base === 'sofaL') { const s0 = L(base === 'kitchenL' ? 600 : 950); c.beginPath(); c.moveTo(-w / 2, -d / 2); c.lineTo(w / 2, -d / 2); c.lineTo(w / 2, base === 'sofaL' ? d / 2 : -d / 2 + s0); c.lineTo(base === 'sofaL' ? w / 2 - s0 : -w / 2 + s0, base === 'sofaL' ? d / 2 : -d / 2 + s0); c.lineTo(base === 'sofaL' ? w / 2 - s0 : -w / 2 + s0, base === 'sofaL' ? -d / 2 + s0 : d / 2); c.lineTo(base === 'sofaL' ? -w / 2 : -w / 2, base === 'sofaL' ? -d / 2 + s0 : d / 2); c.closePath(); c.fill(); c.stroke(); }
+    else if (base === 'kitchenU') { const s0 = L(600); c.beginPath(); c.moveTo(-w / 2, -d / 2); c.lineTo(w / 2, -d / 2); c.lineTo(w / 2, d / 2); c.lineTo(w / 2 - s0, d / 2); c.lineTo(w / 2 - s0, -d / 2 + s0); c.lineTo(-w / 2 + s0, -d / 2 + s0); c.lineTo(-w / 2 + s0, d / 2); c.lineTo(-w / 2, d / 2); c.closePath(); c.fill(); c.stroke(); }
+    else if (round && base !== 'plant' && !base.startsWith('lamp')) { c.beginPath(); c.arc(0, 0, Math.min(w, d) / 2, 0, 7); c.fill(); c.stroke(); }
+    else if (!round) { rr(c, -w / 2, -d / 2, w, d, Math.min(4, L(60))); c.fill(); c.stroke(); }
     c.strokeStyle = 'rgba(60,64,70,.55)';
-    const T = f.type;
-    if (T.startsWith('bed')) { c.fillStyle = '#fff'; const pw = T === 'bed160' ? (w - L(240)) / 2 : w - L(160);
-      for (let i = 0; i < (T === 'bed160' ? 2 : 1); i++) { rr(c, -w / 2 + L(80) + i * (pw + L(80)), -d / 2 + L(80), pw, L(380), 3); c.fill(); c.stroke(); }
-      line(c, -w / 2, -d / 2 + L(560), w / 2, -d / 2 + L(560)); }
-    else if (T === 'sofa' || T === 'armchair') { rr(c, -w / 2 + 1, -d / 2 + 1, w - 2, L(220), 3); c.stroke(); rr(c, -w / 2 + 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); rr(c, w / 2 - L(180) - 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); }
-    else if (T === 'toilet') { c.beginPath(); c.ellipse(0, L(90), w / 2 - 2, d / 2 - L(170), 0, 0, Math.PI * 2); c.stroke(); line(c, -w / 2, -d / 2 + L(170), w / 2, -d / 2 + L(170)); }
-    else if (T === 'sink') { c.beginPath(); c.ellipse(0, L(30), w / 2 - L(80), d / 2 - L(110), 0, 0, Math.PI * 2); c.stroke(); }
-    else if (T === 'bath') { rr(c, -w / 2 + L(70), -d / 2 + L(70), w - L(140), d - L(140), L(250)); c.stroke(); }
-    else if (T === 'shower') { line(c, -w / 2, -d / 2, w / 2, d / 2); line(c, w / 2, -d / 2, -w / 2, d / 2); }
-    else if (T === 'kitchen' || T === 'kitchenS') { for (let x = -w / 2 + L(600); x < w / 2; x += L(600)) line(c, x, -d / 2, x, d / 2);
-      c.beginPath(); c.arc(-w / 2 + L(900), 0, L(160), 0, Math.PI * 2); c.stroke(); }
-    else if (T === 'table') { c.fillStyle = '#d9d2c6'; for (const s of [-1, 1]) for (const q of [-1, 0, 1]) { rr(c, q * L(480) - L(200), s * (d / 2 + L(80)) - (s < 0 ? L(400) : 0), L(400), L(400), 3); c.fill(); c.stroke(); } }
-    else if (T === 'boiler') { c.beginPath(); c.arc(0, 0, Math.min(w, d) / 3, 0, Math.PI * 2); c.stroke(); }
-    else if (T === 'washer') { c.beginPath(); c.arc(0, L(30), Math.min(w, d) / 3, 0, Math.PI * 2); c.stroke(); }
-    else if (T === 'wardrobe') { line(c, -w / 2, d / 2 - L(40), w / 2, d / 2 - L(40)); line(c, 0, -d / 2, 0, d / 2); }
+    if (base === 'bed160' || base === 'bed90' || base === 'bunk' || base === 'cot') { c.fillStyle = '#fff'; const two = base === 'bed160', pw = two ? (w - L(240)) / 2 : w - L(160);
+      for (let i = 0; i < (two ? 2 : 1); i++) { rr(c, -w / 2 + L(80) + i * (pw + L(80)), -d / 2 + L(80), pw, L(380), 3); c.fill(); c.stroke(); }
+      l(-w / 2, -d / 2 + L(560), w / 2, -d / 2 + L(560)); if (base === 'bunk') { c.setLineDash([3, 3]); l(-w / 2, d / 2, w / 2, -d / 2); c.setLineDash([]); } }
+    else if (base === 'sofa' || base === 'armchair') { rr(c, -w / 2 + 1, -d / 2 + 1, w - 2, L(220), 3); c.stroke(); rr(c, -w / 2 + 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); rr(c, w / 2 - L(180) - 1, -d / 2 + 1, L(180), d - 2, 3); c.stroke(); }
+    else if (base === 'toilet') { c.beginPath(); c.ellipse(0, L(90), w / 2 - 2, d / 2 - L(170), 0, 0, Math.PI * 2); c.stroke(); l(-w / 2, -d / 2 + L(170), w / 2, -d / 2 + L(170)); }
+    else if (base === 'sink') { const n = F.w > 900 ? 2 : 1; for (let i = 0; i < n; i++) { c.beginPath(); c.ellipse(-w / 2 + w * (i + 0.5) / n, L(30), w / n / 2 - L(80), d / 2 - L(110), 0, 0, Math.PI * 2); c.stroke(); } }
+    else if (base === 'bath' || base === 'bathC') { rr(c, -w / 2 + L(70), -d / 2 + L(70), w - L(140), d - L(140), L(250)); c.stroke(); }
+    else if (base === 'shower') { l(-w / 2, -d / 2, w / 2, d / 2); l(w / 2, -d / 2, -w / 2, d / 2); }
+    else if (base === 'kitchen') { for (let x = -w / 2 + L(600); x < w / 2; x += L(600)) l(x, -d / 2, x, d / 2); c.beginPath(); c.arc(-w / 2 + L(900), 0, L(160), 0, Math.PI * 2); c.stroke(); }
+    else if (base === 'table' || base === 'tableR') {
+      c.fillStyle = '#d9d2c6'; const n = F.chairs || 0;
+      const ch = (x, y) => { rr(c, x - L(200), y - L(200), L(400), L(400), 3); c.fill(); c.stroke(); };
+      if (base === 'tableR') for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2 + Math.PI / 4, r = w / 2 + L(180); ch(Math.cos(a) * r, Math.sin(a) * r); }
+      else { const per = Math.max(1, Math.floor((n - (n >= 6 ? 2 : 0)) / 2)); for (const sg of [-1, 1]) for (let i = 0; i < per; i++) ch(-w / 2 + w / per * (i + 0.5), sg * (d / 2 + L(200))); if (n >= 6) for (const sg of [-1, 1]) ch(sg * (w / 2 + L(200)), 0); }
+    }
+    else if (base === 'tv') { c.lineWidth = 3; c.strokeStyle = '#141518'; l(-w * 0.36, -d / 2 + L(60), w * 0.36, -d / 2 + L(60)); }
+    else if (base === 'boiler' || base === 'washer') { c.beginPath(); c.arc(0, 0, Math.min(w, d) / 3, 0, Math.PI * 2); c.stroke(); }
+    else if (base === 'wardrobe' || base === 'hallway') { l(-w / 2, d / 2 - L(40), w / 2, d / 2 - L(40)); l(0, -d / 2, 0, d / 2); }
+    else if (base === 'shelf') { for (let x = -w / 2 + L(250); x < w / 2; x += L(250)) l(x, -d / 2, x, d / 2); }
+    else if (base === 'rug') { c.setLineDash([4, 3]); rr(c, -w / 2 + L(80), -d / 2 + L(80), w - L(160), d - L(160), 2); c.stroke(); c.setLineDash([]); }
+    else if (base === 'plant') { c.fillStyle = F.c; for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; c.beginPath(); c.ellipse(Math.cos(a) * w / 4, Math.sin(a) * w / 4, w / 4, w / 7, a, 0, 7); c.fill(); } }
+    else if (base.startsWith('lamp')) { c.fillStyle = '#fff6dc'; c.beginPath(); c.arc(0, 0, Math.min(w, d) / 2, 0, 7); c.fill(); c.stroke(); l(-w / 2, 0, w / 2, 0); l(0, -d / 2, 0, d / 2); }
+    else if (base === 'fireplace') { c.fillStyle = '#ff9b42'; c.fillRect(-w * 0.25, d / 2 - L(160), w * 0.5, L(100)); }
+    else if (base === 'lounger') { l(-w / 2, -d / 2 + L(600), w / 2, -d / 2 + L(600)); }
     c.restore();
-    if (sel) { c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(X(b.x0) - 2, Y(b.y0) - 2, L(b.sw) + 4, L(b.sd) + 4); }
+    if (sel) {
+      c.save(); c.translate(X(f.x), Y(f.y)); c.rotate(ang);
+      c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(-w / 2 - 2, -d / 2 - 2, w + 4, d + 4);
+      rotHandle(c, 0, -d / 2 - 22);
+      c.restore();
+    }
+  }
+  function rotHandle(c, x, y) {
+    c.strokeStyle = COL.sel; c.lineWidth = 1.5; line(c, x, y + 14, x, y + 6);
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(x, y, 7, 0, 7); c.fill(); c.stroke();
+    c.beginPath(); c.arc(x, y, 3.5, -2.4, 1.4); c.stroke();
   }
   function rr(c, x, y, w, h, r) { r = Math.max(0, Math.min(r, w / 2, h / 2)); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
 
@@ -264,7 +336,7 @@ function Plan2D(canvas, app) {
     }
     c.lineWidth = 1.2; c.strokeRect(X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0));
     if (!bottom) { c.setLineDash([5, 4]); c.strokeStyle = COL.muted; line(c, X(r.x0), Y(r.y0), X(r.x1), Y(r.y1)); line(c, X(r.x1), Y(r.y0), X(r.x0), Y(r.y1)); c.setLineDash([]); }
-    if (sel) { c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(X(r.x0) - 2, Y(r.y0) - 2, L(r.x1 - r.x0) + 4, L(r.y1 - r.y0) + 4); }
+    if (sel) { c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(X(r.x0) - 2, Y(r.y0) - 2, L(r.x1 - r.x0) + 4, L(r.y1 - r.y0) + 4); rotHandle(c, X((r.x0 + r.x1) / 2), Y(r.y0) - 22); }
   }
 
   function dims(c, p, fid, ws, X, Y, L, ext, dimOpen) {
@@ -335,8 +407,43 @@ function Plan2D(canvas, app) {
       return a > o.c - o.w / 2 - tol && a < o.c + o.w / 2 + tol && b > lo && b < hi;
     });
   }
+  /* ручка поворота выбранной мебели или лестницы, в экранных координатах */
+  function hitRot(p, fid, sx, sy) {
+    const s = app.sel(); if (!s) return null;
+    if (s.kind === 'furn') {
+      const f = p.levels[fid].furn.find(q => q.id === s.id); if (!f) return null;
+      const F = DK.FURN[f.type], a = DK.furnAngle(f) * Math.PI / 180, r = F.d * view.k / 2 + 22;
+      const hx = view.ox + f.x * view.k + Math.sin(a) * r, hy = view.oy + f.y * view.k - Math.cos(a) * r;
+      return Math.hypot(sx - hx, sy - hy) < 10 ? { f } : null;
+    }
+    if (s.kind === 'stair' && p.stair) {
+      const r = DK.stairRect(p), hx = view.ox + (r.x0 + r.x1) / 2 * view.k, hy = view.oy + r.y0 * view.k - 22;
+      return Math.hypot(sx - hx, sy - hy) < 10 ? { stair: true } : null;
+    }
+    return null;
+  }
+  function hitExt(p, fid, x, y) {
+    return extsOn(p, fid).slice().reverse().find(q => { const r = DK.extRect(p, q); return r && x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1; });
+  }
+  function hitExtHandle(p, fid, x, y) {
+    const s = app.sel(); if (!s || s.kind !== 'ext') return null;
+    const q = (p.ext || []).find(v => v.id === s.id); if (!q) return null;
+    const tol = 9 / view.k, h = extHandles(p, q).find(v => Math.abs(v.x - x) < tol && Math.abs(v.y - y) < tol);
+    return h ? { x: q, k: h.k } : null;
+  }
+  function hitOpenEnd(p, fid, x, y) {
+    const s = app.sel(); if (!s || s.kind !== 'open') return null;
+    const o = p.levels[fid].open.find(q => q.id === s.id); if (!o) return null;
+    const w = DK.walls(p, fid).find(v => v.id === o.wall); if (!w) return null;
+    const tol = 9 / view.k;
+    for (const side of [-1, 1]) {
+      const a = o.c + side * o.w / 2, px = w.axis === 'x' ? a : w.m, py = w.axis === 'x' ? w.m : a;
+      if (Math.abs(px - x) < tol && Math.abs(py - y) < tol) return { o, w, side };
+    }
+    return null;
+  }
   function hitFurn(p, fid, x, y) {
-    return p.levels[fid].furn.slice().reverse().find(f => { const b = DK.furnBox(f); return x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1; });
+    return p.levels[fid].furn.slice().reverse().find(f => DK.furnHit(f, x, y));
   }
   function hitWall(p, fid, x, y, kinds) {
     const tol = 8 / view.k, ext = DK.extT(p);
@@ -379,6 +486,7 @@ function Plan2D(canvas, app) {
     if (tool === 'win' || tool === 'door' || tool === 'pass') { placeOpening(p, fid, w.x, w.y); return; }
     if (tool === 'furn') { placeFurn(p, fid, w.x, w.y); return; }
     if (tool === 'bump') { placeBump(p, fid, w.x, w.y); return; }
+    if (tool === 'terrace' || tool === 'porch' || tool === 'balcony') { placeExt(p, fid, w.x, w.y); return; }
     if (tool === 'wet' && p.wet) {
       const z = p.wet, tol = 10 / view.k;
       const ed = { l: Math.abs(w.x - z.x) < tol, r: Math.abs(w.x - z.x - z.w) < tol, t: Math.abs(w.y - z.y) < tol, b: Math.abs(w.y - z.y - z.h) < tol };
@@ -386,6 +494,12 @@ function Plan2D(canvas, app) {
       if (insideZ) { drag = { kind: 'wet', ed: (ed.l || ed.r || ed.t || ed.b) ? ed : null, w0: w, z0: Object.assign({}, z) }; return; }
     }
     if (tool === 'erase') { erase(p, fid, w.x, w.y); return; }
+    const xh = hitExtHandle(p, fid, w.x, w.y);
+    if (xh) { drag = { kind: 'xh', x: xh.x, k: xh.k }; return; }
+    const rh = hitRot(p, fid, sx, sy);
+    if (rh) { drag = { kind: 'frot', t: rh }; return; }
+    const he2 = hitOpenEnd(p, fid, w.x, w.y);
+    if (he2) { drag = { kind: 'oend', o: he2.o, side: he2.side, wl: he2.w }; return; }
     const o = hitOpen(p, fid, w.x, w.y);
     if (o) { app.select({ kind: 'open', id: o.id }); drag = { kind: 'open', o, w0: w, c0: o.c }; return; }
     const f = app.opt('furn') !== false && hitFurn(p, fid, w.x, w.y);
@@ -395,6 +509,8 @@ function Plan2D(canvas, app) {
     const pw = hitWall(p, fid, w.x, w.y, ['part']);
     if (pw) { const part = p.levels[fid].parts.find(q => q.id === pw.id); app.select({ kind: 'part', id: pw.id }); drag = { kind: 'part', part, w0: w, s: Object.assign({}, part), ax: pw.axis }; return; }
     if (hitWall(p, fid, w.x, w.y, ['bearing'])) { app.select({ kind: 'bearing' }); drag = { kind: 'none' }; return; }
+    const xx = hitExt(p, fid, w.x, w.y);
+    if (xx) { app.select({ kind: 'ext', id: xx.id }); drag = { kind: 'xm', x: xx, w0: w, c0: xx.c }; return; }
     if (hitStair(p, w.x, w.y)) { app.select({ kind: 'stair' }); drag = { kind: 'stair', w0: w, x0: p.stair.x, y0: p.stair.y }; return; }
     const ow = hitWall(p, fid, w.x, w.y, ['outer']);
     if (ow) { app.select({ kind: 'edge', id: ow.id }); drag = { kind: 'edge', id: ow.id, axis: ow.axis, w0: w, snap: JSON.stringify(p), ox: view.ox, oy: view.oy, sx, sy }; return; }
@@ -412,6 +528,8 @@ function Plan2D(canvas, app) {
       const he = (tool === 'select' || tool === 'bump') && !hitOpen(p, fid, w.x, w.y) ? hitWall(p, fid, w.x, w.y, ['outer']) : null;
       const nh = he ? he.id : null;
       if (nh !== hoverEdge || hover) { hoverEdge = nh; render(); }
+      const oe = tool === 'select' && hitOpenEnd(p, fid, w.x, w.y);
+      if (oe) { canvas.style.cursor = oe.w.axis === 'x' ? 'ew-resize' : 'ns-resize'; return; }
       canvas.style.cursor = tool === 'select' ? (hitOpen(p, fid, w.x, w.y) || hitFurn(p, fid, w.x, w.y) ? 'move' : he ? (he.axis === 'x' ? 'ns-resize' : 'ew-resize') : hitPartEnd(p, fid, w.x, w.y) ? 'crosshair' : 'default') : 'crosshair';
       return;
     }
@@ -426,7 +544,36 @@ function Plan2D(canvas, app) {
       render(); return;
     }
     drag.moved = true;
-    if (drag.kind === 'open') {
+    if (drag.kind === 'xm') {
+      const e = DK.extRect(p, drag.x).e, d = e.axis === 'x' ? w.x - drag.w0.x : w.y - drag.w0.y;
+      drag.x.c = Math.max(e.lo + drag.x.w / 2, Math.min(snap(drag.c0 + d, 100), e.hi - drag.x.w / 2));
+    } else if (drag.kind === 'xh') {
+      const x = drag.x, r = DK.extRect(p, x), e = r.e, a = e.axis === 'x' ? w.x : w.y, t = e.axis === 'x' ? w.y : w.x;
+      if (drag.k === 'd') x.d = Math.max(800, Math.min(snap(Math.abs(t - r.face), 100), x.kind === 'balcony' ? 3000 : 8000));
+      else {
+        const fixed = drag.k === 'w0' ? x.c + x.w / 2 : x.c - x.w / 2;
+        let lo = drag.k === 'w0' ? Math.max(e.lo, snap(a, 100)) : fixed, hi = drag.k === 'w0' ? fixed : Math.min(e.hi, snap(a, 100));
+        if (hi - lo >= 1000) { x.w = hi - lo; x.c = (lo + hi) / 2; }
+      }
+    } else if (drag.kind === 'frot') {
+      if (drag.t.f) {
+        const f = drag.t.f, deg = Math.atan2(w.x - f.x, -(w.y - f.y)) * 180 / Math.PI;
+        f.a = ((Math.round(deg / (e.altKey ? 1 : 15)) * (e.altKey ? 1 : 15)) % 360 + 360) % 360; delete f.rot;
+      } else {
+        const r = DK.stairRect(p), deg = Math.atan2(w.x - (r.x0 + r.x1) / 2, -(w.y - (r.y0 + r.y1) / 2)) * 180 / Math.PI;
+        if (drag.d0 == null) { drag.d0 = deg; drag.r0 = p.stair.rot; }
+        const rot = ((drag.r0 + Math.round((deg - drag.d0) / 90)) % 4 + 4) % 4;
+        if (rot !== p.stair.rot) { const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2; p.stair.rot = rot; const r2 = DK.stairRect(p); p.stair.x += Math.round(cx - (r2.x0 + r2.x1) / 2); p.stair.y += Math.round(cy - (r2.y0 + r2.y1) / 2); }
+      }
+    } else if (drag.kind === 'oend') {
+      const o = drag.o, wl = drag.wl, lim = DK.opLimits(p, wl, o), a = wl.axis === 'x' ? w.x : w.y;
+      const fixed = drag.side < 0 ? o.c + o.w / 2 : o.c - o.w / 2;
+      let nw = snap(Math.abs(fixed - a), 50);
+      nw = Math.max(lim.min, Math.min(nw, lim.max));
+      let c = drag.side < 0 ? fixed - nw / 2 : fixed + nw / 2;
+      if (c - nw / 2 < wl.a0 || c + nw / 2 > wl.a1) return;
+      o.w = nw; o.c = c;
+    } else if (drag.kind === 'open') {
       const ws = DK.walls(p, fid), wl = ws.find(v => v.id === drag.o.wall);
       const d = wl.axis === 'x' ? w.x - drag.w0.x : w.y - drag.w0.y;
       drag.o.c = Math.max(wl.a0 + drag.o.w / 2, Math.min(snap(drag.c0 + d), wl.a1 - drag.o.w / 2));
@@ -480,6 +627,7 @@ function Plan2D(canvas, app) {
     if (drag.kind === 'pan' && !drag.moved && drag.click) {
       const r = DK.rooms(p, fid).at(drag.click.x, drag.click.y);
       app.select(r ? { kind: 'room', x: drag.click.x, y: drag.click.y } : null);
+      if (r && tool === 'select') app.roomPop(drag.sx, drag.sy);
     } else if (drag.moved && drag.kind !== 'pan') app.commit();
     drag = null; render();
   };
@@ -509,6 +657,22 @@ function Plan2D(canvas, app) {
     if (kind === 'pass' && w.kind === 'bearing') app.toast('Проём в несущей стене — в ТЗ добавлена перемычка');
     app.setTool('select');
   }
+  function placeExt(p, fid, x, y) {
+    const k = tool, w = hitWall(p, fid, x, y, ['outer']);
+    if (!w) { app.toast('Нажмите на наружную стену'); return; }
+    if (k === 'balcony' && (fid === 'f1' || fid === 'b')) { app.toast('Балкон — со второго этажа и выше. На первом этаже — терраса'); return; }
+    if (k !== 'balcony' && fid !== 'f1') { app.toast('Терраса и крыльцо — на плане 1 этажа'); return; }
+    const D = DK.EXT[k], e = w.edge;
+    let c = snap(w.axis === 'x' ? x : y, 100), wd = D.w;
+    const win = p.levels[fid].open.find(o => o.wall === w.id && (o.pano || o.kind !== 'win') && Math.abs(o.c - c) < 3000);
+    if (win) { c = win.c; wd = Math.max(D.w, win.w + (k === 'porch' ? 1200 : 2000)); }
+    wd = Math.min(wd, e.hi - e.lo);
+    const q = { id: DK.id('x'), kind: k, wall: w.id, c: Math.max(e.lo + wd / 2, Math.min(c, e.hi - wd / 2)), w: wd, d: D.d, roof: k === 'terrace' ? 'open' : k === 'porch' ? 'covered' : undefined };
+    if (k === 'balcony') q.fid = fid;
+    p.ext = (p.ext || []).concat(q);
+    app.commit(D.n); app.select({ kind: 'ext', id: q.id }); app.setTool('select');
+    if (!DK.extExit(p, q) && k !== 'porch') app.toast(`${D.n}: поставьте дверь или панорамное окно для выхода`);
+  }
   function placeFurn(p, fid, x, y) {
     const f = { id: DK.id('f'), type: toolArg, x: snap(x), y: snap(y), rot: 0 };
     p.levels[fid].furn.push(f); app.commit(DK.FURN[toolArg].n); app.select({ kind: 'furn', id: f.id }); app.setTool('select');
@@ -527,21 +691,22 @@ function Plan2D(canvas, app) {
   function erase(p, fid, x, y) {
     const lv = p.levels[fid];
     const o = hitOpen(p, fid, x, y); if (o) { lv.open = lv.open.filter(q => q !== o); app.commit('Удалён проём'); return; }
+    const xx = hitExt(p, fid, x, y); if (xx) { p.ext = p.ext.filter(q => q !== xx); app.commit('Удалено'); return; }
     const f = hitFurn(p, fid, x, y); if (f) { lv.furn = lv.furn.filter(q => q !== f); app.commit('Удалена мебель'); return; }
     const w = hitWall(p, fid, x, y, ['part']); if (w) { lv.parts = lv.parts.filter(q => q.id !== w.id); lv.open = lv.open.filter(q => q.wall !== w.id); app.commit('Удалена перегородка'); }
   }
 
   function toImage(fid, opt) {
     opt = opt || {};
-    const p = app.p(), ext = DK.extT(p) + 2000, px = opt.width || 1800;
-    const k = px / (p.W + 2 * ext), hpx = Math.round((p.D + 2 * ext) * k) + 60;
+    const p = app.p(), b = bounds(p), px = opt.width || 1800;
+    const k = px / (b.x1 - b.x0), hpx = Math.round((b.y1 - b.y0) * k) + 60;
     const cv = document.createElement('canvas'); cv.width = px; cv.height = hpx;
     const c = cv.getContext('2d');
     c.fillStyle = '#fff'; c.fillRect(0, 0, px, hpx);
     c.fillStyle = COL.ink; c.font = '700 22px Raleway, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'top';
     const A = DK.rooms(p, fid).filter(r => r.type !== 'void').reduce((s, r) => s + r.area, 0);
     c.fillText(DK.floorName(fid) + ' · ' + DK.fmtA(A) + ' м²', 24, 18);
-    draw(c, { k, ox: ext * k, oy: ext * k + 50 }, p, fid, { clean: true, dimOpen: true });
+    draw(c, { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 }, p, fid, { clean: true, dimOpen: true });
     return cv.toDataURL('image/png');
   }
 
