@@ -63,6 +63,12 @@ function bindAuth() {
     e.preventDefault(); const f = e.target;
     if (!f.agree.checked) { $('#aErr').textContent = 'Нужно согласие на обработку данных и с правилами площадки'; return; }
     try {
+      if (authKind === 'company') {
+        // строительная компания: аккаунт и карточка, проверка менеджером в CRM
+        if (!f.company.value.trim()) throw new Error('Укажите название компании');
+        const r = await api('/api/company/register', { name: f.company.value, contact: f.name.value, inn: f.inn.value, regions: f.regions.value, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
+        setToken(r.token); user = r.user; $('#authDlg').close(); paintHeader(); afterAuth = null; DK.goPage('company'); return;
+      }
       const r = await api('/api/auth/register', { name: f.name.value, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
       setToken(r.token); user = r.user;
       if (f.arch.checked) {
@@ -73,7 +79,7 @@ function bindAuth() {
       done();
     } catch (er) { $('#aErr').textContent = er.message; }
   };
-  function done() { $('#authDlg').close(); paintHeader(); const t = afterAuth; afterAuth = null; if (t) t(); else DK.goPage('cab'); }
+  function done() { $('#authDlg').close(); paintHeader(); const t = afterAuth; afterAuth = null; if (user && user.role === 'company') DK.goPage('company'); else if (t) t(); else DK.goPage('cab'); }
 }
 
 /* ---------- публикация ---------- */
@@ -196,11 +202,12 @@ DK.Market = {
     $('[data-close]', $('#prDlg')) && ($('[data-close]', $('#prDlg')).onclick = () => $('#prDlg').close());
     $('#projQ').oninput = (e) => { flt.q = e.target.value; clearTimeout(this.t); this.t = setTimeout(renderProjects, 250); };
     $('#projSort').onchange = (e) => { flt.sort = e.target.value; renderProjects(); };
-    refreshMe();
+    this.ready = refreshMe();
   },
   renderProjects, renderCab, openPublish,
   /* кабинет по роли: компания — кабинет заявок, остальные — кабинет пользователя */
-  openCabinet(kind) {
+  async openCabinet(kind) {
+    await (this.ready || Promise.resolve());
     if (kind === 'company') { if (user && user.role === 'company') return DK.goPage('company'); return openAuth(() => DK.goPage(user && user.role === 'company' ? 'company' : 'cab'), 'company'); }
     if (user) return DK.goPage('cab');
     openAuth(() => DK.goPage('cab'), kind === 'arch' ? 'arch' : undefined);

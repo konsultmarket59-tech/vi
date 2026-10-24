@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* Сервер площадки без зависимостей: статика, заявки, рассылка исполнителям, регистрация, админка.
    Запуск: ADMIN_KEY=секрет node server.js   (порт PORT, по умолчанию 8080)
-   Уведомления в Telegram: TG_BOT_TOKEN, TG_OWNER_CHAT (чат владельца). */
+   Уведомления в Telegram: TG_BOT_TOKEN, TG_OWNER_CHAT (чат владельца). Почта: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM.
+   CRM (/crm.html): первый администратор — CRM_ADMIN_EMAIL и CRM_ADMIN_PASSWORD. */
 'use strict';
 const http = require('http'), https = require('https'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 
@@ -89,6 +90,9 @@ async function lead(req, res) {
   writeJSON(path.join(dir, 'lead.json'), rec);
   tg(TG_OWNER, `🏠 Заявка ${id}\n${rec.answers.name}, ${rec.answers.phone}${rec.answers.time ? ' (' + rec.answers.time + ')' : ''}\n${rec.answers.city}; участок: ${rec.answers.plot}; уклон: ${rec.answers.slope}\n` +
     rec.brief.join('\n') + (rec.answers.note ? '\nПожелания: ' + rec.answers.note : '') + `\nРассылка: ${comps.length} исп.` + (PUBLIC_URL ? `\n${PUBLIC_URL}/admin.html#${id}` : ''));
+  // сотрудникам — письмо о новой заявке (если почта настроена)
+  readJSON(path.join(DATA, 'users.json'), []).filter(u => u.role === 'staff' && u.staffRole !== 'estimator')
+    .forEach(u => mail(u.email, `Заявка ${id}: ${rec.answers.name}, ${rec.answers.city}`, `${rec.answers.name}, ${rec.answers.phone}\n${rec.answers.city}; участок: ${rec.answers.plot}\n${rec.brief.slice(0, 5).join('\n')}\n${PUBLIC_URL}/crm.html#${id}`));
   send(res, 200, { ok: true, id });
 }
 
@@ -164,12 +168,15 @@ function stat(req, res, url) {
   });
 }
 
+const mail = require('./mailer.js')(DATA);
+const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited });
 const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL });
 const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
+    if (url.pathname.startsWith('/api/') && await crmHandle(req, res, url)) return;
     if (url.pathname.startsWith('/api/') && await marketHandle(req, res, url)) return;
     if (url.pathname === '/api/lead' && req.method === 'POST') return lead(req, res);
     if (url.pathname === '/api/register' && req.method === 'POST') return register(req, res);

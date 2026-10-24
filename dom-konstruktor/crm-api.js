@@ -1,0 +1,216 @@
+/* CRM и кабинет строительной компании.
+   Сотрудники (role: staff; staffRole: admin — всё, estimator — сметчик, manager — менеджер) ведут заявки: карточка клиента, статус,
+   квалификация и цена лида, тело расчёта с ручной правкой, рассылка эскизного проекта компаниям и сравнение их ответов.
+   Компании (role: company) регистрируются, после проверки получают запросы на почту, видят эскиз и ТЗ в кабинете и подают
+   расчёт по единой форме. Первый администратор: CRM_ADMIN_EMAIL и CRM_ADMIN_PASSWORD при запуске или POST /api/admin/staff с ключом. */
+'use strict';
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
+
+module.exports = function crm(ctx) {
+  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited } = ctx;
+  const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
+  const COMP = path.join(DATA, 'companies.json'), PRICES = path.join(DATA, 'prices.json'), SETTINGS = path.join(DATA, 'settings.json'), OUTBOX = path.join(DATA, 'outbox.json');
+  const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
+  const hash = (pw, salt) => crypto.scryptSync(String(pw), salt, 64).toString('hex');
+  const users = () => readJSON(USERS, []);
+  const now = () => new Date().toISOString();
+  const site = () => PUBLIC_URL || '';
+
+  /* роли и сетка цены лида */
+  const BID_ROWS = { found: 'Фундамент', walls: 'Стены и перегородки', slabs: 'Перекрытия', roof: 'Кровля', windows: 'Окна и двери', facade: 'Утепление и фасад', ext: 'Гараж, террасы, постройки', other: 'Прочее' };
+  const QUAL = { plot: 'Есть участок', now: 'Готов строиться сейчас', cash: 'Деньги в наличии (наличные / одобренная ипотека)', price: 'Согласовал предварительную цену', meet: 'Готов к встрече' };
+  const settings = () => Object.assign({ grid: { cold: 0, warm: 0.5, hot: 2 } }, readJSON(SETTINGS, {}));
+  function grade(l) {
+    const q = l.qual || {};
+    if (Object.keys(QUAL).every(k => q[k])) return 'hot';
+    if (q.plot && (q.now || q.cash)) return 'warm';
+    return 'cold';
+  }
+  const homeValue = (l) => +l.agreed || (l.est && l.est.total) || (l.estimate && l.estimate.to ? (l.estimate.from + l.estimate.to) / 2 * 1e6 : 0);
+  const leadPrice = (l) => Math.round(homeValue(l) * (settings().grid[grade(l)] || 0) / 100);
+
+  // первый администратор из переменных окружения
+  (function bootstrap() {
+    const e = (process.env.CRM_ADMIN_EMAIL || '').toLowerCase(), pw = process.env.CRM_ADMIN_PASSWORD || '';
+    if (!e || pw.length < 8) return;
+    const list = users(); let u = list.find(x => x.email === e);
+    if (!u) { const salt = crypto.randomBytes(16).toString('hex'); u = { id: 'u' + Date.now().toString(36), email: e, name: 'Администратор', salt, pass: hash(pw, salt), at: now() }; list.push(u); }
+    u.role = 'staff'; u.staffRole = 'admin'; writeJSON(USERS, list);
+  })();
+
+  function me(req) {
+    const t = String(req.headers.authorization || '').replace(/^Bearer\s+/, ''); if (!t) return null;
+    const s = readJSON(SESS, {})[t]; if (!s) return null;
+    return users().find(u => u.id === s) || null;
+  }
+  function session(uid) { const t = crypto.randomBytes(24).toString('hex'), s = readJSON(SESS, {}); s[t] = uid; writeJSON(SESS, s); return t; }
+  const adminKey = (req) => { const k = req.headers['x-admin-key'] || ''; return ADMIN_KEY && k.length === ADMIN_KEY.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(ADMIN_KEY)); };
+  const leadFile = (id) => /^[\w-]+$/.test(id) ? path.join(LEADS, id, 'lead.json') : null;
+  const allLeads = () => { try { return fs.readdirSync(LEADS).map(id => readJSON(path.join(LEADS, id, 'lead.json'), null)).filter(Boolean); } catch (e) { return []; } };
+  const companies = () => readJSON(COMP, []);
+  const staffPub = (u) => ({ id: u.id, name: u.name, email: u.email, staffRole: u.staffRole });
+  const fileOut = (res, l, fn) => { fn = path.basename(fn || ''); if (!(l.files || []).includes(fn)) return send(res, 404, { ok: false }); send(res, 200, fs.readFileSync(path.join(LEADS, l.id, fn)), TYPES[path.extname(fn)] || 'application/octet-stream'); };
+  function summary(l) {
+    const a = l.answers || {}, c = l.client || {};
+    return { id: l.id, at: l.at, status: l.status, name: c.name || a.name, phone: c.phone || a.phone, city: c.city || a.city, cls: a.cls, area: l.estimate && l.estimate.area,
+      est: l.est && l.est.total || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null, grade: grade(l), leadPrice: leadPrice(l), bids: (l.bids || []).length, rfq: (l.rfq || []).length, manager: l.manager || null };
+  }
+  // для компании: без контактов клиента, пока клиент не выбрал компанию
+  function forCompany(l, cid) {
+    const shared = (l.shareWith || []).includes(cid), a = l.answers || {}, c = l.client || {};
+    return { id: l.id, at: l.at, city: c.city || a.city, area: l.estimate && l.estimate.area, cls: a.cls, material: a.material, term: a.term, plot: a.plot, slope: a.slope,
+      brief: l.brief || [], tz: l.tz || [], changes: l.changes || [], files: l.files || [], project: l.project || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null,
+      grade: grade(l), leadPrice: leadPrice(l), myBid: (l.bids || []).find(b => b.company === cid) || null, rows: BID_ROWS,
+      contacts: shared ? { name: c.name || a.name, phone: c.phone || a.phone } : null };
+  }
+  const json = (res, v) => send(res, 200, v);
+
+  return async function handle(req, res, url) {
+    const p = url.pathname, M = req.method, parts = p.split('/').filter(Boolean);
+    try {
+      if (p === '/api/prices' && M === 'GET') { const pr = readJSON(PRICES, {}); return json(res, { prices: pr.prices || {}, updatedAt: pr.updatedAt || null }), true; }
+
+      // первый сотрудник по ключу администратора (admin.html)
+      if (p === '/api/admin/staff' && M === 'POST') {
+        if (!adminKey(req)) return send(res, 401, { ok: false }), true;
+        return createStaff(await body(req, 20e3), res), true;
+      }
+
+      /* ---------- регистрация и кабинет компании ---------- */
+      if (p === '/api/company/register' && M === 'POST') {
+        if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много попыток' }), true;
+        const d = await body(req, 100e3), email = str(d.email, 120).toLowerCase();
+        if (!str(d.name) || !str(d.city) || !str(d.phone)) return send(res, 400, { ok: false, error: 'Заполните название, город и телефон' }), true;
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Проверьте почту' }), true;
+        if (String(d.password || '').length < 8) return send(res, 400, { ok: false, error: 'Пароль — от 8 символов' }), true;
+        if (d.inn && !/^\d{10}(\d{2})?$/.test(String(d.inn))) return send(res, 400, { ok: false, error: 'ИНН — 10 или 12 цифр' }), true;
+        const list = users(); if (list.some(u => u.email === email)) return send(res, 409, { ok: false, error: 'Почта уже зарегистрирована — войдите' }), true;
+        const cs = companies(), cid = 'c' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+        cs.push({ id: cid, status: 'pending', at: now(), type: 'builder', name: str(d.name), inn: str(d.inn, 12), city: str(d.city, 80), regions: (Array.isArray(d.regions) ? d.regions : String(d.regions || '').split(',')).map(s => str(s, 80)).filter(Boolean).slice(0, 20),
+          materials: (Array.isArray(d.materials) ? d.materials : []).slice(0, 10).map(s => str(s, 20)), phone: str(d.phone, 40), email, site: str(d.site, 200), about: str(d.about, 2000), classes: [], rating: null, reviews: 0 });
+        writeJSON(COMP, cs);
+        const salt = crypto.randomBytes(16).toString('hex'), u = { id: 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), email, name: str(d.contact || d.name, 100), phone: str(d.phone, 40), city: str(d.city, 80), salt, pass: hash(d.password, salt), role: 'company', companyId: cid, at: now() };
+        list.push(u); writeJSON(USERS, list);
+        users().filter(x => x.role === 'staff' && x.staffRole !== 'estimator').forEach(s => mail(s.email, `Новая компания: ${str(d.name)}`, `Зарегистрировалась компания «${str(d.name)}» (${str(d.city)}), ${str(d.phone)}, ИНН ${str(d.inn) || '—'}.\nПроверьте и одобрите в CRM: ${site()}/crm.html`));
+        return json(res, { ok: true, token: session(u.id), user: { id: u.id, name: u.name, email, role: 'company', companyId: cid } }), true;
+      }
+      if (p.startsWith('/api/company/')) {
+        const u = me(req); if (!u || u.role !== 'company') return send(res, 401, { ok: false, error: 'Войдите как строительная компания' }), true;
+        const comp = companies().find(c => c.id === u.companyId) || null;
+        if (p === '/api/company/me' && M === 'GET') {
+          const reqs = comp && comp.status === 'approved' ? allLeads().filter(l => (l.rfq || []).some(r => r.companies.includes(comp.id))).map(l => { const v = forCompany(l, comp.id); delete v.project; return v; }).sort((a, b) => b.at.localeCompare(a.at)) : [];
+          return json(res, { company: comp, requests: reqs, grid: settings().grid, qual: QUAL }), true;
+        }
+        const l = parts[2] === 'lead' && parts[3] ? readJSON(leadFile(parts[3]) || '', null) : null;
+        if (!l || !comp || !(l.rfq || []).some(r => r.companies.includes(comp.id))) return send(res, 404, { ok: false }), true;
+        if (M === 'GET' && parts[4] === 'file') return fileOut(res, l, parts[5]), true;
+        if (M === 'GET') return json(res, forCompany(l, comp.id)), true;
+        if (M === 'POST' && parts[4] === 'bid') {
+          const d = await body(req, 50e3), rows = {};
+          Object.keys(BID_ROWS).forEach(k => { rows[k] = Math.max(0, Math.round(+((d.rows || {})[k]) || 0)); });
+          const bid = { company: comp.id, name: comp.name, at: now(), rows, total: Object.values(rows).reduce((a, b) => a + b, 0), term: Math.max(0, +d.term || 0), comment: str(d.comment, 3000) };
+          l.bids = (l.bids || []).filter(b => b.company !== comp.id).concat(bid);
+          (l.log = l.log || []).push({ at: now(), text: `Расчёт от «${comp.name}»: ${bid.total.toLocaleString('ru-RU')} ₽, срок ${bid.term} мес.` });
+          writeJSON(leadFile(l.id), l);
+          users().filter(x => x.role === 'staff').forEach(s => mail(s.email, `Расчёт по заявке ${l.id} от «${comp.name}»`, `«${comp.name}» прислала расчёт по заявке ${l.id}: ${bid.total.toLocaleString('ru-RU')} ₽, срок ${bid.term} мес.\n${site()}/crm.html#${l.id}`));
+          return json(res, { ok: true, bid }), true;
+        }
+        return send(res, 404, { ok: false }), true;
+      }
+
+      /* ---------- CRM: только сотрудники ---------- */
+      if (!p.startsWith('/api/crm/')) return false;
+      if (p === '/api/crm/login' && M === 'POST') {
+        if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много попыток' }), true;
+        const d = await body(req, 20e3), u = users().find(x => x.email === str(d.email, 120).toLowerCase());
+        if (!u || u.role !== 'staff' || !crypto.timingSafeEqual(Buffer.from(hash(d.password || '', u.salt), 'hex'), Buffer.from(u.pass, 'hex'))) return send(res, 401, { ok: false, error: 'Неверная почта или пароль сотрудника' }), true;
+        return json(res, { ok: true, token: session(u.id), user: staffPub(u) }), true;
+      }
+      const u = me(req); if (!u || u.role !== 'staff') return send(res, 401, { ok: false, error: 'Вход для сотрудников' }), true;
+      const can = (...roles) => u.staffRole === 'admin' || roles.includes(u.staffRole);
+      if (p === '/api/crm/me') return json(res, { user: staffPub(u), qual: QUAL, rows: BID_ROWS, settings: settings() }), true;
+      if (p === '/api/crm/leads' && M === 'GET') return json(res, allLeads().map(summary).sort((a, b) => b.at.localeCompare(a.at))), true;
+      if (parts[2] === 'lead' && parts[3]) {
+        const f = leadFile(parts[3]), l = f && readJSON(f, null); if (!l) return send(res, 404, { ok: false }), true;
+        if (M === 'GET' && parts[4] === 'file') return fileOut(res, l, parts[5]), true;
+        if (M === 'GET') return json(res, Object.assign({}, l, { grade: grade(l), leadPrice: leadPrice(l), homeValue: homeValue(l) })), true;
+        if (M === 'POST' && parts[4] === 'rfq') {
+          // рассылка эскизного проекта выбранным компаниям: письмо на почту аккаунта и в кабинет
+          const d = await body(req, 50e3), cs = companies().filter(c => c.status === 'approved' && (d.companies || []).includes(c.id));
+          if (!cs.length) return send(res, 400, { ok: false, error: 'Выберите проверенные компании' }), true;
+          const r = { at: now(), by: u.name, companies: cs.map(c => c.id), message: str(d.message, 3000) };
+          if (Array.isArray(d.tz) && !(l.tz && l.tz.length)) l.tz = d.tz.slice(0, 60).map(x => str(x, 500));
+          l.rfq = (l.rfq || []).concat(r); if (!['calc', 'report', 'meeting', 'paid', 'closed'].includes(l.status)) l.status = 'calc';
+          (l.log = l.log || []).push({ at: now(), text: `${u.name}: отправлено на расчёт — ${cs.map(c => c.name).join(', ')}` });
+          writeJSON(f, l);
+          const accs = users().filter(x => x.role === 'company');
+          const area = l.estimate ? Math.round(l.estimate.area) + ' м²' : '';
+          for (const c of cs) {
+            const to = new Set([c.email].concat(accs.filter(a => a.companyId === c.id).map(a => a.email)).filter(Boolean));
+            for (const addr of to) await mail(addr, `Запрос расчёта: дом ${area}, ${(l.client || {}).city || l.answers.city}`,
+              `Здравствуйте!\n\nНовый запрос на расчёт стоимости дома ${area} (${(l.client || {}).city || l.answers.city}).\n${(l.brief || []).slice(0, 4).join('\n')}\n${r.message ? '\nКомментарий: ' + r.message + '\n' : ''}\nЭскизный проект, техзадание и форма расчёта — в личном кабинете: ${site()}/#company\n\nСвой Дом`);
+          }
+          return json(res, Object.assign({}, l, { grade: grade(l), leadPrice: leadPrice(l), homeValue: homeValue(l) })), true;
+        }
+        if (M === 'POST') {
+          const d = await body(req, 400e3);
+          if (d.status && ['new', 'call', 'tz', 'calc', 'report', 'meeting', 'paid', 'closed'].includes(d.status) && d.status !== l.status) { (l.log = l.log || []).push({ at: now(), text: `${u.name}: статус → ${d.status}` }); l.status = d.status; }
+          if (d.client) { l.client = Object.assign({}, l.client || {}, ['name', 'phone', 'email', 'city', 'address', 'plotNo', 'source'].reduce((o, k) => (d.client[k] != null && (o[k] = str(d.client[k], 300)), o), {})); }
+          if (d.qual) { l.qual = {}; Object.keys(QUAL).forEach(k => { l.qual[k] = !!d.qual[k]; }); }
+          if (d.agreed != null) l.agreed = Math.max(0, +d.agreed || 0);
+          if (d.manager != null) l.manager = str(d.manager, 100);
+          if (Array.isArray(d.shareWith)) l.shareWith = d.shareWith.filter(x => /^c\w+$/.test(x));
+          if (d.tz && Array.isArray(d.tz)) l.tz = d.tz.slice(0, 60).map(s => str(s, 500));
+          if (d.est && can('estimator')) l.est = { ov: d.est.ov || {}, cls: str(d.est.cls, 20), total: +d.est.total || 0, min: +d.est.min || 0, max: +d.est.max || 0, by: u.name, at: now() };
+          if (str(d.note, 4000)) (l.notes = l.notes || []).push({ at: now(), by: u.name, text: str(d.note, 4000) });
+          writeJSON(f, l);
+          return json(res, Object.assign({}, l, { grade: grade(l), leadPrice: leadPrice(l), homeValue: homeValue(l) })), true;
+        }
+      }
+      if (p === '/api/crm/companies' && M === 'GET') {
+        const accs = users().filter(x => x.role === 'company');
+        return json(res, companies().map(c => Object.assign({}, c, { accounts: accs.filter(a => a.companyId === c.id).map(a => a.email) }))), true;
+      }
+      if (parts[2] === 'company' && parts[3] && M === 'POST') {
+        if (!can('manager')) return send(res, 403, { ok: false }), true;
+        const d = await body(req, 20e3), cs = companies(), c = cs.find(x => x.id === parts[3]); if (!c) return send(res, 404, { ok: false }), true;
+        const was = c.status;
+        if (['pending', 'approved', 'rejected'].includes(d.status)) c.status = d.status;
+        if (d.rating != null) c.rating = Math.max(0, Math.min(5, +d.rating)) || null;
+        if (Array.isArray(d.classes)) c.classes = d.classes.filter(k => ['eco', 'comfort', 'premium'].includes(k));
+        writeJSON(COMP, cs);
+        if (was !== 'approved' && c.status === 'approved') users().filter(a => a.companyId === c.id).forEach(a => mail(a.email, 'Компания проверена — заявки открыты', `«${c.name}» прошла проверку. Запросы на расчёт будут приходить на эту почту и в кабинет: ${site()}/#company`));
+        return json(res, c), true;
+      }
+      if (p === '/api/crm/prices') {
+        if (M === 'GET') return json(res, readJSON(PRICES, { prices: {} })), true;
+        if (M === 'PUT') {
+          if (!can('estimator')) return send(res, 403, { ok: false, error: 'Цены правит сметчик' }), true;
+          const d = await body(req, 200e3), out = {};
+          Object.entries(d.prices || {}).forEach(([k, v]) => { if (/^\w+$/.test(k) && v) out[k] = { m: Math.max(0, +v.m || 0), w: Math.max(0, +v.w || 0) }; });
+          writeJSON(PRICES, { prices: out, updatedAt: now(), by: u.name });
+          return json(res, { ok: true }), true;
+        }
+      }
+      if (p === '/api/crm/settings') {
+        if (M === 'GET') return json(res, settings()), true;
+        if (M === 'PUT') { if (!can()) return send(res, 403, { ok: false }), true; const d = await body(req, 20e3), g = d.grid || {}; writeJSON(SETTINGS, { grid: { cold: +g.cold || 0, warm: +g.warm || 0, hot: +g.hot || 0 } }); return json(res, settings()), true; }
+      }
+      if (p === '/api/crm/outbox') return json(res, readJSON(OUTBOX, [])), true;
+      if (p === '/api/crm/staff') {
+        if (M === 'GET') return json(res, users().filter(x => x.role === 'staff').map(staffPub)), true;
+        if (M === 'POST') { if (!can()) return send(res, 403, { ok: false }), true; return createStaff(await body(req, 20e3), res), true; }
+      }
+      return send(res, 404, { ok: false }), true;
+    } catch (e) { console.error(e); send(res, 400, { ok: false, error: 'Ошибка запроса' }); return true; }
+  };
+
+  function createStaff(d, res) {
+    const email = str(d.email, 120).toLowerCase(), role = ['admin', 'estimator', 'manager'].includes(d.staffRole) ? d.staffRole : 'manager';
+    if (!/@/.test(email) || String(d.password || '').length < 8) return send(res, 400, { ok: false, error: 'Почта и пароль от 8 символов' });
+    const list = users(); let u = list.find(x => x.email === email);
+    if (!u) { const salt = crypto.randomBytes(16).toString('hex'); u = { id: 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), email, salt, pass: hash(d.password, salt), at: now() }; list.push(u); }
+    u.name = str(d.name || u.name || email, 100); u.role = 'staff'; u.staffRole = role;
+    writeJSON(USERS, list); send(res, 200, { ok: true, user: staffPub(u) });
+  }
+};

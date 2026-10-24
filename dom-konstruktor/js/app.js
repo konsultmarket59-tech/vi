@@ -8,7 +8,9 @@ const KEY = 'dk-project-v2';
 
 /* ---------- состояние ---------- */
 function load() { try { return DK.migrate(JSON.parse(localStorage.getItem(KEY)) || JSON.parse(localStorage.getItem('dk-project-v1'))); } catch (e) { return null; } }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e) { /* приватный режим */ } }
+// просмотр эскиза заявки (?crm=номер — сотрудник, ?company=номер — компания): свой проект в браузере не трогаем
+const VIEW = (() => { const q = new URLSearchParams(location.search); return q.get('crm') ? { kind: 'crm', id: q.get('crm') } : q.get('company') ? { kind: 'company', id: q.get('company') } : null; })();
+function save() { if (VIEW) return; try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e) { /* приватный режим */ } }
 let P = load() || DK.starter();
 ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
 DK.normalize(P);
@@ -333,6 +335,7 @@ function hint() {
             wall: 'Тяните от стены до стены — перегородка в полкирпича прилипает к граням стен.', door: 'Нажмите на стену — дверь 800 мм, на наружной — входная 1000 мм.',
             win: 'Нажмите на наружную стену — окно 1500 мм.', pass: 'Нажмите на внутреннюю стену — проём без двери 1200 мм. В несущей стене в ТЗ добавится перемычка.',
             terrace: 'Нажмите на наружную стену 1 этажа — терраса встанет у ближайшего панорамного окна или двери.', porch: 'Нажмите на наружную стену у входной двери.',
+            measure: 'Тяните от точки до точки — длина в мм; концы прилипают к граням стен, с Shift — строго по горизонтали или вертикали.',
             garage: 'Нажмите на наружную стену 1 этажа — встанет гараж на 1 машину. Число машин, пристрой, отдельный гараж или навес — в карточке справа.',
             balcony: 'На плане 2 этажа нажмите на наружную стену — балкон встанет у двери или панорамного окна.',
             bump: 'Нажмите на наружную стену — появится выступ 3 × 1,2 м. Потом тяните его стены.', erase: 'Нажмите на перегородку, проём или мебель, чтобы удалить.', furn: 'Нажмите на план, чтобы поставить предмет.',
@@ -549,7 +552,7 @@ function page(id, fromHash) {
   $$('nav.main button').forEach(b => b.setAttribute('aria-current', b.dataset.page === id ? 'page' : 'false'));
   if (!fromHash) history.replaceState(null, '', id === 'project' ? location.pathname : '#' + id);
   if (id === 'project') { if (view === 'plan') plan.size(); else setView(view); }
-  else { if (v3) v3.stop(); if (id === 'projects') DK.Market.renderProjects(); else if (id === 'cab') DK.Market.renderCab(); else renderLists(); }
+  else { if (v3) v3.stop(); if (id === 'projects') DK.Market.renderProjects(); else if (id === 'cab') DK.Market.renderCab(); else if (id === 'company') DK.Company.render(); else renderLists(); }
 }
 
 /* ---------- каталог ---------- */
@@ -681,6 +684,18 @@ DK.appApi = {
 bind();
 DK.Market.init();
 DK.loadPrices && DK.loadPrices().then(() => refreshInfo());
+if (VIEW) (async () => {
+  const tk = VIEW.kind === 'crm' ? localStorage.getItem('crm-token') : localStorage.getItem('dk-token');
+  try {
+    const r = await fetch((VIEW.kind === 'crm' ? '/api/crm/lead/' : '/api/company/lead/') + encodeURIComponent(VIEW.id), { headers: { Authorization: 'Bearer ' + tk } });
+    const l = await r.json(); if (!r.ok || !l.project) throw new Error(l.error || 'Эскиз недоступен');
+    P = DK.normalize(DK.migrate(l.project)); ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
+    hist.length = 0; hist.push(JSON.stringify(P)); hi = 0; sel = null; fid = 'f1'; refresh(); plan.fit();
+    const bar = document.createElement('div'); bar.className = 'viewbar';
+    bar.innerHTML = `Эскиз заявки № ${esc(VIEW.id)} — просмотр: размеры, 3D, рулетка. Изменения не сохраняются. <button class="btn sm" id="vbMeasure">Рулетка</button>`;
+    document.body.prepend(bar); $('#vbMeasure').onclick = () => { setView('plan'); app.setTool('measure'); };
+  } catch (e) { toast(e.message); }
+})();
 setView('plan');
 refresh();
 requestAnimationFrame(() => { plan.size(); plan.fit(); app.setTool('select'); });

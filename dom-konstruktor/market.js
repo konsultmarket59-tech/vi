@@ -11,7 +11,7 @@ module.exports = function market(ctx) {
 
   const hash = (pw, salt) => crypto.scryptSync(String(pw), salt, 64).toString('hex');
   const users = () => readJSON(USERS, []);
-  const pub = (u) => u && { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, archStatus: u.archStatus, about: u.about || '', city: u.city || '' };
+  const pub = (u) => u && { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, archStatus: u.archStatus, about: u.about || '', city: u.city || '', companyId: u.companyId || null, staffRole: u.staffRole || null };
   function me(req) {
     const t = String(req.headers.authorization || '').replace(/^Bearer\s+/, '');
     if (!t) return null;

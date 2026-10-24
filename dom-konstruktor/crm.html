@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>CRM — Свой Дом</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@700;800&family=JetBrains+Mono:wght@400;600&family=Raleway:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#ECEDEE;--panel:#fff;--ink:#2B2E33;--muted:#6B7078;--line:#E2E4E7;--brand:#2F3237;--soft:#ECEDEF;--accent:#E3A21A;--accent-soft:#FBF1DA;--ok:#2E8B57;--err:#C0392B;--warn:#C27C0E;
+  --display:"Alumni Sans",system-ui,sans-serif;--text:"Raleway",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--text)}[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{border:1.5px solid var(--brand);background:var(--panel);border-radius:999px;padding:6px 14px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--brand);color:#fff}.btn.gold{background:var(--accent);border-color:var(--accent)}.btn.sm{padding:3px 10px;font-size:12.5px}.btn.ghost{border-color:var(--line)}
+input,select,textarea{border:1px solid var(--line);border-radius:10px;padding:6px 9px;background:#fff;width:100%}
+input[type=checkbox]{width:auto}
+label.f{display:grid;gap:3px;font-size:12px;color:var(--muted)}label.f>*{color:var(--ink);font-size:14px}
+.top{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+.top b{font:800 24px/1 var(--display);letter-spacing:.04em}.top .sp{flex:1}
+.wrap{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 57px)}
+.nav{background:var(--panel);border-right:1px solid var(--line);padding:12px;display:grid;align-content:start;gap:2px}
+.nav button{border:0;background:none;text-align:left;padding:9px 12px;border-radius:10px;font-weight:600;cursor:pointer}.nav button[aria-current="true"]{background:var(--brand);color:#fff}
+main{padding:18px 22px;min-width:0}
+h1{font:800 32px/1 var(--display);margin:0 0 14px;letter-spacing:.02em}h2{font:800 22px/1 var(--display);margin:18px 0 8px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+table{border-collapse:collapse;width:100%;background:var(--panel)}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600;background:#fafafa;position:sticky;top:0}
+tr.click{cursor:pointer}tr.click:hover{background:var(--soft)}
+.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+.badge{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:700;background:var(--soft)}
+.badge.hot{background:#fde3d8;color:#b23a1e}.badge.warm{background:var(--accent-soft);color:#8a5a00}.badge.cold{background:#e6ecf2;color:#3d5a78}
+.badge.approved{background:#dff2e6;color:var(--ok)}.badge.pending{background:var(--accent-soft);color:#8a5a00}.badge.rejected{background:#f6dcd8;color:var(--err)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tabs{display:flex;gap:4px;margin:10px 0}.tabs button{border:0;background:var(--panel);border-radius:999px;padding:6px 14px;font-weight:700;cursor:pointer}.tabs button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.muted{color:var(--muted)}.err{color:var(--err)}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}.thumbs img{height:150px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.est td input{width:90px;text-align:right;font-family:var(--mono);padding:3px 6px}.est tr.man td{background:#fff8e8}.est tr.g td{background:var(--soft);font-weight:700}
+.kpi{display:flex;gap:14px;flex-wrap:wrap}.kpi div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px}.kpi b{display:block;font:800 26px/1 var(--display)}
+.login{max-width:380px;margin:12vh auto;background:var(--panel);border-radius:18px;padding:26px;display:grid;gap:12px;border:1px solid var(--line)}
+.timeline div{border-left:3px solid var(--line);padding:4px 10px;margin:4px 0}.timeline small{color:var(--muted)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--brand);color:#fff;padding:10px 18px;border-radius:999px;font-weight:600}
+</style>
+</head>
+<body>
+<div id="loginView" class="login" hidden>
+  <div class="row"><svg viewBox="0 0 48 48" width="40" height="40"><rect width="48" height="48" rx="11" fill="#2F3237"/><path d="M10 24.5 24 12l14 12.5" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 22v14h19V22" fill="none" stroke="#fff" stroke-width="3.2"/><rect x="21" y="27" width="6" height="9" rx="1" fill="#E3A21A"/></svg><b style="font:800 26px var(--display)">CRM · СВОЙ ДОМ</b></div>
+  <div class="muted">Корпоративный вход для сотрудников: менеджеров, сметчиков, администраторов.</div>
+  <form id="loginForm" style="display:grid;gap:10px"><label class="f">Эл. почта<input name="email" type="email" required></label><label class="f">Пароль<input name="password" type="password" required></label><button class="btn primary">Войти</button><div class="err" id="loginErr"></div></form>
+</div>
+<div id="appView" hidden>
+  <div class="top"><svg viewBox="0 0 48 48" width="32" height="32"><rect width="48" height="48" rx="11" fill="#2F3237"/><path d="M10 24.5 24 12l14 12.5" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 22v14h19V22" fill="none" stroke="#fff" stroke-width="3.2"/><rect x="21" y="27" width="6" height="9" rx="1" fill="#E3A21A"/></svg><b>CRM</b><span class="sp"></span><span id="who" class="muted"></span><a class="btn sm ghost" href="/">На сайт</a><button class="btn sm" id="logout">Выйти</button></div>
+  <div class="wrap">
+    <nav class="nav" id="nav"><button data-s="leads">Заявки</button><button data-s="companies">Компании</button><button data-s="prices">Цены материалов</button><button data-s="grid">Сетка цены лида</button><button data-s="outbox">Почта</button><button data-s="staff">Сотрудники</button></nav>
+    <main id="main"></main>
+  </div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/model.js"></script>
+<script src="js/furniture.js"></script>
+<script src="js/facade.js"></script>
+<script src="js/estimate.js"></script>
+<script src="js/crm.js"></script>
+</body>
+</html>

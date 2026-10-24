@@ -13,7 +13,7 @@ const COL = {
 function Plan2D(canvas, app) {
   const ctx = canvas.getContext('2d');
   const view = { k: 0.05, ox: 40, oy: 40 };
-  let tool = 'select', toolArg = null, drag = null, hover = null, draft = null, dpr = 1, hoverEdge = null;
+  let tool = 'select', toolArg = null, drag = null, hover = null, draft = null, dpr = 1, hoverEdge = null, measure = null;
   const pointers = new Map();
   let pinch = null;
 
@@ -467,6 +467,17 @@ function Plan2D(canvas, app) {
       ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.fillStyle = COL.ink; ctx.textAlign = 'left';
       ctx.fillText(len + ' мм', X(draft.x2) + 10, Y(draft.y2) - 10);
     }
+    if (measure && tool === 'measure') {
+      const X = (x) => view.ox + x * view.k, Y = (y) => view.oy + y * view.k, a = measure.a, b = measure.b, L = Math.round(Math.hypot(b.x - a.x, b.y - a.y));
+      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(a.x), Y(a.y)); ctx.lineTo(X(b.x), Y(b.y)); ctx.stroke();
+      for (const q of [a, b]) { ctx.beginPath(); ctx.arc(X(q.x), Y(q.y), 4, 0, 7); ctx.fillStyle = '#c0392b'; ctx.fill(); }
+      if (L > 0) {
+        const t = `${L} мм${Math.abs(b.x - a.x) > 5 && Math.abs(b.y - a.y) > 5 ? `  (${Math.round(Math.abs(b.x - a.x))} × ${Math.round(Math.abs(b.y - a.y))})` : ''}`;
+        ctx.font = '700 13px "JetBrains Mono", monospace'; const tw = ctx.measureText(t).width + 12, mx = (X(a.x) + X(b.x)) / 2, my = (Y(a.y) + Y(b.y)) / 2 - 16;
+        ctx.fillStyle = '#fff'; ctx.fillRect(mx - tw / 2, my - 11, tw, 22); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1; ctx.strokeRect(mx - tw / 2, my - 11, tw, 22);
+        ctx.fillStyle = '#c0392b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, mx, my);
+      }
+    }
     if (drag && drag.kind === 'edge' && drag.label) {
       ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.fillStyle = COL.ink; ctx.textAlign = 'left';
       ctx.fillText(drag.label, drag.sx + 14, drag.sy - 12);
@@ -581,6 +592,7 @@ function Plan2D(canvas, app) {
       const insideZ = w.x > z.x - tol && w.x < z.x + z.w + tol && w.y > z.y - tol && w.y < z.y + z.h + tol;
       if (insideZ) { drag = { kind: 'wet', ed: (ed.l || ed.r || ed.t || ed.b) ? ed : null, w0: w, z0: Object.assign({}, z) }; return; }
     }
+    if (tool === 'measure') { const q = snapPt(p, fid, w.x, w.y) || w; measure = { a: { x: q.x, y: q.y }, b: { x: q.x, y: q.y } }; drag = { kind: 'measure' }; render(); return; }
     if (tool === 'erase') { erase(p, fid, w.x, w.y); return; }
     const xh = hitExtHandle(p, fid, w.x, w.y);
     if (xh) { drag = { kind: 'xh', x: xh.x, k: xh.k }; return; }
@@ -615,6 +627,13 @@ function Plan2D(canvas, app) {
     }
     const { sx, sy } = pos(e), w = toW(sx, sy), p = app.p(), fid = app.fid();
     hover = tool !== 'select' ? snapPt(p, fid, w.x, w.y) : null;
+    if (drag && drag.kind === 'measure') {
+      // рулетка: прилипает к граням стен, с Shift — строго по горизонтали или вертикали
+      const q = snapPt(p, fid, w.x, w.y) || { x: Math.round(w.x / 10) * 10, y: Math.round(w.y / 10) * 10 };
+      measure.b = { x: q.x, y: q.y };
+      if (e.shiftKey) { if (Math.abs(measure.b.x - measure.a.x) > Math.abs(measure.b.y - measure.a.y)) measure.b.y = measure.a.y; else measure.b.x = measure.a.x; }
+      render(); return;
+    }
     if (!drag) {
       const he = (tool === 'select' || tool === 'bump') && !hitOpen(p, fid, w.x, w.y) ? hitWall(p, fid, w.x, w.y, ['outer']) : null;
       const nh = he ? he.id : null;
@@ -714,6 +733,7 @@ function Plan2D(canvas, app) {
     if (pinch) { if (pointers.size < 2) pinch = null; return; }
     const p = app.p(), fid = app.fid();
     if (!drag) return;
+    if (drag.kind === 'measure') { drag = null; return; }
     if (drag.kind === 'draft' && draft) {
       const len = Math.abs(draft.x2 - draft.x1) + Math.abs(draft.y2 - draft.y1);
       if (len >= 300) {
