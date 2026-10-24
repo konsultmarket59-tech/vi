@@ -57,6 +57,10 @@ DK.FURN = {
   hallway: { n: 'Прихожая с вешалкой', g: 'Хранение', w: 1200, d: 400, h: 2000, c: '#d8d2c8' },
   shoe: { n: 'Обувница', g: 'Хранение', w: 900, d: 350, h: 600, c: '#d8d2c8', base: 'dresser' },
   // санузел
+  saunaBench: { n: 'Полок двухъярусный', g: 'Сауна', w: 2200, d: 1200, h: 1050, c: '#dcb27a' },
+  saunaBench1: { n: 'Полок одноярусный', g: 'Сауна', w: 1800, d: 600, h: 900, c: '#dcb27a', base: 'saunaBench' },
+  saunaStove: { n: 'Печь-каменка', g: 'Сауна', w: 600, d: 600, h: 900, c: '#2b2d31' },
+  saunaBucket: { n: 'Шайка с ковшом', g: 'Сауна', w: 350, d: 350, h: 300, c: '#b4875a' },
   toilet: { n: 'Унитаз', g: 'Санузел', w: 400, d: 650, h: 800, c: '#ffffff' },
   sink: { n: 'Раковина', g: 'Санузел', w: 600, d: 480, h: 850, c: '#ffffff' },
   sink2: { n: 'Двойная раковина', g: 'Санузел', w: 1200, d: 500, h: 850, c: '#ffffff', base: 'sink' },
@@ -88,7 +92,7 @@ DK.FURN = {
   umbrella: { n: 'Зонт', g: 'Терраса', w: 2500, d: 2500, h: 2400, c: '#efe9df' },
   car: { n: 'Автомобиль', g: 'Гараж', w: 1850, d: 4600, h: 1500, c: '#9aa0a8' },
 };
-DK.FURN_GROUPS = ['Гостиная', 'Кухня', 'Столовая', 'Спальня', 'Детская', 'Хранение', 'Санузел', 'Котельная', 'Свет', 'Декор', 'Терраса', 'Гараж'];
+DK.FURN_GROUPS = ['Гостиная', 'Кухня', 'Столовая', 'Спальня', 'Детская', 'Хранение', 'Санузел', 'Сауна', 'Котельная', 'Свет', 'Декор', 'Терраса', 'Гараж'];
 
 DK.furnAngle = function (f) { return f.a != null ? f.a : (f.rot || 0) * 90; };
 /* размер предмета: свой (f.w, f.d, f.h) или по каталогу */
@@ -98,6 +102,15 @@ DK.furnSize = function (f) {
 };
 /* пределы ручного размера: от 40 % до 250 % каталожного, не меньше 100 мм */
 DK.furnClamp = function (base, v) { return Math.round(Math.max(Math.max(100, base * 0.4), Math.min(v, base * 2.5)) / 10) * 10; };
+/* наполнение сауны: полок вдоль длинной стены, печь в дальнем углу */
+DK.saunaFill = function (r) {
+  const [x0, y0, x1, y1] = r.rect ? [r.x0, r.y0, r.x1, r.y1] : r.big, W = x1 - x0, D = y1 - y0, id = () => (DK.id ? DK.id('f') : 'f' + Math.random().toString(36).slice(2));
+  const long = Math.max(W, D), short = Math.min(W, D), L = Math.round(Math.min(2200, long - 750) / 50) * 50, dep = short >= 1900 ? 1200 : 600, type = dep > 900 ? 'saunaBench' : 'saunaBench1';
+  if (L < 900 || short < 1200) return [];
+  const bench = W >= D ? { id: id(), type, x: x0 + 40 + L / 2, y: y0 + dep / 2 + 20, a: 0 } : { id: id(), type, x: x0 + dep / 2 + 20, y: y0 + 40 + L / 2, a: 270 };
+  if (L !== DK.FURN[type].w) bench.w = L;
+  return [bench, { id: id(), type: 'saunaStove', x: x1 - 380, y: y1 - 380, a: W >= D ? 180 : 90 }];
+};
 DK.KITCHENS = ['kitchen', 'kitchenS', 'kitchen3', 'kitchenL', 'kitchenU', 'kitchenNo', 'kitchenLNo'];
 /* габарит на плане с учётом поворота (описанный прямоугольник) */
 DK.furnBox = function (f) {
@@ -219,12 +232,43 @@ DK.FURN3D = {
     for (let i = 0; i < n; i++) k.add(0.015, 0.3, 0.02, METAL, -w / 2 + w * (i + 0.5) / n + (i % 2 ? -1 : 1) * (w / n / 2 - 0.05), h * 0.5, d / 2 + 0.012);
   },
   shelf(k) {
-    const { w, d, h, c } = k, n = Math.max(2, Math.round(h / 0.4));
+    const { w, d, h, c } = k, n = Math.max(2, Math.round(h / 0.4)), gap = (h - 0.025) / n;
     for (const s of [-1, 1]) k.add(0.03, h, d, c, s * (w / 2 - 0.015), h / 2, 0);
-    for (let i = 0; i <= n; i++) k.add(w, 0.025, d, c, 0, 0.0125 + (h - 0.025) * i / n, 0);
-    const books = ['#7d4b3a', '#3e5566', '#c9b28f', '#556b4f', '#a88f74'];
-    for (let i = 0; i < n; i++) for (let j = 0; j < 4; j++) { const bw = 0.04 + (i * 7 + j * 3) % 5 * 0.012, x = -w / 2 + 0.08 + j * (w - 0.2) / 4; k.add(bw * 3, 0.22 + (j % 3) * 0.03, d - 0.1, books[(i + j) % 5], x, 0.025 + (h - 0.025) * i / n + 0.13, 0); }
+    k.add(w - 0.06, h, 0.01, c, 0, h / 2, -d / 2 + 0.005);
+    for (let i = 0; i <= n; i++) k.add(w - 0.06, 0.025, d, c, 0, 0.0125 + gap * i, 0);
+    // книги стоят на полке плотными рядами и не выходят за боковины
+    const books = ['#7d4b3a', '#3e5566', '#c9b28f', '#556b4f', '#a88f74', '#2f3a45'], x0 = -w / 2 + 0.04, x1 = w / 2 - 0.04;
+    for (let i = 0; i < n; i++) {
+      let x = x0 + ((i * 0.07) % 0.12), b = i * 5;
+      const top = 0.025 + gap * i, hmax = Math.min(0.3, gap - 0.05);
+      while (x < x1) {
+        const bw = 0.025 + (b * 7 % 5) * 0.008, bh = hmax * (0.72 + (b * 3 % 4) * 0.08), bd = Math.min(d - 0.06, 0.24);
+        if (x + bw > x1) break;
+        if ((b + i) % 9 === 8) { x += 0.08 + (i % 3) * 0.05; b++; continue; }
+        k.add(bw, bh, bd, books[b % books.length], x + bw / 2, top + bh / 2, -d / 2 + 0.01 + bd / 2 + 0.01);
+        x += bw + 0.003; b++;
+      }
+    }
   },
+  saunaBench(k) {
+    const { w, d, h, c } = k, two = d > 0.9, leg = '#b88a5a';
+    // ярусы из реек: нижний спереди, верхний у стены; доска-спинка на стене
+    const tier = (y, z0, z1) => { const n = Math.max(3, Math.round((z1 - z0) / 0.1)); for (let i = 0; i < n; i++) k.add(w, 0.03, (z1 - z0) / n - 0.012, c, 0, y, z0 + (z1 - z0) * (i + 0.5) / n);
+      for (const sx of [-1, 0, 1]) k.add(0.05, y - 0.015, 0.05, leg, sx * (w / 2 - 0.05), (y - 0.015) / 2, z1 - 0.05); };
+    if (two) { tier(0.45, 0, d / 2); tier(h, -d / 2, 0); k.add(w, 0.45, 0.03, c, 0, 0.225, 0.01); }
+    else tier(h * 0.5, -d / 2, d / 2);
+    for (let i = 0; i < 3; i++) k.add(w, 0.08, 0.02, c, 0, (two ? h : h * 0.5) + 0.25 + i * 0.14, -d / 2 + 0.01);
+  },
+  saunaStove(k) {
+    const { w, d, h, c } = k;
+    k.add(w * 0.8, h * 0.62, d * 0.8, c, 0, h * 0.31, 0); k.add(w * 0.82, 0.03, d * 0.82, '#1b1c1f', 0, h * 0.62, 0);
+    k.add(w * 0.3, 0.12, 0.02, '#ff8a3d', 0, h * 0.2, d * 0.4 + 0.005, 0, { glow: '#ff6a1a' });
+    k.add(w * 0.8, h * 0.3, d * 0.8, '#3a3c40', 0, h * 0.62 + h * 0.15, 0);
+    for (let i = 0; i < 14; i++) k.ball(0.055 + (i % 3) * 0.012, ['#77736c', '#5f5b55', '#8b867e'][i % 3], ((i * 37) % 9 / 9 - 0.45) * w * 0.65, h * 0.93 + (i % 2) * 0.03, ((i * 53) % 7 / 7 - 0.43) * d * 0.65);
+    for (const sx of [-1, 1]) k.add(0.03, h * 0.8, d + 0.12, '#b88a5a', sx * (w / 2 + 0.06), h * 0.4, 0);
+    k.add(w + 0.15, h * 0.8, 0.03, '#b88a5a', 0, h * 0.4, d / 2 + 0.06);
+  },
+  saunaBucket(k) { k.cyl(k.w / 2, k.h * 0.75, k.c, 0, k.h * 0.375, 0); k.cyl(0.02, 0.3, '#8a6a4c', k.w * 0.2, k.h * 0.9, 0, 0.9); },
   hallway(k) { const { w, d, h, c } = k; k.add(w * 0.5, h, d, c, -w / 4, h / 2, 0); k.add(w * 0.5, 0.45, d, c, w / 4, 0.225, 0); k.add(w * 0.5, 0.03, 0.25, c, w / 4, 1.75, -d / 2 + 0.125); for (let i = 0; i < 3; i++) k.add(0.02, 0.1, 0.06, METAL, w / 4 - 0.15 + i * 0.15, 1.65, -d / 2 + 0.05); k.add(w * 0.45, 0.9, 0.02, '#cfdde6', w / 4, 1.1, -d / 2 + 0.01); },
   toilet(k) { const { w, d, c } = k; k.add(w * 0.9, 0.4, 0.2, c, 0, 0.6, -d / 2 + 0.1); k.add(w * 0.85, 0.4, d - 0.2, c, 0, 0.2, 0.1); },
   sink(k) { const { w, d, h, c } = k; k.add(w, 0.15, d, c, 0, h - 0.075, 0); k.add(w * 0.9, h - 0.15, d * 0.8, '#c9b79c', 0, (h - 0.15) / 2, 0); k.add(Math.min(0.6, w * 0.8), 0.8, 0.02, '#cfdde6', 0, h + 0.55, -d / 2 + 0.01); },

@@ -259,6 +259,7 @@ function Plan2D(canvas, app) {
     else if (base === 'toilet') { c.beginPath(); c.ellipse(0, L(90), w / 2 - 2, d / 2 - L(170), 0, 0, Math.PI * 2); c.stroke(); l(-w / 2, -d / 2 + L(170), w / 2, -d / 2 + L(170)); }
     else if (base === 'sink') { const n = Z.w > 900 ? 2 : 1; for (let i = 0; i < n; i++) { c.beginPath(); c.ellipse(-w / 2 + w * (i + 0.5) / n, L(30), w / n / 2 - L(80), d / 2 - L(110), 0, 0, Math.PI * 2); c.stroke(); } }
     else if (base === 'bath' || base === 'bathC') { rr(c, -w / 2 + L(70), -d / 2 + L(70), w - L(140), d - L(140), L(250)); c.stroke(); }
+    else if (base === 'saunaBench') { for (let y = -d / 2 + L(100); y < d / 2; y += L(100)) l(-w / 2, y, w / 2, y); }
     else if (base === 'shower') { l(-w / 2, -d / 2, w / 2, d / 2); l(w / 2, -d / 2, -w / 2, d / 2); }
     else if (base === 'kitchen') { for (let x = -w / 2 + L(600); x < w / 2; x += L(600)) l(x, -d / 2, x, d / 2); c.beginPath(); c.arc(-w / 2 + L(900), 0, L(160), 0, Math.PI * 2); c.stroke(); }
     else if (base === 'table' || base === 'tableR') {

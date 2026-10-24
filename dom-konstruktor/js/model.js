@@ -584,6 +584,14 @@ function extExit(p, x) {
   return lv.open.some(o => o.wall === x.wall && (o.kind !== 'win' || o.pano) && o.c > x.c - x.w / 2 && o.c < x.c + x.w / 2);
 }
 
+/* панорамное окно — выход на террасу, крыльцо или балкон: одна створка становится дверью */
+function exitWin(p, fid, o) {
+  if (o.kind !== 'win' || !o.pano) return false;
+  return (p.ext || []).some(x => x.wall === o.wall && (x.kind === 'balcony' ? x.fid === fid : fid === 'f1') && o.c > x.c - x.w / 2 && o.c < x.c + x.w / 2);
+}
+/* створка-дверь: средняя (при чётном числе — правая из средних) */
+function exitSash(o) { const n = o.sash || (o.w >= 1300 ? 2 : 1); return { n, i: Math.floor(n / 2) }; }
+
 /* ---------- правка контура ---------- */
 function shiftAll(p, dx, dy) {
   if (!dx && !dy) return;
@@ -848,7 +856,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

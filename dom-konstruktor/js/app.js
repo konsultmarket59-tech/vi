@@ -275,6 +275,8 @@ function setRoomType(x, y, type) {
     if (moved) toast('Котельная перенесена сюда');
   }
   if (type !== 'none') lv.names.push({ x: Math.round(x), y: Math.round(y), type });
+  // сауна сразу с полком и печью, если их там ещё нет
+  if (type === 'sauna' && !lv.furn.some(it => /^sauna/.test(it.type) && regs.at(it.x, it.y) === r)) lv.furn.push(...DK.saunaFill(r));
   hideRoomPop(); app.commit();
 }
 const POP_TYPES = ['kl', 'living', 'kitchen', 'bed', 'kids', 'office', 'hall', 'corr', 'tamb', 'bath', 'laundry', 'boiler', 'dress', 'store', 'garage', 'sauna', 'void', 'loggia', 'none'];

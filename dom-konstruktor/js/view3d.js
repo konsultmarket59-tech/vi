@@ -217,7 +217,11 @@ function View3D(canvas, app) {
       const voids = regs.filter(r => r.type === 'void');
       const inVoid = (it) => voids.some(r => r.cells.some(c => it.x > c[0] && it.x < c[2] && it.y > c[1] && it.y < c[3]));
       clipNow = cutTop; cutPlane.constant = y0 + hWall + 0.01;
-      if (showFurn && mode !== 'exterior') p.levels[f].furn.forEach(it => { if (inVoid(it)) return; const g = furn(it, y0, hc); g.userData.furn = { it, fid: f }; furnPicks.push(g); root.add(g); });
+      if (showFurn && mode !== 'exterior') {
+        p.levels[f].furn.forEach(it => { if (inVoid(it)) return; const g = furn(it, y0, hc); g.userData.furn = { it, fid: f }; furnPicks.push(g); root.add(g); });
+        // пустая сауна в 3D не бывает: полок и печь по умолчанию, пока своих нет
+        regs.filter(r => r.type === 'sauna' && !p.levels[f].furn.some(it => /^sauna/.test(it.type) && regs.at(it.x, it.y) === r)).forEach(r => DK.saunaFill(r).forEach(it => root.add(furn(it, y0, hc))));
+      }
       if (p.stair && idx < fl.length - 1) stair3d(p, y0);
       clipNow = false;
       if (outside && F.belt && f !== 'b' && idx < fl.length - 1) belt(p, y0 + hc + sl / 2, ext, mat({ c: F.trim }));
@@ -446,8 +450,31 @@ function View3D(canvas, app) {
       for (let i = 1; i < n; i++) g.add(place(mk(prof * 1.2, oh, depth, frameM), ac - ow / 2 + ow * i / n, y0 + sill + oh / 2, tc));
       if (!o.pano && oh > 1.2 && n <= 2) g.add(place(mk(ow, prof, depth, frameM), ac, y0 + sill + oh * 0.74, tc));
       const glass = new T.MeshStandardMaterial({ color: mode === 'exterior' ? lin('#3e5566') : lin('#b9d3e2'), transparent: true, opacity: mode === 'exterior' ? 0.82 : 0.22, roughness: 0.04, metalness: 0.6 });
-      const gl = place(mk(ow - 0.04, oh - 0.04, 0.01, glass), ac, y0 + sill + oh / 2, tc); gl.castShadow = false;
-      g.add(gl);
+      const ex = outer && DK.exitWin(p, f, o) ? DK.exitSash(o) : null, sw = ow / n;
+      for (let i = 0; i < n; i++) {
+        const sc = ac - ow / 2 + sw * (i + 0.5);
+        if (ex && i === ex.i) {
+          // дверь на террасу: на прогулке открыта — сдвинута за соседнюю створку (или распахнута наружу, если створка одна)
+          const open = mode === 'walk', hm = mat({ c: '#b8b8b5' }, { metalness: 0.8, roughness: 0.3 });
+          if (open && n > 1) {
+            const nb = i > 0 ? -1 : 1, t2 = tc - dirOut * 0.05;
+            const gl = place(mk(sw - 0.04, oh - 0.04, 0.01, glass), sc + nb * sw * 0.92, y0 + sill + oh / 2, t2); gl.castShadow = false; g.add(gl);
+            g.add(place(mk(sw, prof * 0.7, depth * 0.6, frameM), sc + nb * sw * 0.92, y0 + sill + oh - prof, t2));
+          } else if (open) {
+            const lf = new T.Group(), L = sw - 0.04;
+            const gl = mk(L, oh - 0.04, 0.01, glass); gl.position.set(along ? L / 2 : 0, 0, along ? 0 : L / 2); gl.castShadow = false; lf.add(gl);
+            lf.position.set(along ? sc - sw / 2 : tc, y0 + sill + oh / 2, along ? tc : sc - sw / 2);
+            lf.rotation.y = (along ? -1 : 1) * dirOut * Math.PI / 2; g.add(lf);
+          } else {
+            const gl = place(mk(sw - 0.04, oh - 0.04, 0.01, glass), sc, y0 + sill + oh / 2, tc); gl.castShadow = false; g.add(gl);
+            for (const sd of [-1, 1]) g.add(place(mk(0.03, 0.25, 0.04, hm), sc + (i > 0 ? -1 : 1) * (sw / 2 - 0.09), y0 + sill + 1.05, tc + sd * 0.05));
+          }
+          g.add(place(mk(sw, 0.02, depth + 0.06, mat({ c: '#9a9894' }, { metalness: 0.6 })), sc, y0 + sill + 0.01, tc));
+          continue;
+        }
+        const gl = place(mk(sw - 0.04, oh - 0.04, 0.01, glass), sc, y0 + sill + oh / 2, tc); gl.castShadow = false;
+        g.add(gl);
+      }
       if (outer && !o.pano && sill > 0.1) g.add(place(mk(ow + 0.08, 0.025, e + 0.1, mat({ c: F.frame === '#ffffff' ? '#e6e6e3' : F.frame })), ac, y0 + sill - 0.012, tOut + dirOut * (e / 2 + 0.02)));
       if (outer && mode !== 'interior' && F.surrounds) {
         const tm = mat({ c: F.trim }), sur = 0.14, tt = tOut + dirOut * (e + 0.02), b = o.pano ? 0 : 1;
@@ -655,7 +682,10 @@ function View3D(canvas, app) {
     const floors = fl.map(f => {
       const regs = DK.rooms(p, f), solid = [];
       for (const w of DK.walls(p, f)) {
-        const doors = p.levels[f].open.filter(o => o.wall === w.id && o.kind !== 'win').map(o => [o.c - o.w / 2 + 10, o.c + o.w / 2 - 10]).sort((a, b) => a[0] - b[0]);
+        const doors = p.levels[f].open.filter(o => o.wall === w.id && (o.kind !== 'win' || DK.exitWin(p, f, o))).map(o => {
+          if (o.kind !== 'win') return o;
+          const ex = DK.exitSash(o), sw = o.w / ex.n; return { c: o.c - o.w / 2 + sw * (ex.i + 0.5), w: sw };
+        }).map(o => [o.c - o.w / 2 + 10, o.c + o.w / 2 - 10]).sort((a, b) => a[0] - b[0]);
         let a = w.a0;
         const push = (a0, a1) => { if (a1 > a0) solid.push(w.axis === 'x' ? [a0, w.y0, a1, w.y1] : [w.x0, a0, w.x1, a1]); };
         for (const d of doors) { push(a, d[0]); a = d[1]; }
