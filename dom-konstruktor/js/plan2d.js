@@ -25,7 +25,7 @@ function Plan2D(canvas, app) {
   }
   /* границы чертежа: дом с облицовкой, размерные цепочки, террасы и балконы */
   function bounds(p) {
-    const m = DK.extT(p) + 1900, b = { x0: -m, y0: -m, x1: p.W + m, y1: p.D + m };
+    const m = DK.extT(p) + (p.blind || 0) + 1900, b = { x0: -m, y0: -m, x1: p.W + m, y1: p.D + m };
     (p.ext || []).forEach(x => { const r = DK.extRect(p, x); if (r) { b.x0 = Math.min(b.x0, r.x0 - 600); b.y0 = Math.min(b.y0, r.y0 - 600); b.x1 = Math.max(b.x1, r.x1 + 600); b.y1 = Math.max(b.y1, r.y1 + 600); } });
     return b;
   }
@@ -47,6 +47,11 @@ function Plan2D(canvas, app) {
     const ws = DK.walls(p, fid), lv = p.levels[fid], ext = DK.extT(p), t = DK.ts(p);
     const regs = DK.rooms(p, fid), cl = DK.SPEC.clad[p.clad] || DK.SPEC.clad.plaster;
     c.save();
+    // отмостка по периметру — на плане 1 этажа
+    if (p.blind && fid === DK.floorsOf(p).find(f => f !== 'b')) {
+      c.fillStyle = '#e7e4de'; path(c, DK.offsetPoly(p, ext + p.blind), X, Y); c.fill();
+      c.strokeStyle = '#a9a39a'; c.lineWidth = 1; c.setLineDash([5, 4]); path(c, DK.offsetPoly(p, ext + p.blind), X, Y); c.stroke(); c.setLineDash([]);
+    }
     // облицовка, зазор, утеплитель, несущий слой
     c.fillStyle = COL.clad[p.clad] || '#aaa'; path(c, DK.offsetPoly(p, ext), X, Y); c.fill();
     if (cl.gap) { c.fillStyle = '#fff'; path(c, DK.offsetPoly(p, ext - cl.t), X, Y); c.fill(); }
@@ -156,6 +161,7 @@ function Plan2D(canvas, app) {
     for (const x of extsOn(p, fid)) {
       const r = DK.extRect(p, x); if (!r) continue;
       const e = r.e, R = [X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0)];
+      if (x.kind === 'garage') { drawGarage(c, p, x, r, R, X, Y, L, sel); continue; }
       c.fillStyle = x.kind === 'balcony' ? '#e4e6e9' : '#eadfcb'; c.fillRect(R[0], R[1], R[2], R[3]);
       c.save(); c.beginPath(); c.rect(R[0], R[1], R[2], R[3]); c.clip(); c.strokeStyle = 'rgba(120,90,60,.28)'; c.lineWidth = 1;
       if (x.kind !== 'balcony') { if (e.axis === 'x') for (let a = r.x0; a < r.x1; a += 140) line(c, X(a), R[1], X(a), R[1] + R[3]); else for (let a = r.y0; a < r.y1; a += 140) line(c, R[0], Y(a), R[0] + R[2], Y(a)); }
@@ -172,12 +178,49 @@ function Plan2D(canvas, app) {
       const fs = Math.max(9, Math.min(13, L(800)));
       c.font = `600 ${fs}px Raleway, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
       const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
-      if (R[2] > 50 && R[3] > 24) { c.fillText(DK.EXT[x.kind].n, X(cx), Y(cy) - fs * 0.6); c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`; c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6); }
+      if (R[2] > 50 && R[3] > 24) { c.fillText(DK.extName(x), X(cx), Y(cy) - fs * 0.6); c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`; c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6); }
       if (sel && sel.kind === 'ext' && sel.id === x.id) {
         c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4);
         c.fillStyle = '#fff'; c.lineWidth = 2;
         extHandles(p, x).forEach(h => { c.beginPath(); c.rect(X(h.x) - 5, Y(h.y) - 5, 10, 10); c.fill(); c.stroke(); });
       }
+    }
+  }
+  /* гараж: стены (у навеса — стойки), ворота на дальней стороне, места машин */
+  function drawGarage(c, p, x, r, R, X, Y, L, sel) {
+    const e = r.e, car = x.gtype !== 'carport', n = x.cars || 1, a0 = x.c - x.w / 2, a1 = x.c + x.w / 2, T = car ? 300 : 0;
+    const P = (a, t) => e.axis === 'x' ? [X(a), Y(t)] : [X(t), Y(a)];
+    c.fillStyle = car ? '#e3e1dc' : '#ecebe7'; c.fillRect(R[0], R[1], R[2], R[3]);
+    if (car) {
+      // стены 300 мм по контуру; ворота — разрывы на дальней стене
+      c.fillStyle = COL.gas; c.fillRect(R[0], R[1], R[2], R[3]);
+      const inn = { x0: r.x0 + T, y0: r.y0 + T, x1: r.x1 - T, y1: r.y1 - T };
+      if (x.gtype === 'attached') { if (e.axis === 'x') { if (e.out > 0) inn.y0 = r.y0; else inn.y1 = r.y1; } else { if (e.out > 0) inn.x0 = r.x0; else inn.x1 = r.x1; } }
+      c.fillStyle = '#efede8'; c.fillRect(X(inn.x0), Y(inn.y0), L(inn.x1 - inn.x0), L(inn.y1 - inn.y0));
+      const gw = DK.GARAGE.gate, step = (x.w - 2 * T) / n;
+      for (let i = 0; i < n; i++) {
+        const gc = a0 + T + step * (i + 0.5), [p0, p1] = [P(gc - gw / 2, r.far - e.out * T), P(gc + gw / 2, r.far)];
+        c.fillStyle = '#efede8'; c.fillRect(Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.abs(p1[0] - p0[0]) || 1, Math.abs(p1[1] - p0[1]) || 1);
+        c.strokeStyle = COL.ink; c.lineWidth = 1.5; const q0 = P(gc - gw / 2, r.far - e.out * T / 2), q1 = P(gc + gw / 2, r.far - e.out * T / 2); line(c, q0[0], q0[1], q1[0], q1[1]);
+      }
+    } else {
+      c.strokeStyle = COL.ink; c.lineWidth = 1; c.setLineDash([6, 4]); c.strokeRect(R[0], R[1], R[2], R[3]); c.setLineDash([]);
+      c.fillStyle = COL.ink; DK.extColumns(p, x).forEach(q => c.fillRect(X(q.x - 100), Y(q.y - 100), L(200), L(200)));
+    }
+    // машины пунктиром
+    c.strokeStyle = 'rgba(70,74,80,.55)'; c.lineWidth = 1; c.setLineDash([3, 3]);
+    const step = (x.w - 2 * T) / n;
+    for (let i = 0; i < n; i++) { const ac = a0 + T + step * (i + 0.5), tm = (r.face + r.far) / 2, A = P(ac - 925, tm - 2300), B = P(ac + 925, tm + 2300);
+      rr(c, Math.min(A[0], B[0]), Math.min(A[1], B[1]), Math.abs(B[0] - A[0]), Math.abs(B[1] - A[1]), L(300)); c.stroke(); }
+    c.setLineDash([]);
+    c.strokeStyle = COL.ink; c.lineWidth = 1.2; c.strokeRect(R[0], R[1], R[2], R[3]);
+    const fs = Math.max(9, Math.min(13, L(800))), cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+    c.font = `600 ${fs}px Raleway, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
+    c.fillText(DK.garageName(x), X(cx), Y(cy) - fs * 0.6); c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`; c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6);
+    if (sel && sel.kind === 'ext' && sel.id === x.id) {
+      c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4);
+      c.fillStyle = '#fff'; c.lineWidth = 2;
+      extHandles(p, x).forEach(h => { c.beginPath(); c.rect(X(h.x) - 5, Y(h.y) - 5, 10, 10); c.fill(); c.stroke(); });
     }
   }
   function extHandles(p, x) {
@@ -501,7 +544,7 @@ function Plan2D(canvas, app) {
     if (tool === 'win' || tool === 'door' || tool === 'pass') { placeOpening(p, fid, w.x, w.y); return; }
     if (tool === 'furn') { placeFurn(p, fid, w.x, w.y); return; }
     if (tool === 'bump') { placeBump(p, fid, w.x, w.y); return; }
-    if (tool === 'terrace' || tool === 'porch' || tool === 'balcony') { placeExt(p, fid, w.x, w.y); return; }
+    if (tool === 'terrace' || tool === 'porch' || tool === 'balcony' || tool === 'garage') { placeExt(p, fid, w.x, w.y); return; }
     if (tool === 'wet' && p.wet) {
       const z = p.wet, tol = 10 / view.k;
       const ed = { l: Math.abs(w.x - z.x) < tol, r: Math.abs(w.x - z.x - z.w) < tol, t: Math.abs(w.y - z.y) < tol, b: Math.abs(w.y - z.y - z.h) < tol };
@@ -686,8 +729,12 @@ function Plan2D(canvas, app) {
     const k = tool, w = hitWall(p, fid, x, y, ['outer']);
     if (!w) { app.toast('Нажмите на наружную стену'); return; }
     if (k === 'balcony' && (fid === 'f1' || fid === 'b')) { app.toast('Балкон — со второго этажа и выше. На первом этаже — терраса'); return; }
-    if (k !== 'balcony' && fid !== 'f1') { app.toast('Терраса и крыльцо — на плане 1 этажа'); return; }
+    if (k !== 'balcony' && fid !== 'f1') { app.toast('Терраса, крыльцо и гараж — на плане 1 этажа'); return; }
     const D = DK.EXT[k], e = w.edge;
+    if (k === 'garage') {
+      const q = { id: DK.id('x'), kind: 'garage', wall: w.id, c: snap(w.axis === 'x' ? x : y, 100), w: DK.GARAGE.w[1], d: DK.GARAGE.d, cars: 1, gtype: 'attached' };
+      p.ext = (p.ext || []).concat(q); app.commit('Гараж'); app.select({ kind: 'ext', id: q.id }); app.setTool('select'); return;
+    }
     let c = snap(w.axis === 'x' ? x : y, 100), wd = D.w;
     const win = p.levels[fid].open.find(o => o.wall === w.id && (o.pano || o.kind !== 'win') && Math.abs(o.c - c) < 3000);
     if (win) { c = win.c; wd = Math.max(D.w, win.w + (k === 'porch' ? 1200 : 2000)); }

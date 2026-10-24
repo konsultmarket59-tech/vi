@@ -479,7 +479,8 @@ function checks(p) {
     }
   });
   for (const x of p.ext || []) {
-    const n = EXT[x.kind].n;
+    const n = extName(x);
+    if (x.kind === 'garage') { if (x.gtype === 'attached') add('ok', `${n}: стена между гаражом и домом — противопожарная, дверь в дом EI 30`); continue; }
     if (!extExit(p, x) && x.kind !== 'porch') add('warn', `${n}: нет выхода — поставьте дверь или панорамное окно на эту стену`);
     if (x.kind === 'balcony' && x.d > BALCONY_CANT) add('ok', `${n} ${fmtM(x.d)} м: вылет больше ${fmtM(BALCONY_CANT)} м — добавлены колонны до земли`);
     if (x.kind === 'balcony' && !floorsOf(p).includes(x.fid)) add('err', `${n}: этажа ${floorName(x.fid)} нет в доме`);
@@ -527,6 +528,12 @@ function tzItems(p) {
   if (p.stair && fl.length > 1) { const r = stairRect(p); out.push(`Лестница ${STAIRS[p.stair.type || 'straight'].n.toLowerCase()}: проём в перекрытии ${fmtM(r.x1 - r.x0)} × ${fmtM(r.y1 - r.y0)} м — обрамление проёма, плиты не режутся вдоль`); }
   for (const x of p.ext || []) {
     const sz = `${fmtM(x.w)} × ${fmtM(x.d)} м`;
+    if (x.kind === 'garage') {
+      out.push(x.gtype === 'carport'
+        ? `${garageName(x)} ${sz}: стойки ${extColumns(p, x).length} шт. на столбчатых фундаментах, односкатная кровля с уклоном от дома, площадка — бетон или плитка по щебёночному основанию`
+        : `${garageName(x)} ${sz} (${GARAGE_TYPES[x.gtype || 'attached'].toLowerCase()}): ленточный фундамент${x.gtype === 'attached' ? ' с деформационным швом у дома, общая стена — противопожарная REI 45, дверь в дом EI 30' : `, ${fmtM(x.gap || GARAGE.gap)} м от дома`}; стены из того же материала, что дом; бетонный пол с уклоном к воротам, утеплённые секционные ворота ${x.cars || 1} × 2,5 м, вентиляция`);
+      continue;
+    }
     if (x.kind === 'balcony') out.push(x.d <= BALCONY_CANT
       ? `Балкон ${sz} (${floorName(x.fid)}): монолитная консольная плита с термовкладышем (терморазрыв), анкеровка в перекрытие, гидроизоляция с уклоном 1–2 % наружу, ограждение 1,0 м`
       : `Балкон ${sz} (${floorName(x.fid)}): вылет больше ${fmtM(BALCONY_CANT)} м — плита на колоннах с отдельными фундаментами, связь с перекрытием через терморазрыв, ограждение 1,0 м`);
@@ -536,6 +543,7 @@ function tzItems(p) {
     }
   }
   fl.forEach(fid => rooms(p, fid).filter(r => r.type === 'loggia').forEach(r => out.push(`${floorName(fid)}: лоджия ${fmtA(r.area)} м² — плита перекрытия опирается на боковые стены, утепление стен, граничащих с лоджией, гидроизоляция пола с уклоном наружу, ограждение 1,0 м`)));
+  if (p.blind) out.push(`Отмостка ${fmtM(p.blind)} м по периметру (${p.blindMat === 'concrete' ? 'бетон' : 'тротуарная плитка'}): утепление ЭППС 50 мм, щебёночная подготовка, уклон 2–3 % от дома, водоотвод от водосточных труб`);
   if (fl.some(f => rooms(p, f).some(r => r.type === 'boiler'))) out.push('Котельная: коаксиальный дымоход или дымоход через наружную стену, приточная вентиляция, дверь EI 30 — по ТУ газовой службы');
   return out;
 }
@@ -544,9 +552,10 @@ function areas(p) {
   const per = floorsOf(p).map(fid => ({ fid, n: floorName(fid), area: rooms(p, fid).filter(r => r.type !== 'void' && r.type !== 'loggia').reduce((s, r) => s + r.area, 0) }));
   const ext = extT(p);
   const loggia = floorsOf(p).reduce((s, f) => s + rooms(p, f).filter(r => r.type === 'loggia').reduce((a, r) => a + r.area, 0), 0);
-  const outdoor = (p.ext || []).reduce((s, x) => s + x.w * x.d / 1e6, 0);
+  const outdoor = (p.ext || []).filter(x => x.kind !== 'garage').reduce((s, x) => s + x.w * x.d / 1e6, 0);
+  const garage = (p.ext || []).filter(x => x.kind === 'garage').reduce((s, x) => s + x.w * x.d / 1e6, 0);
   return {
-    per, total: per.reduce((s, f) => s + f.area, 0), loggia, outdoor,
+    per, total: per.reduce((s, f) => s + f.area, 0), loggia, outdoor, garage,
     outW: p.W + 2 * ext, outD: p.D + 2 * ext, inW: p.W - 2 * ts(p), inD: p.D - 2 * ts(p),
     T: totalT(p), footprint: polyArea(offsetPoly(p, ext)) / 1e6,
   };
@@ -557,19 +566,36 @@ const EXT = {
   terrace: { n: 'Терраса', fl: 'ground', w: 4000, d: 2500 },
   porch: { n: 'Крыльцо', fl: 'ground', w: 2200, d: 1500 },
   balcony: { n: 'Балкон', fl: 'upper', w: 3000, d: 1200 },
+  garage: { n: 'Гараж', fl: 'ground', w: 4000, d: 6500 },
 };
+/* гараж: ширина снаружи по числу машин (место 2,5 × 5,5 м на машину + проходы), ворота 2,5 м на машину */
+const GARAGE = { w: { 1: 4000, 2: 6500, 3: 9500 }, d: 6500, gate: 2500, gap: 2000, h: 2800 };
+const GARAGE_TYPES = { attached: 'Пристрой к дому', detached: 'Отдельно у дома', carport: 'Навес' };
+function garageName(x) { const n = x.cars || 1; return `${x.gtype === 'carport' ? 'Навес' : 'Гараж'} на ${n} ${n === 1 ? 'машину' : 'машины'}`; }
+function extName(x) { return x.kind === 'garage' ? garageName(x) : EXT[x.kind].n; }
 const EXT_ROOF = { open: 'Открытая', covered: 'Крытая на колоннах', glazed: 'Застеклённая' };
 const BALCONY_CANT = 1500; // предельный вылет консольной плиты с терморазрывом, мм
 /* прямоугольник на плане (мм) снаружи облицовки */
 function extRect(p, x) {
   const e = edges(p).find(q => q.id === x.wall); if (!e) return null;
-  const f0 = e.line + e.out * extT(p), f1 = f0 + e.out * x.d, a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
+  const gap = x.kind === 'garage' && x.gtype === 'detached' ? (x.gap || GARAGE.gap) : 0;
+  const f0 = e.line + e.out * (extT(p) + gap), f1 = f0 + e.out * x.d, a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
   const t0 = Math.min(f0, f1), t1 = Math.max(f0, f1);
   return Object.assign(e.axis === 'x' ? { x0: a0, x1: a1, y0: t0, y1: t1 } : { x0: t0, x1: t1, y0: a0, y1: a1 }, { e, face: f0, far: f1 });
 }
 /* колонны: по углам у внешнего края и не реже чем через 3 м; у балкона — только если вылет больше консоли */
 function extColumns(p, x) {
   const r = extRect(p, x); if (!r) return [];
+  if (x.kind === 'garage') {
+    // навес: стойки по обеим длинным сторонам не реже чем через 3 м
+    if (x.gtype !== 'carport') return [];
+    const n = Math.max(2, Math.ceil(x.d / 3000) + 1), out = [], inset = 150;
+    for (const a of [x.c - x.w / 2 + inset, x.c + x.w / 2 - inset]) for (let i = 0; i < n; i++) {
+      const t = r.face + r.e.out * (inset + (x.d - 2 * inset) * i / (n - 1));
+      out.push(r.e.axis === 'x' ? { x: a, y: t } : { x: t, y: a });
+    }
+    return out;
+  }
   if (x.kind === 'balcony' ? x.d <= BALCONY_CANT : (x.roof || 'open') === 'open') return [];
   const n = Math.max(2, Math.ceil(x.w / 3000) + 1), out = [], inset = 150;
   for (let i = 0; i < n; i++) {
@@ -587,7 +613,7 @@ function extExit(p, x) {
 /* панорамное окно — выход на террасу, крыльцо или балкон: одна створка становится дверью */
 function exitWin(p, fid, o) {
   if (o.kind !== 'win' || !o.pano) return false;
-  return (p.ext || []).some(x => x.wall === o.wall && (x.kind === 'balcony' ? x.fid === fid : fid === 'f1') && o.c > x.c - x.w / 2 && o.c < x.c + x.w / 2);
+  return (p.ext || []).some(x => x.kind !== 'garage' && x.wall === o.wall && (x.kind === 'balcony' ? x.fid === fid : fid === 'f1') && o.c > x.c - x.w / 2 && o.c < x.c + x.w / 2);
 }
 /* створка-дверь: средняя (при чётном числе — правая из средних) */
 function exitSash(o) { const n = o.sash || (o.w >= 1300 ? 2 : 1); return { n, i: Math.floor(n / 2) }; }
@@ -714,8 +740,10 @@ function normalize(p) {
   const E2 = edges(p);
   p.ext = (p.ext || []).filter(x => {
     const e = E2.find(q => q.id === x.wall); if (!e) return false;
-    x.w = Math.max(1000, Math.min(x.w, e.hi - e.lo)); x.d = Math.max(800, Math.min(x.d, x.kind === 'balcony' ? 3000 : 8000));
-    x.c = Math.max(e.lo + x.w / 2, Math.min(x.c, e.hi - x.w / 2));
+    if (x.kind === 'garage') { x.cars = Math.max(1, Math.min(3, x.cars || 1)); x.w = Math.max(3000, Math.min(x.w, 12000)); x.d = Math.max(4500, Math.min(x.d, 9000)); }
+    else { x.w = Math.max(1000, Math.min(x.w, e.hi - e.lo)); x.d = Math.max(800, Math.min(x.d, x.kind === 'balcony' ? 3000 : 8000)); }
+    // гараж может быть шире стены — достаточно, чтобы он примыкал к ней
+    x.c = x.kind === 'garage' ? Math.max(e.lo, Math.min(x.c, e.hi)) : Math.max(e.lo + x.w / 2, Math.min(x.c, e.hi - x.w / 2));
     return true;
   });
   if (p.stair) {
@@ -846,7 +874,7 @@ function starter() {
   return normalize({
     v: 2, name: 'Мой дом', poly: [{ id: 'N', x: 0, y: 0 }, { id: 'E', x: 12000, y: 0 }, { id: 'S', x: 12000, y: 10000 }, { id: 'W', x: 0, y: 10000 }],
     W: 12000, D: 10000, wallMat: 'gas', clad: 'plaster', insul: 100,
-    hClear: 2800, slab: 220, floors: 2, basement: false,
+    hClear: 2800, slab: 220, floors: 2, basement: false, blind: 1000,
     bearing: [{ axis: 'h', pos: 5000 }],
     wet: { x: 400, y: 400, w: 4600, h: 4410 },
     stair: { type: 'L', x: 5000, y: 5400, w: 1900, l: 3600, rot: 2 },
@@ -856,7 +884,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { GARAGE, GARAGE_TYPES, garageName, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

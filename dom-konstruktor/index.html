@@ -302,6 +302,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
             <button class="btn" data-tool="terrace">Терраса</button>
             <button class="btn" data-tool="porch">Крыльцо</button>
             <button class="btn" data-tool="balcony">Балкон</button>
+            <button class="btn" data-tool="garage">Гараж</button>
           </div>
           <div class="muted">Лоджия — назначение помещения у наружной стены на 2 этаже и выше.</div>
           <label class="fld">Лестница<select id="stairType"></select></label>
@@ -335,6 +336,12 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
           <div class="sw" id="roofs"></div>
           <label class="rng" id="pitchRow"><span>Уклон</span><input type="range" id="pitch" min="5" max="45" step="1"><output id="pitchV"></output></label>
           <label class="fld" id="ridgeRow">Конёк<div class="seg" id="ridge"><button data-k="long">вдоль длинной стороны</button><button data-k="short">поперёк</button></div></label>
+        </div>
+        <div class="grp" data-v="ext plan">
+          <h3>Отмостка <small>по периметру дома</small></h3>
+          <div class="seg" id="blind"><button data-k="0">нет</button><button data-k="600">0,6 м</button><button data-k="800">0,8 м</button><button data-k="1000">1,0 м</button><button data-k="1200">1,2 м</button></div>
+          <label class="fld">Покрытие<select id="blindMat"><option value="paving">тротуарная плитка</option><option value="concrete">бетон</option></select></label>
+          <div class="muted">Утеплённая отмостка защищает фундамент от воды и пучения; ширина — не меньше выноса карниза + 0,2 м.</div>
         </div>
         <div class="grp" data-v="ext">
           <h3>Отделка фасада</h3>

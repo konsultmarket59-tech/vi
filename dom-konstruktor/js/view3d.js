@@ -103,11 +103,19 @@ function View3D(canvas, app) {
       g.strokeStyle = gray(0.82); g.lineWidth = 3;
       for (let x = 0; x <= S; x += S / 3) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, S); g.stroke(); g.beginPath(); g.moveTo(0, x); g.lineTo(S, x); g.stroke(); }
     } else if (kind === 'grass') { g.fillStyle = gray(0.85); g.fillRect(0, 0, S, S); noise(40000, 0.55, 1, 3); }
+    else if (kind === 'paving') { // плитка 200 × 100 вперевязку
+      g.fillStyle = gray(0.6); g.fillRect(0, 0, S, S);
+      const ph = S / 10, pw = S / 5;
+      for (let r = 0; r < 10; r++) for (let i = -1; i < 6; i++) { g.fillStyle = gray(0.8 + rnd() * 0.2); g.fillRect(i * pw + (r % 2) * pw / 2 + 2, r * ph + 2, pw - 4, ph - 4); }
+      noise(6000, 0.7, 1, 2);
+    } else if (kind === 'sectional') { // секционные ворота: горизонтальные панели
+      for (let y = 0; y < S; y += S / 4) { g.fillStyle = gray(0.62); g.fillRect(0, y, S, 5); g.fillStyle = gray(0.88); for (let k = 1; k < 4; k++) g.fillRect(0, y + k * S / 16, S, 2); }
+    }
     else if (kind === 'concrete') { noise(20000, 0.8, 1, 2); g.fillStyle = gray(0.7); g.fillRect(0, 0, S, 3); }
     const t = new T.CanvasTexture(cv); t.wrapS = t.wrapT = T.RepeatWrapping; t.anisotropy = 8; t.encoding = T.sRGBEncoding;
     texCache[kind] = t; return t;
   }
-  const BUMP = { brick: 0.012, stone: 0.03, ledge: 0.03, siding: 0.02, bnb: 0.015, planken: 0.01, shingle: 0.02, mtile: 0.03, falz: 0.01, plaster: 0.004, panel: 0.006 };
+  const BUMP = { paving: 0.01, sectional: 0.01, brick: 0.012, stone: 0.03, ledge: 0.03, siding: 0.02, bnb: 0.015, planken: 0.01, shingle: 0.02, mtile: 0.03, falz: 0.01, plaster: 0.004, panel: 0.006 };
   function lin(hex) { return new T.Color(hex).convertSRGBToLinear(); }
   function mat(spec, extra) {
     spec = typeof spec === 'string' ? { c: spec } : spec;
@@ -186,6 +194,7 @@ function View3D(canvas, app) {
     const gm = box(160, 0.05, 160, outside ? mat({ m: 'grass', c: '#86a06c' }) : mat({ c: '#dfe2dc' }), cx, gy - 0.025, cz, { noShadow: true });
     gm.castShadow = false; root.add(gm); root.userData.ground = gm;
     if (!p.basement) root.add(extrudePoly(DK.offsetPoly(p, ext + 25), gy, -gy, mat(F.plinth)));
+    if (p.blind && outside) root.add(extrudePoly(DK.offsetPoly(p, ext + p.blind), gy, 0.05, mat({ m: p.blindMat === 'concrete' ? 'concrete' : 'paving', c: p.blindMat === 'concrete' ? '#b7b4ae' : '#a9a197' })));
     const M = DK.mainRect(p);
     const onMain = (w) => w.axis === 'x' ? ((w.line === M.y0 || w.line === M.y1) && w.edge.lo >= M.x0 - 1 && w.edge.hi <= M.x1 + 1)
                                          : ((w.line === M.x0 || w.line === M.x1) && w.edge.lo >= M.y0 - 1 && w.edge.hi <= M.y1 + 1);
@@ -372,8 +381,65 @@ function View3D(canvas, app) {
   }
 
   /* терраса, крыльцо, балкон: настил, ступени, ограждение, колонны, навес, остекление */
+  /* гараж: пристрой или отдельный в стиле дома, навес на стойках; ворота на дальней стороне */
+  function garageBuild(p, x, F, gy, r) {
+    const e = r.e, n = e.out, ax = e.axis === 'x', car = x.gtype !== 'carport', cars = x.cars || 1;
+    const A0 = (x.c - x.w / 2) / 1000, A1 = (x.c + x.w / 2) / 1000, ac = x.c / 1000, face = r.face / 1000, far = r.far / 1000, wd = x.w / 1000;
+    const B = (a0, a1, t0, t1, y0, y1, m, o) => { const L = Math.abs(a1 - a0), Tt = Math.abs(t1 - t0); root.add(ax ? box(L, y1 - y0, Tt, m, (a0 + a1) / 2, (y0 + y1) / 2, (t0 + t1) / 2, o) : box(Tt, y1 - y0, L, m, (t0 + t1) / 2, (y0 + y1) / 2, (a0 + a1) / 2, o)); };
+    const P = (a, y, t) => ax ? [a, y, t] : [t, y, a];
+    const H = DK.GARAGE.h / 1000, TW = 0.3, y0 = gy + 0.15, rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
+    B(A0, A1, face, far, gy, y0, mat({ m: 'concrete', c: '#b9b6b0' }));
+    const step = (x.w / 1000 - 2 * (car ? TW : 0)) / cars;
+    if (car) {
+      const wm = mat(F.main), pm = mat(F.plinth), gm2 = mat({ m: 'sectional', c: F.door === '#ffffff' ? '#e9e9e6' : '#d9d8d4' }, { roughness: 0.5 });
+      const tFar0 = far - n * TW, attached = x.gtype === 'attached';
+      // боковые стены, дальняя стена с воротами, у отдельного — ещё стена к дому
+      B(A0, A0 + TW, face, far, y0, y0 + H, wm); B(A1 - TW, A1, face, far, y0, y0 + H, wm);
+      if (!attached) B(A0, A1, face, face + n * TW, y0, y0 + H, wm);
+      const gw = DK.GARAGE.gate / 1000, gh = 2.1;
+      let a = A0 + TW;
+      for (let i = 0; i < cars; i++) {
+        const gc = A0 + TW + step * (i + 0.5);
+        B(a, gc - gw / 2, tFar0, far, y0, y0 + H, wm); a = gc + gw / 2;
+        B(gc - gw / 2, gc + gw / 2, tFar0, far, y0 + gh, y0 + H, wm);
+        B(gc - gw / 2, gc + gw / 2, far - n * 0.12, far - n * 0.08, y0, y0 + gh, gm2);
+      }
+      B(a, A1 - TW, tFar0, far, y0, y0 + H, wm);
+      // цоколь по низу стен
+      B(A0 - 0.02, A1 + 0.02, far - n * 0.02, far + n * 0.02, gy, y0 + 0.3, pm, { noShadow: true });
+      const yt = y0 + H, ov = 0.35;
+      if (attached || p.roof.type === 'flat' || p.roof.type === 'shed') {
+        // односкатная от дома
+        const yHi = yt + (x.d / 1000) * Math.tan(10 * Math.PI / 180), tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov;
+        const pts = n > 0 ? [P(a1, yHi, face), P(a0, yHi, face), P(a0, yt, tF), P(a1, yt, tF)] : [P(a0, yHi, face), P(a1, yHi, face), P(a1, yt, tF), P(a0, yt, tF)];
+        roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
+        for (const aa of [A0, A1]) root.add(poly([P(aa, yt, face), P(aa, yt, far), P(aa, yHi, face)], wm, ax ? 2 : 0, 1));
+        if (!attached) B(A0, A1, face, face + n * TW, yt, yHi, wm);
+      } else {
+        // двускатная, фронтон над воротами — как у дома
+        const pitch = Math.min(35, p.roof.pitch || 30) * Math.PI / 180, yR = yt + (wd / 2) * Math.tan(pitch), t0 = face - n * ov * 0.3, tF = far + n * ov;
+        const L0 = A0 - ov, L1 = A1 + ov, yE = yt - ov * Math.tan(pitch);
+        roofPlane([P(L0, yE, t0), P(L0, yE, tF), P(ac, yR, tF), P(ac, yR, t0)].map(q => q), rm, sm, fm);
+        roofPlane([P(L1, yE, tF), P(L1, yE, t0), P(ac, yR, t0), P(ac, yR, tF)], rm, sm, fm);
+        const gmat = mat(F.gable || F.main, { side: T.DoubleSide });
+        for (const tt of [face, far]) root.add(poly([P(A0, yt, tt), P(A1, yt, tt), P(ac, yR - 0.05, tt)], gmat, ax ? 0 : 2, 1));
+      }
+      return;
+    }
+    // навес: стойки, односкатная кровля от дома, машины под ним
+    const colM = mat(F.accentOn !== 'none' ? F.accent : { c: F.trim }), yt = y0 + 2.5, yHi = yt + (x.d / 1000) * Math.tan(8 * Math.PI / 180);
+    DK.extColumns(p, x).forEach(q => { const t = (Math.abs((ax ? q.y : q.x) - r.face)) / 1000; const yy = yHi - t * Math.tan(8 * Math.PI / 180); root.add(box(0.15, yy - y0, 0.15, colM, q.x / 1000, (y0 + yy) / 2, q.y / 1000)); });
+    const ov = 0.3, tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov, t0 = face;
+    const pts = n > 0 ? [P(a1, yHi, t0), P(a0, yHi, t0), P(a0, yt, tF), P(a1, yt, tF)] : [P(a0, yHi, t0), P(a1, yHi, t0), P(a1, yt, tF), P(a0, yt, tF)];
+    roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
+    for (let i = 0; i < cars; i++) {
+      const gc = (x.c - x.w / 2 + 1000 * step * (i + 0.5)), tm = (r.face + r.far) / 2;
+      root.add(furn({ type: 'car', x: ax ? gc : tm, y: ax ? tm : gc, a: ax ? 0 : 90 }, y0, 2.5));
+    }
+  }
   function extBuild(p, x, F, gy, hc) {
     const r = DK.extRect(p, x); if (!r) return;
+    if (x.kind === 'garage') { garageBuild(p, x, F, gy, r); return; }
     const e = r.e, n = e.out, ax = e.axis === 'x';
     const A0 = (x.c - x.w / 2) / 1000, A1 = (x.c + x.w / 2) / 1000, face = r.face / 1000, far = r.far / 1000, d = x.d / 1000, wd = x.w / 1000, ac = x.c / 1000;
     const B = (a0, a1, t0, t1, y0, y1, m, o) => { const L = a1 - a0, Tt = Math.abs(t1 - t0); root.add(ax ? box(L, y1 - y0, Tt, m, (a0 + a1) / 2, (y0 + y1) / 2, (t0 + t1) / 2, o) : box(Tt, y1 - y0, L, m, (t0 + t1) / 2, (y0 + y1) / 2, (a0 + a1) / 2, o)); };
@@ -692,7 +758,9 @@ function View3D(canvas, app) {
         push(a, w.a1);
       }
       for (const x of (p.ext || []).filter(q => q.kind === 'balcony' ? q.fid === f : f === 'f1')) {
-        const r = DK.extRect(p, x); if (!r || (x.kind !== 'balcony' && (x.roof || 'open') === 'open' && x.kind !== 'terrace')) continue;
+        const r = DK.extRect(p, x); if (!r) continue;
+        if (x.kind === 'garage') { if (x.gtype === 'carport') DK.extColumns(p, x).forEach(q => solid.push([q.x - 80, q.y - 80, q.x + 80, q.y + 80])); else solid.push([r.x0, r.y0, r.x1, r.y1]); continue; }
+        if (x.kind !== 'balcony' && (x.roof || 'open') === 'open' && x.kind !== 'terrace') continue;
         const t = 30, e = r.e;
         const add2 = (a0, a1, t0, t1) => solid.push(e.axis === 'x' ? [a0, Math.min(t0, t1), a1, Math.max(t0, t1)] : [Math.min(t0, t1), a0, Math.max(t0, t1), a1]);
         const a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
