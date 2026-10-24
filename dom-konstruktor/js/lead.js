@@ -54,8 +54,8 @@ DK.applyBrief = function (src, a) {
   DK.normalize(p);
   const errs = DK.checks(p).filter(c => c.lv === 'err');
   errs.forEach(c => notes.push('Проверить: ' + c.txt));
-  const A = DK.areas(p), pr = DK.CONFIG.prices[a.cls] || DK.CONFIG.prices.comfort;
-  const est = { area: A.total, from: Math.round(A.total * pr.from / 1e5) / 10, to: Math.round(A.total * pr.to / 1e5) / 10 };
+  const A = DK.areas(p), et = DK.estimateText(p, a.cls);
+  const est = { area: A.total, from: Math.round(et.e.min / 1e5) / 10, to: Math.round(et.e.max / 1e5) / 10, range: et.range, perM2: et.perM2 };
   return { p, ch, notes, est };
 };
 
