@@ -22,7 +22,7 @@ DK.loadThree = function () {
 };
 
 function View3D(canvas, app) {
-  const T = window.THREE;
+  const T = window.THREE, T3 = T;
   const renderer = new T.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
@@ -157,11 +157,11 @@ function View3D(canvas, app) {
     return mesh;
   }
   /* скат с толщиной: верх — кровля, низ — подшива, торцы — ветровая/лобовая доска */
-  function roofPlane(pts, rm, sm, fm) {
-    const th = 0.14, low = pts.map(q => [q[0], q[1] - th, q[2]]);
-    root.add(slope(pts, rm));
-    root.add(slope(low.slice().reverse(), sm));
-    for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; root.add(slope([pts[i], low[i], low[j], pts[j]], fm)); }
+  function roofPlane(pts, rm, sm, fm, tgt) {
+    const th = 0.14, low = pts.map(q => [q[0], q[1] - th, q[2]]), R = tgt || root;
+    R.add(slope(pts, rm));
+    R.add(slope(low.slice().reverse(), sm));
+    for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; R.add(slope([pts[i], low[i], low[j], pts[j]], fm)); }
   }
   function extrudePoly(pts, y0, h, m) {
     const sh = new T.Shape(pts.map(q => new T.Vector2(q.x / 1000, -q.y / 1000)));
@@ -243,8 +243,11 @@ function View3D(canvas, app) {
       if (!p.basement) porch(p, ext, F);
     }
     (p.ext || []).forEach(x => { if (x.kind === 'balcony' ? showFloors.includes(x.fid) : showFloors.includes('f1')) extBuild(p, x, F, gy, hc); });
-    const R = Math.max(p.W, p.D) / 1000 * 1.6 + 8;
-    sun.position.set(cx - R * 0.6, R * 0.95, cz + R * 0.8); sun.target.position.set(cx, 0, cz);
+    if (p.site && outside) siteBuild(p, F, gy);
+    const R = (p.site && outside ? Math.max(p.site.W, p.site.D) / 1000 * 0.9 : Math.max(p.W, p.D) / 1000 * 1.6) + 8;
+    // солнце с юга: учитываем, куда на участке смотрит север
+    const th = (p.site ? p.site.north || 0 : 0) * Math.PI / 180, sx = -0.6 * Math.cos(th) - 0.8 * Math.sin(th), sz = -0.6 * Math.sin(th) + 0.8 * Math.cos(th);
+    sun.position.set(cx + sx * R, R * 0.95, cz + sz * R); sun.target.position.set(cx, 0, cz);
     const sc = sun.shadow.camera; sc.left = sc.bottom = -R * 0.8; sc.right = sc.top = R * 0.8; sc.near = 1; sc.far = R * 4; sc.updateProjectionMatrix();
     scene.background = outside ? SKY : new T.Color('#eceeef');
     const night = lightsOn && mode !== 'exterior';
@@ -377,10 +380,123 @@ function View3D(canvas, app) {
     const P = (along, out, wA, dOut, y, h) => w.axis === 'x' ? box(wA, h, dOut, cm, along, y, face + n * out) : box(dOut, h, wA, cm, face + n * out, y, along);
     root.add(P(ac, 0.7, wd, 1.4, -0.3, 0.6));
     for (let k = 1; k <= 3; k++) root.add(P(ac, 1.4 + 0.15 + (k - 1) * 0.3, wd, 0.3, -0.6 + (0.6 - k * 0.15) / 2, 0.6 - k * 0.15));
-    root.add(P(ac, 2.3 + 3.5, 1.3, 7, -0.595, 0.02));
+    if (!p.site) root.add(P(ac, 2.3 + 3.5, 1.3, 7, -0.595, 0.02));
   }
 
   /* терраса, крыльцо, балкон: настил, ступени, ограждение, колонны, навес, остекление */
+  /* участок: газон, забор с воротами и калиткой, дорожка, заезд, постройки в стиле дома */
+  function siteBuild(p, F, gy) {
+    const s = p.site, W = s.W / 1000, D = s.D / 1000, ox = -s.hx / 1000, oz = -s.hy / 1000, y = gy;
+    const st = s.street || 'S';
+    root.add(box(W, 0.02, D, mat({ m: 'grass', c: '#7fa166' }), ox + W / 2, y + 0.01, oz + D / 2, { noShadow: true }));
+    const pave = mat({ m: 'paving', c: '#b4aca1' });
+    const path = DK.sitePath(p) || [];
+    for (let i = 0; i < path.length - 1; i++) { const a = path[i], b = path[i + 1], x0 = Math.min(a.x, b.x) / 1000 - 0.6 + ox, x1 = Math.max(a.x, b.x) / 1000 + 0.6 + ox, z0 = Math.min(a.y, b.y) / 1000 - 0.6 + oz, z1 = Math.max(a.y, b.y) / 1000 + 0.6 + oz; root.add(box(x1 - x0, 0.03, z1 - z0, pave, (x0 + x1) / 2, y + 0.03, (z0 + z1) / 2, { noShadow: true })); }
+    const drives = DK.siteDrives(p);
+    drives.forEach(r => root.add(box((r.x1 - r.x0) / 1000, 0.03, (r.y1 - r.y0) / 1000, mat({ m: 'paving', c: '#a39b90' }), (r.x0 + r.x1) / 2000 + ox, y + 0.03, (r.y0 + r.y1) / 2000 + oz, { noShadow: true })));
+    // забор: столбы как цоколь дома, заполнение — планкен; на улице проёмы под калитку и заезд
+    const pillarM = mat(F.plinth), panelM = mat({ m: 'planken', c: F.accentOn !== 'none' && F.accent ? F.accent.c : '#7a5a3c' }), gateM = mat({ c: F.frame === '#ffffff' ? '#3a3c40' : F.frame }, { metalness: 0.4, roughness: 0.5 });
+    const gate = path.length ? path[path.length - 1] : null, H = 1.8;
+    const sides = { N: [[0, 0], [s.W, 0]], S: [[0, s.D], [s.W, s.D]], W: [[0, 0], [0, s.D]], E: [[s.W, 0], [s.W, s.D]] };
+    for (const [k, [a, b]] of Object.entries(sides)) {
+      const ax = a[1] === b[1], len = ax ? s.W : s.D, gaps = [];
+      if (k === st) {
+        if (gate) gaps.push([(ax ? gate.x : gate.y) - 600, (ax ? gate.x : gate.y) + 600]);
+        drives.forEach(r => gaps.push(ax ? [r.x0, r.x1] : [r.y0, r.y1]));
+      }
+      gaps.sort((m, n) => m[0] - n[0]);
+      let at = 0; const segs = [];
+      for (const g of gaps) { if (g[0] > at) segs.push([at, g[0]]); at = Math.max(at, g[1]); }
+      if (at < len) segs.push([at, len]);
+      const P2 = (t) => ax ? [t / 1000 + ox, a[1] / 1000 + oz] : [a[0] / 1000 + ox, t / 1000 + oz];
+      for (const [u, v] of segs) {
+        if (v - u < 50) continue;
+        const n = Math.max(1, Math.round((v - u) / 2800));
+        for (let i = 0; i <= n; i++) { const q = P2(u + (v - u) * i / n); root.add(box(k === st ? 0.36 : 0.08, k === st ? H + 0.15 : H, k === st ? 0.36 : 0.08, k === st ? pillarM : gateM, q[0], y + (k === st ? H + 0.15 : H) / 2, q[1])); }
+        const c = P2((u + v) / 2), L = (v - u) / 1000;
+        root.add(box(ax ? L : 0.03, H - 0.25, ax ? 0.03 : L, panelM, c[0], y + 0.15 + (H - 0.25) / 2, c[1]));
+      }
+      // калитка и откатные ворота
+      if (k === st && gate) { const c = P2(ax ? gate.x : gate.y); root.add(box(ax ? 1.0 : 0.04, H - 0.2, ax ? 0.04 : 1.0, gateM, c[0], y + 0.1 + (H - 0.2) / 2, c[1])); }
+      if (k === st) drives.forEach(r => { const c = P2(ax ? (r.x0 + r.x1) / 2 : (r.y0 + r.y1) / 2), L = (ax ? r.x1 - r.x0 : r.y1 - r.y0) / 1000; root.add(box(ax ? L : 0.05, H - 0.2, ax ? 0.05 : L, gateM, c[0], y + 0.1 + (H - 0.2) / 2, c[1])); });
+    }
+    s.objs.forEach(o => siteObj(p, o, F, y, ox, oz));
+  }
+  function siteObj(p, o, F, y, ox, oz) {
+    const T = DK.SITE_OBJ[o.type], w = (o.w || T.w) / 1000, d = (o.d || T.d) / 1000, g = new T3.Group();
+    const B = (bw, bh, bd, m, x, yy, z) => { const b = box(bw, bh, bd, m, x, yy, z); g.add(b); return b; };
+    const wallM = mat(F.main), plinthM = mat(F.plinth), roofM = mat(F.roof, { side: T3.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T3.DoubleSide }), fm = mat({ c: F.soffit });
+    const trimM = mat({ c: F.trim }), wood = mat({ m: 'wood', c: '#b98b5e' }), deck = mat({ m: 'planken', c: '#8a6a4c' }), dark = mat({ c: '#2f3237' }, { metalness: 0.4, roughness: 0.5 });
+    const glass = new T3.MeshStandardMaterial({ color: lin('#9fc0d3'), transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.3 });
+    const pitch = Math.min(40, Math.max(20, p.roof.pitch || 30)) * Math.PI / 180;
+    const gable = (hw, hd, yt, ov) => { // двускатная кровля вдоль глубины, фронтоны в цвет стен
+      const yR = yt + hw * Math.tan(pitch), yE = yt - ov * Math.tan(pitch);
+      roofPlane([[-hw - ov, yE, -hd - ov], [-hw - ov, yE, hd + ov], [0, yR, hd + ov], [0, yR, -hd - ov]], roofM, sm, fm, g);
+      roofPlane([[hw + ov, yE, hd + ov], [hw + ov, yE, -hd - ov], [0, yR, -hd - ov], [0, yR, hd + ov]], roofM, sm, fm, g);
+      for (const z of [-hd, hd]) g.add(poly([[-hw, yt, z], [hw, yt, z], [0, yR - 0.05, z]], mat(F.gable || F.main, { side: T3.DoubleSide }), 0, 1));
+      return yR;
+    };
+    if (o.type === 'bath') {
+      B(w, 0.3, d, plinthM, 0, 0.15, 0);
+      B(w, 2.3, d, wallM, 0, 0.3 + 1.15, 0);
+      const yR = gable(w / 2, d / 2, 2.6, 0.35);
+      B(0.8, 1.9, 0.06, mat({ c: F.door }), -w / 4, 0.3 + 0.95, d / 2 + 0.02);
+      B(0.6, 0.45, 0.06, glass, w / 4, 1.7, d / 2 + 0.02); B(0.68, 0.06, 0.08, trimM, w / 4, 1.45, d / 2 + 0.03);
+      B(1.6, 0.12, 1.2, deck, -w / 4, 0.18, d / 2 + 0.6);
+      const ch = new T3.Mesh(new T3.CylinderGeometry(0.1, 0.1, 1.4, 16), dark); ch.position.set(w / 4, yR - 0.2, -d / 6); g.add(ch);
+    } else if (o.type === 'gazebo') {
+      B(w, 0.15, d, deck, 0, 0.075, 0);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.14, 2.3, 0.14, trimM, sx * (w / 2 - 0.1), 0.15 + 1.15, sz * (d / 2 - 0.1));
+      const yt = 2.45, ap = yt + Math.min(w, d) / 2 * Math.tan(pitch), ov = 0.3, a = w / 2 + ov, b = d / 2 + ov, yE = yt - ov * Math.tan(pitch);
+      roofPlane([[-a, yE, b], [a, yE, b], [0, ap, 0]], roofM, sm, fm, g); roofPlane([[a, yE, b], [a, yE, -b], [0, ap, 0]], roofM, sm, fm, g);
+      roofPlane([[a, yE, -b], [-a, yE, -b], [0, ap, 0]], roofM, sm, fm, g); roofPlane([[-a, yE, -b], [-a, yE, b], [0, ap, 0]], roofM, sm, fm, g);
+      for (const sz of [-1]) B(w - 0.3, 0.06, 0.06, trimM, 0, 0.95, sz * (d / 2 - 0.1));
+      B(1.2, 0.05, 0.7, wood, 0, 0.9, 0); B(0.1, 0.75, 0.1, wood, 0, 0.5, 0);
+      for (const sz of [-1, 1]) B(1.4, 0.05, 0.35, wood, 0, 0.6, sz * 0.75);
+    } else if (o.type === 'bbq') {
+      B(w, 0.05, d, mat({ m: 'paving', c: '#a9a197' }), 0, 0.025, 0);
+      B(1.5, 0.9, 0.65, plinthM, 0, 0.5, -d / 2 + 0.45); B(1.6, 0.06, 0.75, mat({ c: '#9a9894' }), 0, 0.98, -d / 2 + 0.45);
+      B(0.7, 0.1, 0.4, mat({ c: '#ff8a3d' }, { emissive: lin('#ff5a10'), emissiveIntensity: 0.6 }), -0.3, 1.02, -d / 2 + 0.45);
+      B(0.5, 1.3, 0.45, plinthM, 0.45, 1.65, -d / 2 + 0.4); B(0.6, 0.08, 0.55, dark, 0.45, 2.34, -d / 2 + 0.4);
+      B(1.6, 0.05, 0.8, wood, 0, 0.75, 0.55); for (const sx of [-0.65, 0.65]) B(0.08, 0.72, 0.6, wood, sx, 0.37, 0.55);
+      for (const sz of [-0.1, 1.2]) B(1.6, 0.05, 0.3, wood, 0, 0.45, sz);
+    } else if (o.type === 'play') {
+      B(w, 0.03, d, mat({ c: '#e3cf9c' }), 0, 0.015, 0);
+      const sw = 2.6, hx = -w / 2 + 1.6;
+      for (const sz of [-1, 1]) { const l1 = B(0.08, 2.4, 0.08, wood, hx - sz * 0, 1.2, sz * sw / 2); l1.rotation.x = sz * 0.0; }
+      for (const sz of [-1, 1]) for (const sx of [-1, 1]) { const l = B(0.08, 2.5, 0.08, wood, hx + sx * 0.45, 1.18, sz * sw / 2); l.rotation.z = sx * 0.2; }
+      B(0.1, 0.1, sw + 0.2, wood, hx, 2.35, 0);
+      for (const sz of [-0.55, 0.55]) { B(0.02, 1.85, 0.02, dark, hx - 0.2, 1.42, sz); B(0.02, 1.85, 0.02, dark, hx + 0.2, 1.42, sz); B(0.5, 0.04, 0.22, mat({ c: '#d9534f' }), hx, 0.5, sz); }
+      const tx = w / 2 - 1.3, tz = -d / 2 + 1.0;
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) B(0.08, 2.2, 0.08, wood, tx + sx * 0.5, 1.1, tz + sz * 0.5);
+      B(1.1, 0.06, 1.1, wood, tx, 1.2, tz); B(1.2, 0.06, 1.2, mat({ c: '#4f8fd6' }), tx, 2.25, tz);
+      const sl = B(0.5, 0.04, 2.1, mat({ c: '#e8b23a' }), tx, 0.62, tz + 1.4); sl.rotation.x = -0.6;
+      B(1.5, 0.25, 0.08, wood, w / 2 - 1.3, 0.13, d / 2 - 0.4); B(1.5, 0.25, 0.08, wood, w / 2 - 1.3, 0.13, d / 2 - 1.9);
+      B(0.08, 0.25, 1.5, wood, w / 2 - 2.05, 0.13, d / 2 - 1.15); B(0.08, 0.25, 1.5, wood, w / 2 - 0.55, 0.13, d / 2 - 1.15);
+      B(1.4, 0.1, 1.4, mat({ c: '#efe0b0' }), w / 2 - 1.3, 0.06, d / 2 - 1.15);
+    } else if (o.type === 'flower') {
+      B(w, 0.25, 0.08, plinthM, 0, 0.125, -d / 2 + 0.04); B(w, 0.25, 0.08, plinthM, 0, 0.125, d / 2 - 0.04);
+      B(0.08, 0.25, d, plinthM, -w / 2 + 0.04, 0.125, 0); B(0.08, 0.25, d, plinthM, w / 2 - 0.04, 0.125, 0);
+      B(w - 0.16, 0.2, d - 0.16, mat({ c: '#5a4636' }), 0, 0.1, 0);
+      const cols = ['#d65a7a', '#e8b23a', '#9b6bd6', '#e06a3a', '#f2f2f2'];
+      for (let i = 0; i < Math.round(w * d * 6); i++) {
+        const m = new T3.Mesh(new T3.SphereGeometry(0.09 + (i % 3) * 0.03, 10, 8), mat({ c: i % 4 === 3 ? '#4f7a3a' : cols[i % cols.length] }, { roughness: 0.95 }));
+        m.position.set((((i * 37) % 97) / 97 - 0.5) * (w - 0.3), 0.3 + (i % 2) * 0.08, (((i * 53) % 89) / 89 - 0.5) * (d - 0.3)); m.castShadow = true; g.add(m);
+      }
+    } else if (o.type === 'greenhouse') {
+      B(w, 0.2, d, wood, 0, 0.1, 0);
+      const wm = new T3.MeshStandardMaterial({ color: lin('#dfeef4'), transparent: true, opacity: 0.35, roughness: 0.1, side: T3.DoubleSide });
+      B(w, 1.6, d, wm, 0, 1.0, 0);
+      const yR = 1.8 + w / 2 * 0.7;
+      for (const sx of [-1, 1]) { const pl = new T3.Mesh(new T3.PlaneGeometry(Math.hypot(w / 2, yR - 1.8), d), wm); pl.position.set(sx * w / 4, (1.8 + yR) / 2, 0); pl.rotation.set(-Math.PI / 2, 0, 0); pl.rotateY(sx * Math.atan2(yR - 1.8, w / 2)); g.add(pl); }
+      for (const z of [-d / 2, d / 2]) g.add(poly([[-w / 2, 1.8, z], [w / 2, 1.8, z], [0, yR, z]], wm, 0, 1));
+      for (let z = -d / 2; z <= d / 2 + 0.01; z += d / 4) { B(0.05, 1.6, 0.05, mat({ c: '#f4f4f4' }), -w / 2, 1.0, z); B(0.05, 1.6, 0.05, mat({ c: '#f4f4f4' }), w / 2, 1.0, z); }
+      B(0.05, 0.05, d, mat({ c: '#f4f4f4' }), 0, yR, 0);
+    }
+    g.position.set(o.x / 1000 + ox, y, o.y / 1000 + oz);
+    g.rotation.y = -(o.a || 0) * Math.PI / 180;
+    root.add(g);
+  }
   /* гараж: пристрой или отдельный в стиле дома, навес на стойках; ворота на дальней стороне */
   function garageBuild(p, x, F, gy, r) {
     const e = r.e, n = e.out, ax = e.axis === 'x', car = x.gtype !== 'carport', cars = x.cars || 1;
@@ -768,6 +884,12 @@ function View3D(canvas, app) {
         if (x.kind === 'balcony' || x.roof === 'glazed') add2(a0, a1, r.far - t, r.far + t);
         else { const sw = Math.min(2000, x.w - 400); add2(a0, x.c - sw / 2, r.far - t, r.far + t); add2(x.c + sw / 2, a1, r.far - t, r.far + t); }
       }
+      // участок: забор и закрытые постройки — препятствия на прогулке
+      if (p.site && f === fl.find(q => q !== 'b')) {
+        const S = p.site, ox = -S.hx, oz = -S.hy, t = 60;
+        solid.push([ox - t, oz - t, ox + S.W + t, oz + t], [ox - t, oz + S.D - t, ox + S.W + t, oz + S.D + t], [ox - t, oz, ox + t, oz + S.D], [ox + S.W - t, oz, ox + S.W + t, oz + S.D]);
+        S.objs.filter(o => o.type === 'bath' || o.type === 'greenhouse').forEach(o => { const r = DK.siteObjRect(o); solid.push([r.x0 + ox, r.y0 + oz, r.x1 + ox, r.y1 + oz]); });
+      }
       for (const it of p.levels[f].furn) { const F = DK.FURN[it.type]; if (F && !F.ceil && !F.wall && DK.furnSize(it).h > 300 && it.type !== 'boiler') { const b = DK.furnBox(it); solid.push([b.x0, b.y0, b.x1, b.y1]); } }
       return { f, e: DK.elev(p, f) / 1000, solid: solid.map(r => r.map(v => v / 1000)), voids: regs.filter(r => r.type === 'void') };
     });
@@ -808,7 +930,8 @@ function View3D(canvas, app) {
   function frame() {
     const p = app.p(), fl = DK.floorsOf(p), R = Math.max(p.W, p.D) / 1000;
     orbit.tx = p.W / 2000; orbit.tz = p.D / 2000;
-    if (mode === 'exterior') { orbit.ty = (DK.elev(p, fl[fl.length - 1]) / 1000 + p.hClear / 1000) / 2; orbit.r = R * 2.0 + 7; orbit.el = 0.24; orbit.az = -0.62; }
+    if (mode === 'exterior' && p.site) { const s = p.site; orbit.tx = (s.W / 2 - s.hx) / 1000; orbit.tz = (s.D / 2 - s.hy) / 1000; orbit.ty = 1.5; orbit.r = Math.max(s.W, s.D) / 1000 * 1.25 + 6; orbit.el = 0.55; orbit.az = -0.5; }
+    else if (mode === 'exterior') { orbit.ty = (DK.elev(p, fl[fl.length - 1]) / 1000 + p.hClear / 1000) / 2; orbit.r = R * 2.0 + 7; orbit.el = 0.24; orbit.az = -0.62; }
     else { orbit.ty = DK.elev(p, fid) / 1000; orbit.r = R * 1.45 + 3; orbit.el = 0.95; orbit.az = -0.6; }
   }
   function startWalk(f) {

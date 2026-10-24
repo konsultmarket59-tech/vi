@@ -442,6 +442,7 @@ function checks(p) {
   if (st && ![[st.x0, st.y0], [st.x1, st.y0], [st.x0, st.y1], [st.x1, st.y1]].every(([x, y]) => inside(p.poly, x, y))) add('err', 'Лестница выходит за контур дома');
   if (fl.length > 1 && !p.stair) add('warn', 'Добавьте лестницу между этажами');
   if (st && fl.length > 1) fl.slice(1).forEach(fid => { if (!stairExitOk(p, fid)) add('err', `${floorName(fid)}: выход с лестницы упирается в стену — оставьте площадку 0,8 м за верхней ступенью или разверните лестницу`, fid); });
+  if (p.site && DK.siteChecks) DK.siteChecks(p).filter(c => c.lv === 'err').forEach(c => add('err', 'Участок: ' + c.txt));
   const boilers = [];
   fl.forEach((fid, k) => {
     const regs = rooms(p, fid), lv = p.levels[fid], fn = floorName(fid);
@@ -543,6 +544,7 @@ function tzItems(p) {
     }
   }
   fl.forEach(fid => rooms(p, fid).filter(r => r.type === 'loggia').forEach(r => out.push(`${floorName(fid)}: лоджия ${fmtA(r.area)} м² — плита перекрытия опирается на боковые стены, утепление стен, граничащих с лоджией, гидроизоляция пола с уклоном наружу, ограждение 1,0 м`)));
+  if (p.site && DK.siteTz) out.push(...DK.siteTz(p));
   if (p.blind) out.push(`Отмостка ${fmtM(p.blind)} м по периметру (${p.blindMat === 'concrete' ? 'бетон' : 'тротуарная плитка'}): утепление ЭППС 50 мм, щебёночная подготовка, уклон 2–3 % от дома, водоотвод от водосточных труб`);
   if (fl.some(f => rooms(p, f).some(r => r.type === 'boiler'))) out.push('Котельная: коаксиальный дымоход или дымоход через наружную стену, приточная вентиляция, дверь EI 30 — по ТУ газовой службы');
   return out;
@@ -622,6 +624,7 @@ function exitSash(o) { const n = o.sash || (o.w >= 1300 ? 2 : 1); return { n, i:
 function shiftAll(p, dx, dy) {
   if (!dx && !dy) return;
   p.poly.forEach(v => { v.x += dx; v.y += dy; });
+  if (p.site) { p.site.hx -= dx; p.site.hy -= dy; } // дом на участке остаётся на месте
   p.bearing.forEach(b => { b.pos += b.axis === 'h' ? dy : dx; });
   if (p.wet) { p.wet.x += dx; p.wet.y += dy; }
   if (p.stair) { p.stair.x += dx; p.stair.y += dy; }

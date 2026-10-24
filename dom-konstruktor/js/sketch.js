@@ -194,7 +194,8 @@ DK.makeSketch = async function (p, plan, view, onStep) {
   if (view) shots = view.shots([{ type: 'persp', az: -0.62, el: 0.2 }, { type: 'elev', side: 'S' }, { type: 'elev', side: 'N' }, { type: 'elev', side: 'E' }, { type: 'elev', side: 'W' },
     { type: 'persp', az: 0.62, el: 0.24 }, { type: 'persp', az: 2.5, el: 0.24 }, { type: 'persp', az: -2.5, el: 0.24 }, { type: 'persp', az: -0.62, el: 0.75, r: 0.9 }], 1500, 940);
   const plans = fl.map(f => plan.toImage(f, { width: 1500, numbers: nums, noTitle: true }));
-  const total = 1 + fl.length + 1 + (shots.length ? 4 + 2 : 0) + 1;
+  const siteImg = p.site && DK._site ? DK._site.toImage(1500) : null;
+  const total = 1 + fl.length + (siteImg ? 1 : 0) + 1 + (shots.length ? 4 + 2 : 0) + 1;
   const pages = []; let n = 1;
   // 1. титул
   step('Титульный лист…');
@@ -225,6 +226,20 @@ DK.makeSketch = async function (p, plan, view, onStep) {
     g.font = '500 19px "JetBrains Mono", monospace'; g.fillStyle = '#6f8aa0';
     g.fillText(`S этажа — ${DK.fmtA(A.per[i].area)} м²`, 1300, y + 10); g.fillText(`S общая — ${DK.fmtA(A.total)} м²`, 1300, y + 40);
     if (A.outdoor) g.fillText(`Террасы, балконы — ${DK.fmtA(A.outdoor)} м²`, 1300, y + 70);
+    pages.push(c);
+  }
+  // схема участка: дом в отступах, постройки, проверки норм
+  if (siteImg) {
+    step('Схема участка…');
+    const { c, g } = sheet('Схема участка', n++, total);
+    const img = await loadImg(siteImg); fitImg(g, img, 90, 40, 1180, SH - 90);
+    g.fillStyle = INK; g.textAlign = 'left'; g.textBaseline = 'top'; g.font = '700 22px Raleway, sans-serif'; g.fillText('Отступы по нормам', 1300, 60);
+    let y = 100; g.font = '500 17px Raleway, sans-serif';
+    for (const ch of DK.siteChecks(p)) {
+      const words = (ch.lv === 'err' ? '✗ ' : '✓ ') + ch.txt; let lineTxt = '';
+      for (const w of words.split(' ')) { if (g.measureText(lineTxt + w).width > 400) { g.fillStyle = ch.lv === 'err' ? '#b23a2e' : INK; g.fillText(lineTxt, 1300, y); y += 22; lineTxt = ''; } lineTxt += w + ' '; }
+      g.fillStyle = ch.lv === 'err' ? '#b23a2e' : INK; g.fillText(lineTxt, 1300, y); y += 30;
+    }
     pages.push(c);
   }
   // 3. разрез

@@ -12,7 +12,7 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(P)); } catch (e
 let P = load() || DK.starter();
 ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
 DK.normalize(P);
-let override = null, fid = 'f1', view = 'plan', sel = null, wetIdx = 0;
+let override = null, fid = 'f1', view = 'plan', sel = null, wetIdx = 0, siteOn = false;
 const opts = { dimOpen: true, furn: true, cut: true };
 const hist = [JSON.stringify(P)]; let hi = 0;
 
@@ -28,7 +28,9 @@ const app = {
     const s = JSON.stringify(P);
     if (s !== hist[hi]) { hist.splice(hi + 1); hist.push(s); if (hist.length > 80) hist.shift(); hi = hist.length - 1; }
     save(); refresh(); if (v3 && view !== 'plan') v3.rebuild();
+    if (siteOn) { site.render(); renderSite(); }
   },
+  siteSel() { renderSite(); },
   live() { refreshInfo(); if (v3 && view !== 'plan') v3.rebuild(); },
   toast,
   setTool(t, arg) { plan.setTool(t, arg); $$('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t))); hint(); },
@@ -45,6 +47,7 @@ const app = {
 };
 
 const plan = DK._plan = DK.Plan2D($('#c2d'), app);
+const site = DK._site = DK.SitePlan($('#cSite'), app);
 let v3 = null;
 
 /* ---------- утилиты ---------- */
@@ -99,7 +102,7 @@ function refresh() {
   refreshInfo(); renderSel(); plan.render();
 }
 function refreshFloors() {
-  $('#floorTabs').innerHTML = DK.floorsOf(P).map(f => `<button data-f="${f}" aria-pressed="${f === fid}">${DK.FLOORS.find(x => x.id === f).n}</button>`).join('');
+  $('#floorTabs').innerHTML = DK.floorsOf(P).map(f => `<button data-f="${f}" aria-pressed="${!siteOn && f === fid}">${DK.FLOORS.find(x => x.id === f).n}</button>`).join('') + `<button data-f="site" aria-pressed="${siteOn}">Участок</button>`;
   $$('#floorTabs button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
   $('#walkFloors').innerHTML = DK.floorsOf(P).map(f => `<button class="btn sm" data-f="${f}" aria-pressed="${f === fid}">${DK.floorName(f)}</button>`).join('');
   $$('#walkFloors button').forEach(bt => bt.onclick = () => setFloor(bt.dataset.f));
@@ -338,12 +341,15 @@ function hint() {
   $('#toolHint').textContent = view === 'plan' ? H.plan : '';
 }
 function setView(v) {
+  if (siteOn && v === 'int') v = 'ext';
   view = v;
-  document.body.className = 'v-' + v;
+  const key = v === 'plan' && siteOn ? 'site' : v;
+  document.body.className = 'v-' + key;
   seg($('#views'), v, 'view');
-  $$('#side [data-v]').forEach(g => { g.hidden = !g.dataset.v.split(' ').includes(v); });
-  $('#c2d').hidden = v !== 'plan'; $('#c3d').hidden = v === 'plan';
-  $('#floorTabs').hidden = v === 'ext';
+  $$('#side [data-v]').forEach(g => { g.hidden = !g.dataset.v.split(' ').includes(key); });
+  $('#c2d').hidden = key !== 'plan'; $('#cSite').hidden = key !== 'site'; $('#c3d').hidden = v === 'plan';
+  $('#floorTabs').hidden = v === 'ext' && !P.site;
+  if (key === 'site') { site.size(); site.fit(); renderSite(); }
   $('#hud').hidden = v === 'walk';
   if (v === 'plan') { if (v3) v3.stop(); plan.size(); }
   else {
@@ -357,6 +363,13 @@ function setView(v) {
   hint();
 }
 function setFloor(f) {
+  if (f === 'site') {
+    // участок: создаём по умолчанию, план участка вместо плана этажа
+    if (!P.site) { DK.siteDefault(P); app.commit('Участок'); }
+    siteOn = true; sel = null; refreshFloors(); setView(view === 'int' ? 'ext' : view); return;
+  }
+  const was = siteOn; siteOn = false;
+  if (was) { fid = f; sel = null; refreshFloors(); setView(view); refresh(); return; }
   fid = f; sel = null;
   if (v3 && view === 'walk') v3.walkFloor(f);
   else if (v3 && view !== 'plan') v3.show(view === 'int' ? 'interior' : 'exterior', fid, { cut: opts.cut, furn: opts.furn, refit: true });
@@ -364,7 +377,35 @@ function setFloor(f) {
 }
 
 /* ---------- обработчики ---------- */
+/* панель участка */
+function renderSite() {
+  const s = P.site; if (!s) return;
+  $('#siteW').value = s.W / 1000; $('#siteD').value = s.D / 1000; seg($('#siteStreet'), s.street || 'S', 'k');
+  $('#siteNorth').value = s.north || 0; $('#siteNorthV').textContent = (s.north || 0) + '°';
+  $('#siteArea').textContent = DK.fmtA(s.W * s.D / 1e8) + ' сот.';
+  $('#siteChecks').innerHTML = DK.siteChecks(P).map(c => `<li class="${c.lv}">${esc(c.txt)}</li>`).join('');
+  const id = site.sel(), q = s.objs.find(o => o.id === id), box = $('#siteSelBox');
+  box.hidden = !q && id !== 'house';
+  if (id === 'house') box.innerHTML = `<h3>Дом</h3><div class="muted">Тяните дом по участку. Кнопка «Дом по нормам» ставит его в 5 м от улицы по центру.</div>`;
+  else if (q) {
+    const T = DK.SITE_OBJ[q.type];
+    box.innerHTML = `<h3>${esc(T.n)} <small>${DK.fmtM(q.w || T.w)} × ${DK.fmtM(q.d || T.d)} м</small></h3><div class="muted">Нормы: ${esc(T.rule)}.</div>
+      <div class="row"><button class="btn sm" id="soAuto">По нормам</button><button class="btn sm" id="soRot">Повернуть (R)</button><button class="btn sm ghost" id="soDel">Удалить</button></div>`;
+    $('#soAuto').onclick = () => { if (!DK.siteAuto(P, q)) toast('Места по нормам нет — увеличьте участок'); app.commit(T.n); };
+    $('#soRot').onclick = () => { q.a = ((q.a || 0) + 90) % 180; app.commit('Поворот'); };
+    $('#soDel').onclick = () => { s.objs = s.objs.filter(o => o !== q); site.select(null); app.commit('Удалено'); };
+  }
+}
 function bind() {
+  $('#sitePal').innerHTML = Object.entries(DK.SITE_OBJ).map(([k, o]) => `<button class="btn sm" data-site="${k}">+ ${esc(o.n)}</button>`).join('');
+  $$('[data-site]').forEach(b => b.onclick = () => { const r = DK.siteAdd(P, b.dataset.site); site.select(r.o.id); if (!r.ok) toast('По нормам места не нашлось — поставил в центр, передвиньте или увеличьте участок'); app.commit(DK.SITE_OBJ[b.dataset.site].n); });
+  const dimSite = (k, v) => { P.site[k] = Math.max(8000, Math.min(200000, Math.round(v * 2) * 500)); app.commit('Участок'); };
+  $('#siteW').onchange = (e) => dimSite('W', +e.target.value || 20); $('#siteD').onchange = (e) => dimSite('D', +e.target.value || 30);
+  $$('#siteStreet button').forEach(b => b.onclick = () => { P.site.street = b.dataset.k; DK.siteRearrange(P); app.commit('Улица'); site.fit(); });
+  $('#siteNorth').oninput = (e) => { P.site.north = +e.target.value; $('#siteNorthV').textContent = P.site.north + '°'; site.render(); };
+  $('#siteNorth').onchange = () => app.commit('Север');
+  $('#siteHouse').onclick = () => { DK.sitePlaceHouse(P); app.commit('Дом по нормам'); };
+  $('#siteAll').onclick = () => { DK.siteRearrange(P); app.commit('Расстановка по нормам'); };
   $$('#blind button').forEach(b => b.onclick = () => { P.blind = +b.dataset.k; app.commit(P.blind ? 'Отмостка ' + DK.fmtM(P.blind) + ' м' : 'Без отмостки'); });
   $('#blindMat').onchange = (e) => { P.blindMat = e.target.value; app.commit('Отмостка'); };
   $('#brandName').textContent = C.brand; $('#tagline').textContent = C.tagline; document.title = C.brand + ' — ' + C.tagline;
@@ -422,9 +463,9 @@ function bind() {
   $$('#ridge button').forEach(b => b.onclick = () => { P.roof.ridge = b.dataset.k; app.commit(); });
   // виды
   $$('#views button').forEach(b => b.onclick = () => setView(b.dataset.view));
-  $('#zIn').onclick = () => view === 'plan' ? zoomPlan(1.25) : v3 && v3.zoom(0.8);
-  $('#zOut').onclick = () => view === 'plan' ? zoomPlan(0.8) : v3 && v3.zoom(1.25);
-  $('#fit').onclick = () => view === 'plan' ? plan.fit() : v3 && v3.fit();
+  $('#zIn').onclick = () => view === 'plan' ? (siteOn ? site.zoom(1.25) : zoomPlan(1.25)) : v3 && v3.zoom(0.8);
+  $('#zOut').onclick = () => view === 'plan' ? (siteOn ? site.zoom(0.8) : zoomPlan(0.8)) : v3 && v3.zoom(1.25);
+  $('#fit').onclick = () => view === 'plan' ? (siteOn ? site.fit() : plan.fit()) : v3 && v3.fit();
   $('#undo').onclick = undo; $('#redo').onclick = redo;
   $('#shot').onclick = async () => {
     const name = (P.name || 'dom').replace(/\s+/g, '-');
@@ -464,6 +505,12 @@ function bind() {
     if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || $('dialog[open]')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (view === 'walk') return;
+    if (siteOn && view === 'plan') {
+      const id = site.sel(), q = P.site && P.site.objs.find(o => o.id === id);
+      if (q && (e.code === 'Delete' || e.code === 'Backspace')) { e.preventDefault(); P.site.objs = P.site.objs.filter(o => o !== q); site.select(null); app.commit('Удалено'); }
+      if (q && e.code === 'KeyR') { q.a = ((q.a || 0) + 90) % 180; app.commit('Поворот'); }
+      return;
+    }
     if (e.code === 'Delete' || e.code === 'Backspace') { e.preventDefault(); delSel(); }
     if (e.code === 'KeyR') rotSel();
     if (e.code === 'Escape') { app.setTool('select'); app.select(null); }
