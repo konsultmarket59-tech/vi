@@ -7,7 +7,8 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function crm(ctx) {
-  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality } = ctx;
+  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview } = ctx;
+  const MEDIA = path.join(DATA, 'media');
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
   const PROJ = path.join(DATA, 'projects'), COMP = path.join(DATA, 'companies.json'), PRICES = path.join(DATA, 'prices.json'), SETTINGS = path.join(DATA, 'settings.json'), OUTBOX = path.join(DATA, 'outbox.json');
   const TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
@@ -153,6 +154,41 @@ module.exports = function crm(ctx) {
       }
       const u = me(req); if (!u || u.role !== 'staff') return send(res, 401, { ok: false, error: 'Вход для сотрудников' }), true;
       const can = (...roles) => u.staffRole === 'admin' || roles.includes(u.staffRole);
+      // маркетолог видит только контент сайта и проекты пользователей
+      if (u.staffRole === 'marketer' && !/^\/api\/crm\/(me|cms|media|projects?)(\/|$)/.test(p)) return send(res, 403, { ok: false, error: 'Раздел недоступен для роли «маркетолог»' }), true;
+      /* ---------- контент сайта (CMS): страницы, статьи, SEO, настройки, медиатека ---------- */
+      if (p.startsWith('/api/crm/cms') || p.startsWith('/api/crm/media')) {
+        if (!cms) return send(res, 501, { ok: false, error: 'CMS не подключена' }), true;
+        if (!can('marketer')) return send(res, 403, { ok: false, error: 'Контент правят маркетолог и администратор' }), true;
+        const q = url.searchParams.get('path') || '';
+        if (p === '/api/crm/cms' && M === 'GET') return json(res, cms.all()), true;
+        if (p === '/api/crm/cms/page' && M === 'GET') { const r = cms.get(q); return r ? json(res, r) : send(res, 404, { ok: false }), true; }
+        if (p === '/api/crm/cms/page' && M === 'PUT') {
+          const d = await body(req, 2e6);
+          try { return json(res, cms.save(str(d.path || q, 300), d.rec || {}, u.name)), true; } catch (e) { return send(res, 400, { ok: false, error: e.message }), true; }
+        }
+        if (p === '/api/crm/cms/page' && M === 'DELETE') { try { cms.remove(q); return json(res, { ok: true }), true; } catch (e) { return send(res, 400, { ok: false, error: e.message }), true; } }
+        if (p === '/api/crm/cms/reset' && M === 'POST') { const d = await body(req, 5e3); return json(res, cms.reset(str(d.path, 300))), true; }
+        if (p === '/api/crm/cms/preview' && M === 'POST') { const d = await body(req, 2e6); return json(res, { html: preview ? preview(req, Object.assign({ path: str(d.path, 300) || '/' }, d.rec || {})) : '' }), true; }
+        if (p === '/api/crm/cms/site') {
+          if (M === 'GET') return json(res, cms.site()), true;
+          if (M === 'PUT') return json(res, cms.saveSite(await body(req, 50e3))), true;
+        }
+        if (p === '/api/crm/media' && M === 'GET') {
+          let list = []; try { list = fs.readdirSync(MEDIA).filter(f => /\.(png|jpe?g|webp|gif)$/.test(f)).map(f => ({ name: f, url: '/media/' + f, size: fs.statSync(path.join(MEDIA, f)).size, at: fs.statSync(path.join(MEDIA, f)).mtime })); } catch (e) { /* пусто */ }
+          return json(res, list.sort((a, b) => String(b.at).localeCompare(String(a.at)))), true;
+        }
+        if (p === '/api/crm/media' && M === 'POST') {
+          const d = await body(req, 12e6), m = /^data:image\/(png|jpeg|webp|gif);base64,(.+)$/.exec(String(d.data || ''));
+          if (!m) return send(res, 400, { ok: false, error: 'Нужна картинка PNG, JPG, WebP или GIF' }), true;
+          const buf = Buffer.from(m[2], 'base64'); if (buf.length > 8e6) return send(res, 400, { ok: false, error: 'Файл больше 8 МБ' }), true;
+          const nm = (str(d.name, 60).toLowerCase().replace(/\.[a-z]+$/, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'img') + '-' + crypto.randomBytes(3).toString('hex') + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
+          fs.mkdirSync(MEDIA, { recursive: true }); fs.writeFileSync(path.join(MEDIA, nm), buf);
+          return json(res, { ok: true, name: nm, url: '/media/' + nm }), true;
+        }
+        if (parts[2] === 'media' && parts[3] && M === 'DELETE') { try { fs.unlinkSync(path.join(MEDIA, path.basename(parts[3]))); } catch (e) { /* уже нет */ } return json(res, { ok: true }), true; }
+        return send(res, 404, { ok: false }), true;
+      }
       if (p === '/api/crm/me') return json(res, { user: staffPub(u), qual: QUAL, rows: BID_ROWS, settings: settings() }), true;
       if (p === '/api/crm/leads' && M === 'GET') return json(res, allLeads().map(summary).sort((a, b) => b.at.localeCompare(a.at))), true;
       if (parts[2] === 'lead' && parts[3]) {
@@ -260,7 +296,7 @@ module.exports = function crm(ctx) {
   };
 
   function createStaff(d, res) {
-    const email = str(d.email, 120).toLowerCase(), role = ['admin', 'estimator', 'manager'].includes(d.staffRole) ? d.staffRole : 'manager';
+    const email = str(d.email, 120).toLowerCase(), role = ['admin', 'estimator', 'manager', 'marketer'].includes(d.staffRole) ? d.staffRole : 'manager';
     if (!/@/.test(email) || String(d.password || '').length < 8) return send(res, 400, { ok: false, error: 'Почта и пароль от 8 символов' });
     const list = users(); let u = list.find(x => x.email === email);
     if (!u) { const salt = crypto.randomBytes(16).toString('hex'); u = { id: 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), email, salt, pass: hash(d.password, salt), at: now() }; list.push(u); }

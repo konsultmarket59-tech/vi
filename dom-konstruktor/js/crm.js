@@ -29,13 +29,18 @@ $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.s));
 async function start() {
   try { META = await api('/api/crm/me'); me = META.user; } catch (e) { return showLogin(); }
   $('#loginView').hidden = true; $('#appView').hidden = false;
-  $('#who').textContent = `${me.name} · ${{ admin: 'администратор', estimator: 'сметчик', manager: 'менеджер' }[me.staffRole]}`;
+  $('#who').textContent = `${me.name} · ${{ admin: 'администратор', estimator: 'сметчик', manager: 'менеджер', marketer: 'маркетолог' }[me.staffRole]}`;
+  // разделы по ролям: маркетолог — контент и проекты; контент — администратору и маркетологу
+  const allow = me.staffRole === 'admin' ? null : me.staffRole === 'marketer' ? ['content', 'projects'] : ['leads', 'projects', 'companies', 'prices', 'grid', 'outbox', 'staff'];
+  $$('#nav button').forEach(b => { b.hidden = !!allow && !allow.includes(b.dataset.s); });
   await DK.loadPrices();
   const h = location.hash.slice(1);
-  if (h && /^\d/.test(h)) openLead(h); else go('leads');
+  if (h && /^\d/.test(h) && (!allow || allow.includes('leads'))) openLead(h); else if (h.startsWith('cms:')) go('content'); else go(allow ? allow[0] : 'leads');
 }
-function go(s) {
+async function go(s) {
+  if (section === 'content' && s !== 'content' && DK.CMS && !(await DK.CMS.leave())) return;
   section = s; $$('#nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.s === s)));
+  if (s === 'content') return DK.CMS.render($('#main'), { api, toast, me });
   ({ leads: renderLeads, projects: renderProjects, companies: renderCompanies, prices: renderPrices, grid: renderGrid, outbox: renderOutbox, staff: renderStaff })[s]();
 }
 
@@ -331,9 +336,9 @@ async function renderOutbox() {
 async function renderStaff() {
   history.replaceState(null, '', location.pathname);
   const list = await api('/api/crm/staff');
-  $('#main').innerHTML = `<h1>Сотрудники</h1><div class="box"><table><thead><tr><th>Имя</th><th>Почта</th><th>Роль</th></tr></thead><tbody>${list.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${{ admin: 'Администратор', estimator: 'Сметчик', manager: 'Менеджер' }[u.staffRole]}</td></tr>`).join('')}</tbody></table></div>
+  $('#main').innerHTML = `<h1>Сотрудники</h1><div class="box"><table><thead><tr><th>Имя</th><th>Почта</th><th>Роль</th></tr></thead><tbody>${list.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${{ admin: 'Администратор', estimator: 'Сметчик', manager: 'Менеджер', marketer: 'Маркетолог' }[u.staffRole]}</td></tr>`).join('')}</tbody></table></div>
   ${me.staffRole === 'admin' ? `<div class="box" style="max-width:720px"><h2 style="margin-top:0">Добавить сотрудника</h2><form id="sf" class="grid2"><label class="f">Имя<input name="name" required></label><label class="f">Эл. почта<input name="email" type="email" required></label>
-  <label class="f">Пароль (от 8 символов)<input name="password" type="password" minlength="8" required></label><label class="f">Роль<select name="staffRole"><option value="manager">Менеджер — заявки и клиенты</option><option value="estimator">Сметчик — цены и расчёты</option><option value="admin">Администратор — всё</option></select></label>
+  <label class="f">Пароль (от 8 символов)<input name="password" type="password" minlength="8" required></label><label class="f">Роль<select name="staffRole"><option value="manager">Менеджер — заявки и клиенты</option><option value="estimator">Сметчик — цены и расчёты</option><option value="marketer">Маркетолог — контент сайта, статьи, SEO</option><option value="admin">Администратор — всё</option></select></label>
   <div><button class="btn primary">Добавить</button></div></form></div>` : ''}`;
   if ($('#sf')) $('#sf').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { await api('/api/crm/staff', { name: f.name.value, email: f.email.value, password: f.password.value, staffRole: f.staffRole.value }); toast('Сотрудник добавлен'); renderStaff(); } catch (er) { toast(er.message); } };
 }
