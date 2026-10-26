@@ -54,8 +54,9 @@ DK.renderCatalog = function (el, kind, f) {
 DK.registerOrg = async function (data) {
   if (location.protocol === 'file:') return { ok: false, offline: true };
   try {
-    const r = await fetch((DK.CONFIG.api || '') + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    return r.ok ? await r.json() : { ok: false };
+    let g; try { g = await DK.guard.data(document.getElementById('joinForm')); } catch (er) { return { ok: false, error: er.message }; }
+    const r = await fetch((DK.CONFIG.api || '') + '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({}, data, g)) });
+    return r.ok ? await r.json() : { ok: false, error: (await r.json().catch(() => ({}))).error };
   } catch (e) { return { ok: false, offline: true }; }
 };
 })();

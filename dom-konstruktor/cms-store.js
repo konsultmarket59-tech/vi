@@ -22,6 +22,9 @@ module.exports = function cmsStore(DATA, C, CFG) {
       lead: 'Всё для планирования частного дома и выбора строителя — от бесплатного конструктора до сравнения смет.' });
     add({ path: '/blog/', kind: 'list', name: 'Блог', title: 'Блог о строительстве дома', seoTitle: `Блог о строительстве частного дома — ${BRAND}`,
       desc: 'Статьи о строительстве частного дома: цены 2026 года, тёплый контур, мансарда, отступы на участке, котельная, выбор строителя.', lead: 'Разбираем цены, нормы и решения, которые помогают построить дом без переплат.' });
+    add({ path: '/proekty/', kind: 'list', name: 'Проекты домов', title: 'Проекты домов', seoTitle: `Проекты частных домов с планировками и 3D — ${BRAND}`,
+      desc: 'Каталог проектов частных домов от архитекторов и пользователей: планировки этажей, вид в 3D, площадь, цена эскиза. Откройте любой проект в конструкторе и измените под себя.',
+      lead: 'Проекты домов, которые сделали архитекторы и пользователи конструктора. Любой проект можно открыть в конструкторе, поменять планировку под себя и сразу увидеть вилку стоимости строительства.', keywords: 'проекты домов, проект дома с планировкой, проекты частных домов' });
     C.services.forEach(s => add({ path: `/uslugi/${s.slug}/`, kind: 'service', name: s.title, title: s.h1, seoTitle: `${s.title} — ${BRAND}`, desc: s.desc, lead: s.lead, price: s.price, keywords: s.keywords || '', blocks: textAndFaq(s.html, s.faq) }));
     C.posts.forEach(p => add({ path: `/blog/${p.slug}/`, kind: 'post', name: p.title, title: p.title, seoTitle: `${p.title} — ${BRAND}`, desc: p.desc, lead: p.lead, date: p.date, cover: p.cover || '', keywords: p.keywords || '', tags: p.tags || [], blocks: textAndFaq(p.html, p.faq) }));
     add({ path: '/o-nas/', kind: 'page', name: 'О нас', title: C.about.title, seoTitle: C.about.title, desc: C.about.desc, lead: C.about.lead, blocks: textAndFaq(C.about.html, C.about.faq).concat([{ t: 'contacts', title: 'Контакты' }]) });

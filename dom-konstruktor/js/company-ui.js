@@ -52,7 +52,7 @@ async function openReq(id) {
       <tr><td><b>Итого</b></td><td><b id="bidSum">${rub(b.total)}</b></td></tr><tr><td>Срок строительства, мес.</td><td><input name="term" type="number" min="0" step="0.5" value="${b.term || ''}" style="width:100px"></td></tr></table>
       <label class="fld" style="max-width:640px">Комментарий: что входит, что нет, условия оплаты<textarea name="comment" rows="3">${esc(b.comment || '')}</textarea></label>
       <button class="btn primary" type="submit">${r.myBid ? 'Обновить расчёт' : 'Отправить расчёт'}</button> <span class="muted">${r.myBid ? 'Отправлено ' + dt(r.myBid.at) : ''}</span></form></div>`;
-  $$('#compReq img[data-src]').forEach(async (img) => { try { const x = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + tok() } }); img.src = URL.createObjectURL(await x.blob()); img.onclick = () => window.open(img.src, '_blank'); } catch (e) { /* нет */ } });
+  $$('#compReq img[data-src]').forEach(async (img) => { try { const x = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + tok() } }); const bl = await x.blob(); img.src = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(bl); }); img.onclick = () => window.open(img.src, '_blank'); } catch (e) { /* нет */ } });
   const f = $('#bidF'), keys = Object.keys(r.rows);
   const sum = () => keys.reduce((s, k) => s + (+f[k].value || 0), 0);
   keys.forEach(k => f[k].oninput = () => { $('#bidSum').textContent = rub(sum()); });

@@ -5,6 +5,7 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function market(ctx) {
   const { send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality } = ctx;
+  const guard = ctx.guard || (async () => null);
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), PROJ = path.join(DATA, 'projects'), DOCS = path.join(DATA, 'docs');
   fs.mkdirSync(PROJ, { recursive: true }); fs.mkdirSync(DOCS, { recursive: true });
   const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
@@ -43,6 +44,7 @@ module.exports = function market(ctx) {
       if (p === '/api/auth/register' && M === 'POST') {
         if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много попыток' }), true;
         const d = await body(req, 50e3), email = str(d.email, 120).toLowerCase();
+        const gErr = await guard(req, d); if (gErr) return send(res, 400, { ok: false, error: gErr }), true;
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Проверьте почту' }), true;
         if (String(d.password || '').length < 8) return send(res, 400, { ok: false, error: 'Пароль — от 8 символов' }), true;
         if (!str(d.name)) return send(res, 400, { ok: false, error: 'Как вас зовут?' }), true;
@@ -137,6 +139,7 @@ module.exports = function market(ctx) {
         if (act === 'request' && M === 'POST') {
           if (limited(req)) return send(res, 429, { ok: false }), true;
           const d = await body(req, 20e3);
+          const gErr = await guard(req, d); if (gErr) return send(res, 400, { ok: false, error: gErr }), true;
           const r = { id: 'r' + Date.now().toString(36), at: new Date().toISOString(), user: u ? u.id : null, name: str(d.name || (u && u.name), 100), phone: str(d.phone || (u && u.phone), 40), email: str(d.email || (u && u.email), 120), comment: str(d.comment, 2000), status: 'new' };
           if (!r.name || r.phone.replace(/\D/g, '').length < 10) return send(res, 400, { ok: false, error: 'Нужны имя и телефон' }), true;
           pr.requests = (pr.requests || []).concat(r); writeJSON(f, pr);

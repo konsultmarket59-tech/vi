@@ -9,6 +9,8 @@ const STATUS = { new: 'Новая', call: 'Созвон', tz: 'ТЗ', calc: 'Р�
 const GRADE = { hot: 'Горячий', warm: 'Тёплый', cold: 'Холодный' };
 let token = localStorage.getItem('crm-token') || '', me = null, META = null, section = 'leads';
 
+// картинки по токену — как data:-адрес (blob: блокируют часть встраиваний и просмотрщиков)
+const dataUrl = (blob) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
 function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
 async function api(path, data, method) {
   const r = await fetch(path, { method: method || (data ? 'POST' : 'GET'), headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: data ? JSON.stringify(data) : undefined });
@@ -112,7 +114,7 @@ function tabProject() {
   <div class="box"><h2 style="margin-top:0">Техзадание</h2><div class="muted">Пункты увидят компании. По одному в строке.</div><textarea id="tz" rows="14">${esc((L.tz && L.tz.length ? L.tz : (L.project ? DK.tzItems(L.project) : [])).join('\n'))}</textarea><button class="btn primary" id="tzSave" style="margin-top:8px">Сохранить ТЗ</button>
   ${(L.notesAuto || []).length ? `<h2>Проверить</h2><ul>${L.notesAuto.map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}</div></div>`;
   // картинки — через токен
-  $$('#tab img[data-src]').forEach(async (img) => { try { const r = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + token } }); img.src = URL.createObjectURL(await r.blob()); } catch (e) { /* нет файла */ } });
+  $$('#tab img[data-src]').forEach(async (img) => { try { const r = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + token } }); img.src = await dataUrl(await r.blob()); } catch (e) { /* нет файла */ } });
   $$('#tab a[data-f]').forEach(a => a.onclick = (e) => { e.preventDefault(); const im = $('img', a); if (im.src) window.open(im.src, '_blank'); });
   $('#tzSave').onclick = () => save({ tz: $('#tz').value.split('\n').map(s => s.trim()).filter(Boolean) }, 'ТЗ сохранено');
 }
@@ -219,7 +221,7 @@ function tabLog() {
 const PST = { published: 'опубликован', private: 'в кабинете автора', hidden: 'скрыт автором', blocked: 'заблокирован' };
 const PSTC = { published: 'approved', private: '', hidden: 'pending', blocked: 'rejected' };
 let projFilter = { q: '', st: '', bad: false };
-const authImg = (root) => $$('img[data-src]', root).forEach(async (img) => { try { const r = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + token } }); if (r.ok) img.src = URL.createObjectURL(await r.blob()); } catch (e) { /* нет */ } });
+const authImg = (root) => $$('img[data-src]', root).forEach(async (img) => { try { const r = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + token } }); if (r.ok) img.src = await dataUrl(await r.blob()); } catch (e) { /* нет */ } });
 async function renderProjects() {
   history.replaceState(null, '', location.pathname);
   const list = await api('/api/crm/projects');
@@ -253,7 +255,12 @@ async function openProj(id) {
   <div class="box"><h2 style="margin-top:0">Качество сейчас: ${q.score} из 100</h2><div class="muted">${q.ok ? 'Проверки пройдены' : 'Есть ошибки — автор не смог бы сохранить проект в таком виде'}</div>
     <ul class="qlist">${q.errs.map(c => `<li class="err">${esc(c.txt)}</li>`).join('')}${q.warns.map(c => `<li class="warn">${esc(c.txt)}</li>`).join('')}</ul>
     <h2>Модерация</h2><div class="timeline">${x.modLog.slice().reverse().map(l => `<div><small>${dt(l.at)} · ${esc(l.by)}</small><br>${esc(l.text)}</div>`).join('') || '<span class="muted">Действий не было</span>'}</div>
-    ${canMod ? '<form id="pnote" class="row" style="margin-top:8px"><input name="note" placeholder="Заметка модератора"><button class="btn">Добавить</button></form>' : ''}</div></div>`;
+    ${canMod ? '<form id="pnote" class="row" style="margin-top:8px"><input name="note" placeholder="Заметка модератора"><button class="btn">Добавить</button></form>' : ''}</div></div>
+  <div class="box" style="max-width:820px"><h2 style="margin-top:0">SEO страницы проекта</h2><div class="muted">Страница: <a href="/proekty/${encodeURIComponent(x.id)}/" target="_blank">/proekty/${esc(x.id)}/</a>. Пустые поля заполняются автоматически из названия, площади и описания.</div>
+    <form id="pseo" class="grid2" style="margin-top:8px"><label class="f" style="grid-column:1/-1">Заголовок для поиска (title) <span class="muted" id="ptc"></span><input name="title" value="${esc(x.seo.title || '')}" placeholder="${esc(x.title)} — проект дома ${Math.round(x.area)} м²"></label>
+    <label class="f" style="grid-column:1/-1">Описание (description) <span class="muted" id="pdc"></span><textarea name="desc" rows="2" placeholder="Проект дома ${Math.round(x.area)} м², ${x.floors} эт. …">${esc(x.seo.desc || '')}</textarea></label>
+    <label class="f">Ключевые фразы<input name="keywords" value="${esc(x.seo.keywords || '')}" placeholder="проект дома ${Math.round(x.area)} м2"></label><label class="row" style="margin-top:18px"><input type="checkbox" name="noindex"${x.seo.noindex ? ' checked' : ''}> скрыть от поиска</label>
+    ${canMod ? '<div><button class="btn primary">Сохранить SEO</button></div>' : ''}</form></div>`;
   authImg($('#main'));
   const mod = async (d, msg) => { try { await api('/api/crm/project/' + id, d); toast(msg); openProj(id); } catch (e) { toast(e.message); } };
   $('#pback').onclick = () => go('projects');
@@ -263,6 +270,9 @@ async function openProj(id) {
     const r = prompt('Причина блокировки (уйдёт автору на почту):', q.errs.length ? 'Проект с ошибками: ' + q.errs[0].txt : 'Мусор / тестовый проект, не планировка дома');
     if (r !== null) mod({ status: 'blocked', reason: r }, 'Проект заблокирован');
   };
+  const pf = $('#pseo'), cnt = () => { $('#ptc').textContent = '· ' + pf.title.value.length + ' / 65'; $('#pdc').textContent = '· ' + pf.desc.value.length + ' / 160'; };
+  pf.title.oninput = pf.desc.oninput = cnt; cnt();
+  pf.onsubmit = (e) => { e.preventDefault(); mod({ seo: { title: pf.title.value, desc: pf.desc.value, keywords: pf.keywords.value, noindex: pf.noindex.checked } }, 'SEO проекта сохранено'); };
   if ($('#pnote')) $('#pnote').onsubmit = (e) => { e.preventDefault(); if (e.target.note.value.trim()) mod({ note: e.target.note.value }, 'Заметка сохранена'); };
   const prep = () => { const p = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(x.project)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!p.levels[k]) p.levels[k] = DK.emptyLevel(); }); return p; };
   $('#pIfc').onclick = () => DK.exportIFC ? DK.download(DK.exportIFC(prep(), { name: x.title }), `${x.id}.ifc`, 'application/x-step') : toast('Экспорт недоступен');

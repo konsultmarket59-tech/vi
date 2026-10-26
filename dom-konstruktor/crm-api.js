@@ -8,6 +8,7 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function crm(ctx) {
   const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview } = ctx;
+  const guard = ctx.guard || (async () => null);
   const MEDIA = path.join(DATA, 'media');
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
   const PROJ = path.join(DATA, 'projects'), COMP = path.join(DATA, 'companies.json'), PRICES = path.join(DATA, 'prices.json'), SETTINGS = path.join(DATA, 'settings.json'), OUTBOX = path.join(DATA, 'outbox.json');
@@ -98,6 +99,7 @@ module.exports = function crm(ctx) {
       if (p === '/api/company/register' && M === 'POST') {
         if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много попыток' }), true;
         const d = await body(req, 100e3), email = str(d.email, 120).toLowerCase();
+        const gErr = await guard(req, d); if (gErr) return send(res, 400, { ok: false, error: gErr }), true;
         if (!str(d.name) || !str(d.city) || !str(d.phone)) return send(res, 400, { ok: false, error: 'Заполните название, город и телефон' }), true;
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Проверьте почту' }), true;
         if (String(d.password || '').length < 8) return send(res, 400, { ok: false, error: 'Пароль — от 8 символов' }), true;
@@ -175,14 +177,15 @@ module.exports = function crm(ctx) {
           if (M === 'PUT') return json(res, cms.saveSite(await body(req, 50e3))), true;
         }
         if (p === '/api/crm/media' && M === 'GET') {
-          let list = []; try { list = fs.readdirSync(MEDIA).filter(f => /\.(png|jpe?g|webp|gif)$/.test(f)).map(f => ({ name: f, url: '/media/' + f, size: fs.statSync(path.join(MEDIA, f)).size, at: fs.statSync(path.join(MEDIA, f)).mtime })); } catch (e) { /* пусто */ }
+          let list = []; try { list = fs.readdirSync(MEDIA).filter(f => /\.(png|jpe?g|webp|gif|mp3|m4a|ogg|mp4|webm)$/.test(f)).map(f => ({ name: f, url: '/media/' + f, size: fs.statSync(path.join(MEDIA, f)).size, at: fs.statSync(path.join(MEDIA, f)).mtime })); } catch (e) { /* пусто */ }
           return json(res, list.sort((a, b) => String(b.at).localeCompare(String(a.at)))), true;
         }
         if (p === '/api/crm/media' && M === 'POST') {
-          const d = await body(req, 12e6), m = /^data:image\/(png|jpeg|webp|gif);base64,(.+)$/.exec(String(d.data || ''));
-          if (!m) return send(res, 400, { ok: false, error: 'Нужна картинка PNG, JPG, WebP или GIF' }), true;
-          const buf = Buffer.from(m[2], 'base64'); if (buf.length > 8e6) return send(res, 400, { ok: false, error: 'Файл больше 8 МБ' }), true;
-          const nm = (str(d.name, 60).toLowerCase().replace(/\.[a-z]+$/, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'img') + '-' + crypto.randomBytes(3).toString('hex') + '.' + (m[1] === 'jpeg' ? 'jpg' : m[1]);
+          const d = await body(req, 60e6), m = /^data:(image|audio|video)\/(png|jpeg|webp|gif|mpeg|mp3|mp4|x-m4a|ogg|webm);base64,(.+)$/.exec(String(d.data || ''));
+          if (!m || (m[1] === 'image') !== ['png', 'jpeg', 'webp', 'gif'].includes(m[2])) return send(res, 400, { ok: false, error: 'Нужна картинка (PNG, JPG, WebP, GIF), аудио (MP3, M4A, OGG) или видео (MP4, WebM)' }), true;
+          const buf = Buffer.from(m[3], 'base64'), lim = m[1] === 'image' ? 8e6 : 40e6; if (buf.length > lim) return send(res, 400, { ok: false, error: `Файл больше ${lim / 1e6} МБ` }), true;
+          const ext = { jpeg: 'jpg', mpeg: 'mp3', 'x-m4a': 'm4a' }[m[2]] || (m[1] === 'audio' && m[2] === 'mp4' ? 'm4a' : m[2]);
+          const nm = (str(d.name, 60).toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || m[1]) + '-' + crypto.randomBytes(3).toString('hex') + '.' + ext;
           fs.mkdirSync(MEDIA, { recursive: true }); fs.writeFileSync(path.join(MEDIA, nm), buf);
           return json(res, { ok: true, name: nm, url: '/media/' + nm }), true;
         }
@@ -239,7 +242,7 @@ module.exports = function crm(ctx) {
       if (parts[2] === 'project' && parts[3]) {
         const f = projFile(parts[3]), pr = f && readJSON(f, null); if (!pr) return send(res, 404, { ok: false }), true;
         if (M === 'GET' && parts[4] === 'file') { const fn = path.basename(parts[5] || ''); if (!(pr.files || []).includes(fn)) return send(res, 404, { ok: false }), true; return send(res, 200, fs.readFileSync(path.join(PROJ, pr.id, fn)), TYPES[path.extname(fn)] || 'application/octet-stream'), true; }
-        if (M === 'GET') return json(res, Object.assign(projCard(pr, users()), { project: pr.project, requestsList: pr.requests || [], modLog: pr.modLog || [], qualityNow: quality ? quality(pr.project) : null })), true;
+        if (M === 'GET') return json(res, Object.assign(projCard(pr, users()), { project: pr.project, requestsList: pr.requests || [], modLog: pr.modLog || [], seo: pr.seo || {}, qualityNow: quality ? quality(pr.project) : null })), true;
         if (M === 'POST') {
           if (!can('manager', 'marketer')) return send(res, 403, { ok: false, error: 'Нет прав' }), true;
           const d = await body(req, 20e3), log = (t) => (pr.modLog = pr.modLog || []).push({ at: now(), by: u.name, text: t });
@@ -252,6 +255,7 @@ module.exports = function crm(ctx) {
             if (ow && d.status === 'blocked') mail(ow.email, `Проект «${pr.title}» снят с публикации`, `Здравствуйте!\n\nПроект «${pr.title}» снят модератором: ${pr.blockReason}.\nИсправьте проект в конструкторе и напишите нам — мы проверим ещё раз.\n\nСвой Дом`);
           }
           if (d.boost != null && !!d.boost !== !!pr.boost) { pr.boost = !!d.boost && pr.status !== 'blocked'; log(pr.boost ? 'поднят вверх каталога' : 'снят с поднятия'); }
+          if (d.seo && typeof d.seo === 'object') { pr.seo = { title: str(d.seo.title, 120), desc: str(d.seo.desc, 300), keywords: str(d.seo.keywords, 300), noindex: !!d.seo.noindex }; log('SEO страницы обновлено'); }
           if (str(d.note, 1000)) log('заметка: ' + str(d.note, 1000));
           writeJSON(f, pr); return json(res, projCard(pr, users())), true;
         }

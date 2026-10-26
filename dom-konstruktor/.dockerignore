@@ -1,0 +1,4 @@
+data/runtime
+dist
+.git
+*.log

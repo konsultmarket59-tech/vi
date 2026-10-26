@@ -296,7 +296,9 @@ DK.makeSketch = async function (p, plan, view, onStep) {
 let pdfLib = null;
 DK.sketchPdf = async function (pages, name) {
   if (!window.jspdf) {
-    pdfLib = pdfLib || new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    // своя копия на сервере, без сервера — CDN
+    const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    pdfLib = pdfLib || (location.protocol === 'file:' ? Promise.reject(new Error('file')) : load('vendor/jspdf.umd.min.js')).catch(() => load('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
     await pdfLib;
   }
   const doc = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });

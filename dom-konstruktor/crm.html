@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <title>CRM — Свой Дом</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@700;800&family=JetBrains+Mono:wght@400;600&family=Raleway:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="vendor/fonts.css">
 <style>
 :root{--bg:#ECEDEE;--panel:#fff;--ink:#2B2E33;--muted:#6B7078;--line:#E2E4E7;--brand:#2F3237;--soft:#ECEDEF;--accent:#E3A21A;--accent-soft:#FBF1DA;--ok:#2E8B57;--err:#C0392B;--warn:#C27C0E;
   --display:"Alumni Sans",system-ui,sans-serif;--text:"Raleway",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
@@ -54,6 +54,11 @@ tr.click{cursor:pointer}tr.click:hover{background:var(--soft)}
 .bi{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--brand);color:#fff;font-size:13px;font-weight:700}
 .addb{display:flex;justify-content:center;margin:6px 0}.addb button{border:1.5px dashed var(--line);background:transparent;border-radius:999px;padding:3px 14px;color:var(--muted);cursor:pointer;font-weight:700}.addb button:hover{border-color:var(--accent);color:var(--ink);background:var(--accent-soft)}
 .rt-bar{display:flex;flex-wrap:wrap;gap:2px;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;padding:4px;background:#fafafa}.rt-bar button{border:0;background:none;min-width:28px;padding:3px 6px;border-radius:6px;cursor:pointer;font-weight:700}.rt-bar button:hover{background:var(--soft)}
+.rt-bar .sep{width:1px;background:var(--line);margin:3px 4px}.rt img{max-width:100%;border-radius:8px}.rt pre{background:#2b2e33;color:#eee;padding:8px 10px;border-radius:8px;font:12.5px var(--mono);white-space:pre-wrap}.rt code{background:var(--soft);padding:0 4px;border-radius:4px;font-family:var(--mono)}.rt mark{background:#fde9a8}
+.plist{display:grid;gap:6px}.plist button{display:grid;text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}.plist button:hover{border-color:var(--brand)}.plist button:disabled{opacity:.45}.plist small{color:var(--muted)}
+.plinks{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.chip{display:inline-flex;align-items:center;gap:4px;background:var(--soft);border-radius:999px;padding:3px 6px 3px 10px;font-size:13px}.chip button{border:0;background:none;cursor:pointer;color:var(--muted)}
+.mico{height:110px;display:grid;place-items:center;font-size:40px;background:var(--soft);cursor:pointer}.mediaf audio,.mediaf video{width:100%;margin-top:6px}
+.pv-host{width:100%;background:#fff;border-radius:10px;overflow:auto;transition:width .2s;max-height:100%}
 .rt{border:1px solid var(--line);border-radius:0 0 10px 10px;padding:10px 12px;min-height:120px;background:#fff;outline:none;line-height:1.55}.rt:focus{border-color:var(--brand)}.rt h2{font:800 24px/1.1 var(--display);margin:12px 0 6px}.rt h3{font-size:16px;margin:10px 0 4px}.rt blockquote{border-left:3px solid var(--accent);margin:8px 0;padding-left:10px;color:var(--muted)}
 .items{display:grid;gap:8px}.item{border:1px dashed var(--line);border-radius:10px;padding:8px;display:grid;gap:6px}
 .imgf .thumb{max-height:90px;max-width:100%;border-radius:8px;border:1px solid var(--line);margin-top:4px;object-fit:cover}

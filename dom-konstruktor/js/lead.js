@@ -83,8 +83,10 @@ DK.brief = function (p) {
 DK.sendLead = async function (payload) {
   const url = (DK.CONFIG.api || '') + '/api/lead';
   try {
-    if (location.protocol === 'file:') throw new Error('file');
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (location.protocol === 'file:' || window.__PREVIEW) throw new Error('file');
+    let g; try { g = await DK.guard.data(document.getElementById('leadForm')); } catch (er) { return { ok: false, error: er.message }; }
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({}, payload, g)) });
+    if (r.status === 400 || r.status === 429) { const j = await r.json().catch(() => ({})); return { ok: false, error: j.error || 'Слишком много заявок, попробуйте позже' }; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch (e) {

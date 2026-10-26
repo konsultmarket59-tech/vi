@@ -24,8 +24,11 @@ const BLOCKS = {
   faq: { n: 'Вопросы и ответы', i: '?', d: 'FAQ — с разметкой FAQPage для поиска и нейросетей', f: [F('title', 'Заголовок блока', 'text'), F('items', 'Вопросы', 'items', { sub: [F('q', 'Вопрос', 'text'), F('a', 'Ответ', 'area')] })], def: { title: 'Частые вопросы', items: [{ q: '', a: '' }] } },
   table: { n: 'Таблица', i: '▥', d: 'Цены, сравнения, нормы', f: [F('title', 'Заголовок блока', 'text'), F('rows', 'Строки: ячейки через |, первая строка — заголовки', 'area', { rows: 6 })], def: { title: '', rows: 'Раздел | Цена\nФундамент | 1,2 млн ₽' } },
   columns: { n: 'Две колонки', i: '◫', d: 'Текст в две колонки', f: [F('left', 'Левая колонка', 'rich'), F('right', 'Правая колонка', 'rich')], def: { left: '<p>Слева</p>', right: '<p>Справа</p>' } },
+  links: { n: 'Читайте также', i: '↪', d: 'Перелинковка: карточки других статей и страниц сайта', f: [F('title', 'Заголовок блока', 'text'), F('items', 'Страницы', 'pages')], def: { title: 'Читайте также', items: [] } },
+  audio: { n: 'Аудио', i: '♪', d: 'Подкаст, голосовое, запись разговора — файл MP3 или ссылка', f: [F('src', 'Аудиофайл', 'media', { accept: 'audio/*' }), F('caption', 'Подпись', 'text')], def: { src: '', caption: '' } },
+  code: { n: 'Код', i: '{ }', d: 'Показать фрагмент кода или текста как есть (моноширинным)', f: [F('code', 'Текст кода', 'area', { rows: 6, mono: true })], def: { code: '' } },
   quote: { n: 'Цитата', i: '❝', d: 'Отзыв клиента или мнение эксперта', f: [F('text', 'Текст', 'area'), F('author', 'Автор', 'text')], def: { text: '', author: '' } },
-  video: { n: 'Видео', i: '▶', d: 'YouTube, RuTube или VK Видео по ссылке', f: [F('url', 'Ссылка на видео', 'text'), F('caption', 'Подпись', 'text')], def: { url: '', caption: '' } },
+  video: { n: 'Видео', i: '▶', d: 'Ссылка на YouTube, RuTube, VK Видео или свой файл MP4', f: [F('url', 'Ссылка на видео (YouTube, RuTube, VK)', 'text'), F('file', 'или файл MP4 / WebM', 'media', { accept: 'video/mp4,video/webm' }), F('caption', 'Подпись', 'text')], def: { url: '', file: '', caption: '' } },
   cta: { n: 'Призыв к действию', i: '➜', d: 'Тёмная плашка с кнопками', f: [F('title', 'Заголовок', 'text'), F('text', 'Текст', 'area'), F('btn', 'Кнопка', 'text'), F('href', 'Ссылка', 'text'), F('btn2', 'Вторая кнопка', 'text'), F('href2', 'Ссылка второй кнопки', 'text')], def: { title: 'Спланируйте дом бесплатно', text: '', btn: 'Открыть конструктор', href: '/', btn2: 'Подобрать строителя', href2: '/#lead' } },
   button: { n: 'Кнопка', i: '⬭', d: 'Одна кнопка-ссылка', f: [F('text', 'Текст', 'text'), F('href', 'Ссылка', 'text'), F('style', 'Вид', 'select', { opts: [['gold', 'Жёлтая'], ['', 'Контурная']] })], def: { text: 'Подробнее', href: '/', style: 'gold' } },
   contacts: { n: 'Контакты', i: '☎', d: 'Телефон, почта, адрес из настроек сайта', f: [F('title', 'Заголовок', 'text')], def: { title: 'Контакты' } },
@@ -33,6 +36,11 @@ const BLOCKS = {
   divider: { n: 'Разделитель', i: '—', d: 'Линия между частями', f: [], def: {} },
   html: { n: 'HTML-код', i: '</>', d: 'Виджет, карта, форма — вставка кода', f: [F('code', 'Код', 'area', { rows: 6, mono: true })], def: { code: '' } },
 };
+
+/* кнопки визуального редактора */
+const RT_CMDS = [['bold', 'Ж', 'Жирный'], ['italic', 'К', 'Курсив'], ['underline', 'Ч', 'Подчёркнутый'], ['strikeThrough', 'З̶', 'Зачёркнутый'], ['mark', '▮', 'Выделить маркером'], ['|'],
+  ['h2', 'H2', 'Подзаголовок'], ['h3', 'H3', 'Подзаголовок 2'], ['h4', 'H4', 'Подзаголовок 3'], ['p', '¶', 'Абзац'], ['insertUnorderedList', '•', 'Список'], ['insertOrderedList', '1.', 'Нумерованный список'], ['blockquote', '❝', 'Цитата'], ['pre', '{ }', 'Блок кода'], ['code', '<>', 'Код в строке'], ['insertHorizontalRule', '—', 'Линия'], ['|'],
+  ['img', '🖼 Фото', 'Вставить фото в текст'], ['page', '↪ Страница сайта', 'Ссылка на статью, услугу или страницу сайта (перелинковка)'], ['link', '🔗', 'Ссылка на любой адрес'], ['unlink', '⛓', 'Убрать ссылку'], ['contacts', '☎ Контакты', 'Вставить контакты из настроек сайта — обновятся сами'], ['|'], ['removeFormat', '⌫', 'Очистить оформление']];
 
 /* ---------- SEO и GEO: проверка страницы ---------- */
 const plain = (h) => String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
@@ -176,7 +184,8 @@ function bindImgs(root, set) {
   });
 }
 async function upload(f) {
-  if (f.size > 8e6) throw new Error('Файл больше 8 МБ');
+  const big = /^(audio|video)\//.test(f.type);
+  if (f.size > (big ? 40e6 : 8e6)) throw new Error(big ? 'Аудио и видео — до 40 МБ; длинные видео загрузите на RuTube или VK и вставьте ссылку' : 'Картинка больше 8 МБ');
   const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
   return (await api('/api/crm/media', { name: f.name, data })).url;
 }
@@ -206,9 +215,11 @@ function blockHtml(b, i) {
 const sum = (b) => plain(b.title || b.text || b.html || b.q || b.url || '').slice(0, 60);
 function fieldHtml(f, v, idx) {
   const d = idx != null ? ` data-ii="${idx}"` : '';
-  if (f.type === 'rich') return `<div class="f"${d}>${f.n ? `<span>${esc(f.n)}</span>` : ''}<div class="rt-bar">${[['bold', 'Ж', 'Жирный'], ['italic', 'К', 'Курсив'], ['underline', 'Ч', 'Подчёркнутый'], ['h2', 'H2', 'Подзаголовок'], ['h3', 'H3', 'Подзаголовок 2'], ['p', '¶', 'Абзац'], ['insertUnorderedList', '•', 'Список'], ['insertOrderedList', '1.', 'Нумерованный список'], ['blockquote', '❝', 'Цитата'], ['link', '🔗', 'Ссылка'], ['unlink', '⛓', 'Убрать ссылку'], ['removeFormat', '⌫', 'Очистить оформление']].map(([c, n, t]) => `<button type="button" data-cmd="${c}" title="${t}">${n}</button>`).join('')}</div><div class="rt" contenteditable="true" data-f="${f.k}">${v || ''}</div></div>`;
+  if (f.type === 'rich') return `<div class="f"${d}>${f.n ? `<span>${esc(f.n)}</span>` : ''}<div class="rt-bar">${RT_CMDS.map(([c, n, t]) => `${c === '|' ? '<i class="sep"></i>' : `<button type="button" data-cmd="${c}" title="${t}">${n}</button>`}`).join('')}</div><div class="rt" contenteditable="true" data-f="${f.k}">${v || ''}</div></div>`;
   if (f.type === 'area') return `<label class="f"${d}>${esc(f.n)}<textarea data-f="${f.k}" rows="${f.rows || 3}"${f.mono ? ' style="font-family:var(--mono);font-size:12.5px"' : ''}>${esc(v || '')}</textarea></label>`;
   if (f.type === 'img') return imgField(f.k, f.n, v, ` data-f="${f.k}"${d}`);
+  if (f.type === 'media') return `<div class="f mediaf" data-mk="${f.k}"><span>${esc(f.n)}</span><div class="row" style="flex-wrap:nowrap"><input class="mv" data-f="${f.k}" value="${esc(v || '')}" placeholder="/media/…"><button type="button" class="btn sm" data-mup>Загрузить файл</button></div>${v ? (/^(audio|.*\.(mp3|m4a|ogg|wav))/i.test(f.accept + v) && !/video/.test(f.accept) ? `<audio controls src="${esc(v)}"></audio>` : `<video controls src="${esc(v)}" style="max-height:160px"></video>`) : ''}<input type="file" accept="${esc(f.accept)}" hidden></div>`;
+  if (f.type === 'pages') return `<div class="f"><span>${esc(f.n)}</span><div class="plinks">${(v || []).map((x, j) => `<span class="chip">${esc(x.title || x.path)} <button type="button" data-prm="${j}">✕</button></span>`).join('') || '<span class="muted">Не выбрано</span>'}</div><button type="button" class="btn sm" data-padd>+ выбрать страницы</button></div>`;
   if (f.type === 'select') return `<label class="f"${d}>${esc(f.n)}<select data-f="${f.k}">${f.opts.map(([k, n]) => `<option value="${k}"${(v || '') === k ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`;
   if (f.type === 'items') return `<div class="f items" data-items="${f.k}"><span>${esc(f.n)}</span>${(v || []).map((x, j) => `<div class="item" data-j="${j}"><div class="grid2">${f.sub.map(sf => fieldHtml(sf, x[sf.k])).join('')}</div><div class="row"><button type="button" class="btn sm ghost" data-iu>↑</button><button type="button" class="btn sm ghost" data-id>↓</button><button type="button" class="btn sm ghost" data-ix>Удалить</button></div></div>`).join('')}<button type="button" class="btn sm" data-iadd>+ добавить</button></div>`;
   return `<label class="f"${d}>${esc(f.n)}<input data-f="${f.k}" value="${esc(v || '')}" placeholder="${esc(f.ph || '')}"></label>`;
@@ -223,9 +234,22 @@ function bindFields(el, b, fields) {
     if (inp.classList.contains('imgf')) return;
     inp.oninput = inp.onchange = () => { b[k] = inp.value; touch(); };
   });
+  // файлы аудио и видео
+  $$('.mediaf', el).forEach(w => {
+    const k = w.dataset.mk, file = $('input[type=file]', w);
+    $('[data-mup]', w).onclick = () => file.click();
+    file.onchange = async () => { const f = file.files[0]; if (!f) return; try { toast('Загружаю ' + f.name + '…'); b[k] = await upload(f); touch(); drawBlocks(); toast('Файл загружен'); } catch (er) { toast(er.message); } };
+  });
+  // страницы для перелинковки
+  if ($('[data-padd]', el)) {
+    b.items = b.items || [];
+    $('[data-padd]', el).onclick = () => pickPage((pg) => { if (!b.items.some(x => x.path === pg.path)) b.items.push({ path: pg.path, title: pg.name || pg.title }); touch(); drawBlocks(); }, true);
+    $$('[data-prm]', el).forEach(x => x.onclick = () => { b.items.splice(+x.dataset.prm, 1); touch(); drawBlocks(); });
+  }
   bindImgs(el, (k, v, w) => { const it = w.closest('.item'); if (it) { const lk = it.closest('[data-items]').dataset.items; b[lk][+it.dataset.j][k] = v; } else b[k] = v; touch(); });
   // списки: карточки, шаги, вопросы, фото
   $$('[data-items]', el).forEach(wrap => {
+    if (!fields.find(x => x.k === wrap.dataset.items)) return;
     const k = wrap.dataset.items, f = fields.find(x => x.k === k), arr = b[k] = b[k] || [];
     $$('.item', wrap).forEach(it => {
       const j = +it.dataset.j;
@@ -243,12 +267,33 @@ function richBind(ed) {
   const bar = ed.previousElementSibling;
   $$('[data-cmd]', bar).forEach(btn => btn.onmousedown = (e) => {
     e.preventDefault(); ed.focus(); const c = btn.dataset.cmd;
-    if (c === 'h2' || c === 'h3' || c === 'p' || c === 'blockquote') document.execCommand('formatBlock', false, c.toUpperCase());
+    const sel = window.getSelection(), txt = sel ? String(sel) : '', range = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const restore = () => { ed.focus(); if (range) { const s2 = window.getSelection(); s2.removeAllRanges(); s2.addRange(range); } };
+    const done = () => ed.dispatchEvent(new Event('input'));
+    if (['h2', 'h3', 'h4', 'p', 'blockquote', 'pre'].includes(c)) document.execCommand('formatBlock', false, c.toUpperCase());
     else if (c === 'link') { const u = prompt('Ссылка: /страница-сайта/ или https://…', '/'); if (u) document.execCommand('createLink', false, u); }
+    else if (c === 'mark' || c === 'code') document.execCommand('insertHTML', false, `<${c}>${esc(txt || (c === 'code' ? 'код' : 'текст'))}</${c}>`);
+    else if (c === 'contacts') document.execCommand('insertHTML', false, '<p>{{контакты}}</p>');
+    else if (c === 'page') { pickPage((pg) => { restore(); document.execCommand('insertHTML', false, `<a href="${esc(pg.path)}">${esc(txt || pg.name || pg.title)}</a>`); done(); }); return; }
+    else if (c === 'img') {
+      const fi = document.createElement('input'); fi.type = 'file'; fi.accept = 'image/png,image/jpeg,image/webp,image/gif';
+      fi.onchange = async () => { const f = fi.files[0]; if (!f) return; try { const u = await upload(f), alt = prompt('Что на фото? (описание для поиска)', '') || ''; restore(); document.execCommand('insertHTML', false, `<img src="${esc(u)}" alt="${esc(alt)}">`); done(); toast('Фото вставлено'); } catch (er) { toast(er.message); } };
+      fi.click(); return;
+    }
     else document.execCommand(c, false, null);
-    ed.dispatchEvent(new Event('input'));
+    done();
   });
   ed.addEventListener('paste', (e) => { e.preventDefault(); const t = (e.clipboardData || window.clipboardData).getData('text/plain'); document.execCommand('insertText', false, t); });
+}
+/* перелинковка: выбрать статью, услугу или страницу сайта */
+async function pickPage(cb, multi) {
+  if (!list.length) list = await api('/api/crm/cms');
+  const d = document.createElement('div'); d.className = 'cms-modal';
+  d.innerHTML = `<div class="cms-pal"><header class="row"><h2 style="margin:0;flex:1">Ссылка на страницу сайта</h2><input placeholder="Поиск" style="max-width:240px" data-q><button class="btn sm ghost" data-x>Закрыть</button></header><div class="plist"></div></div>`;
+  document.body.appendChild(d);
+  const draw = (q) => { $('.plist', d).innerHTML = list.filter(r => r.status === 'published' && r.path !== (cur && cur.path) && (!q || (r.title + ' ' + r.name + ' ' + r.path).toLowerCase().includes(q))).map(r => `<button type="button" data-p="${esc(r.path)}"><b>${esc(r.name || r.title)}</b><small>${KIND[r.kind]} · ${esc(r.path)}</small></button>`).join(''); $$('.plist button', d).forEach(b => b.onclick = () => { cb(list.find(r => r.path === b.dataset.p)); if (!multi) d.remove(); else b.disabled = true; }); };
+  $('[data-q]', d).oninput = (e) => draw(e.target.value.toLowerCase()); $('[data-x]', d).onclick = () => d.remove(); d.onclick = (e) => { if (e.target === d) d.remove(); };
+  draw('');
 }
 function palette(at) {
   const d = document.createElement('div'); d.className = 'cms-modal';
@@ -272,11 +317,24 @@ async function save() {
 }
 async function previewPage() {
   let html; try { html = (await api('/api/crm/cms/preview', { path: cur.path, rec: cur })).html; } catch (e) { return toast(e.message); }
+  // страница рисуется внутри CRM в изолированном теневом DOM: без iframe, его блокируют встроенные просмотрщики
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  let css = '';
+  for (const el of Array.from(doc.querySelectorAll('style, link[rel="stylesheet"]'))) {
+    if (el.tagName === 'STYLE') { css += el.textContent; continue; }
+    const href = el.getAttribute('href') || '';
+    if (href.startsWith('/') && !/fonts\.css$/.test(href)) { try { css += await (await fetch(href)).text(); } catch (e) { /* нет файла */ } }
+    else if (!/fonts\.css$/.test(href) && !document.querySelector(`link[href="${href}"]`)) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l); }
+  }
+  css = css.replace(/:root/g, ':host').replace(/(^|[}\s,])body(?=[\s{,])/g, '$1.pv-body').replace(/@media\s*\((max|min)-width/g, '@container pv ($1-width');
+  doc.querySelectorAll('script').forEach(x => x.remove());
   const d = document.createElement('div'); d.className = 'cms-modal';
-  d.innerHTML = `<div class="cms-prev"><header class="row"><b style="flex:1">Предпросмотр: ${esc(cur.path)}</b><div class="tabs" style="margin:0"><button data-w="100%" aria-pressed="true">Компьютер</button><button data-w="390px" aria-pressed="false">Телефон</button></div><button class="btn sm ghost" data-x>Закрыть</button></header><div class="pv-wrap"><iframe title="Предпросмотр"></iframe></div></div>`;
+  d.innerHTML = `<div class="cms-prev"><header class="row"><b style="flex:1">Предпросмотр: ${esc(cur.path)}</b><div class="tabs" style="margin:0"><button data-w="100%" aria-pressed="true">Компьютер</button><button data-w="390px" aria-pressed="false">Телефон</button></div><button class="btn sm ghost" data-x>Закрыть</button></header><div class="pv-wrap"><div class="pv-host"></div></div></div>`;
   document.body.appendChild(d);
-  const fr = $('iframe', d); fr.srcdoc = html;
-  $$('[data-w]', d).forEach(b => b.onclick = () => { fr.style.width = b.dataset.w; $$('[data-w]', d).forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
+  const host = $('.pv-host', d), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<style>${css}\n:host{display:block}.pv-body{container:pv / inline-size;margin:0;min-height:100%}</style><div class="pv-body">${doc.body.innerHTML}</div>`;
+  root.addEventListener('click', (e) => { const a = e.target.closest('a'); if (a) { e.preventDefault(); toast('В предпросмотре ссылки не открываются: ' + (a.getAttribute('href') || '')); } });
+  $$('[data-w]', d).forEach(b => b.onclick = () => { host.style.width = b.dataset.w; $$('[data-w]', d).forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
   $('[data-x]', d).onclick = () => d.remove(); d.onclick = (e) => { if (e.target === d) d.remove(); };
 }
 
@@ -300,8 +358,8 @@ async function renderSite() {
 async function renderMedia(pick) {
   const items = await api('/api/crm/media');
   const d = document.createElement('div'); d.className = 'cms-modal';
-  d.innerHTML = `<div class="cms-pal"><header class="row"><h2 style="margin:0;flex:1">Медиатека${pick ? ' — выберите картинку' : ''}</h2><button class="btn sm primary" data-upl>Загрузить</button><button class="btn sm ghost" data-x>Закрыть</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden></header>
-    <div class="media">${items.map(m => `<figure data-u="${esc(m.url)}"><img src="${esc(m.url)}" alt="" loading="lazy"><figcaption><small>${esc(m.name)}</small><span><button type="button" class="btn sm ghost" data-copy>Ссылка</button><button type="button" class="btn sm ghost" data-rm>✕</button></span></figcaption></figure>`).join('') || '<p class="muted">Пока пусто — загрузите фото и схемы.</p>'}</div></div>`;
+  d.innerHTML = `<div class="cms-pal"><header class="row"><h2 style="margin:0;flex:1">Медиатека${pick ? ' — выберите картинку' : ''}</h2><button class="btn sm primary" data-upl>Загрузить</button><button class="btn sm ghost" data-x>Закрыть</button><input type="file" accept="image/png,image/jpeg,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,video/mp4,video/webm" multiple hidden></header>
+    <div class="media">${items.map(m => `<figure data-u="${esc(m.url)}">${/\.(mp3|m4a|ogg)$/.test(m.name) ? '<div class="mico">♪</div>' : /\.(mp4|webm)$/.test(m.name) ? '<div class="mico">▶</div>' : `<img src="${esc(m.url)}" alt="" loading="lazy">`}<figcaption><small>${esc(m.name)}</small><span><button type="button" class="btn sm ghost" data-copy>Ссылка</button><button type="button" class="btn sm ghost" data-rm>✕</button></span></figcaption></figure>`).join('') || '<p class="muted">Пока пусто — загрузите фото и схемы.</p>'}</div></div>`;
   document.body.appendChild(d);
   const close = () => d.remove(), file = $('input[type=file]', d);
   d.onclick = (e) => { if (e.target === d) close(); }; $('[data-x]', d).onclick = close;
@@ -309,7 +367,7 @@ async function renderMedia(pick) {
   file.onchange = async () => { for (const f of Array.from(file.files)) { try { await upload(f); } catch (e) { toast(e.message); } } close(); renderMedia(pick); };
   $$('figure', d).forEach(fg => {
     const u = fg.dataset.u;
-    $('img', fg).onclick = () => { if (pick) { pick(u); close(); } };
+    const pv = $('img, .mico', fg); pv.onclick = () => { if (pick) { pick(u); close(); } };
     $('[data-copy]', fg).onclick = async () => { try { await navigator.clipboard.writeText(u); toast('Ссылка скопирована: ' + u); } catch (e) { prompt('Ссылка на картинку', u); } };
     $('[data-rm]', fg).onclick = async () => { if (!confirm('Удалить картинку? На страницах, где она стоит, она пропадёт.')) return; await api('/api/crm/media/' + encodeURIComponent(u.split('/').pop()), null, 'DELETE'); close(); renderMedia(pick); };
   });

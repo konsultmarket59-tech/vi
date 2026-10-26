@@ -9,9 +9,7 @@
 <meta property="og:type" content="website"><meta property="og:title" content="Конструктор дома онлайн с 3D и сметой — Свой Дом"><meta property="og:description" content="Спланируйте дом: этажи и мансарда, 3D-прогулка, участок по нормам, вилка стоимости тёплого контура. Подбор строительной компании."><meta property="og:locale" content="ru_RU"><meta property="og:image" content="/img/og.png">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebApplication","name":"Конструктор дома «Свой Дом»","url":"/","applicationCategory":"DesignApplication","operatingSystem":"Web","inLanguage":"ru-RU","description":"Бесплатный онлайн-конструктор частного дома: этажи и мансарда, несущие стены по пролётам плит, котельная по СП 402.1325800.2018, 3D-прогулка, фасад, участок с отступами по СП 53.13330, вилка стоимости тёплого контура.","offers":{"@type":"Offer","price":"0","priceCurrency":"RUB"}},{"@type":"Organization","name":"Свой Дом","url":"/","logo":"/favicon.svg"}]}</script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Raleway:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="vendor/fonts.css">
 <style>
 /* графитовая гамма: Alumni Sans + Raleway, графит #2F3237, акцент — тёплое золото */
 :root{--bg:#ECEDEE;--sheet:#F6F6F7;--panel:#fff;--ink:#2B2E33;--muted:#6B7078;--ink-3:#9CA1A8;--line:#E2E4E7;
@@ -89,6 +87,7 @@ nav.main button[aria-current="page"]{background:var(--brand);color:#fff}
 .fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
 .chk{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer}
 .chk input{accent-color:var(--brand);width:16px;height:16px;margin:0}
+.hp{position:absolute!important;left:-10000px;width:1px;height:1px;overflow:hidden}.captcha-box{min-height:0;margin:6px 0}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.chips label{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer;color:var(--ink)}.chips label:has(input:checked){background:var(--brand);color:#fff;border-color:var(--brand)}.chips input{display:none}
 .rng{display:grid;grid-template-columns:92px 1fr 52px;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
 .rng input{accent-color:var(--brand);width:100%;margin:0}
@@ -539,7 +538,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 
 <!-- анкета подбора -->
 <dialog id="leadDlg">
-  <form class="dlg" method="dialog" id="leadForm" novalidate>
+  <form class="dlg" method="dialog" id="leadForm" novalidate data-guard><label class="hp" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
     <header><div><h2>Подбор строителя</h2><div class="muted" id="leadStepT"></div></div><button class="x" value="cancel" aria-label="Закрыть">×</button></header>
     <div class="prog" id="leadProg"></div>
     <section data-step="0" class="q">
@@ -583,7 +582,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 
 <!-- регистрация исполнителя -->
 <dialog id="joinDlg">
-  <form class="dlg" id="joinForm" novalidate>
+  <form class="dlg" id="joinForm" novalidate data-guard><label class="hp" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
     <header><div><h2>Регистрация исполнителя</h2><div class="muted">Карточка появится в каталоге после проверки. Заявки приходят по городам, которые вы обслуживаете.</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
     <div class="row2">
       <label class="fld">Кто вы<select name="type"><option value="builder">Строительная компания</option><option value="architect">Архитектор</option><option value="bureau">Архитектурное бюро</option></select></label>
@@ -619,7 +618,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
     <header><div><h2>Кабинет</h2><div class="muted">Чтобы публиковать проекты, оценивать и получать запросы</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
     <div class="seg" id="authTabs"><button data-t="login">Вход</button><button data-t="reg">Регистрация</button></div>
     <form id="aLogin" class="q"><label class="fld">Эл. почта<input name="email" type="email" autocomplete="email" required></label><label class="fld">Пароль<input name="password" type="password" autocomplete="current-password" required></label><button class="btn primary" type="submit">Войти</button></form>
-    <form id="aReg" class="q" hidden>
+    <form id="aReg" class="q" hidden data-guard><label class="hp" aria-hidden="true">Сайт<input name="website" tabindex="-1" autocomplete="off"></label>
       <div class="row2"><label class="fld">Имя и фамилия<input name="name" autocomplete="name" required></label><label class="fld">Телефон<input name="phone" type="tel" autocomplete="tel"></label></div>
       <div class="row2"><label class="fld">Эл. почта<input name="email" type="email" autocomplete="email" required></label><label class="fld">Город<input name="city" list="cityList"></label></div>
       <label class="fld">Пароль (от 8 символов)<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -673,6 +672,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 <div class="toast" id="toast" hidden></div>
 
 <script src="js/config.js"></script>
+<script src="js/guard.js"></script>
 <script src="js/model.js"></script>
 <script src="js/furniture.js"></script>
 <script src="js/facade.js"></script>

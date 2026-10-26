@@ -3,7 +3,8 @@
 (function () {
 'use strict';
 const DK = window.DK;
-const LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'];
+// сначала своя копия на сервере (быстро в РФ, без зарубежных CDN), затем запасные CDN — для файла без сервера
+const LIBS = ['vendor/three.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'];
 let libPromise = null;
 DK.loadThree = function () {
   if (window.THREE) return Promise.resolve();

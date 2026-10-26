@@ -17,12 +17,14 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
   '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
 
 const companiesFile = path.join(DATA, 'companies.json');
+// заголовки безопасности для всех ответов (HSTS ставит nginx вместе с HTTPS)
+const SEC = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'SAMEORIGIN', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' };
 const readJSON = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
 const writeJSON = (f, v) => { fs.writeFileSync(f + '.tmp', JSON.stringify(v, null, 1)); fs.renameSync(f + '.tmp', f); };
 const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n || 200);
 
 function send(res, code, body, type) {
-  res.writeHead(code, { 'Content-Type': type || 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.writeHead(code, Object.assign({ 'Content-Type': type || 'application/json; charset=utf-8', 'Cache-Control': type && /html|xml|text\/plain/.test(type) ? 'no-cache' : 'no-store' }, SEC));
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 function body(req, limit) {
@@ -33,12 +35,38 @@ function body(req, limit) {
     req.on('error', reject);
   });
 }
+/* защита форм: лимит запросов с адреса, ловушка для ботов, подписанный токен формы, Яндекс SmartCaptcha по ключу */
 const hits = new Map();
+// адрес клиента: за nginx — из X-Forwarded-For (TRUST_PROXY=1), иначе из соединения, чтобы заголовок нельзя было подделать
+const ipOf = (req) => process.env.TRUST_PROXY && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : req.socket.remoteAddress;
 function limited(req) {
-  const ip = req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0].trim() : req.socket.remoteAddress;
-  const now = Date.now(), a = (hits.get(ip) || []).filter(t => now - t < 10 * 60e3);
+  const ip = ipOf(req), now = Date.now(), a = (hits.get(ip) || []).filter(t => now - t < 10 * 60e3);
   a.push(now); hits.set(ip, a);
   return a.length > 20;
+}
+setInterval(() => { const now = Date.now(); for (const [k, a] of hits) if (!a.some(t => now - t < 10 * 60e3)) hits.delete(k); }, 10 * 60e3).unref();
+const FORM_SECRET = (() => { const f = path.join(DATA, 'form-secret'); try { return fs.readFileSync(f, 'utf8'); } catch (e) { const k = crypto.randomBytes(32).toString('hex'); try { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(f, k); } catch (x) { /* только в памяти */ } return k; } })();
+const sign = (t) => crypto.createHmac('sha256', FORM_SECRET).update(String(t)).digest('hex').slice(0, 32);
+const formToken = () => { const t = Date.now(); return t + '.' + sign(t); };
+const CAPTCHA_SERVER = process.env.SMARTCAPTCHA_SERVER_KEY || '', CAPTCHA_CLIENT = process.env.SMARTCAPTCHA_CLIENT_KEY || '';
+function captchaOk(token, ip) {
+  if (!CAPTCHA_SERVER) return Promise.resolve(true);
+  if (!token) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const q = `/validate?secret=${encodeURIComponent(CAPTCHA_SERVER)}&token=${encodeURIComponent(token)}&ip=${encodeURIComponent(ip || '')}`;
+    const r = https.get({ host: 'smartcaptcha.yandexcloud.net', path: q, timeout: 6000 }, (res) => { let b = ''; res.on('data', c => { b += c; }); res.on('end', () => { try { resolve(JSON.parse(b).status === 'ok'); } catch (e) { resolve(res.statusCode !== 200); } }); });
+    // сервис капчи недоступен — не блокируем людей, остальные проверки остаются
+    r.on('error', () => resolve(true)); r.on('timeout', () => { r.destroy(); resolve(true); });
+  });
+}
+/* null — можно, строка — причина отказа */
+async function guard(req, d) {
+  d = d || {};
+  if (str(d.website)) return 'Похоже на автоматическую отправку';
+  const [t, sg] = String(d.ft || '').split('.'), age = Date.now() - +t;
+  if (!t || sg !== sign(t) || !(age > 2500 && age < 12 * 3600e3)) return 'Обновите страницу и отправьте форму ещё раз';
+  if (!(await captchaOk(d.captcha, ipOf(req)))) return 'Подтвердите, что вы не робот';
+  return null;
 }
 function tg(chat, text) {
   if (!TG || !chat) return Promise.resolve(false);
@@ -60,6 +88,7 @@ async function lead(req, res) {
   if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком много заявок, попробуйте позже' });
   let d;
   try { d = await body(req, 25e6); } catch (e) { return send(res, 400, { ok: false, error: 'bad body' }); }
+  const gErr = await guard(req, d); if (gErr) return send(res, 400, { ok: false, error: gErr });
   const a = d.answers || {};
   if (!str(a.name) || str(a.phone).replace(/\D/g, '').length < 10) return send(res, 400, { ok: false, error: 'Нужны имя и телефон' });
   const day = new Date().toISOString().slice(2, 10).replace(/-/g, '');
@@ -100,6 +129,7 @@ async function lead(req, res) {
 async function register(req, res) {
   if (limited(req)) return send(res, 429, { ok: false });
   let d; try { d = await body(req, 100e3); } catch (e) { return send(res, 400, { ok: false }); }
+  const gErr = await guard(req, d); if (gErr) return send(res, 400, { ok: false, error: gErr });
   if (!str(d.name) || !str(d.city) || !str(d.phone) || !str(d.email)) return send(res, 400, { ok: false, error: 'Заполните обязательные поля' });
   if (d.inn && !/^\d{10}(\d{2})?$/.test(String(d.inn))) return send(res, 400, { ok: false, error: 'ИНН' });
   const list = readJSON(companiesFile, []);
@@ -163,7 +193,8 @@ function stat(req, res, url) {
   if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    // библиотеки и шрифты не меняются — кешируем надолго; остальное проверяется при каждом заходе
+    res.writeHead(200, Object.assign({ 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': p.startsWith('/vendor/') ? 'public, max-age=2592000' : 'no-cache' }, SEC));
     fs.createReadStream(f).pipe(res);
   });
 }
@@ -171,14 +202,15 @@ function stat(req, res, url) {
 const mail = require('./mailer.js')(DATA);
 const MODEL = require('./model-vm.js')(ROOT);
 const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA });
-const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview });
-const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail });
+const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview });
+const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname.startsWith('/api/') && await crmHandle(req, res, url)) return;
     if (url.pathname.startsWith('/api/') && await marketHandle(req, res, url)) return;
+    if (url.pathname === '/api/form-token' && req.method === 'GET') return send(res, 200, { t: formToken(), captchaKey: CAPTCHA_CLIENT });
     if (url.pathname === '/api/lead' && req.method === 'POST') return lead(req, res);
     if (url.pathname === '/api/register' && req.method === 'POST') return register(req, res);
     if (url.pathname === '/api/catalog' && req.method === 'GET') {

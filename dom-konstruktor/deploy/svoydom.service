@@ -1,0 +1,16 @@
+# Вариант без Docker: /etc/systemd/system/svoydom.service, затем systemctl enable --now svoydom
+[Unit]
+Description=Svoy Dom site
+After=network.target
+
+[Service]
+User=svoydom
+WorkingDirectory=/opt/svoydom/dom-konstruktor
+EnvironmentFile=/opt/svoydom/.env
+Environment=PORT=8080 DATA_DIR=/var/lib/svoydom TRUST_PROXY=1
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

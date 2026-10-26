@@ -18,7 +18,9 @@ def build() -> str:
         src = (ROOT / m.group(1)).read_text(encoding='utf-8').replace('</script', '<\\/script')
         return '<script>\n' + src + '\n</script>'
 
-    return re.sub(r'<script src="([^"]+)"></script>', inline, html)
+    html = re.sub(r'<script src="([^"]+)"></script>', inline, html)
+    # файл без сервера: шрифты — с Google Fonts, three.js и jsPDF — с CDN (запасные адреса в коде)
+    return html.replace('<link rel="stylesheet" href="vendor/fonts.css">', '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Raleway:wght@400;500;600;700&display=swap">')
 
 
 if __name__ == '__main__':

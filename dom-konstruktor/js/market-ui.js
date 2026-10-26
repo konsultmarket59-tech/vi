@@ -76,10 +76,12 @@ function bindAuth() {
         if (!cities.length) throw new Error('Отметьте города, где вы строите');
         const banks = f.accr.value === 'yes' ? $$('#aBanks input:checked').map(i => i.value) : [];
         if (f.accr.value === 'yes' && !banks.length) throw new Error('Отметьте банки, в которых есть аккредитация');
-        const r = await api('/api/company/register', { name: f.company.value, contact: f.name.value, inn: f.inn.value, cities, banks, escrow: f.escrow.checked, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
+        const g = await DK.guard.data(f);
+        const r = await api('/api/company/register', { ...g, name: f.company.value, contact: f.name.value, inn: f.inn.value, cities, banks, escrow: f.escrow.checked, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
         setToken(r.token); user = r.user; $('#authDlg').close(); paintHeader(); afterAuth = null; DK.goPage('company'); return;
       }
-      const r = await api('/api/auth/register', { name: f.name.value, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
+      const g = await DK.guard.data(f);
+      const r = await api('/api/auth/register', { ...g, name: f.name.value, email: f.email.value, phone: f.phone.value, city: f.city.value, password: f.password.value });
       setToken(r.token); user = r.user;
       if (f.arch.checked) {
         const files = await fileData(f.docs);
@@ -87,7 +89,7 @@ function bindAuth() {
         user = a.user; DK.toast && DK.toast('Документы отправлены на проверку');
       }
       done();
-    } catch (er) { $('#aErr').textContent = er.message; }
+    } catch (er) { $('#aErr').textContent = er.message; DK.guard.reset(f); }
   };
   function done() { $('#authDlg').close(); paintHeader(); const t = afterAuth; afterAuth = null; if (user && user.role === 'company') DK.goPage('company'); else if (t) t(); else DK.goPage('cab'); }
 }
@@ -171,7 +173,7 @@ async function openProject(id) {
     <div class="row">${stars(x.rating.avg, x.id, true)}<span class="muted" id="prRate">${x.rating.n ? x.rating.avg.toFixed(1) + ' из 5 · оценок: ' + x.rating.n : 'Оцените проект'}</span></div>
     <div class="box"><b>${money(x.price)}</b><span>${x.license === 'build' ? 'Право построить по эскизу: автор передаёт эскизный проект для строительства одного дома.' : 'Эскизный проект для ознакомления и доработки с архитектором.'} Оплата и передача — через площадку.</span></div>
     <div class="nav">${x.project ? '<button class="btn" id="prOpen">Открыть в конструкторе</button>' : '<span class="muted">Файл проекта откроется после оплаты.</span>'}<button class="btn gold" id="prReq">${x.price ? 'Запросить эскизный проект' : 'Связаться с автором'}</button></div>
-    <form id="prForm" class="q" hidden><div class="row2"><label class="fld">Имя<input name="name" value="${esc(user ? user.name : '')}" required></label><label class="fld">Телефон<input name="phone" type="tel" value="${esc(user ? user.phone : '')}" required></label></div>
+    <form id="prForm" class="q" data-guard hidden>${DK.guard.trap}<div class="row2"><label class="fld">Имя<input name="name" value="${esc(user ? user.name : '')}" required></label><label class="fld">Телефон<input name="phone" type="tel" value="${esc(user ? user.phone : '')}" required></label></div>
       <label class="fld">Что доработать<textarea name="comment" rows="2" placeholder="Например: добавить гараж, сделать 3 спальни"></textarea></label>
       <div class="nav"><span class="err-t" id="prErr"></span><button class="btn primary" type="submit">Отправить запрос</button></div></form>`;
   $('#prDlg').showModal();
@@ -187,7 +189,7 @@ async function openProject(id) {
   $('#prReq').onclick = () => { $('#prForm').hidden = false; };
   $('#prForm').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
-    try { await api(`/api/projects/${id}/request`, { name: f.name.value, phone: f.phone.value, comment: f.comment.value }); f.innerHTML = '<div class="box"><b>Запрос отправлен</b><span>Менеджер площадки свяжется с вами, согласует оплату и передачу эскизного проекта.</span></div>'; }
+    try { const g = await DK.guard.data(f); await api(`/api/projects/${id}/request`, { ...g, name: f.name.value, phone: f.phone.value, comment: f.comment.value }); f.innerHTML = '<div class="box"><b>Запрос отправлен</b><span>Менеджер площадки свяжется с вами, согласует оплату и передачу эскизного проекта.</span></div>'; }
     catch (er) { $('#prErr').textContent = er.message; }
   };
 }
@@ -246,7 +248,7 @@ DK.Market = {
     $('#projSort').onchange = (e) => { flt.sort = e.target.value; renderProjects(); };
     refreshMe().then(readyOk, readyOk);
   },
-  renderProjects, renderCab, openPublish, ready: readyP,
+  renderProjects, renderCab, openPublish, openProject, ready: readyP,
   /* кабинет по роли: компания — кабинет заявок, остальные — кабинет пользователя */
   async openCabinet(kind) {
     await (this.ready || Promise.resolve());

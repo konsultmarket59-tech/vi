@@ -587,7 +587,7 @@ function bindCatalog() {
   $('#joinForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target, fd = new FormData(f), d = Object.fromEntries(fd.entries());
-    d.materials = fd.getAll('mat'); delete d.mat;
+    d.materials = fd.getAll('mat'); delete d.mat; delete d.website; delete d['smart-token'];
     d.regions = (d.regions || '').split(',').map(s => s.trim()).filter(Boolean);
     const miss = ['name', 'city', 'phone', 'email'].filter(k => !String(d[k] || '').trim());
     if (miss.length) { $('#jErr').textContent = 'Заполните название, город, телефон и почту'; return; }
@@ -599,7 +599,7 @@ function bindCatalog() {
     else if (r.offline) {
       $('#jMsg').innerHTML = 'Сервер недоступен — анкета сохранена файлом, отправьте её нам' + (C.owner.email ? ` на <a href="mailto:${esc(C.owner.email)}">${esc(C.owner.email)}</a>` : '') + '.';
       download('registraciya.json', 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(d, null, 1)));
-    } else $('#jErr').textContent = 'Не получилось отправить, попробуйте позже';
+    } else $('#jErr').textContent = r.error || 'Не получилось отправить, попробуйте позже';
   });
 }
 let catalogLoaded = false;
@@ -668,13 +668,15 @@ function preview() {
   }).catch(() => { /* без 3D — только планы */ });
 }
 async function submit() {
-  $('#lNext').disabled = true; $('#lNext').textContent = 'Отправляю…';
+  const lbl = $('#lNext').textContent; $('#lNext').disabled = true; $('#lNext').textContent = 'Отправляю…';
   const ans = Object.assign({}, A);
   const payload = {
     answers: ans, brief: DK.brief(result.p), changes: result.ch, notes: result.notes, estimate: result.est,
     project: result.p, images: result.images, page: location.href, at: new Date().toISOString(),
   };
   const r = await DK.sendLead(payload);
+  // отказ проверки (капча, лимит) — остаёмся на шаге, человек может отправить ещё раз
+  if (r.error) { toast(r.error); $('#lNext').disabled = false; $('#lNext').textContent = lbl; return; }
   if ($('#lApply').checked) { P = result.p; sel = null; app.commit('Проект скорректирован'); plan.fit(); }
   const box = $('#lDone');
   if (r.ok) box.innerHTML = `<b>Заявка № ${esc(r.id)} принята</b><p>Перезвоним${A.time ? ' (' + esc(A.time) + ')' : ' в рабочее время'}, уточним детали и подготовим техзадание на расчёт. Проект сохранён — можно продолжать править.</p>`;
@@ -723,6 +725,7 @@ function hashRoute() {
   if (h === 'lead') { history.replaceState(null, '', location.pathname); openLead(); }
   else if (h === 'join') { history.replaceState(null, '', location.pathname); $('#joinDlg').showModal(); }
   else if (h === 'company') DK.Market.openCabinet('company');
+  else if (h.startsWith('project=')) { page('projects', true); DK.Market.openProject(h.slice(8)); }
   else if (h) page(h, true);
 }
 if (location.hash) hashRoute();

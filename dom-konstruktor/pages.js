@@ -28,13 +28,14 @@ module.exports = function pages(ctx) {
         if (m[1] === '/') return `</${tag}>`;
         const out = []; attrs.replace(/([a-z-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi, (q, n, _v, a, b, c) => {
           n = n.toLowerCase(); const v = a != null ? a : b != null ? b : c; if (!ATTR.has(n)) return q;
-          if ((n === 'href' || n === 'src') && /^\s*(javascript|data|vbscript):/i.test(v)) return q;
+          if ((n === 'href' || n === 'src') && /^\s*(javascript|vbscript):/i.test(v)) return q;
+          if (/^\s*data:/i.test(v) && !(n === 'src' && /^\s*data:image\/(png|jpe?g|webp|gif);/i.test(v))) return q;
           out.push(`${n}="${esc(v)}"`); return q;
         });
         return `<${tag}${out.length ? ' ' + out.join(' ') : ''}>`;
       });
   }
-  const url = (u) => /^(https?:\/\/|\/|#|mailto:|tel:)/i.test(String(u || '')) ? esc(u) : '#';
+  const url = (u) => /^(https?:\/\/|\/|#|mailto:|tel:|data:(image\/(png|jpe?g|webp|gif)|audio\/|video\/))/i.test(String(u || '')) ? esc(u) : '#';
   function video(u) {
     u = String(u || ''); let m;
     if ((m = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([\w-]{6,})/.exec(u))) return `https://www.youtube.com/embed/${m[1]}`;
@@ -48,7 +49,7 @@ module.exports = function pages(ctx) {
   const header = (cur) => `<header class="site-top">
   <a class="logo" href="/" aria-label="${esc(BRAND)} — на главную">${LOGO}<span class="logo-word"><b>${esc(BRAND.toUpperCase())}</b><small>конструктор и подбор строителя</small></span></a>
   <nav class="site-nav" aria-label="Разделы">
-    <a href="/"${cur === 'app' ? ' aria-current="page"' : ''}>Конструктор</a><a href="/#projects">Проекты</a><a href="/#builders">Строители</a>
+    <a href="/"${cur === 'app' ? ' aria-current="page"' : ''}>Конструктор</a><a href="/proekty/"${cur === 'proekty' ? ' aria-current="page"' : ''}>Проекты</a><a href="/#builders">Строители</a>
     <a href="/uslugi/"${cur === 'uslugi' ? ' aria-current="page"' : ''}>Услуги</a><a href="/blog/"${cur === 'blog' ? ' aria-current="page"' : ''}>Блог</a><a href="/o-nas/"${cur === 'o-nas' ? ' aria-current="page"' : ''}>О нас</a>
   </nav>
   <a class="btn gold" href="/#lead">Подобрать строителя</a>
@@ -60,7 +61,7 @@ module.exports = function pages(ctx) {
     return `<footer class="site-foot"><div class="foot-grid">
   <div><a class="logo" href="/">${LOGO}<span class="logo-word"><b>${esc(BRAND.toUpperCase())}</b><small>конструктор и подбор строителя</small></span></a>
     <p>${esc(S.footerNote || 'Онлайн-конструктор частного дома, предварительная смета и подбор строительной компании.')}</p>${soc ? `<div class="soc">${soc}</div>` : ''}</div>
-  <div><h4>Сервис</h4><a href="/">Конструктор дома</a><a href="/uslugi/podbor-stroitelnoj-kompanii/">Подбор строителя</a><a href="/uslugi/eskiznyj-proekt/">Эскизный проект</a><a href="/uslugi/raschet-stoimosti-doma/">Расчёт стоимости</a><a href="/#projects">Каталог проектов</a></div>
+  <div><h4>Сервис</h4><a href="/">Конструктор дома</a><a href="/uslugi/podbor-stroitelnoj-kompanii/">Подбор строителя</a><a href="/uslugi/eskiznyj-proekt/">Эскизный проект</a><a href="/uslugi/raschet-stoimosti-doma/">Расчёт стоимости</a><a href="/proekty/">Каталог проектов</a></div>
   <div><h4>Компаниям</h4><a href="/uslugi/dlya-stroitelnyh-kompanij/">Заявки для строителей</a><a href="/#company">Кабинет компании</a><a href="/#join">Регистрация исполнителя</a><a href="/#cab">Архитекторам</a></div>
   <div><h4>Информация</h4><a href="/blog/">Блог</a><a href="/o-nas/">О нас</a><a href="/kontakty/">Контакты</a>${extra.map(r => `<a href="${r.path}">${esc(r.name || r.title)}</a>`).join('')}<a href="/politika/">Политика обработки данных</a></div>
   <div><h4>Контакты</h4>${S.phone ? `<a href="tel:${esc(S.phone.replace(/[^\d+]/g, ''))}">${esc(S.phone)}</a>` : ''}${S.email ? `<a href="mailto:${esc(S.email)}">${esc(S.email)}</a>` : ''}<span>${esc(S.city)}</span>${S.address ? `<span>${esc(S.address)}</span>` : ''}${S.hours ? `<span>${esc(S.hours)}</span>` : ''}</div>
@@ -82,6 +83,12 @@ module.exports = function pages(ctx) {
   const cta = `<aside class="cta-box"><h3>Спланируйте свой дом бесплатно</h3><p>Этажи и мансарда, 3D-прогулка, участок по нормам и вилка стоимости тёплого контура — за вечер.</p><div><a class="btn gold" href="/">Открыть конструктор</a> <a class="btn" href="/#lead">Подобрать строителя</a></div></aside>`;
 
   /* ---------- блоки ---------- */
+  // {{контакты}}, {{телефон}}, {{почта}}, {{адрес}} в тексте — из настроек сайта
+  function vars(html) {
+    const S = store.site(), tel = S.phone ? `<a href="tel:${esc(S.phone.replace(/[^\d+]/g, ''))}">${esc(S.phone)}</a>` : '', mail = S.email ? `<a href="mailto:${esc(S.email)}">${esc(S.email)}</a>` : '';
+    return html.replace(/<p>\s*\{\{контакты\}\}\s*<\/p>/g, () => contactsHtml()).replace(/\{\{контакты\}\}/g, () => contactsHtml())
+      .replace(/\{\{телефон\}\}/g, tel).replace(/\{\{почта\}\}/g, mail).replace(/\{\{адрес\}\}/g, esc([S.city, S.address].filter(Boolean).join(', ')));
+  }
   function contactsHtml(title) {
     const S = store.site();
     return `${title ? `<h2>${esc(title)}</h2>` : ''}<ul class="contacts">${S.phone ? `<li>Телефон: <a href="tel:${esc(S.phone.replace(/[^\d+]/g, ''))}">${esc(S.phone)}</a></li>` : ''}${S.email ? `<li>Почта: <a href="mailto:${esc(S.email)}">${esc(S.email)}</a></li>` : ''}<li>Город: ${esc(S.city)}</li>${S.address ? `<li>Адрес: ${esc(S.address)}</li>` : ''}${S.hours ? `<li>Часы работы: ${esc(S.hours)}</li>` : ''}<li>Заявка на подбор строителя: <a href="/#lead">форма на сайте</a></li></ul>`;
@@ -89,7 +96,10 @@ module.exports = function pages(ctx) {
   function block(b) {
     const h = (t) => t ? `<h2>${esc(t)}</h2>` : '';
     switch (b.t) {
-      case 'text': return `<div class="b-text">${clean(b.html)}</div>`;
+      case 'text': return `<div class="b-text">${vars(clean(b.html))}</div>`;
+      case 'audio': return b.src ? `<figure class="b-audio"><audio controls preload="none" src="${url(b.src)}"></audio>${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>` : '';
+      case 'code': return b.code ? `<pre class="b-code"><code>${esc(b.code)}</code></pre>` : '';
+      case 'links': { const it = (b.items || []).map(x => store.get(x.path)).filter(r => r && pub(r)); return it.length ? `${h(b.title || 'Читайте также')}<div class="cards">${it.map(r => `<a class="card" href="${r.path}"><h3>${esc(r.name || r.title)}</h3>${r.desc ? `<p>${esc(r.desc)}</p>` : ''}</a>`).join('')}</div>` : ''; }
       case 'hero': return `<section class="b-hero"${b.img ? ` style="--img:url('${url(b.img)}')"` : ''}><div><h2>${esc(b.title)}</h2>${b.text ? `<p>${esc(b.text)}</p>` : ''}${b.btn ? `<a class="btn gold" href="${url(b.href || '/')}">${esc(b.btn)}</a>` : ''}</div></section>`;
       case 'image': return b.src ? `<figure class="b-img"><img src="${url(b.src)}" alt="${esc(b.alt)}" loading="lazy">${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>` : '';
       case 'gallery': return `<div class="b-gal">${(b.items || []).filter(x => x.src).map(x => `<figure><img src="${url(x.src)}" alt="${esc(x.alt)}" loading="lazy">${x.alt ? `<figcaption>${esc(x.alt)}</figcaption>` : ''}</figure>`).join('')}</div>`;
@@ -98,10 +108,10 @@ module.exports = function pages(ctx) {
       case 'faq': return (b.items || []).length ? `<section class="faq">${h(b.title || 'Частые вопросы')}${b.items.map(x => `<details><summary>${esc(x.q)}</summary><p>${esc(x.a)}</p></details>`).join('')}</section>` : '';
       case 'cta': return `<aside class="cta-box"><h3>${esc(b.title)}</h3>${b.text ? `<p>${esc(b.text)}</p>` : ''}<div>${b.btn ? `<a class="btn gold" href="${url(b.href || '/')}">${esc(b.btn)}</a>` : ''} ${b.btn2 ? `<a class="btn" href="${url(b.href2 || '/')}">${esc(b.btn2)}</a>` : ''}</div></aside>`;
       case 'quote': return `<blockquote class="b-quote"><p>${esc(b.text)}</p>${b.author ? `<cite>${esc(b.author)}</cite>` : ''}</blockquote>`;
-      case 'video': { const v = video(b.url); return v ? `<figure class="b-video"><iframe src="${esc(v)}" title="${esc(b.caption || 'Видео')}" loading="lazy" allowfullscreen></iframe>${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>` : ''; }
+      case 'video': { if (b.file) return `<figure class="b-video"><video controls preload="metadata" src="${url(b.file)}"></video>${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>`; const v = video(b.url); return v ? `<figure class="b-video"><iframe src="${esc(v)}" title="${esc(b.caption || 'Видео')}" loading="lazy" allowfullscreen></iframe>${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>` : ''; }
       case 'table': { const rows = String(b.rows || '').split('\n').map(l => l.split('|').map(x => x.trim())).filter(r => r.some(Boolean)); if (!rows.length) return '';
         return `${h(b.title)}<div class="b-table"><table><thead><tr>${rows[0].map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
-      case 'columns': return `<div class="b-cols"><div>${clean(b.left)}</div><div>${clean(b.right)}</div></div>`;
+      case 'columns': return `<div class="b-cols"><div>${vars(clean(b.left))}</div><div>${vars(clean(b.right))}</div></div>`;
       case 'button': return `<p class="b-btn"><a class="btn ${b.style === 'gold' ? 'gold' : ''}" href="${url(b.href || '/')}">${esc(b.text || 'Подробнее')}</a></p>`;
       case 'divider': return '<hr class="b-hr">';
       case 'contacts': return contactsHtml(b.title);
@@ -127,7 +137,7 @@ module.exports = function pages(ctx) {
 <meta name="twitter:card" content="summary_large_image"><meta name="robots" content="${r.noindex ? 'noindex, follow' : 'index, follow, max-snippet:-1, max-image-preview:large'}">
 ${S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVerify)}">` : ''}${S.gsc ? `<meta name="google-site-verification" content="${esc(S.gsc)}">` : ''}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@700;800&family=Raleway:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/vendor/fonts.css">
 <link rel="stylesheet" href="/css/pages.css">
 <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>${metrika(S)}</head>
 <body>${o.draft ? '<div class="draft-bar">Предпросмотр — страница ещё не опубликована</div>' : ''}${header(o.cur)}<main class="page">${o.body}</main>${footer()}</body></html>`;
@@ -166,6 +176,46 @@ ${others.length ? `<section class="more"><h2>Читайте также</h2><div 
     return page(req, r, { cur: r.path.replace(/\//g, ''), draft, ld: [crumbs(b, items), kindLd], body: `${crumbHtml(items)}<article><h1>${esc(r.title)}</h1>${r.lead ? `<p class="lead">${esc(r.lead)}</p>` : ''}${blocksHtml(r)}</article>${r.path === '/politika/' ? '' : ctaOf(r)}` });
   }
 
+  /* ---------- проекты пользователей: каталог и страница каждого проекта ---------- */
+  function projects() {
+    const dir = path.join(DATA, 'projects'); let a = [];
+    try { a = fs.readdirSync(dir).map(id => { try { return JSON.parse(fs.readFileSync(path.join(dir, id, 'project.json'), 'utf8')); } catch (e) { return null; } }).filter(x => x && x.status === 'published'); } catch (e) { /* нет */ }
+    return a.sort((x, y) => (y.boost ? 1 : 0) - (x.boost ? 1 : 0) || String(y.updatedAt || y.at).localeCompare(String(x.updatedAt || x.at)));
+  }
+  const rating = (pr) => { const v = Object.values(pr.votes || {}); return { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }; };
+  const cover = (pr) => { const f = (pr.files || []).find(x => x.startsWith('exterior')) || (pr.files || [])[0]; return f ? `/api/projects/${pr.id}/file/${f}` : ''; };
+  const money = (v) => v ? Number(v).toLocaleString('ru-RU') + ' ₽' : 'бесплатно';
+  const ownerName = (pr) => { try { const u = JSON.parse(fs.readFileSync(path.join(DATA, 'users.json'), 'utf8')).find(x => x.id === pr.owner); return u ? { name: u.name, arch: u.archStatus === 'verified' } : { name: 'Автор' }; } catch (e) { return { name: 'Автор' }; } };
+  function projSeo(pr) {
+    const s = pr.seo || {}, fl = pr.floors > 1 ? `${pr.floors} этажа` : 'одноэтажный';
+    return { title: s.title || `${pr.title} — проект дома ${Math.round(pr.area)} м², ${fl} — ${BRAND}`,
+      desc: s.desc || `Проект дома ${Math.round(pr.area)} м², ${fl}${pr.size ? ', ' + pr.size : ''}. ${String(pr.about || '').slice(0, 90)} Планировки этажей и 3D, откройте в конструкторе.`.replace(/\s+/g, ' ').slice(0, 170),
+      keywords: s.keywords || `проект дома ${Math.round(pr.area)} м2, планировка дома ${fl}`, noindex: !!s.noindex };
+  }
+  function projectsList(req, r) {
+    const b = base(req), items = [['Главная', '/'], [r.name || r.title, r.path]], ps = projects();
+    return page(req, r, { cur: 'proekty', ld: [crumbs(b, items), { '@type': 'ItemList', itemListElement: ps.map((p, i) => ({ '@type': 'ListItem', position: i + 1, url: b + '/proekty/' + p.id + '/', name: p.title })) }],
+      body: `${crumbHtml(items)}<h1>${esc(r.title)}</h1>${r.lead ? `<p class="lead">${esc(r.lead)}</p>` : ''}
+<div class="cards">${ps.map(p => { const rt = rating(p), c = cover(p); return `<a class="card has-cover" href="/proekty/${p.id}/">${c ? `<img src="${esc(c)}" alt="${esc(p.title)}" loading="lazy">` : ''}<h2>${p.boost ? '★ ' : ''}${esc(p.title)}</h2><p>${Math.round(p.area)} м² · ${p.floors} эт.${p.size ? ' · ' + esc(p.size) : ''}${rt.n ? ` · ★ ${rt.avg}` : ''}</p><span class="price">${money(p.price)}</span></a>`; }).join('') || '<p>Проектов пока нет — опубликуйте первый из конструктора.</p>'}</div>${blocksHtml(r)}${ctaOf(r)}` });
+  }
+  function projectPage(req, pr) {
+    const b = base(req), S = projSeo(pr), rt = rating(pr), au = ownerName(pr), items = [['Главная', '/'], ['Проекты домов', '/proekty/'], [pr.title, '/proekty/' + pr.id + '/']];
+    const imgs = (pr.files || []).map(f => `/api/projects/${pr.id}/file/${f}`);
+    const r = { path: '/proekty/' + pr.id + '/', kind: 'project', title: pr.title, seoTitle: S.title, desc: S.desc, keywords: S.keywords, noindex: S.noindex, ogImage: imgs[0] || '', blocks: [], updatedAt: pr.updatedAt || pr.at };
+    const prod = { '@type': 'Product', name: pr.title, description: S.desc, image: imgs.map(u => b + u), category: 'Проект частного дома', brand: { '@type': 'Brand', name: BRAND },
+      offers: { '@type': 'Offer', price: String(pr.price || 0), priceCurrency: 'RUB', availability: 'https://schema.org/InStock', url: b + r.path },
+      additionalProperty: [{ '@type': 'PropertyValue', name: 'Площадь', value: Math.round(pr.area * 10) / 10, unitText: 'м²' }, { '@type': 'PropertyValue', name: 'Этажей', value: pr.floors }] };
+    if (rt.n) prod.aggregateRating = { '@type': 'AggregateRating', ratingValue: rt.avg, ratingCount: rt.n, bestRating: 5 };
+    return page(req, r, { cur: 'proekty', ld: [crumbs(b, items), prod],
+      body: `${crumbHtml(items)}<article><h1>${esc(pr.title)}</h1><p class="meta">${esc(au.name)}${au.arch ? ' · архитектор ✓' : ''}${rt.n ? ` · ★ ${rt.avg} (${rt.n})` : ''}</p>
+${imgs.length ? `<div class="b-gal proj-gal">${imgs.map((u, i) => `<figure><img src="${esc(u)}" alt="${esc(pr.title)} — ${i === 0 && u.includes('exterior') ? 'вид снаружи' : 'план этажа'}" loading="lazy"></figure>`).join('')}</div>` : ''}
+<div class="b-table"><table><tbody><tr><th>Площадь помещений</th><td>${DKfmt(pr.area)} м²</td></tr><tr><th>Этажей</th><td>${pr.floors}</td></tr>${pr.size ? `<tr><th>Габариты</th><td>${esc(pr.size)}</td></tr>` : ''}<tr><th>Цена эскиза</th><td>${money(pr.price)}</td></tr><tr><th>Что получает покупатель</th><td>${pr.license === 'build' ? 'право построить один дом по эскизу' : 'эскиз для ознакомления и доработки'}</td></tr></tbody></table></div>
+${pr.about ? `<h2>О проекте</h2><p>${esc(pr.about)}</p>` : ''}
+<p class="b-btn"><a class="btn gold" href="/#project=${esc(pr.id)}">Открыть в конструкторе и изменить под себя</a> <a class="btn" href="/#lead">Подобрать строителя</a></p></article>
+<section class="more"><h2>Другие проекты</h2><div class="cards">${projects().filter(x => x.id !== pr.id).slice(0, 3).map(x => `<a class="card" href="/proekty/${x.id}/"><h3>${esc(x.title)}</h3><p>${Math.round(x.area)} м² · ${x.floors} эт.</p></a>`).join('')}</div></section>` });
+  }
+  const DKfmt = (v) => (Math.round((+v || 0) * 10) / 10).toString().replace('.', ',');
+
   /* главная — SPA конструктора: подставляем SEO из CMS */
   function home(req) {
     const r = store.get('/'), S = store.site();
@@ -187,7 +237,8 @@ ${others.length ? `<section class="more"><h2>Читайте также</h2><div 
     const b = base(req), u = (loc, d, pr) => `<url><loc>${b}${loc}</loc><lastmod>${d}</lastmod><priority>${pr}</priority></url>`;
     const pr = { home: '1.0', list: '0.9', service: '0.9', post: '0.8', page: '0.6' };
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` +
-      store.all().filter(r => pub(r) && !r.noindex).map(r => u(r.path, r.kind === 'post' && !r.edited ? r.date : day(r), r.path === '/politika/' ? '0.3' : pr[r.kind] || '0.6')).join('') + `</urlset>`;
+      store.all().filter(r => pub(r) && !r.noindex).map(r => u(r.path, r.kind === 'post' && !r.edited ? r.date : day(r), r.path === '/politika/' ? '0.3' : pr[r.kind] || '0.6')).join('') +
+      projects().filter(x => !projSeo(x).noindex).map(x => u('/proekty/' + x.id + '/', String(x.updatedAt || x.at).slice(0, 10), x.boost ? '0.8' : '0.7')).join('') + `</urlset>`;
   }
   const robots = (req) => `# Поисковые системы и ИИ-ассистенты приглашены: открыт весь публичный контент\nUser-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin.html\nDisallow: /crm.html\n\n` +
     ['Yandex', 'Googlebot', 'GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-SearchBot', 'PerplexityBot', 'Google-Extended', 'YandexAdditional', 'GigaBot'].map(a => `User-agent: ${a}\nAllow: /\nDisallow: /api/\n`).join('\n') +
@@ -210,14 +261,26 @@ ${others.length ? `<section class="more"><h2>Читайте также</h2><div 
     if (p === '/robots.txt') { txt(robots(req)); return true; }
     if (p === '/llms.txt') { txt(llms(req, false)); return true; }
     if (p === '/llms-full.txt') { txt(llms(req, true)); return true; }
-    const mm = /^\/media\/([\w-]+\.(png|jpe?g|webp|gif))$/.exec(p);
-    if (mm) { const f = path.join(DATA, 'media', mm[1]); if (!fs.existsSync(f)) return false; res.writeHead(200, { 'Content-Type': { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }[mm[2]], 'Cache-Control': 'public, max-age=604800' }); fs.createReadStream(f).pipe(res); return true; }
+    const mm = /^\/media\/([\w-]+\.(png|jpe?g|webp|gif|mp3|m4a|ogg|mp4|webm))$/.exec(p);
+    if (mm) {
+      const f = path.join(DATA, 'media', mm[1]); if (!fs.existsSync(f)) return false;
+      const type = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', mp3: 'audio/mpeg', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm' }[mm[2]];
+      const size = fs.statSync(f).size, rg = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
+      // перемотка аудио и видео: ответ по диапазону байтов
+      if (rg) { const a = rg[1] ? +rg[1] : Math.max(0, size - +rg[2]), z = rg[1] && rg[2] ? Math.min(+rg[2], size - 1) : size - 1;
+        if (a >= size || a > z) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); res.end(); return true; }
+        res.writeHead(206, { 'Content-Type': type, 'Content-Range': `bytes ${a}-${z}/${size}`, 'Accept-Ranges': 'bytes', 'Content-Length': z - a + 1, 'Cache-Control': 'public, max-age=604800' }); fs.createReadStream(f, { start: a, end: z }).pipe(res); return true; }
+      res.writeHead(200, { 'Content-Type': type, 'Content-Length': size, 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=604800' }); fs.createReadStream(f).pipe(res); return true;
+    }
+    const pm = /^\/proekty\/([\w-]+)\/?$/.exec(p);
+    if (pm) { const pr = projects().find(x => x.id === pm[1]); if (!pr) return false; if (!p.endsWith('/')) { res.writeHead(301, { Location: p + '/' }); res.end(); return true; } html(projectPage(req, pr)); return true; }
     if (/^\/[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(p) && store.get(p + '/')) { res.writeHead(301, { Location: p + '/' }); res.end(); return true; }
     const r = /\/$/.test(p) && p !== '/' ? store.get(p) : null;
-    if (r && pub(r)) { html(render(req, r)); return true; }
+    if (r && pub(r)) { html(r.path === '/proekty/' ? projectsList(req, r) : render(req, r)); return true; }
     return false;
   }
-  handle.preview = (req, r) => render(req, Object.assign({ blocks: [], status: 'draft' }, r), r.status !== 'published');
+  handle.preview = (req, r) => r.path === '/proekty/' ? projectsList(req, Object.assign({ blocks: [] }, r)) : render(req, Object.assign({ blocks: [], status: 'draft' }, r), r.status !== 'published');
+  handle.projectPage = projectPage; handle.projects = projects;
   handle.store = store;
   return handle;
 };
