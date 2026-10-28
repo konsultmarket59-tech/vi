@@ -287,7 +287,7 @@ DK.siteTz = function (p) {
 DK.SitePlan = function (canvas, app) {
   const ctx = canvas.getContext('2d'), view = { k: 0.02, ox: 40, oy: 40 };
   let dpr = 1, drag = null, sel = null, editPoly = false, hotV = -1, lastTap = { i: -1, t: 0 };
-  const INK = '#2f3237', SEL = '#e3a21a';
+  const INK = '#242832', SEL = '#2784EB';
   function size() { dpr = window.devicePixelRatio || 1; const r = canvas.getBoundingClientRect(); canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr)); render(); }
   function fit() {
     const p = app.p(), s = p.site; if (!s) return;
@@ -299,7 +299,7 @@ DK.SitePlan = function (canvas, app) {
   const line = (c, a, b, d, e) => { c.beginPath(); c.moveTo(a, b); c.lineTo(d, e); c.stroke(); };
   function dimText(c, x0, y0, x1, y1, txt) {
     c.strokeStyle = SEL; c.lineWidth = 1; c.setLineDash([4, 3]); line(c, x0, y0, x1, y1); c.setLineDash([]);
-    c.font = '600 11px "JetBrains Mono", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = '600 11px Inter, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, w = c.measureText(txt).width + 8;
     c.fillStyle = 'rgba(255,255,255,.9)'; c.fillRect(mx - w / 2, my - 8, w, 16); c.fillStyle = INK; c.fillText(txt, mx, my);
   }
@@ -318,7 +318,7 @@ DK.SitePlan = function (canvas, app) {
     // улица — красная линия по уличным сторонам
     c.strokeStyle = '#c0392b'; c.lineWidth = 3;
     SE.filter(e => e.street).forEach(e => line(c, X(e.a.x), Y(e.a.y), X(e.b.x), Y(e.b.y)));
-    c.font = '700 12px Raleway, sans-serif'; c.fillStyle = '#c0392b'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = '700 12px Inter, sans-serif'; c.fillStyle = '#c0392b'; c.textAlign = 'center'; c.textBaseline = 'middle';
     const se = SE.filter(e => e.street).sort((a, b) => b.len - a.len)[0];
     if (se) c.fillText('УЛИЦА', X((se.a.x + se.b.x) / 2 + se.nx * 1800), Y((se.a.y + se.b.y) / 2 + se.ny * 1800));
     // заезды и дорожка
@@ -335,9 +335,9 @@ DK.SitePlan = function (canvas, app) {
     const M = DK.mainRect(p), ridgeX = (p.roof.ridge === 'short') === ((M.x1 - M.x0) >= (M.y1 - M.y0));
     if (p.roof.type !== 'flat' && p.roof.type !== 'pyramid') { c.strokeStyle = 'rgba(47,50,55,.6)'; c.lineWidth = 1; if (!ridgeX) line(c, HX(M.x0), HY((M.y0 + M.y1) / 2), HX(M.x1), HY((M.y0 + M.y1) / 2)); else line(c, HX((M.x0 + M.x1) / 2), HY(M.y0), HX((M.x0 + M.x1) / 2), HY(M.y1)); }
     const hb = DK.siteHouseBox(p);
-    c.font = '700 13px Raleway, sans-serif'; c.fillStyle = INK; c.textAlign = 'center';
+    c.font = '700 13px Inter, sans-serif'; c.fillStyle = INK; c.textAlign = 'center';
     c.fillText('Дом', HX((hb.x0 + hb.x1) / 2), HY(p.D / 2) - 8);
-    c.font = '500 11px "JetBrains Mono", monospace'; c.fillText(`${DK.fmtM(p.W + 2 * ext)} × ${DK.fmtM(p.D + 2 * ext)}`, HX((hb.x0 + hb.x1) / 2), HY(p.D / 2) + 8);
+    c.font = '500 11px Inter, sans-serif'; c.fillText(`${DK.fmtM(p.W + 2 * ext)} × ${DK.fmtM(p.D + 2 * ext)}`, HX((hb.x0 + hb.x1) / 2), HY(p.D / 2) + 8);
     const E = DK.siteEntry(p); if (E) { c.fillStyle = '#c0392b'; c.beginPath(); c.arc(X(E.x), Y(E.y), 4, 0, 7); c.fill(); }
     // постройки
     for (const q of s.objs) {
@@ -374,14 +374,14 @@ DK.SitePlan = function (canvas, app) {
       if (q.type === 'bbq') { c.fillStyle = '#8c5a46'; c.fillRect(R[0] + R[2] / 2 - L(600), R[1] + L(150), L(1200), L(600)); }
       c.restore();
       const fs = Math.max(9, Math.min(12, L(700)));
-      c.font = `600 ${fs}px Raleway, sans-serif`; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = `600 ${fs}px Inter, sans-serif`; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
       if (R[2] > 40) c.fillText(T.n, R[0] + R[2] / 2, R[1] + R[3] / 2);
     }
     // длины сторон участка — снаружи у каждой стороны
-    c.font = '600 11px "JetBrains Mono", monospace'; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = '600 11px Inter, sans-serif'; c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'middle';
     SE.forEach(e => { if (L(e.len) < 34) return; const mx = X((e.a.x + e.b.x) / 2) + e.nx * 14, my = Y((e.a.y + e.b.y) / 2) + e.ny * 14; let ang = Math.atan2(e.b.y - e.a.y, e.b.x - e.a.x); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
       c.save(); c.translate(mx, my); c.rotate(ang); c.fillText(DK.fmtM(e.len) + ' м', 0, 0); c.restore(); });
-    if (!o.noSel) { c.font = '600 12px Raleway, sans-serif'; c.textAlign = 'left'; c.fillStyle = INK; c.fillText(`${DK.fmtA(DK.siteArea(s) / 1e8)} сот.${s.poly ? ' · ' + s.poly.length + ' углов' : ''}`, X(0), Y(0) - 30); }
+    if (!o.noSel) { c.font = '600 12px Inter, sans-serif'; c.textAlign = 'left'; c.fillStyle = INK; c.fillText(`${DK.fmtA(DK.siteArea(s) / 1e8)} сот.${s.poly ? ' · ' + s.poly.length + ' углов' : ''}`, X(0), Y(0) - 30); }
     // правка контура: вершины и «+» на серединах сторон
     if (editPoly && !o.noSel) {
       SE.forEach(e => { const mx = X((e.a.x + e.b.x) / 2), my = Y((e.a.y + e.b.y) / 2); c.fillStyle = '#fff'; c.strokeStyle = SEL; c.lineWidth = 1.5; c.beginPath(); c.arc(mx, my, 6, 0, 7); c.fill(); c.stroke(); c.strokeStyle = INK; line(c, mx - 3, my, mx + 3, my); line(c, mx, my - 3, mx, my + 3); });
@@ -403,7 +403,7 @@ DK.SitePlan = function (canvas, app) {
     c.strokeStyle = INK; c.lineWidth = 1.2; c.beginPath(); c.arc(0, 0, cr, 0, 7); c.stroke();
     c.fillStyle = '#c0392b'; c.beginPath(); c.moveTo(0, -cr + 3); c.lineTo(7, 4); c.lineTo(-7, 4); c.closePath(); c.fill();
     c.fillStyle = INK; c.beginPath(); c.moveTo(0, cr - 3); c.lineTo(7, 4); c.lineTo(-7, 4); c.closePath(); c.fill();
-    c.font = '700 12px Raleway, sans-serif'; c.textAlign = 'center'; c.fillText('С', 0, -cr - 9);
+    c.font = '700 12px Inter, sans-serif'; c.textAlign = 'center'; c.fillText('С', 0, -cr - 9);
     c.restore();
   }
   function render() {

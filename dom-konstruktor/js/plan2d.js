@@ -3,12 +3,15 @@
 'use strict';
 const DK = window.DK;
 
+/* цвета и шрифты чертежа — токены «Логики Дома» (brand/ld.css, --plan-*): наружная стена — Technical Gray со штриховкой,
+   несущая — терракота, перегородки — светлая терракота, окна — Electric Blue, мокрые зоны — голубые; Manrope — площади и номера, Inter — подписи */
 const COL = {
-  bg: '#eceeef', sheet: '#ffffff', ink: '#2b2e33', muted: '#7b8088',
-  gas: '#dcdee1', insul: '#f0e3a6', bearing: '#b8644a', part: '#dca48c',
+  bg: '#F5F6F8', sheet: '#ffffff', ink: '#242832', muted: '#5B6272', navy: '#19317B', blue: '#2784EB', cyan: '#26C6C8',
+  gas: '#D9DEE8', gasHatch: '#A3A9B7', insul: '#F3E4A6', bearing: '#C9735E', bearingHatch: '#A65440', part: '#E2A593',
   clad: { plaster: '#cbc5bb', brick: '#a9533b', fibro: '#878c93', planken: '#a77a52', siding: '#9aa3a8' },
-  glass: '#5f9fc4', wet: 'rgba(63,134,194,.10)', wetLine: '#3f86c2', sel: '#e3a21a', stair: '#8a8f97', rail: '#4a4f57',
+  glass: '#2784EB', wet: '#E9F2FD', wetHatch: '#9CC3F0', wetLine: '#2784EB', sel: '#2784EB', stair: '#7A8193', rail: '#5B6272', dim: '#5B6272',
 };
+const FD = (w, s) => `${w} ${s}px Manrope, system-ui, sans-serif`, FB = (w, s) => `${w} ${s}px Inter, system-ui, sans-serif`;
 
 function Plan2D(canvas, app) {
   const ctx = canvas.getContext('2d');
@@ -62,8 +65,13 @@ function Plan2D(canvas, app) {
     // помещения
     regs.forEach(r => {
       const R = DK.ROOM[r.type] || DK.ROOM.none;
-      c.fillStyle = r.type === 'void' ? '#f3f4f6' : R.wet ? '#eef5fa' : (r.type === 'none' ? '#fbfbfb' : '#fff');
+      c.fillStyle = r.type === 'void' ? '#F5F6F8' : R.wet ? COL.wet : (r.type === 'none' ? '#FBFBFC' : '#fff');
       r.cells.forEach(q => c.fillRect(X(q[0]), Y(q[1]), L(q[2] - q[0]) + 0.5, L(q[3] - q[1]) + 0.5));
+      if (R.wet) {
+        // мокрая зона: тонкая штриховка
+        c.save(); c.beginPath(); r.cells.forEach(q => c.rect(X(q[0]), Y(q[1]), L(q[2] - q[0]), L(q[3] - q[1]))); c.clip(); c.strokeStyle = COL.wetHatch; c.globalAlpha = 0.55; c.lineWidth = 0.6;
+        const st = Math.max(7, L(260)); for (let d = X(r.x0) - L(r.y1 - r.y0); d < X(r.x1); d += st) line(c, d, Y(r.y1), d + L(r.y1 - r.y0), Y(r.y0)); c.restore();
+      }
       if (r.type === 'void') {
         c.save(); c.beginPath(); r.cells.forEach(q => c.rect(X(q[0]), Y(q[1]), L(q[2] - q[0]), L(q[3] - q[1]))); c.clip();
         c.strokeStyle = 'rgba(43,46,51,.25)'; c.lineWidth = 1;
@@ -101,7 +109,7 @@ function Plan2D(canvas, app) {
       if (w.rail) return;
       c.fillStyle = w.kind === 'outer' ? COL.gas : w.kind === 'bearing' ? COL.bearing : COL.part;
       c.fillRect(X(w.x0), Y(w.y0), L(w.x1 - w.x0), L(w.y1 - w.y0));
-      if (w.kind !== 'part') hatch(c, X(w.x0), Y(w.y0), L(w.x1 - w.x0), L(w.y1 - w.y0), w.kind === 'outer' ? 'rgba(0,0,0,.10)' : 'rgba(255,255,255,.35)', w.kind === 'outer' ? 7 : 5);
+      if (w.kind !== 'part') hatch(c, X(w.x0), Y(w.y0), L(w.x1 - w.x0), L(w.y1 - w.y0), w.kind === 'outer' ? COL.gasHatch : COL.bearingHatch, w.kind === 'outer' ? 7 : 5);
     });
     // косые стены: срез угла (штриховка как у наружных) и диагональные перегородки
     const dws = DK.diagWalls(p, fid);
@@ -143,25 +151,27 @@ function Plan2D(canvas, app) {
     }
     lv.open.forEach(op => drawOpening(c, p, fid, ws, regs, op, X, Y, L, ext, o.sel && o.sel.kind === 'open' && o.sel.id === op.id));
     // подписи помещений
+    const nums = o.numbers || (DK.roomNumbers ? DK.roomNumbers(p) : null);
     regs.forEach(r => {
       const R = DK.ROOM[r.type] || DK.ROOM.none;
-      const fs = Math.max(9, Math.min(14, L(900)));
+      const fs = Math.max(9, Math.min(13, L(800)));
       if (L(r.x1 - r.x0) < 40 || L(r.y1 - r.y0) < 24) return;
-      c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillStyle = r.type === 'none' ? COL.muted : COL.ink;
-      c.font = `600 ${fs}px Raleway, sans-serif`;
-      const cy = Y(r.cy) - fs * 0.7;
-      const num = o.numbers && o.numbers[fid] && o.numbers[fid].get(r.i);
-      c.fillText(num ? num + '. ' + R.n : R.n, X(r.cx), cy);
-      c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`;
-      c.fillStyle = COL.ink; c.fillText(DK.fmtA(r.area) + ' м²', X(r.cx), cy + fs * 1.25);
-      if (r.rect && o.dims !== false) {
-        c.fillStyle = COL.muted; c.font = `500 ${fs * 0.75}px "JetBrains Mono", monospace`;
-        c.fillText(Math.round(r.x1 - r.x0) + ' × ' + Math.round(r.y1 - r.y0), X(r.cx), cy + fs * 2.35);
+      const num = r.type !== 'void' && nums && nums[fid] && nums[fid].get(r.i), name = r.type === 'none' ? 'Назначьте помещение' : R.n;
+      const area = DK.fmtA(r.area) + ' м²', dimT = r.rect && o.dims !== false ? Math.round(r.x1 - r.x0) + ' × ' + Math.round(r.y1 - r.y0) : '';
+      c.font = FB(500, fs); const wName = c.measureText(name).width; c.font = FD(600, fs); const wArea = c.measureText(area).width; c.font = FB(400, fs * 0.82); const wDim = dimT ? c.measureText(dimT).width + fs * 0.5 : 0;
+      const nd = num ? fs * 1.6 : 0, gap = num ? fs * 0.5 : 0, wTxt = Math.max(wName, wArea + wDim), x0 = X(r.cx) - (nd + gap + wTxt) / 2, cy = Y(r.cy);
+      if (num) {
+        // узел с номером: Navy, у мокрых — Electric Blue
+        c.fillStyle = R.wet ? COL.blue : COL.navy; c.beginPath(); c.arc(x0 + nd / 2, cy, nd / 2, 0, 7); c.fill();
+        c.fillStyle = '#fff'; c.font = FD(600, fs * 0.82); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(num), x0 + nd / 2, cy + 0.5);
       }
+      const tx = x0 + nd + gap; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+      c.fillStyle = r.type === 'none' ? COL.muted : COL.ink; c.font = FB(500, fs); c.fillText(name, tx, cy - fs * 0.2);
+      c.fillStyle = COL.navy; c.font = FD(600, fs); c.fillText(area, tx, cy + fs * 1.05);
+      if (dimT) { c.fillStyle = COL.dim; c.font = FB(400, fs * 0.82); c.fillText(dimT, tx + wArea + fs * 0.5, cy + fs * 1.05); }
     });
     if (p.wet && L(p.wet.w) > 70) {
-      c.font = `700 ${Math.max(9, Math.min(11, L(600)))}px Raleway, sans-serif`; c.fillStyle = COL.wetLine; c.textAlign = 'left'; c.textBaseline = 'top';
+      c.font = FB(600, Math.max(8, Math.min(10, L(500)))); c.fillStyle = COL.wetLine; c.textAlign = 'left'; c.textBaseline = 'top';
       c.fillText('МОКРАЯ ЗОНА', X(p.wet.x) + 5, Y(p.wet.y) + 4);
     }
     if (o.dims !== false) dims(c, p, fid, ws, X, Y, L, ext, o.dimOpen);
@@ -187,9 +197,9 @@ function Plan2D(canvas, app) {
       c.fillStyle = COL.ink;
       DK.extColumns(p, x).forEach(q => c.fillRect(X(q.x - 150), Y(q.y - 150), L(300), L(300)));
       const fs = Math.max(9, Math.min(13, L(800)));
-      c.font = `600 ${fs}px Raleway, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
+      c.font = FB(600, fs); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
       const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
-      if (R[2] > 50 && R[3] > 24) { c.fillText(DK.extName(x), X(cx), Y(cy) - fs * 0.6); c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`; c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6); }
+      if (R[2] > 50 && R[3] > 24) { c.fillText(DK.extName(x), X(cx), Y(cy) - fs * 0.6); c.font = FD(600, fs * 0.9); c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6); }
       if (sel && sel.kind === 'ext' && sel.id === x.id) {
         c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4);
         c.fillStyle = '#fff'; c.lineWidth = 2;
@@ -255,8 +265,8 @@ function Plan2D(canvas, app) {
     c.setLineDash([]);
     c.strokeStyle = COL.ink; c.lineWidth = 1.2; c.strokeRect(R[0], R[1], R[2], R[3]);
     const fs = Math.max(9, Math.min(13, L(800))), cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
-    c.font = `600 ${fs}px Raleway, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
-    c.fillText(DK.garageName(x), X(cx), Y(cy) - fs * 0.6); c.font = `500 ${fs * 0.9}px "JetBrains Mono", monospace`; c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6);
+    c.font = FB(600, fs); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = COL.ink;
+    c.fillText(DK.garageName(x), X(cx), Y(cy) - fs * 0.6); c.font = FD(600, fs * 0.9); c.fillText(DK.fmtA(x.w * x.d / 1e6) + ' м²', X(cx), Y(cy) + fs * 0.6);
     if (sel && sel.kind === 'ext' && sel.id === x.id) {
       c.strokeStyle = COL.sel; c.lineWidth = 2.5; c.strokeRect(R[0] - 2, R[1] - 2, R[2] + 4, R[3] + 4);
       c.fillStyle = '#fff'; c.lineWidth = 2;
@@ -314,7 +324,7 @@ function Plan2D(canvas, app) {
       // ручки ширины на концах проёма
       c.fillStyle = '#fff'; c.lineWidth = 2;
       for (const a of [a0, a1]) { const q = P(a, m); c.beginPath(); c.rect(q[0] - 5, q[1] - 5, 10, 10); c.fill(); c.stroke(); }
-      c.fillStyle = COL.ink; c.font = '600 11px "JetBrains Mono", monospace'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+      c.fillStyle = COL.ink; c.font = FB(600, 11); c.textAlign = 'center'; c.textBaseline = 'bottom';
       const q = P(op.c, w.axis === 'x' ? (w.out < 0 ? t0 : t1) : (w.out < 0 ? t0 : t1));
       c.fillText(op.w + ' мм', q[0], q[1] - 6);
     }
@@ -431,8 +441,8 @@ function Plan2D(canvas, app) {
   }
 
   function dims(c, p, fid, ws, X, Y, L, ext, dimOpen) {
-    c.strokeStyle = COL.ink; c.fillStyle = COL.ink; c.lineWidth = 0.8;
-    c.font = '500 11px "JetBrains Mono", monospace';
+    c.strokeStyle = COL.dim; c.fillStyle = COL.ink; c.lineWidth = 0.8;
+    c.font = FB(500, 11);
     const hd = (x0, x1, y, label) => {
       line(c, X(x0), Y(y), X(x1), Y(y));
       for (const x of [x0, x1]) line(c, X(x) - 4, Y(y) + 4, X(x) + 4, Y(y) - 4);
@@ -471,7 +481,7 @@ function Plan2D(canvas, app) {
       const X = (x) => view.ox + x * view.k, Y = (y) => view.oy + y * view.k, Lr = Math.round(Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1));
       ctx.strokeStyle = 'rgba(227,162,26,.6)'; ctx.lineWidth = Math.max(2, DK.SPEC.part.t * view.k); ctx.beginPath(); ctx.moveTo(X(draft.x1), Y(draft.y1)); ctx.lineTo(X(draft.x2), Y(draft.y2)); ctx.stroke();
       const ang = Math.round(Math.atan2(draft.y2 - draft.y1, draft.x2 - draft.x1) * 180 / Math.PI);
-      ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.fillStyle = COL.ink; ctx.textAlign = 'left'; ctx.fillText(`${Lr} мм · ${(ang % 180 + 180) % 180}°`, X(draft.x2) + 10, Y(draft.y2) - 10);
+      ctx.font = FB(600, 12); ctx.fillStyle = COL.ink; ctx.textAlign = 'left'; ctx.fillText(`${Lr} мм · ${(ang % 180 + 180) % 180}°`, X(draft.x2) + 10, Y(draft.y2) - 10);
     } else if (draft) {
       const X = (x) => view.ox + x * view.k, Y = (y) => view.oy + y * view.k;
       const h = DK.SPEC.part.t / 2;
@@ -479,22 +489,22 @@ function Plan2D(canvas, app) {
       if (draft.y1 === draft.y2) ctx.fillRect(X(Math.min(draft.x1, draft.x2)), Y(draft.y1 - h), Math.abs(draft.x2 - draft.x1) * view.k, 2 * h * view.k);
       else ctx.fillRect(X(draft.x1 - h), Y(Math.min(draft.y1, draft.y2)), 2 * h * view.k, Math.abs(draft.y2 - draft.y1) * view.k);
       const len = Math.abs(draft.x2 - draft.x1) + Math.abs(draft.y2 - draft.y1);
-      ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.fillStyle = COL.ink; ctx.textAlign = 'left';
+      ctx.font = FB(600, 12); ctx.fillStyle = COL.ink; ctx.textAlign = 'left';
       ctx.fillText(len + ' мм', X(draft.x2) + 10, Y(draft.y2) - 10);
     }
     if (measure && tool === 'measure') {
       const X = (x) => view.ox + x * view.k, Y = (y) => view.oy + y * view.k, a = measure.a, b = measure.b, L = Math.round(Math.hypot(b.x - a.x, b.y - a.y));
-      ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(a.x), Y(a.y)); ctx.lineTo(X(b.x), Y(b.y)); ctx.stroke();
-      for (const q of [a, b]) { ctx.beginPath(); ctx.arc(X(q.x), Y(q.y), 4, 0, 7); ctx.fillStyle = '#c0392b'; ctx.fill(); }
+      ctx.strokeStyle = COL.blue; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(a.x), Y(a.y)); ctx.lineTo(X(b.x), Y(b.y)); ctx.stroke();
+      for (const q of [a, b]) { ctx.beginPath(); ctx.arc(X(q.x), Y(q.y), 4, 0, 7); ctx.fillStyle = COL.blue; ctx.fill(); }
       if (L > 0) {
         const t = `${L} мм${Math.abs(b.x - a.x) > 5 && Math.abs(b.y - a.y) > 5 ? `  (${Math.round(Math.abs(b.x - a.x))} × ${Math.round(Math.abs(b.y - a.y))})` : ''}`;
-        ctx.font = '700 13px "JetBrains Mono", monospace'; const tw = ctx.measureText(t).width + 12, mx = (X(a.x) + X(b.x)) / 2, my = (Y(a.y) + Y(b.y)) / 2 - 16;
-        ctx.fillStyle = '#fff'; ctx.fillRect(mx - tw / 2, my - 11, tw, 22); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1; ctx.strokeRect(mx - tw / 2, my - 11, tw, 22);
-        ctx.fillStyle = '#c0392b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, mx, my);
+        ctx.font = FD(700, 13); const tw = ctx.measureText(t).width + 12, mx = (X(a.x) + X(b.x)) / 2, my = (Y(a.y) + Y(b.y)) / 2 - 16;
+        ctx.fillStyle = '#fff'; ctx.fillRect(mx - tw / 2, my - 11, tw, 22); ctx.strokeStyle = COL.blue; ctx.lineWidth = 1; ctx.strokeRect(mx - tw / 2, my - 11, tw, 22);
+        ctx.fillStyle = COL.blue; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, mx, my);
       }
     }
     if (drag && drag.kind === 'edge' && drag.label) {
-      ctx.font = '600 12px "JetBrains Mono", monospace'; ctx.fillStyle = COL.ink; ctx.textAlign = 'left';
+      ctx.font = FB(600, 12); ctx.fillStyle = COL.ink; ctx.textAlign = 'left';
       ctx.fillText(drag.label, drag.sx + 14, drag.sy - 12);
     }
     if (hover && tool !== 'select') {
@@ -894,9 +904,11 @@ function Plan2D(canvas, app) {
     const cv = document.createElement('canvas'); cv.width = px; cv.height = hpx;
     const c = cv.getContext('2d');
     c.fillStyle = '#fff'; c.fillRect(0, 0, px, hpx);
-    c.fillStyle = COL.ink; c.font = '700 22px Raleway, sans-serif'; c.textAlign = 'left'; c.textBaseline = 'top';
-    const A = DK.rooms(p, fid).filter(r => r.type !== 'void').reduce((s, r) => s + r.area, 0);
-    if (!opt.noTitle) c.fillText(DK.floorName(fid) + ' · ' + DK.fmtA(A) + ' м²', 24, 18);
+    const A = (DK.areas(p).per.find(f => f.fid === fid) || { area: 0 }).area, fl = DK.atticOn(p) && DK.atticFloor(p) === fid ? 'Мансарда' : DK.floorName(fid);
+    if (!opt.noTitle) {
+      c.font = FD(700, 22); c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = COL.navy; c.fillText(fl, 24, 16);
+      const w1 = c.measureText(fl + ' ').width; c.fillStyle = COL.cyan; c.fillText('·', 24 + w1, 16); c.fillStyle = COL.navy; c.fillText(' ' + DK.fmtA(A) + ' м²', 24 + w1 + c.measureText('·').width, 16);
+    }
     draw(c, { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 }, p, fid, { clean: true, dimOpen: true, numbers: opt.numbers });
     return cv.toDataURL('image/png');
   }

@@ -1121,9 +1121,9 @@ DK.explication = function (p) {
   DK.floorsOf(p).forEach(fid => {
     const rooms = DK.rooms(p, fid).filter(r => r.type !== 'void').map(r => {
       const R = DK.ROOM[r.type] || DK.ROOM.none, area = fid === af ? DK.atticArea(p, r) : r.area;
-      n++; const num = nums && nums.get ? (nums.get(r) || n) : n;
+      n++; const num = nums && nums[fid] && nums[fid].get(r.i) || n;
       return { n: num, type: r.type, name: r.type === 'none' ? 'Не назначено' : R.n, area, wet: !!R.wet, cold: !!R.cold, icon: DK.ROOM_ICON[r.type] || DK.ROOM_ICON.none, dims: r.rect ? `${Math.round(r.x1 - r.x0)} × ${Math.round(r.y1 - r.y0)}` : '' };
-    });
+    }).sort((a, b) => a.n - b.n);
     const sum = rooms.filter(r => !r.cold).reduce((s, r) => s + r.area, 0); total += sum;
     groups.push({ fid, title: fid === af ? 'Мансарда' : DK.floorName(fid), rooms, total: sum });
   });
