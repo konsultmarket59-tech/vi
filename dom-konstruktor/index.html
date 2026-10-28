@@ -284,6 +284,64 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
   .top .cta{margin-left:0}
   .hint{display:none}
 }
+
+/* ---------- главная: hero и «Как это работает» ---------- */
+.over{display:block;font:600 12px var(--text);letter-spacing:var(--ls-caps,.08em);text-transform:uppercase;color:var(--ld-blue,#2784EB);margin-bottom:8px}
+.hero-home{position:relative;overflow:hidden;background:linear-gradient(180deg,#fff 0%,var(--ld-soft-bg,#F5F6F8) 100%);border-bottom:1px solid var(--line)}
+.hero-grid{position:absolute;inset:0;background-image:linear-gradient(var(--ld-tech-gray,#D9DEE8) 1px,transparent 1px),linear-gradient(90deg,var(--ld-tech-gray,#D9DEE8) 1px,transparent 1px);background-size:64px 64px;opacity:.45;mask-image:linear-gradient(90deg,transparent 0,#000 40%,#000 100%)}
+.hero-home .node{position:absolute;width:10px;height:10px;border-radius:50%;transform:translate(-5px,-5px);animation:nodeP 4s ease-in-out infinite}
+.hero-home .n1{left:62%;top:64px;background:var(--ld-cyan,#26C6C8)}.hero-home .n2{left:calc(62% + 192px);top:128px;background:var(--ld-blue,#2784EB);animation-delay:1s}
+.hero-home .n3{left:calc(62% + 64px);top:256px;background:var(--ld-orange,#F49A38);animation-delay:2s}.hero-home .n4{left:calc(62% + 320px);top:192px;background:var(--ld-coral,#F05C78);animation-delay:3s}
+@keyframes nodeP{0%,100%{box-shadow:0 0 0 0 rgba(39,132,235,0)}50%{box-shadow:0 0 0 8px rgba(39,132,235,.12)}}
+.hero-in{position:relative;max-width:1280px;margin:0 auto;padding:40px 32px 36px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:40px;align-items:center}
+.hero-main h1{font:700 clamp(30px,3.6vw,46px)/1.12 var(--display);letter-spacing:-.015em;color:var(--brand);margin:0 0 14px}
+.hero-main p{font-size:17px;line-height:1.55;color:var(--ld-gray-600,#5B6272);margin:0 0 22px;max-width:620px}
+.hero-cta{display:flex;flex-wrap:wrap;gap:10px}
+.hero-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:10px;counter-reset:hs}
+.hero-steps li{counter-increment:hs}
+.hero-steps button{width:100%;height:100%;display:flex;gap:10px;align-items:flex-start;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer;font:inherit;color:var(--ink);transition:border-color .15s,transform .15s,box-shadow .15s}
+.hero-steps button:hover{border-color:var(--tone);transform:translateY(-2px);box-shadow:0 6px 18px rgba(25,49,123,.08)}
+.hero-steps button::before{content:counter(hs,decimal-leading-zero);font:700 13px/1.5 var(--display);color:var(--tone)}
+.hero-steps .dot{display:none}
+.hero-steps b{font:600 14px/1.35 var(--display)}
+.tone-blue{--tone:var(--ld-blue,#2784EB);--tint:#E9F2FD}.tone-green{--tone:var(--ld-green,#2FB35A);--tint:#E6F6EB}.tone-orange{--tone:var(--ld-orange,#F49A38);--tint:#FEF1E3}
+.tone-cyan{--tone:var(--ld-cyan,#26C6C8);--tint:#E5F8F8}.tone-coral{--tone:var(--ld-coral,#F05C78);--tint:#FDEBEF}.tone-navy{--tone:var(--ld-navy,#19317B);--tint:#EEF1F9}
+.opts.svc{grid-template-columns:1fr}.opts.svc .opt{text-align:left;align-items:flex-start}
+.how-page{display:grid;gap:14px;margin-top:20px}
+.how-page .how-step{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;grid-template-columns:160px minmax(0,1fr)}
+.how-page .how-art{height:150px}
+@media (max-width:640px){.how-page .how-step{grid-template-columns:1fr}}
+.how-dlg{width:min(860px,calc(100vw - 24px))}
+.how header h2{margin-top:2px}
+.how-bar{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.how-bar button{border:0;background:none;padding:6px 0;cursor:pointer}
+.how-bar i{display:block;height:4px;border-radius:2px;background:var(--ld-tech-gray,#D9DEE8);position:relative;overflow:hidden}
+.how-bar .done i{background:var(--brand)}
+.how-bar .cur i::after{content:'';position:absolute;inset:0;background:var(--brand);transform-origin:left;transform:scaleX(1)}
+.how-dlg.auto .how-bar .cur i::after{animation:howFill 9s linear forwards}
+@keyframes howFill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.how-body{min-height:340px}
+.how-step{display:grid;grid-template-columns:200px minmax(0,1fr);gap:28px;align-items:start}
+.how-step.in .how-art{animation:howIn .5s cubic-bezier(.2,.7,.2,1) both}.how-step.in .how-txt{animation:howIn .5s .08s cubic-bezier(.2,.7,.2,1) both}
+@keyframes howIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.how-art{position:relative;height:200px;border-radius:16px;background:var(--tint);display:grid;place-items:center;overflow:hidden}
+.how-art::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(25,49,123,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(25,49,123,.07) 1px,transparent 1px);background-size:32px 32px}
+.how-ic{position:relative;width:88px;height:88px;border-radius:50%;background:#fff;display:grid;place-items:center;color:var(--tone);box-shadow:0 8px 24px rgba(25,49,123,.1)}
+.how-step.in .how-ic svg path,.how-step.in .how-ic svg rect,.how-step.in .how-ic svg circle,.how-step.in .how-ic svg line,.how-step.in .how-ic svg polyline{stroke-dasharray:120;stroke-dashoffset:120;animation:howDraw 1.2s .25s ease-out forwards}
+@keyframes howDraw{to{stroke-dashoffset:0}}
+.how-ring{position:absolute;width:88px;height:88px;border-radius:50%;border:2px solid var(--tone);opacity:0;left:calc(50% - 44px);top:calc(50% - 44px)}
+.how-step.in .how-ring{animation:howRing 2.4s .6s ease-out infinite}
+@keyframes howRing{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.8);opacity:0}}
+.how-num{position:absolute;left:14px;top:10px;font:700 30px var(--display);color:var(--tone);opacity:.9}
+.how-txt h3{font:700 22px/1.25 var(--display);color:var(--brand);margin:0 0 10px}
+.how-txt p{margin:0 0 14px;font-size:15px;line-height:1.6;color:var(--ink)}
+.how-price{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.how-price li{display:flex;justify-content:space-between;gap:14px;align-items:baseline;padding:8px 12px;border-radius:8px;background:var(--ld-soft-bg,#F5F6F8);font-size:13.5px}
+.how-price li span{color:var(--ink)}.how-price li b{font:600 13.5px var(--display);color:var(--tone);text-align:right}
+.how .nav{align-items:center}
+@media (max-width:900px){.hero-in{grid-template-columns:1fr;padding:28px 16px 24px;gap:22px}.hero-grid{mask-image:none;opacity:.3}.hero-home .node{display:none}}
+@media (max-width:640px){.hero-steps{grid-template-columns:1fr}.hero-steps li:nth-child(n+4){display:none}.how-step{grid-template-columns:1fr;gap:14px}.how-art{height:130px}.how-body{min-height:0}.hero-main p{font-size:15px}}
+@media (prefers-reduced-motion:reduce){.hero-home .node,.how-step.in .how-art,.how-step.in .how-txt,.how-step.in .how-ring{animation:none}.how-step.in .how-ic svg *{animation:none;stroke-dashoffset:0}}
 </style>
 </head>
 <body class="v-plan">
@@ -304,6 +362,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 
   <!-- конструктор -->
   <main class="page" id="page-project">
+    <section class="hero-home" id="hero" aria-label="О конструкторе"></section>
     <div class="work">
       <aside class="side" id="side">
         <div class="grp" data-v="plan">
@@ -522,25 +581,9 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
   <main class="page" id="page-how" hidden>
     <div class="wrap">
       <h1>Как это работает</h1>
-      <p class="lead">Сначала дом, потом подрядчик. Вы приходите к строителям с планировкой и техзаданием, а не с картинкой из интернета, — и получаете сравнимые расчёты.</p>
-      <ol class="steps">
-        <li><b>Планировка</b><p>Задайте размеры и этажи. Программа предложит допустимые положения несущей стены, мокрую зону и проверит котельную.</p></li>
-        <li><b>Интерьер</b><p>Расставьте перегородки, двери, окна и мебель. Пройдитесь по дому в 3D.</p></li>
-        <li><b>Фасад</b><p>Посмотрите белую модель снаружи, сдвиньте окна, примерьте кровлю и стиль отделки. Сохраните снимки.</p></li>
-        <li><b>Техзапрос</b><p>Ответьте на несколько вопросов: город, участок, уклон, сроки, бюджет, материал. Планировка подстроится автоматически.</p></li>
-        <li><b>Созвон и ТЗ</b><p>Мы созвонимся, уточним детали и составим письменное техзадание на расчёт стоимости.</p></li>
-        <li><b>Расчёты и встреча</b><p>ТЗ получают проверенные компании. Сравним расчёты, обоснование цен, примеры работ и отзывы — и запишем вас на встречу в офис.</p></li>
-      </ol>
-      <div class="cols">
-        <div class="card"><h2>Для заказчика</h2>
-          <ul><li>Конструктор, 3D, снимки — бесплатно.</li><li>Каталог компаний и архитекторов с контактами — бесплатно, обращайтесь напрямую.</li><li id="svcClient"></li></ul>
-          <div class="price" id="svcClientPrice"></div>
-          <button class="btn gold" data-act="lead" style="justify-self:start">Оставить заявку на подбор</button></div>
-        <div class="card"><h2>Для компаний</h2>
-          <ul><li>Регистрация и карточка в каталоге — бесплатно.</li><li>Уведомления о новых заявках в вашем городе.</li><li id="svcCompany"></li></ul>
-          <div class="price" id="svcCompanyPrice"></div>
-          <button class="btn primary" data-act="join" style="justify-self:start">Зарегистрироваться</button></div>
-      </div>
+      <p class="lead">Сначала дом, потом подрядчик. Вы приходите к строителям с проектом и техзаданием, а не с картинкой из интернета, — и получаете сравнимые расчёты.</p>
+      <div class="how-page" id="howPage"></div>
+      <div class="row" style="gap:10px;margin-top:20px"><button class="btn primary" data-act="how">Посмотреть по шагам</button><button class="btn" data-act="lead">Оставить заявку на подбор</button><button class="btn" data-act="join">Регистрация компании или архитектора</button></div>
     </div>
   </main>
   <footer class="site-foot"><div class="foot-grid">
@@ -579,7 +622,9 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <div class="row2"><label class="fld">Имя<input id="lName" autocomplete="name" required></label><label class="fld">Телефон<input id="lPhone" type="tel" autocomplete="tel" placeholder="+7" required></label></div>
       <label class="fld">Когда удобно созвониться<input id="lTime" placeholder="Например, будни после 18:00"></label>
       <label class="fld">Пожелания<textarea id="lNote" rows="3" placeholder="Гараж, сауна, терраса, кабинет…"></textarea></label>
-      <label class="chk"><input type="checkbox" id="lAgree">Согласен на обработку персональных данных и звонок по заявке</label>
+      <b>Как работаем со строительными компаниями</b>
+      <div class="opts svc" id="lSvc"><button type="button" class="opt" data-k="open">Рассылка и отчёт<small>Контакты открыты компаниям — для вас бесплатно, платит компания за заявку</small></button><button type="button" class="opt" data-k="closed">Рассылка и отчёт, контакты закрыты<small id="lSvcPrice">Компании не видят ваших данных — 14 900 ₽</small></button><button type="button" class="opt" data-k="agent">Представляем ваши интересы<small>Доработка проекта, разбор смет, переговоры. Оплачивает строительная компания при договоре</small></button></div>
+      <label class="chk"><input type="checkbox" id="lAgree">Согласен на обработку персональных данных и звонок по заявке — <a href="/dokumenty/" target="_blank">условия</a></label>
     </section>
     <section data-step="4" class="q" hidden>
       <div class="box"><b>Что поменяется в проекте под ваш запрос</b><ul class="ch" id="lChanges"></ul></div>
@@ -720,6 +765,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 <script src="js/market-ui.js"></script>
 <script src="js/company-ui.js"></script>
 <script src="js/catalog.js"></script>
+<script src="js/how.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

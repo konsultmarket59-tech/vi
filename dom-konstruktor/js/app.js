@@ -538,9 +538,6 @@ function bind() {
   $$('[data-act="lead"]').forEach(b => b.onclick = openLead);
   $$('[data-act="join"]').forEach(b => b.onclick = () => $('#joinDlg').showModal());
   window.addEventListener('hashchange', () => location.hash ? hashRoute() : page('project', true));
-  const s = C.service;
-  $('#svcClient').textContent = s.client; $('#svcClientPrice').textContent = s.clientPrice ? 'Стоимость: ' + s.clientPrice : 'Стоимость — по договорённости';
-  $('#svcCompany').textContent = s.company; $('#svcCompanyPrice').textContent = s.companyPrice ? 'Стоимость: ' + s.companyPrice : 'Стоимость лида — по договору';
   $('#ownerLine').textContent = [C.owner.phone, C.owner.email, C.owner.city || 'Пермь, работаем по России'].filter(Boolean).join(' · ');
   $('#cityList').innerHTML = DK.CITIES.map(c => `<option value="${esc(c)}">`).join('');
   bindLead(); bindCatalog();
@@ -606,7 +603,8 @@ function bindLead() {
   $('#lSlope').innerHTML = DK.SLOPES.map(s => `<button type="button" class="opt" data-k="${s.id}">${DK.slopeSvg(s.a)}${esc(s.n)}<small>${esc(s.d)}</small></button>`).join('');
   $('#lTerm').innerHTML = DK.TERMS.map(t => `<button type="button" class="opt" data-k="${t.id}">${esc(t.n)}</button>`).join('');
   const pick = (el, key) => $$('.opt', el).forEach(b => b.onclick = () => { A[key] = b.dataset.k; seg(el, A[key], 'k'); $('#lErr').textContent = ''; });
-  pick($('#lPlot'), 'plot'); pick($('#lSlope'), 'slope'); pick($('#lTerm'), 'term'); pick($('#lCls'), 'cls'); pick($('#lMat'), 'material');
+  pick($('#lPlot'), 'plot'); pick($('#lSlope'), 'slope'); pick($('#lTerm'), 'term'); pick($('#lCls'), 'cls'); pick($('#lMat'), 'material'); pick($('#lSvc'), 'service');
+  $('#lSvcPrice').textContent = 'Компании не видят ваших данных, вы получаете отчёт — ' + Number(C.reportPrice || 14900).toLocaleString('ru-RU') + ' ₽';
   $('#lNext').onclick = next; $('#lBack').onclick = () => go(step - 1);
 }
 function openLead() {
@@ -632,6 +630,7 @@ async function next() {
     A.name = $('#lName').value.trim(); A.phone = $('#lPhone').value.trim(); A.time = $('#lTime').value.trim(); A.note = $('#lNote').value.trim();
     if (!A.name) return err('Как к вам обращаться?');
     if (A.phone.replace(/\D/g, '').length < 10) return err('Проверьте телефон');
+    if (!A.service) return err('Выберите, как работаем с компаниями');
     if (!$('#lAgree').checked) return err('Нужно согласие на обработку данных');
     preview(); return go(4);
   }
@@ -693,6 +692,7 @@ DK.appApi = {
 };
 bind();
 DK.Market.init();
+DK.howInit && DK.howInit();
 DK.loadPrices && DK.loadPrices().then(() => refreshInfo());
 if (VIEW) (async () => {
   const tk = VIEW.kind === 'company' ? localStorage.getItem('dk-token') : localStorage.getItem('crm-token');

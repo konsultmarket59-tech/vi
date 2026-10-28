@@ -69,7 +69,8 @@ module.exports = function crm(ctx) {
   }
   // для компании: без контактов клиента, пока клиент не выбрал компанию
   function forCompany(l, cid) {
-    const shared = (l.shareWith || []).includes(cid), a = l.answers || {}, c = l.client || {};
+    // контакты закрыты по выбору клиента — компания видит их только после того, как клиент выбрал её для сделки
+    const a = l.answers || {}, c = l.client || {}, shared = a.service === 'closed' ? (l.deal || []).includes(cid) : (l.shareWith || []).includes(cid);
     return { id: l.id, at: l.at, city: c.city || a.city, area: l.estimate && l.estimate.area, cls: a.cls, material: a.material, term: a.term, plot: a.plot, slope: a.slope,
       brief: l.brief || [], tz: l.tz || [], changes: l.changes || [], files: l.files || [], project: l.project || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null,
       grade: grade(l), leadPrice: leadPrice(l), myBid: (l.bids || []).find(b => b.company === cid) || null, rows: BID_ROWS, deal: (l.deal || []).includes(cid),
