@@ -11,7 +11,7 @@ module.exports = function modelVm(ROOT) {
   const DK = sb.DK;
   const prep = (p) => { const q = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(p)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!q.levels[k]) q.levels[k] = DK.emptyLevel(); }); return q; };
   return {
-    DK,
+    DK, prep,
     quality(p) { try { return DK.quality(prep(p)); } catch (e) { return { ok: false, errs: [{ txt: 'Не удалось прочитать проект' }], warns: [], score: 0 }; } },
   };
 };

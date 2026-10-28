@@ -1,10 +1,10 @@
-# Запуск «Свой Дом» на реальном сервере
+# Запуск «Логика Дома» на реальном сервере
 
 Пошагово: что делаете вы, что готово в коде, сколько стоит. Цены — ориентировочные на осень 2026 года, перед оплатой проверьте у провайдера.
 
 ## Что уже готово в коде
 
-- Сервер на Node.js без внешних библиотек, `Dockerfile`, `deploy/docker-compose.yml`, `deploy/nginx.conf`, `deploy/svoydom.service`, `deploy/backup.sh`.
+- Сервер на Node.js без внешних библиотек, `Dockerfile`, `deploy/docker-compose.yml`, `deploy/nginx.conf`, `deploy/logika-doma.service`, `deploy/backup.sh`.
 - Шрифты, three.js и jsPDF лежат на своём сервере (`vendor/`): сайт не обращается к зарубежным CDN.
 - Защита форм: скрытое поле-ловушка, подписанный токен формы, лимит запросов с адреса, по желанию — Яндекс SmartCaptcha.
 - Заголовки безопасности, надёжная запись файлов (через временный файл), пароли хранятся только хешами.
@@ -16,7 +16,7 @@
 |---|---|---|---|
 | 1 | Юрлицо или ИП — оператор персональных данных | вы | у вас уже есть |
 | 2 | Уведомление в Роскомнадзор об обработке ПДн (pd.rkn.gov.ru, через Госуслуги) | вы | бесплатно |
-| 3 | Домен, например `svoydom.ru` (Reg.ru, RU-CENTER, Timeweb) | вы | ~200–1 000 ₽ в год |
+| 3 | Домен, например `logikadoma.ru` (Reg.ru, RU-CENTER, Timeweb) | вы | ~200–1 000 ₽ в год |
 | 4 | Сервер в России: Timeweb Cloud, Selectel, Yandex Cloud, VK Cloud, Beget. Для старта — 2–4 ядра, 4–8 ГБ, Ubuntu 24.04 | вы | ~700–3 000 ₽ в месяц |
 | 5 | Направить домен на сервер: A-запись на IP сервера в панели регистратора | вы | бесплатно |
 | 6 | Установить сайт по командам ниже (или нанять администратора на разовую настройку) | вы / администратор | бесплатно, админ — ~3–10 тыс. ₽ разово |
@@ -37,19 +37,19 @@
 ```sh
 # 1. Docker и nginx
 sudo apt update && sudo apt install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx
-# 2. Код: архив релиза dom-konstruktor с GitHub (Releases) → на сервер, например в /opt/svoydom
-sudo mkdir -p /opt/svoydom && cd /opt/svoydom   # распакуйте сюда папку dom-konstruktor
+# 2. Код: архив релиза dom-konstruktor с GitHub (Releases) → на сервер, например в /opt/logika-doma
+sudo mkdir -p /opt/logika-doma && cd /opt/logika-doma   # распакуйте сюда папку dom-konstruktor
 cd dom-konstruktor/deploy
 cp env.example .env && nano .env                # адрес сайта, пароль администратора CRM, почта
 sudo mkdir -p data && sudo chown 10001:10001 data   # папка данных для сайта
 sudo docker compose up -d --build              # сайт запущен на 127.0.0.1:8080
 # 3. nginx и HTTPS
-sudo cp nginx.conf /etc/nginx/sites-available/svoydom   # замените svoydom.ru на свой домен
-sudo ln -s /etc/nginx/sites-available/svoydom /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default
-sudo certbot --nginx -d svoydom.ru -d www.svoydom.ru
+sudo cp nginx.conf /etc/nginx/sites-available/logika-doma   # замените logikadoma.ru на свой домен
+sudo ln -s /etc/nginx/sites-available/logika-doma /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default
+sudo certbot --nginx -d logikadoma.ru -d www.logikadoma.ru
 sudo nginx -t && sudo systemctl reload nginx
 # 4. Резервные копии каждую ночь
-echo "30 3 * * * DATA_DIR=/opt/svoydom/dom-konstruktor/deploy/data /opt/svoydom/dom-konstruktor/deploy/backup.sh" | sudo crontab -
+echo "30 3 * * * DATA_DIR=/opt/logika-doma/dom-konstruktor/deploy/data /opt/logika-doma/dom-konstruktor/deploy/backup.sh" | sudo crontab -
 ```
 
 Обновление сайта: распаковать новый архив поверх и выполнить `sudo docker compose up -d --build` — данные в `deploy/data` сохраняются.
@@ -62,7 +62,7 @@ echo "30 3 * * * DATA_DIR=/opt/svoydom/dom-konstruktor/deploy/data /opt/svoydom/
 4. CRM: вход администратора, добавление сотрудников (менеджер, сметчик, маркетолог).
 5. Маркетолог создаёт статью, загружает фото, публикует — статья открывается на сайте.
 6. `https://ваш-домен/sitemap.xml` — добавить в Вебмастер и Search Console.
-7. Резервная копия появилась в `/var/backups/svoydom`.
+7. Резервная копия появилась в `/var/backups/logika-doma`.
 
 ## Когда пользователей станет много
 

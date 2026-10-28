@@ -1104,3 +1104,62 @@ DK.quality = function (p) {
   return { ok: !errs.length && !tooMany, errs, warns, tooMany, score, area: A ? A.total : 0 };
 };
 })();
+
+/* Иконки помещений и «преимущества планировки» — для экспликации, листов ЭП, карточек и страниц проектов.
+   Всё считается из модели, без ручного ввода: один источник площадей для плана, экспликации и страницы проекта. */
+(function () {
+'use strict';
+const DK = window.DK;
+DK.ROOM_ICON = { kl: 'sofa', living: 'sofa', kitchen: 'cooking-pot', bed: 'bed-double', kids: 'baby', office: 'monitor', hall: 'door-open', tamb: 'door-open', corr: 'footprints',
+  bath: 'bath', laundry: 'washing-machine', boiler: 'flame', sauna: 'thermometer', dress: 'shirt', store: 'box', garage: 'car', void: 'sun', loggia: 'trees', none: 'square-dashed-bottom' };
+const fa = (v) => DK.fmtA(v);
+const plural = (n, a, b, c) => n % 10 === 1 && n % 100 !== 11 ? a : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? b : c;
+/* экспликация: этажи → помещения с номерами (сквозная нумерация как на плане), итог как в шапке плана */
+DK.explication = function (p) {
+  const af = DK.atticOn(p) ? DK.atticFloor(p) : null, nums = DK.roomNumbers ? DK.roomNumbers(p) : null, groups = [];
+  let n = 0, total = 0;
+  DK.floorsOf(p).forEach(fid => {
+    const rooms = DK.rooms(p, fid).filter(r => r.type !== 'void').map(r => {
+      const R = DK.ROOM[r.type] || DK.ROOM.none, area = fid === af ? DK.atticArea(p, r) : r.area;
+      n++; const num = nums && nums.get ? (nums.get(r) || n) : n;
+      return { n: num, type: r.type, name: r.type === 'none' ? 'Не назначено' : R.n, area, wet: !!R.wet, cold: !!R.cold, icon: DK.ROOM_ICON[r.type] || DK.ROOM_ICON.none, dims: r.rect ? `${Math.round(r.x1 - r.x0)} × ${Math.round(r.y1 - r.y0)}` : '' };
+    });
+    const sum = rooms.filter(r => !r.cold).reduce((s, r) => s + r.area, 0); total += sum;
+    groups.push({ fid, title: fid === af ? 'Мансарда' : DK.floorName(fid), rooms, total: sum });
+  });
+  return { groups, total };
+};
+/* преимущества планировки: до 6 пунктов с иконкой, заголовком и пояснением */
+DK.planPerks = function (p) {
+  const out = [], add = (icon, title, text) => out.push({ icon, title, text });
+  let rooms = []; try { DK.floorsOf(p).forEach(fid => DK.rooms(p, fid).forEach(r => rooms.push(Object.assign(r, { fid })))); } catch (e) { return out; }
+  const cnt = (t) => rooms.filter(r => r.type === t).length, A = DK.areas(p);
+  const kl = rooms.filter(r => r.type === 'kl' || r.type === 'living').sort((a, b) => b.area - a.area)[0];
+  if (kl && kl.area >= 25) add('sofa', `${kl.type === 'kl' ? 'Кухня-гостиная' : 'Гостиная'} ${fa(kl.area)} м²`, 'Простор для всей семьи и гостей');
+  const beds = cnt('bed') + cnt('kids'), baths = cnt('bath');
+  if (beds >= 2) add('bed-double', `${beds} ${plural(beds, 'спальня', 'спальни', 'спален')}${baths >= 2 ? ` и ${baths} ${plural(baths, 'санузел', 'санузла', 'санузлов')}` : ''}`, 'Отдельные комнаты для каждого');
+  // окна: доля остекления от площади пола
+  let glaz = 0; DK.floorsOf(p).forEach(fid => (p.levels[fid].open || []).forEach(o => { if (o.kind === 'win') { const s = DK.opSize(p, o); glaz += o.w * s.h / 1e6; } }));
+  if (A.total && glaz / A.total >= 1 / 8) add('sun', 'Много естественного света', `Остекление ${fa(glaz)} м² — больше нормы 1/8 площади пола`);
+  const wet = rooms.filter(r => (DK.ROOM[r.type] || {}).wet), wz = p.wet ? { x0: p.wet.x, y0: p.wet.y, x1: p.wet.x + p.wet.w, y1: p.wet.y + p.wet.h } : null;
+  if (wet.length >= 2 && wz && wet.every(r => r.x0 < wz.x1 && r.x1 > wz.x0 && r.y0 < wz.y1 && r.y1 > wz.y0)) add('droplets', 'Мокрые зоны в одном стояке', 'Короткие трубы и меньше затрат на инженерию');
+  const ext = p.ext || [];
+  const ter = ext.find(x => x.kind === 'terrace' && DK.extExit(p, x));
+  if (ter) add('trees', 'Выход на террасу', `Терраса ${fa(ter.w * ter.d / 1e6)} м² прямо из дома`);
+  const gar = ext.find(x => x.kind === 'garage');
+  if (gar) add('car', DK.garageName(gar), gar.gtype === 'attached' ? 'Вход в дом прямо из гаража' : 'Хранение и мастерская');
+  if (cnt('dress') || cnt('store')) add('shirt', cnt('dress') ? 'Гардеробная' : 'Кладовая', 'Места для хранения без лишних шкафов');
+  if (cnt('office')) add('monitor', 'Кабинет', 'Тихое место для работы дома');
+  if (DK.atticOn(p)) add('layers', 'Мансардный этаж', 'Дешевле полноценного второго этажа');
+  let ch = []; try { ch = DK.checks(p); } catch (e) { /* без проверок */ }
+  if (ch.length && !ch.some(c => c.lv === 'err')) add('shield-check', 'Проверено по нормам', 'Пролёты, котельная и лестница — без нарушений');
+  return out.slice(0, 6);
+};
+/* сводка крупными цифрами для ЭП и страницы проекта: «3 спальни · 2 санузла» */
+DK.planSummary = function (p) {
+  const c = {}; DK.floorsOf(p).forEach(fid => DK.rooms(p, fid).forEach(r => { c[r.type] = (c[r.type] || 0) + 1; }));
+  const it = [], put = (n, a, b, d) => { if (n) it.push({ n, t: plural(n, a, b, d) }); };
+  put((c.bed || 0) + (c.kids || 0), 'спальня', 'спальни', 'спален'); put(c.bath || 0, 'санузел', 'санузла', 'санузлов'); put(c.dress || 0, 'гардеробная', 'гардеробные', 'гардеробных');
+  return it;
+};
+})();

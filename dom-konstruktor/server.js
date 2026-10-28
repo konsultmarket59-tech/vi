@@ -194,14 +194,14 @@ function stat(req, res, url) {
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     // библиотеки и шрифты не меняются — кешируем надолго; остальное проверяется при каждом заходе
-    res.writeHead(200, Object.assign({ 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': p.startsWith('/vendor/') ? 'public, max-age=2592000' : 'no-cache' }, SEC));
+    res.writeHead(200, Object.assign({ 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': /^\/(vendor|brand)\//.test(p) ? 'public, max-age=2592000' : 'no-cache' }, SEC));
     fs.createReadStream(f).pipe(res);
   });
 }
 
 const mail = require('./mailer.js')(DATA);
 const MODEL = require('./model-vm.js')(ROOT);
-const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA });
+const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA, model: MODEL });
 const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview });
 const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard });
 

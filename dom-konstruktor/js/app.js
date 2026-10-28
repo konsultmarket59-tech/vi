@@ -149,7 +149,7 @@ function shapeSvg(T) {
   const all = faces.flatMap(f => f.q).concat(top), xs = all.map(q => q[0]), ys = all.map(q => q[1]);
   const x0 = Math.min(...xs) - 4, y0 = Math.min(...ys) - 4, w = Math.max(...xs) - x0 + 4, h = Math.max(...ys) - y0 + 4;
   const P = (q) => q.map(v => v[0].toFixed(1) + ',' + v[1].toFixed(1)).join(' ');
-  return `<svg viewBox="${x0.toFixed(1)} ${y0.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" aria-hidden="true">${faces.map(f => `<polygon points="${P(f.q)}" fill="${f.shade}" stroke="#2f3237" stroke-width=".8"/>`).join('')}<polygon points="${P(top)}" fill="#d5d7da" stroke="#2f3237" stroke-width=".8"/></svg>`;
+  return `<svg viewBox="${x0.toFixed(1)} ${y0.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}" aria-hidden="true">${faces.map(f => `<polygon points="${P(f.q)}" fill="${f.shade}" stroke="#19317B" stroke-width=".8"/>`).join('')}<polygon points="${P(top)}" fill="#d5d7da" stroke="#19317B" stroke-width=".8"/></svg>`;
 }
 function refreshInfo() {
   const A = DK.areas(app.p());
@@ -161,11 +161,11 @@ function refreshInfo() {
 }
 function varIcon(v) {
   const s = v.walls.map(w => w.axis === 'h' ? `<path d="M3 ${3 + 18 * (w.pos / P.D)}h24" stroke="#b8644a" stroke-width="2.4"/>` : `<path d="M${3 + 24 * (w.pos / P.W)} 3v18" stroke="#b8644a" stroke-width="2.4"/>`).join('');
-  return `<i><svg viewBox="0 0 30 24"><rect x="3" y="3" width="24" height="18" fill="none" stroke="#2f3237" stroke-width="1.6"/>${s}</svg></i>`;
+  return `<i><svg viewBox="0 0 30 24"><rect x="3" y="3" width="24" height="18" fill="none" stroke="#19317B" stroke-width="1.6"/>${s}</svg></i>`;
 }
 function roofIcon(k) {
   const d = { gable: 'M3 18 L12 6 L21 18', hip: 'M3 18 L8 8 H16 L21 18', mansard: 'M3 18 L5 11 L12 6 L19 11 L21 18', halfhip: 'M3 18 L7 11 V8 L12 5 L17 8 V11 L21 18', pyramid: 'M3 18 L12 5 L21 18 M12 5 V18', shed: 'M3 18 V10 L21 6 V18', flat: 'M3 18 V9 H21 V18' }[k];
-  return `<i style="background:none;box-shadow:none"><svg viewBox="0 0 24 24" width="22" height="22"><path d="${d}" fill="none" stroke="#2f3237" stroke-width="1.8"/><path d="M3 18H21" stroke="#2f3237" stroke-width="1.8"/></svg></i>`;
+  return `<i style="background:none;box-shadow:none"><svg viewBox="0 0 24 24" width="22" height="22"><path d="${d}" fill="none" stroke="#19317B" stroke-width="1.8"/><path d="M3 18H21" stroke="#19317B" stroke-width="1.8"/></svg></i>`;
 }
 
 /* ---------- выделение ---------- */
@@ -433,7 +433,7 @@ function bind() {
   $('#siteAll').onclick = () => { DK.siteRearrange(P); app.commit('Расстановка по нормам'); };
   $$('#blind button').forEach(b => b.onclick = () => { P.blind = +b.dataset.k; app.commit(P.blind ? 'Отмостка ' + DK.fmtM(P.blind) + ' м' : 'Без отмостки'); });
   $('#blindMat').onchange = (e) => { P.blindMat = e.target.value; app.commit('Отмостка'); };
-  $('#brandName').textContent = C.brand; $('#tagline').textContent = C.tagline; document.title = C.brand + ' — ' + C.tagline;
+  if (!document.title) document.title = C.brand + ' — ' + C.tagline;
   $('#clad').innerHTML = Object.entries(DK.SPEC.clad).map(([k, v]) => `<option value="${k}">${esc(v.n)}</option>`).join('');
   $('#shapes').innerHTML = DK.TEMPLATES.map(T => `<button type="button" data-t="${T.id}" title="${esc(T.d)}">${shapeSvg(T)}<b>${esc(T.n)}</b><small>${esc(T.d)}</small></button>`).join('');
   $$('#shapes button').forEach(b => b.onclick = () => { const T = DK.TEMPLATES.find(x => x.id === b.dataset.t); $('#shapeAsk').hidden = false; $('#shapeAskT').textContent = `Начать с формы «${T.n}»? Текущая планировка будет заменена.`; $('#shapeYes').dataset.t = T.id; seg($('#shapes'), T.id, 't'); });

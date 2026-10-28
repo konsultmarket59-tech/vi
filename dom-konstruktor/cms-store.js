@@ -8,7 +8,7 @@ module.exports = function cmsStore(DATA, C, CFG) {
   const FILE = path.join(DATA, 'cms.json');
   const read = () => { try { return Object.assign({ pages: {}, site: {} }, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) { return { pages: {}, site: {} }; } };
   const write = (d) => fs.writeFileSync(FILE, JSON.stringify(d, null, 1));
-  const OWNER = (CFG && CFG.owner) || {}, BRAND = (CFG && CFG.brand) || 'Свой Дом';
+  const OWNER = (CFG && CFG.owner) || {}, BRAND = (CFG && CFG.brand) || 'Логика Дома';
   const RESERVED = /^\/(api|css|js|img|data|media|crm|admin|index)(\/|\.|$)/;
   const KINDS = { home: 'Главная', list: 'Раздел', service: 'Услуга', post: 'Статья', page: 'Страница' };
 

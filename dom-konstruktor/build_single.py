@@ -20,7 +20,13 @@ def build() -> str:
 
     html = re.sub(r'<script src="([^"]+)"></script>', inline, html)
     # файл без сервера: шрифты — с Google Fonts, three.js и jsPDF — с CDN (запасные адреса в коде)
-    return html.replace('<link rel="stylesheet" href="vendor/fonts.css">', '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alumni+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Raleway:wght@400;500;600;700&display=swap">')
+    # токены бренда — внутрь файла, шрифты Manrope и Inter — с Google Fonts; логотип и иконки сайта — data:-адресами
+    import base64
+    ld = re.sub(r'@font-face\s*\{[^}]*\}', '', (ROOT / 'brand' / 'ld.css').read_text(encoding='utf-8'))
+    html = html.replace('<link rel="stylesheet" href="brand/ld.css">', '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap">\n<style>' + ld + '</style>')
+    for f, t in [('brand/logo-horizontal.svg', 'image/svg+xml'), ('brand/favicon-32.png', 'image/png'), ('brand/apple-touch-icon.png', 'image/png'), ('brand/mark.png', 'image/png')]:
+        html = html.replace('"' + f + '"', '"data:' + t + ';base64,' + base64.b64encode((ROOT / f).read_bytes()).decode() + '"')
+    return html
 
 
 if __name__ == '__main__':

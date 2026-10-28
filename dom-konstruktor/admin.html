@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Заявки и исполнители</title>
-<link rel="stylesheet" href="vendor/fonts.css">
+<link rel="stylesheet" href="brand/ld.css">
 <style>
-:root{--bg:#ECEDEE;--panel:#fff;--ink:#2B2E33;--muted:#6B7078;--line:#E2E4E7;--brand:#2F3237;--accent:#E3A21A}
+:root{--bg:var(--ld-soft-bg);--panel:#fff;--ink:var(--ld-graphite);--muted:var(--ld-gray-600);--line:var(--ld-tech-gray);--brand:var(--ld-navy);--accent:var(--ld-blue)}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Raleway,system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--font-body)}
 button,input,select,textarea{font:inherit;color:inherit}
 [hidden]{display:none!important}
 header{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
-h1{margin:0;font:800 26px/1 "Alumni Sans",sans-serif;text-transform:uppercase;color:var(--brand)}
-h2{margin:0 0 6px;font:800 22px/1 "Alumni Sans",sans-serif;text-transform:uppercase;color:var(--brand)}
+h1{margin:0;font:700 26px/1.1 var(--font-display);color:var(--brand)}
+h2{margin:0 0 6px;font:600 20px/1.2 var(--font-display);color:var(--brand)}
 .btn{border:1.5px solid var(--brand);background:var(--panel);border-radius:999px;padding:6px 13px;font-weight:700;font-size:12.5px;cursor:pointer}
 .btn[aria-pressed="true"],.btn.primary{background:var(--brand);color:#fff}
 main{display:grid;grid-template-columns:minmax(320px,440px) 1fr;gap:16px;padding:16px 20px;align-items:start}

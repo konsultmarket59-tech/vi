@@ -15,7 +15,7 @@ module.exports = function mailer(DATA) {
     return new Promise((resolve, reject) => {
       let sock = PORT === 465 ? tls.connect(PORT, H, { servername: H }) : net.connect(PORT, H), buf = '', step = 0, secure = PORT === 465;
       const boundary = 'b' + crypto.randomBytes(8).toString('hex');
-      const msg = [`From: ${hdr('Свой Дом')} <${FROM}>`, `To: <${to}>`, `Subject: ${hdr(subject)}`, 'MIME-Version: 1.0', `Date: ${new Date().toUTCString()}`,
+      const msg = [`From: ${hdr('Логика Дома')} <${FROM}>`, `To: <${to}>`, `Subject: ${hdr(subject)}`, 'MIME-Version: 1.0', `Date: ${new Date().toUTCString()}`,
         `Message-ID: <${crypto.randomBytes(8).toString('hex')}@${FROM.split('@')[1] || 'localhost'}>`, `Content-Type: multipart/alternative; boundary="${boundary}"`, '',
         `--${boundary}`, 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64(text).replace(/.{76}/g, '$&\r\n'),
         `--${boundary}`, 'Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: base64', '', b64(html || text.replace(/\n/g, '<br>')).replace(/.{76}/g, '$&\r\n'), `--${boundary}--`, ''].join('\r\n');
@@ -28,12 +28,12 @@ module.exports = function mailer(DATA) {
         const code = +last.slice(0, 3); buf = '';
         if (code >= 400) return fail(new Error('SMTP ' + last));
         // порядок диалога: EHLO → (STARTTLS → EHLO) → AUTH LOGIN → MAIL FROM → RCPT TO → DATA → QUIT
-        if (step === 0) { step = 1; return send('EHLO svoydom'); }
+        if (step === 0) { step = 1; return send('EHLO logikadoma'); }
         if (step === 1) {
           if (!secure && /STARTTLS/i.test(lines.join(' '))) { step = 2; return send('STARTTLS'); }
           step = USER ? 3 : 6; return USER ? send('AUTH LOGIN') : send(`MAIL FROM:<${FROM}>`);
         }
-        if (step === 2) { sock.removeListener('data', on); sock = tls.connect({ socket: sock, servername: H }, () => { secure = true; step = 1; send('EHLO svoydom'); }); sock.on('data', on); sock.on('error', fail); return; }
+        if (step === 2) { sock.removeListener('data', on); sock = tls.connect({ socket: sock, servername: H }, () => { secure = true; step = 1; send('EHLO logikadoma'); }); sock.on('data', on); sock.on('error', fail); return; }
         if (step === 3) { step = 4; return send(b64(USER)); }
         if (step === 4) { step = 5; return send(b64(PASS)); }
         if (step === 5) { step = 6; return send(`MAIL FROM:<${FROM}>`); }

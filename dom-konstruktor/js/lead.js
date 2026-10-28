@@ -29,7 +29,7 @@ DK.slopeSvg = function (a) {
     <path d="M${x0} ${yb} L${x1} ${yb}" stroke="currentColor" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>
     <path d="M${hx - 12} ${gy(hx - 12).toFixed(1)} V${eave.toFixed(1)} L${hx} ${(eave - 10).toFixed(1)} L${hx + 12} ${eave.toFixed(1)} V${gy(hx + 12).toFixed(1)}" stroke="currentColor" stroke-width="1.6" fill="none"/>
     <path d="M${x0 + 26} ${yb} A26 26 0 0 0 ${(x0 + 26 * Math.cos(r)).toFixed(1)} ${(yb - 26 * Math.sin(r)).toFixed(1)}" stroke="currentColor" stroke-width="1.3" fill="none"/>
-    <text x="${x0 + 30}" y="${yb - 3}" font-size="10" fill="currentColor" font-family="JetBrains Mono, monospace">${a}°</text>
+    <text x="${x0 + 30}" y="${yb - 3}" font-size="10" fill="currentColor" font-family="Manrope, sans-serif">${a}°</text>
   </svg>`;
 };
 

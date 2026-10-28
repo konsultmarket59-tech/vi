@@ -43,7 +43,7 @@ async function openReq(id) {
   const r = await DK.Market.api('/api/company/lead/' + encodeURIComponent(id)), box = $('#compReq'), b = r.myBid || { rows: {} };
   box.innerHTML = `<div class="card"><h2 style="margin-top:0">Запрос № ${esc(r.id)} — ${esc(r.city)}${r.area ? ', ' + Math.round(r.area) + ' м²' : ''}</h2>
     <div class="muted">Участок: ${esc(r.plot)} · уклон: ${esc(r.slope)} · срок: ${esc(r.term)} · класс: ${esc(r.cls)}${r.range ? ` · предварительная оценка ${r.range[0]}–${r.range[1]} млн ₽` : ''}</div>
-    ${r.deal ? '<p class="card" style="background:#dff2e6"><b>Клиент готов к сделке с вашей компанией.</b> Менеджер «Свой Дом» свяжется с вами, чтобы согласовать встречу.</p>' : ''}
+    ${r.deal ? '<p class="card" style="background:#dff2e6"><b>Клиент готов к сделке с вашей компанией.</b> Менеджер «Логика Дома» свяжется с вами, чтобы согласовать встречу.</p>' : ''}
     ${r.contacts ? `<p><b>Контакты клиента:</b> ${esc(r.contacts.name)}, ${esc(r.contacts.phone)}</p>` : '<p class="muted">Контакты клиента откроются, когда клиент выберет вашу компанию.</p>'}
     <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">${r.files.map(f => `<img data-src="/api/company/lead/${encodeURIComponent(r.id)}/file/${encodeURIComponent(f)}" alt="${esc(f)}" style="height:140px;border:1px solid #e2e4e7;border-radius:8px;background:#fff">`).join('')}</div>
     ${r.project ? `<p><a class="btn" href="/?company=${encodeURIComponent(r.id)}" target="_blank">Открыть эскиз в конструкторе — размеры, 3D, рулетка</a></p>` : ''}

@@ -40,7 +40,7 @@ DK.exportIFC = function (p, opts) {
   const person = E('IFCPERSON', '$', '$', istr(DK.CONFIG.brand), '$', '$', '$', '$', '$');
   const org = E('IFCORGANIZATION', '$', istr(DK.CONFIG.brand), '$', '$', '$');
   const po = E('IFCPERSONANDORGANIZATION', person, org, '$');
-  const app = E('IFCAPPLICATION', org, "'1.0'", istr('Конструктор дома ' + DK.CONFIG.brand), "'SvoyDom'");
+  const app = E('IFCAPPLICATION', org, "'1.0'", istr('Конструктор дома ' + DK.CONFIG.brand), "'LogikaDoma'");
   const OH = E('IFCOWNERHISTORY', po, app, '$', '.ADDED.', '$', po, app, String(now));
   const CTX = E('IFCGEOMETRICREPRESENTATIONCONTEXT', '$', "'Model'", '3', '1.E-05', AX0, '$');
   const units = E('IFCUNITASSIGNMENT', `(${[E('IFCSIUNIT', '*', '.LENGTHUNIT.', '.MILLI.', '.METRE.'), E('IFCSIUNIT', '*', '.AREAUNIT.', '$', '.SQUARE_METRE.'), E('IFCSIUNIT', '*', '.VOLUMEUNIT.', '$', '.CUBIC_METRE.'), E('IFCSIUNIT', '*', '.PLANEANGLEUNIT.', '$', '.RADIAN.')].join(',')})`);
@@ -146,10 +146,10 @@ DK.exportIFC = function (p, opts) {
   });
   E('IFCRELAGGREGATES', istr(guid()), OH, '$', '$', building, `(${storeys.join(',')})`);
   const A = DK.areas(p);
-  pset(building, 'Свой Дом — эскиз', { 'Общая площадь, м²': Math.round(A.total * 10) / 10, 'Этажей': DK.floorsOf(p).length, 'Материал стен': wallMat, 'Кровля': (p.roof && p.roof.type) || '', 'Уклон кровли, °': (p.roof && p.roof.pitch) || 0, 'Высота этажа в чистоте, мм': p.hClear, 'Примечание': 'Кровлю, фундамент и узлы достройте в BIM-программе' });
+  pset(building, 'Логика Дома — эскиз', { 'Общая площадь, м²': Math.round(A.total * 10) / 10, 'Этажей': DK.floorsOf(p).length, 'Материал стен': wallMat, 'Кровля': (p.roof && p.roof.type) || '', 'Уклон кровли, °': (p.roof && p.roof.pitch) || 0, 'Высота этажа в чистоте, мм': p.hClear, 'Примечание': 'Кровлю, фундамент и узлы достройте в BIM-программе' });
 
   const d = new Date().toISOString().slice(0, 19);
-  return `ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');\nFILE_NAME(${istr((opts.name || 'dom') + '.ifc')},'${d}',(${istr(DK.CONFIG.brand)}),(${istr(DK.CONFIG.brand)}),'SvoyDom export','SvoyDom','');\nFILE_SCHEMA(('IFC2X3'));\nENDSEC;\nDATA;\n` +
+  return `ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');\nFILE_NAME(${istr((opts.name || 'dom') + '.ifc')},'${d}',(${istr(DK.CONFIG.brand)}),(${istr(DK.CONFIG.brand)}),'LogikaDoma export','LogikaDoma','');\nFILE_SCHEMA(('IFC2X3'));\nENDSEC;\nDATA;\n` +
     L.map((s, i) => `#${i + 1}=${s};`).join('\n') + '\nENDSEC;\nEND-ISO-10303-21;\n';
 };
 

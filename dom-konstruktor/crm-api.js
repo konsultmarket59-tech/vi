@@ -212,7 +212,7 @@ module.exports = function crm(ctx) {
           for (const c of cs) {
             const to = new Set([c.email].concat(accs.filter(a => a.companyId === c.id).map(a => a.email)).filter(Boolean));
             for (const addr of to) await mail(addr, `Запрос расчёта: дом ${area}, ${(l.client || {}).city || l.answers.city}`,
-              `Здравствуйте!\n\nНовый запрос на расчёт стоимости дома ${area} (${(l.client || {}).city || l.answers.city}).\n${(l.brief || []).slice(0, 4).join('\n')}\n${r.message ? '\nКомментарий: ' + r.message + '\n' : ''}\nЭскизный проект, техзадание и форма расчёта — в личном кабинете: ${site()}/#company\n\nСвой Дом`);
+              `Здравствуйте!\n\nНовый запрос на расчёт стоимости дома ${area} (${(l.client || {}).city || l.answers.city}).\n${(l.brief || []).slice(0, 4).join('\n')}\n${r.message ? '\nКомментарий: ' + r.message + '\n' : ''}\nЭскизный проект, техзадание и форма расчёта — в личном кабинете: ${site()}/#company\n\nЛогика Дома`);
           }
           return json(res, Object.assign({}, l, { grade: grade(l), leadPrice: leadPrice(l), homeValue: homeValue(l) })), true;
         }
@@ -252,7 +252,7 @@ module.exports = function crm(ctx) {
             log({ published: 'опубликован', hidden: 'скрыт', blocked: 'заблокирован: ' + pr.blockReason, private: 'только в кабинете автора' }[d.status]);
             pr.status = d.status;
             const ow = users().find(x => x.id === pr.owner);
-            if (ow && d.status === 'blocked') mail(ow.email, `Проект «${pr.title}» снят с публикации`, `Здравствуйте!\n\nПроект «${pr.title}» снят модератором: ${pr.blockReason}.\nИсправьте проект в конструкторе и напишите нам — мы проверим ещё раз.\n\nСвой Дом`);
+            if (ow && d.status === 'blocked') mail(ow.email, `Проект «${pr.title}» снят с публикации`, `Здравствуйте!\n\nПроект «${pr.title}» снят модератором: ${pr.blockReason}.\nИсправьте проект в конструкторе и напишите нам — мы проверим ещё раз.\n\nЛогика Дома`);
           }
           if (d.boost != null && !!d.boost !== !!pr.boost) { pr.boost = !!d.boost && pr.status !== 'blocked'; log(pr.boost ? 'поднят вверх каталога' : 'снят с поднятия'); }
           if (d.seo && typeof d.seo === 'object') { pr.seo = { title: str(d.seo.title, 120), desc: str(d.seo.desc, 300), keywords: str(d.seo.keywords, 300), noindex: !!d.seo.noindex }; log('SEO страницы обновлено'); }

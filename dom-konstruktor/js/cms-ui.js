@@ -45,7 +45,7 @@ const RT_CMDS = [['bold', 'Ж', 'Жирный'], ['italic', 'К', 'Курсив'
 /* ---------- SEO и GEO: проверка страницы ---------- */
 const plain = (h) => String(h || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 function seo(r) {
-  const brand = (window.DK && DK.CONFIG && DK.CONFIG.brand) || 'Свой Дом';
+  const brand = (window.DK && DK.CONFIG && DK.CONFIG.brand) || 'Логика Дома';
   const title = r.seoTitle || `${r.title || ''} — ${brand}`, desc = r.desc || '', bl = r.blocks || [];
   const html = bl.map(b => [b.html, b.left, b.right].filter(Boolean).join(' ')).join(' ');
   const text = [r.lead, plain(html)].concat(bl.flatMap(b => [b.text, b.title, b.caption].concat((b.items || []).flatMap(x => [x.title, x.text, x.q, x.a])))).filter(Boolean).join(' ');
