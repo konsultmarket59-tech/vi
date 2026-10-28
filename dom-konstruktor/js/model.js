@@ -658,7 +658,7 @@ function tzItems(p) {
     if (x.kind === 'garage') {
       out.push(x.gtype === 'carport'
         ? `${garageName(x)} ${sz}: стойки ${extColumns(p, x).length} шт. на столбчатых фундаментах, односкатная кровля с уклоном от дома, площадка — бетон или плитка по щебёночному основанию`
-        : `${garageName(x)} ${sz} (${GARAGE_TYPES[x.gtype || 'attached'].toLowerCase()}): ленточный фундамент${x.gtype === 'attached' ? ' с деформационным швом у дома, общая стена — противопожарная REI 45, дверь в дом EI 30' : `, ${fmtM(x.gap || GARAGE.gap)} м от дома`}; стены из того же материала, что дом; бетонный пол с уклоном к воротам, утеплённые секционные ворота ${x.cars || 1} × 2,5 м, вентиляция`);
+        : `${garageName(x)} ${sz} (${GARAGE_TYPES[x.gtype || 'attached'].toLowerCase()}): ленточный фундамент${x.gtype === 'attached' ? ' с деформационным швом у дома, общая стена — противопожарная REI 45, дверь в дом EI 30' : `, ${fmtM(x.gap || GARAGE.gap)} м от дома`}; стены из того же материала, что дом; кровля ${GARAGE_ROOFS[garageRoof(p, x)].toLowerCase()}; бетонный пол с уклоном к воротам, утеплённые секционные ворота ${x.cars || 1} × 2,5 м, вентиляция`);
       continue;
     }
     if (x.kind === 'balcony') out.push(x.d <= BALCONY_CANT
@@ -702,6 +702,9 @@ const EXT = {
 /* гараж: ширина снаружи по числу машин (место 2,5 × 5,5 м на машину + проходы), ворота 2,5 м на машину */
 const GARAGE = { w: { 1: 4000, 2: 6500, 3: 9500 }, d: 6500, gate: 2500, gap: 2000, h: 2800 };
 const GARAGE_TYPES = { attached: 'Пристрой к дому', detached: 'Отдельно у дома', carport: 'Навес' };
+// кровля гаража: «как у дома» — пристрой односкатный от дома, отдельный повторяет кровлю дома
+const GARAGE_ROOFS = { auto: 'Как у дома', shed: 'Односкатная', gable: 'Двускатная', hip: 'Вальмовая', flat: 'Плоская' };
+function garageRoof(p, x) { if (x.groof && x.groof !== 'auto' && GARAGE_ROOFS[x.groof]) return x.groof; return x.gtype === 'attached' || p.roof.type === 'flat' || p.roof.type === 'shed' ? 'shed' : 'gable'; }
 function garageName(x) { const n = x.cars || 1; return `${x.gtype === 'carport' ? 'Навес' : 'Гараж'} на ${n} ${n === 1 ? 'машину' : 'машины'}`; }
 /* сторона ворот гаража: far — от дома, near — к дому (только отдельный), left/right — вдоль стены дома */
 function garageGate(x) { const g = x.gate || 'far'; return g === 'near' && x.gtype === 'attached' ? 'far' : g; }
@@ -1069,7 +1072,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

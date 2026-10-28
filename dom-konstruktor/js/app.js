@@ -203,6 +203,7 @@ function renderSel() {
       <label class="fld">Машин<div class="seg" id="gCars">${[1, 2, 3].map(n => `<button data-k="${n}" aria-pressed="${(x.cars || 1) === n}">${n}</button>`).join('')}</div></label>
       <label class="fld">Как стоит<div class="seg" id="gType">${Object.entries(DK.GARAGE_TYPES).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.gtype || 'attached') === k}">${n.replace('Пристрой к дому', 'Пристрой').replace('Отдельно у дома', 'Отдельно')}</button>`).join('')}</div></label>
       <div class="row2"><label class="fld">Ширина, мм<input type="number" id="xW" step="100" value="${x.w}"></label><label class="fld">Глубина, мм<input type="number" id="xD" step="100" value="${x.d}"></label></div>
+      ${x.gtype !== 'carport' ? `<label class="fld">Кровля<div class="seg wrap" id="gRoof">${Object.entries(DK.GARAGE_ROOFS).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.groof || 'auto') === k}">${n}</button>`).join('')}</div></label>` : ''}
       ${x.gtype === 'detached' ? `<label class="fld">От дома, мм<input type="number" id="gGap" step="100" value="${x.gap || DK.GARAGE.gap}"></label>` : ''}
       <div class="muted">${x.gtype === 'carport' ? 'Навес на стойках, кровля с уклоном от дома.' : x.gtype === 'detached' ? 'Отдельный гараж в стиле дома: те же стены и кровля.' : 'Пристроен к стене дома; общая стена противопожарная, дверь в дом EI 30.'} Ворота по 2,5 м на машину — ${{ far: 'со стороны, дальней от дома', near: 'со стороны дома', left: 'с левого торца', right: 'с правого торца' }[DK.garageGate(x)]}; «Повернуть» переносит их на другую сторону.</div>
       <div class="row"><button type="button" class="btn sm" id="gRot">Повернуть (R)</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
@@ -262,6 +263,7 @@ function renderSel() {
     $$('#xRoof button', box).forEach(b => b.onclick = () => { x.roof = b.dataset.k; app.commit(); });
     $$('#gCars button', box).forEach(b => b.onclick = () => { x.cars = +b.dataset.k; const sideG = DK.garageGate(x) === 'left' || DK.garageGate(x) === 'right'; if (sideG) x.d = DK.GARAGE.w[x.cars]; else x.w = DK.GARAGE.w[x.cars]; app.commit(DK.garageName(x)); });
     on('gRot', 'click', () => { DK.garageRotate(x); app.commit('Гараж повёрнут'); });
+    $$('#gRoof button', box).forEach(b => b.onclick = () => { x.groof = b.dataset.k; app.commit('Кровля гаража'); });
     $$('#gType button', box).forEach(b => b.onclick = () => { x.gtype = b.dataset.k; app.commit(DK.GARAGE_TYPES[x.gtype]); });
     on('gGap', 'change', (e) => { x.gap = Math.max(1000, Math.min(15000, +e.target.value || DK.GARAGE.gap)); app.commit(); });
     $$('#xShape button', box).forEach(b => b.onclick = () => { x.shape = b.dataset.k; app.commit(); });
@@ -298,12 +300,16 @@ function setRoomType(x, y, type) {
   if (type === 'sauna' && !lv.furn.some(it => /^sauna/.test(it.type) && regs.at(it.x, it.y) === r)) lv.furn.push(...DK.saunaFill(r));
   hideRoomPop(); app.commit();
 }
-const POP_TYPES = ['kl', 'living', 'kitchen', 'bed', 'kids', 'office', 'hall', 'corr', 'tamb', 'bath', 'laundry', 'boiler', 'dress', 'store', 'garage', 'sauna', 'void', 'loggia', 'none'];
+// назначение помещений группами; цвет группы — акцент дизайн-системы
+const POP_GROUPS = [
+  ['Жилые', 'blue', ['kl', 'living', 'kitchen']], ['Спальни и кабинет', 'green', ['bed', 'kids', 'office']],
+  ['Мокрые зоны', 'cyan', ['bath', 'laundry', 'sauna']], ['Проходные', 'navy', ['hall', 'corr', 'tamb']],
+  ['Техника и хранение', 'orange', ['boiler', 'dress', 'store', 'garage']], ['Другое', 'coral', ['loggia', 'void', 'none']]];
 function roomPop(sx, sy) {
   const r = DK.rooms(P, fid).at(sel.x, sel.y); if (!r) return;
   const upper = DK.floorsOf(P).indexOf(fid) > 0 && fid !== 'b';
-  const pop = $('#roomPop');
-  pop.innerHTML = `<b>${DK.fmtA(r.area)} м² — назначение</b><div>${POP_TYPES.filter(k => DK.ROOM[k] && (!DK.ROOM[k].upper || upper)).map(k => `<button type="button" data-rt="${k}" aria-pressed="${r.type === k}">${esc(DK.ROOM[k].n)}</button>`).join('')}</div>`;
+  const pop = $('#roomPop'), ok = (k) => DK.ROOM[k] && (!DK.ROOM[k].upper || upper);
+  pop.innerHTML = `<b>${DK.fmtA(r.area)} м² — назначение</b>` + POP_GROUPS.map(([g, tone, ks]) => ks.filter(ok).length ? `<div class="rgrp tone-${tone}"><small>${g}</small><div>${ks.filter(ok).map(k => `<button type="button" data-rt="${k}" aria-pressed="${r.type === k}">${DK.icon ? DK.icon(DK.ROOM_ICON[k] || 'square-dashed-bottom', 14) : ''}${esc(DK.ROOM[k].n)}</button>`).join('')}</div></div>` : '').join('');
   pop.hidden = false;
   const st = $('#stage').getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
   pop.style.left = Math.max(8, Math.min(sx + 12, st.width - pw - 8)) + 'px'; pop.style.top = Math.max(56, Math.min(sy + 12, st.height - ph - 8)) + 'px';

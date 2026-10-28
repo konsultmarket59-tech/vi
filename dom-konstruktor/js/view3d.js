@@ -696,8 +696,27 @@ function View3D(canvas, app) {
         }
         seg(sd, at, L, y0, y0 + H, wm);
       }
-      const yt = y0 + H, ov = 0.35;
-      if (attached || p.roof.type === 'flat' || p.roof.type === 'shed') {
+      const yt = y0 + H, ov = 0.35, rt = DK.garageRoof(p, x);
+      if (rt === 'flat') {
+        // плоская: парапет по периметру и мембрана
+        B(A0, A1, face, far, yt, yt + 0.35, wm); B(A0 + TW, A1 - TW, tv(TW), tv(D - TW), yt + 0.2, yt + 0.24, rm);
+      } else if (rt === 'hip') {
+        // вальмовая: конёк вдоль длинной стороны, четыре ската
+        const pitch = Math.min(30, p.roof.pitch || 25) * Math.PI / 180, L0 = A0 - ov, L1 = A1 + ov, t0 = tv(-ov), t1 = tv(D + ov), lu = L1 - L0, lv = D + 2 * ov, yE = yt - ov * Math.tan(pitch);
+        if (lu >= lv) {
+          const h = lv / 2, yR = yE + h * Math.tan(pitch), tm = tv(D / 2), r0 = L0 + h, r1 = L1 - h;
+          roofPlane([P(L0, yE, t0), P(L1, yE, t0), P(r1, yR, tm), P(r0, yR, tm)], rm, sm, fm);
+          roofPlane([P(L1, yE, t1), P(L0, yE, t1), P(r0, yR, tm), P(r1, yR, tm)], rm, sm, fm);
+          roofPlane([P(L0, yE, t1), P(L0, yE, t0), P(r0, yR, tm)], rm, sm, fm);
+          roofPlane([P(L1, yE, t0), P(L1, yE, t1), P(r1, yR, tm)], rm, sm, fm);
+        } else {
+          const h = lu / 2, yR = yE + h * Math.tan(pitch), am = (A0 + A1) / 2, r0 = t0 + n * h, r1 = t1 - n * h;
+          roofPlane([P(L0, yE, t0), P(L0, yE, t1), P(am, yR, r1), P(am, yR, r0)], rm, sm, fm);
+          roofPlane([P(L1, yE, t1), P(L1, yE, t0), P(am, yR, r0), P(am, yR, r1)], rm, sm, fm);
+          roofPlane([P(L1, yE, t0), P(L0, yE, t0), P(am, yR, r0)], rm, sm, fm);
+          roofPlane([P(L0, yE, t1), P(L1, yE, t1), P(am, yR, r1)], rm, sm, fm);
+        }
+      } else if (rt === 'shed') {
         // односкатная от дома; треугольники боковых стен видны с обеих сторон
         const yHi = yt + D * Math.tan(10 * Math.PI / 180), tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov;
         const pts = n > 0 ? [P(a1, yHi, face), P(a0, yHi, face), P(a0, yt, tF), P(a1, yt, tF)] : [P(a0, yHi, face), P(a1, yHi, face), P(a1, yt, tF), P(a0, yt, tF)];
