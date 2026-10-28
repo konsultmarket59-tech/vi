@@ -155,22 +155,19 @@ function bindPublish() {
 }
 
 /* ---------- каталог проектов ---------- */
-const flt = { q: '', sort: 'rating' };
+const flt = { q: '', sort: 'rating', type: '', area: '', floors: '', budget: '' };
 async function renderProjects() {
   const el = $('#projList');
+  const qf = $('#projQf'); if (qf && !qf.dataset.ok) { qf.dataset.ok = '1'; qf.innerHTML = DK.qfHtml(); $$('[data-qf]', qf).forEach(s => s.onchange = () => { flt[s.dataset.qf] = s.value; renderProjects(); }); }
+  if (qf) $$('[data-qf]', qf).forEach(s => { s.value = flt[s.dataset.qf] || ''; });
   el.innerHTML = '<div class="muted">Загружаю…</div>';
   let list;
   try { list = await api(`/api/projects?sort=${flt.sort}&q=${encodeURIComponent(flt.q)}`); }
   catch (e) { el.innerHTML = `<div class="empty"><b>Каталог проектов на сервере площадки</b><p>${esc(e.message)}. Здесь появятся проекты пользователей и архитекторов с ценой и рейтингом.</p></div>`; return; }
-  if (!list.length) { el.innerHTML = '<div class="empty"><b>Пока пусто</b><p>Опубликуйте свою планировку первым — кнопка «Опубликовать проект» в конструкторе.</p></div>'; return; }
-  el.innerHTML = list.map(x => `<article class="proj" data-id="${esc(x.id)}">
-    ${x.cover ? `<img src="${(DK.CONFIG.api || '')}/api/projects/${esc(x.id)}/file/${esc(x.cover)}" alt="" loading="lazy">` : '<div class="noimg"></div>'}
-    <div class="pb"><h3>${esc(x.title)}</h3>${isVer(x) ? VBADGE() : ''}
-      <div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · ${esc(x.size || '')}</div>
-      <div class="row">${stars(x.rating.avg)}<span class="muted">${x.rating.n ? x.rating.avg.toFixed(1) + ' · ' + x.rating.n : 'нет оценок'}</span></div>
-      <div class="row between"><span>${esc(x.author.name)} ${archBadge(x.author)}</span><b>${money(x.price)}</b></div></div>
-  </article>`).join('');
-  $$('.proj', el).forEach(a => a.onclick = () => openProject(a.dataset.id));
+  const all = list.length; list = list.filter(x => DK.qfMatch(x, flt));
+  if (!list.length) { el.innerHTML = all ? '<div class="empty"><b>Нет проектов по этим условиям</b><p>Смягчите фильтр — или спроектируйте свой дом в конструкторе.</p></div>' : '<div class="empty"><b>Пока пусто</b><p>Опубликуйте свою планировку первым — кнопка «Опубликовать проект» в конструкторе.</p></div>'; return; }
+  el.innerHTML = list.map(DK.projCard).join('');
+  $$('.pcard2', el).forEach(a => { a.onclick = () => openProject(a.dataset.id); a.onkeydown = (e) => { if (e.key === 'Enter') a.click(); }; });
 }
 async function openProject(id) {
   let x; try { x = await api('/api/projects/' + id); } catch (e) { DK.toast && DK.toast(e.message); return; }
@@ -312,6 +309,7 @@ DK.Market = {
     refreshMe().then(readyOk, readyOk);
   },
   renderProjects, renderCab, openPublish, openProject, ready: readyP,
+  setFilter(f) { Object.assign(flt, f); },
   /* кабинет по роли: компания — кабинет заявок, остальные — кабинет пользователя */
   async openCabinet(kind) {
     await (this.ready || Promise.resolve());

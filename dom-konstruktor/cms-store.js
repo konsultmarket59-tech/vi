@@ -65,7 +65,7 @@ module.exports = function cmsStore(DATA, C, CFG) {
   }
   function remove(p) { const st = read(); if (defaults()[p]) throw new Error('Исходную страницу удалить нельзя — снимите с публикации или сбросьте правки'); delete st.pages[p]; write(st); }
   function reset(p) { const st = read(); delete st.pages[p]; write(st); return get(p); }
-  const SITE_KEYS = ['phone', 'email', 'city', 'address', 'legal', 'inn', 'hours', 'vk', 'telegram', 'whatsapp', 'max', 'youtube', 'dzen', 'metrika', 'gsc', 'yandexVerify', 'footerNote'];
+  const SITE_KEYS = ['phone', 'email', 'city', 'address', 'legal', 'inn', 'hours', 'vk', 'telegram', 'whatsapp', 'max', 'youtube', 'dzen', 'metrika', 'gsc', 'yandexVerify', 'footerNote', 'heroImage', 'heroAlt'];
   function site() { const s = read().site || {}; return Object.assign({ phone: OWNER.phone || '', email: OWNER.email || '', city: OWNER.city || 'Пермь, работаем по России', legal: OWNER.name || BRAND }, s); }
   function saveSite(d) { const st = read(); st.site = {}; SITE_KEYS.forEach(k => { if (d[k] != null) st.site[k] = String(d[k]).slice(0, 500); }); write(st); return site(); }
   return { all, get, save, remove, reset, site, saveSite, KINDS, BRAND };

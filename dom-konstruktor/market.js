@@ -35,10 +35,16 @@ module.exports = function market(ctx) {
   // архитекторы, которых автор добавил к проекту: по id пользователя или по почте (если ещё не зарегистрирован)
   const inTeam = (pr, u) => !!(u && (pr.team || []).some(m => m.id === u.id || (m.email && m.email === String(u.email || '').toLowerCase())));
   const rating = (pr) => { const v = Object.values(pr.votes || {}); return { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }; };
+  // для карточки и фильтра: спальни, санузлы, гараж, терраса, мансарда — из назначенных помещений и пристроек
+  function feats(pj) {
+    const nm = [].concat(...Object.values((pj && pj.levels) || {}).map(l => (l && l.names) || [])), ext = (pj && pj.ext) || [];
+    return { beds: nm.filter(n => n.type === 'bed' || n.type === 'kids').length, baths: nm.filter(n => n.type === 'bath').length,
+      garage: ext.some(x => x.kind === 'garage'), terrace: ext.some(x => x.kind === 'terrace' || x.kind === 'porch'), attic: !!(pj && pj.attic && pj.floors > 1) };
+  }
   function card(pr, all) {
     const u = (all || users()).find(x => x.id === pr.owner) || {};
     return { id: pr.id, title: pr.title, about: pr.about, price: pr.price, license: pr.license, area: pr.area, floors: pr.floors, size: pr.size, at: pr.at,
-      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', quality: pr.quality || null, verify: vPub(pr.verify), updatedAt: pr.updatedAt || pr.at };
+      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', quality: pr.quality || null, verify: vPub(pr.verify), feat: feats(pr.project), updatedAt: pr.updatedAt || pr.at };
   }
   function saveFile(dir, url, name, okTypes) {
     const m = /^data:([\w/+.-]+);base64,(.+)$/.exec(String(url || '')); if (!m) return null;

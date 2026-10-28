@@ -24,7 +24,7 @@ def build() -> str:
     import base64
     ld = re.sub(r'@font-face\s*\{[^}]*\}', '', (ROOT / 'brand' / 'ld.css').read_text(encoding='utf-8'))
     html = html.replace('<link rel="stylesheet" href="brand/ld.css">', '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap">\n<style>' + ld + '</style>')
-    for f, t in [('brand/logo-horizontal.svg', 'image/svg+xml'), ('brand/favicon-32.png', 'image/png'), ('brand/apple-touch-icon.png', 'image/png'), ('brand/mark.png', 'image/png')]:
+    for f, t in [('brand/logo-horizontal.svg', 'image/svg+xml'), ('brand/favicon-32.png', 'image/png'), ('brand/apple-touch-icon.png', 'image/png'), ('brand/mark.png', 'image/png'), ('brand/img/hero-house.jpg', 'image/jpeg')]:
         html = html.replace('"' + f + '"', '"data:' + t + ';base64,' + base64.b64encode((ROOT / f).read_bytes()).decode() + '"')
     return html
 

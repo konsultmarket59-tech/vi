@@ -259,6 +259,8 @@ ${perks}${pr.about ? `<section><h2>О проекте</h2><p class="about">${esc(
       if (r.ogImage) h = h.replace(/(<meta property="og:image" content=")[^"]*(")/, `$1${esc(/^https?:/.test(r.ogImage) ? r.ogImage : base(req) + r.ogImage)}$2`);
       if (r.noindex) h = h.replace('</title>', '</title><meta name="robots" content="noindex, follow">');
     }
+    // фото на главной — из настроек сайта (медиатека CRM), иначе рендер из конструктора
+    if (/^\/media\/[\w.-]+\.(jpe?g|png|webp)$/.test(S.heroImage || '')) h = h.replace('</head>', `<script>window.__HERO=${JSON.stringify({ src: S.heroImage, alt: S.heroAlt || '' }).replace(/</g, '\\u003c')}</script></head>`);
     const extra = (S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVerify)}">` : '') + (S.gsc ? `<meta name="google-site-verification" content="${esc(S.gsc)}">` : '') + metrika(S);
     if (extra) h = h.replace('</head>', extra + '</head>');
     return h;
