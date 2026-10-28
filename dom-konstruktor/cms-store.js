@@ -31,6 +31,10 @@ module.exports = function cmsStore(DATA, C, CFG) {
     add({ path: '/kontakty/', kind: 'page', name: 'Контакты', title: 'Контакты', seoTitle: `Контакты — ${BRAND}`, desc: `Контакты сервиса ${BRAND}: телефон, почта, заявка на подбор строительной компании.`, blocks: [{ t: 'contacts' }] });
     add({ path: '/politika/', kind: 'page', name: 'Политика обработки данных', title: 'Политика обработки персональных данных', seoTitle: `Политика обработки персональных данных — ${BRAND}`,
       desc: 'Политика обработки персональных данных пользователей сайта в соответствии с 152-ФЗ.', blocks: [{ t: 'text', html: C.policy || '' }] });
+    // документы площадки
+    const D = require('./docs-content.js');
+    add({ path: '/dokumenty/', kind: 'page', name: 'Документы', title: 'Документы', seoTitle: `Документы — ${BRAND}`, desc: 'Пользовательское соглашение, согласие на обработку персональных данных, договор услуг и оферты для компаний и архитекторов.', blocks: [{ t: 'text', html: D.index }] });
+    D.docs.forEach(x => add({ path: `/dokumenty/${x.slug}/`, kind: 'page', name: x.name, title: x.title, seoTitle: `${x.title} — ${BRAND}`, desc: x.desc, blocks: [{ t: 'text', html: x.html }] }));
     return d;
   }
   function all() {

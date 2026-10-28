@@ -259,7 +259,8 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 .stars button{border:0;background:none;padding:0;font-size:16px;line-height:1;color:#d5d7da;cursor:pointer}
 .stars.big button{font-size:26px}
 .stars button.on{color:var(--accent)}
-.badge{display:inline-block;background:var(--brand);color:#fff;border-radius:999px;padding:1px 8px;font:700 11px var(--text)}
+.badge{display:inline-block;background:var(--brand);color:#fff;border-radius:999px;padding:2px 9px;font:600 11.5px var(--text)}
+.badge.ok{background:#E6F6EB;color:#1E7A3D}.badge.warn{background:#FEF1E3;color:#9A5A12}
 .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
 .gal img{width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:zoom-in}
 .gal img.big{grid-column:1/-1;cursor:zoom-out}
@@ -596,7 +597,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
     <div><a class="logo" href="/"><img class="logo-img" src="brand/logo-horizontal.svg" alt="Логика Дома"></a><p>— технологичная платформа для выбора проектов, настройки и поиска проверенных подрядчиков.</p></div>
     <div><h4>Сервис</h4><a href="/">Конструктор дома</a><a href="/uslugi/podbor-stroitelnoj-kompanii/">Подбор строителя</a><a href="/uslugi/eskiznyj-proekt/">Эскизный проект</a><a href="/uslugi/raschet-stoimosti-doma/">Расчёт стоимости</a><a href="#projects">Каталог проектов</a></div>
     <div><h4>Компаниям</h4><a href="/uslugi/dlya-stroitelnyh-kompanij/">Заявки для строителей</a><a href="#company">Кабинет компании</a><a href="#join">Регистрация исполнителя</a><a href="#cab">Архитекторам</a></div>
-    <div><h4>Информация</h4><a href="/blog/">Блог</a><a href="#how">Как это работает</a><a href="/o-nas/">О нас</a><a href="/kontakty/">Контакты</a><a href="/politika/">Политика обработки данных</a></div>
+    <div><h4>Информация</h4><a href="/blog/">Блог</a><a href="#how">Как это работает</a><a href="/o-nas/">О нас</a><a href="/dokumenty/">Документы</a><a href="/kontakty/">Контакты</a><a href="/politika/">Политика обработки данных</a></div>
     <div><h4>Контакты</h4><span id="ownerLine"></span><a href="#lead">Оставить заявку</a></div>
   </div><div class="foot-legal">Расчёты в конструкторе — предварительные: пролёты, толщины стен и требования к котельной (СП 402.1325800.2018) проверяются упрощённо и не заменяют проект и технические условия газовой службы.</div></footer>
 </div>
@@ -630,7 +631,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <label class="fld">Пожелания<textarea id="lNote" rows="3" placeholder="Гараж, сауна, терраса, кабинет…"></textarea></label>
       <b>Как работаем со строительными компаниями</b>
       <div class="opts svc" id="lSvc"><button type="button" class="opt" data-k="open">Рассылка и отчёт<small>Контакты открыты компаниям — для вас бесплатно, платит компания за заявку</small></button><button type="button" class="opt" data-k="closed">Рассылка и отчёт, контакты закрыты<small id="lSvcPrice">Компании не видят ваших данных — 14 900 ₽</small></button><button type="button" class="opt" data-k="agent">Представляем ваши интересы<small>Доработка проекта, разбор смет, переговоры. Оплачивает строительная компания при договоре</small></button></div>
-      <label class="chk"><input type="checkbox" id="lAgree">Согласен на обработку персональных данных и звонок по заявке — <a href="/dokumenty/" target="_blank">условия</a></label>
+      <label class="chk"><input type="checkbox" id="lAgree"><span>Даю <a href="/dokumenty/soglasie-na-obrabotku-dannyh/" target="_blank">согласие на обработку персональных данных</a> и звонок по заявке; условия услуг — в <a href="/dokumenty/dogovor-uslug/" target="_blank">договоре</a></span></label>
     </section>
     <section data-step="4" class="q" hidden>
       <div class="box"><b>Что поменяется в проекте под ваш запрос</b><ul class="ch" id="lChanges"></ul></div>
@@ -674,7 +675,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <label class="fld">Telegram для уведомлений<input name="tg" placeholder="@username или chat id"></label>
     </div>
     <label class="fld">О компании, примеры работ<textarea name="about" rows="3"></textarea></label>
-    <label class="chk"><input type="checkbox" name="agree">Согласен с условиями: заявки без контактов клиента — бесплатно, передача клиента на встречу — по договору</label>
+    <label class="chk"><input type="checkbox" name="agree"><span>Принимаю <a href="/dokumenty/oferta-dlya-kompanij/" target="_blank">оферту для строительных компаний</a> и даю <a href="/dokumenty/soglasie-na-obrabotku-dannyh/" target="_blank">согласие на обработку персональных данных</a></span></label>
     <div class="err-t" id="jErr"></div>
     <div class="nav"><span class="muted" id="jMsg"></span><button class="btn primary" type="submit">Отправить на проверку</button></div>
   </form>
@@ -704,7 +705,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
         <label class="chk"><input type="checkbox" name="escrow">Готовы строить по эскроу-счёту (214-ФЗ для ИЖС)</label>
         <div class="muted">После проверки менеджером запросы на расчёт будут приходить на эту почту и в кабинет. Платите только за горячий лид — 2 % от стоимости домовладения.</div>
       </div>
-      <label class="chk"><input type="checkbox" name="agree">Согласен на обработку персональных данных и с правилами публикации</label>
+      <label class="chk"><input type="checkbox" name="agree"><span>Принимаю <a href="/dokumenty/polzovatelskoe-soglashenie/" target="_blank">пользовательское соглашение</a> и даю <a href="/dokumenty/soglasie-na-obrabotku-dannyh/" target="_blank">согласие на обработку персональных данных</a></span></label>
       <button class="btn primary" type="submit">Зарегистрироваться</button>
     </form>
     <div class="err-t" id="aErr"></div>
@@ -722,7 +723,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <label class="fld">Что получает покупатель<select name="license"><option value="view">Эскиз для ознакомления и доработки</option><option value="build">Право построить один дом по эскизу</option></select></label></div>
     <div class="muted">Планы этажей и вид снаружи прикрепятся автоматически. Площадка берёт комиссию с платных продаж; оплату и передачу эскиза ведёт менеджер.</div>
     <label class="chk vchk"><input type="checkbox" name="verify"><span><b>Заказать верификацию — <span id="pubVerPrice">15 000 ₽</span></b><small>Архитектор и инженер платформы проверят планировку и конструктив и при необходимости исправят. На карточке появится отметка «Проверено», проект поднимется в каталоге. Оплата по счёту после звонка менеджера.</small></span></label>
-    <label class="chk"><input type="checkbox" name="own">Проект мой, я согласен с правилами публикации</label>
+    <label class="chk"><input type="checkbox" name="own"><span>Проект мой, принимаю <a href="/dokumenty/polzovatelskoe-soglashenie/" target="_blank">пользовательское соглашение</a></span></label>
     <div class="nav"><span class="err-t" id="pErr"></span><button class="btn primary" type="submit">Опубликовать</button></div>
   </form>
 </dialog>

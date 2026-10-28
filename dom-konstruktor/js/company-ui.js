@@ -23,15 +23,15 @@ async function render(openId) {
   const c = d.company;
   if (!c) { box.innerHTML = '<p>Карточка компании не найдена — напишите нам.</p>'; return; }
   const st = { pending: 'на проверке — запросы начнут приходить после одобрения', approved: 'проверена — запросы приходят на почту и сюда', rejected: 'отклонена — свяжитесь с нами' }[c.status];
-  box.innerHTML = `<div class="card"><b>${esc(c.name)}</b> · ${esc(c.city)} · статус: ${esc(st)}<div class="muted">Цена лида: холодный — ${d.grid.cold} %, тёплый — ${d.grid.warm} %, горячий (${Object.values(d.qual).join(', ').toLowerCase()}) — ${d.grid.hot} % от стоимости домовладения.</div></div>
+  box.innerHTML = `<div class="card"><b>${esc(c.name)}</b>${c.city ? ' · ' + esc(c.city) : ''} · статус: ${esc(st)}<div class="muted">Цена лида: холодный — ${d.grid.cold} %, тёплый — ${d.grid.warm} %, горячий (${Object.values(d.qual).join(', ').toLowerCase()}) — ${d.grid.hot} % от стоимости домовладения.</div></div>
     <details class="card"><summary><b>Профиль: где строите, банки, эскроу</b> <span class="muted">— ${esc((c.cities || c.regions || []).join(', ') || 'города не указаны')}${(c.banks || []).length ? ' · банки: ' + esc(c.banks.join(', ')) : ''}${c.escrow ? ' · эскроу' : ''}</span></summary>
       <form id="cProf" class="q" style="margin-top:10px"><div class="fld">Города и районы, где строите<div class="chips">${Array.from(new Set(DK.CITIES.concat(c.cities || []))).map(x => `<label><input type="checkbox" name="cw" value="${esc(x)}"${(c.cities || []).includes(x) ? ' checked' : ''}>${esc(x)}</label>`).join('')}</div><input name="more" placeholder="Ещё города через запятую"></div>
       <div class="fld">Аккредитация в банках<div class="chips">${DK.BANKS.map(b => `<label><input type="checkbox" name="bk" value="${esc(b)}"${(c.banks || []).includes(b) ? ' checked' : ''}>${esc(b)}</label>`).join('')}</div></div>
       <label class="chk"><input type="checkbox" name="escrow"${c.escrow ? ' checked' : ''}>Готовы строить по эскроу-счёту</label>
       <div><button class="btn primary">Сохранить профиль</button></div></form></details>
     <h2>Запросы на расчёт</h2><div id="compList">${d.requests.length ? d.requests.map(r => `<div class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;cursor:pointer" data-id="${esc(r.id)}">
-      <b>№ ${esc(r.id)}</b><span>${dt(r.at)}</span><span>${esc(r.city)}</span><span>${r.area ? Math.round(r.area) + ' м²' : ''}</span><span>${esc(r.material || '')}</span>
-      <span style="flex:1"></span>${r.deal ? '<span class="badge" style="background:#E6F6EB">вас выбрали для сделки</span>' : ''}${r.myBid ? `<span class="badge">ваш расчёт ${rub(r.myBid.total)}</span>` : '<span class="badge" style="background:#FEF1E3">ждёт расчёта</span>'}</div>`).join('') : '<p class="muted">Запросов пока нет.</p>'}</div><div id="compReq"></div>`;
+      <b>№ ${esc(r.id)}</b><span>${dt(r.at)}</span><span>${esc(r.city)}</span><span>${r.area ? Math.round(r.area) + ' м²' : ''}</span><span>${esc((DK.MATS && DK.MATS[r.material]) || ({ any: 'материал не важен' })[r.material] || r.material || '')}</span>
+      <span style="flex:1"></span>${r.deal ? '<span class="badge ok">вас выбрали для сделки</span>' : ''}${r.myBid ? `<span class="badge">ваш расчёт ${rub(r.myBid.total)}</span>` : '<span class="badge warn">ждёт расчёта</span>'}</div>`).join('') : '<p class="muted">Запросов пока нет.</p>'}</div><div id="compReq"></div>`;
   $$('#compList [data-id]').forEach(el => el.onclick = () => openReq(el.dataset.id));
   $('#cProf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target, cities = $$('[name=cw]:checked', f).map(i => i.value).concat(f.more.value.split(',').map(x => x.trim()).filter(Boolean));

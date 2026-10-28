@@ -190,7 +190,7 @@ function stat(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(ROOT, p));
-  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store|docs-content)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     // библиотеки и шрифты не меняются — кешируем надолго; остальное проверяется при каждом заходе
