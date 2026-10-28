@@ -1,0 +1,12 @@
+/* Чертежи: планировки, эскизный проект, скрины с сайта */
+:root{
+--plan-wall-ext:#D9DEE8;--plan-wall-ext-hatch:#A3A9B7;
+--plan-wall-bearing:#C9735E;--plan-wall-bearing-hatch:#A65440;
+--plan-partition:#E2A593;--plan-insulation:#F3E4A6;
+--plan-window:#2784EB;--plan-wet:#E9F2FD;--plan-wet-hatch:#9CC3F0;
+--plan-terrace:#EADFC8;--plan-site:#ECEAE4;--plan-furniture:#CBB79C;
+--plan-line:#242832;--plan-dim:#5B6272;
+--plan-ok:#2FB35A;--plan-error:#F05C78;
+--sheet-frame:#242832;
+--sheet-frame-w:1.5px;/* @kind spacing */
+}
