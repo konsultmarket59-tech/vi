@@ -1,7 +1,7 @@
 /* Экспорт эскиза для архитектора.
    IFC 2x3 — открытый BIM-формат: ArchiCAD открывает его как модель (стены, перекрытия, окна, двери, помещения с площадями)
    и сохраняет в свой .pln; так же читают Revit, Renga, nanoCAD BIM. Формат .pln закрытый — напрямую его пишет только ArchiCAD.
-   DXF R12 — планы этажей по слоям для AutoCAD, nanoCAD и импорта в ArchiCAD как подложка. */
+   DXF R12 — планы этажей по слоям, каждый на своём листе А3 со штампом и экспликацией: AutoCAD, nanoCAD, ArchiCAD (открыть как чертёж). */
 (function () {
 'use strict';
 const DK = window.DK;
@@ -161,58 +161,137 @@ function cp1251(s) {
     if (c < 128) out[n++] = c;
     else if (c >= 0x410 && c <= 0x44F) out[n++] = c - 0x350;
     else if (c === 0x401) out[n++] = 0xA8; else if (c === 0x451) out[n++] = 0xB8;
-    else if (c === 0x2116) out[n++] = 0xB9; else if (c === 0xB2) out[n++] = 0x32; else if (c === 0xD7) out[n++] = 0x78; else if (c === 0xB0) out[n++] = 0xB0;
+    else if (c === 0x2116) out[n++] = 0xB9; else if (c === 0xB2) out[n++] = 0x32; else if (c === 0xD7) out[n++] = 0x78; else if (c === 0xB0) out[n++] = 0xB0; else if (c === 0xB7) out[n++] = 0xB7;
     else if (c === 0x2014 || c === 0x2013) out[n++] = 0x2D; else out[n++] = 0x3F;
   }
   return out.slice(0, n);
 }
-DK.exportDXF = function (p) {
+/* Чертежи по слоям: каждый этаж — на своём листе А3 (рамка, штамп, экспликация) в пространстве модели, единицы — мм.
+   opts.dimOuter / opts.dimInner — наружные и внутренние размеры (по умолчанию оба). */
+DK.DXF_LAYERS = [['FRAME', 7, 'Рамка листа'], ['STAMP', 7, 'Штамп и надписи листа'], ['WALLS_OUTER', 7, 'Наружные стены'], ['INSULATION', 51, 'Утеплитель'],
+  ['WALLS_BEARING', 1, 'Несущие стены'], ['PARTITIONS', 8, 'Перегородки'], ['WINDOWS', 5, 'Окна'], ['DOORS', 3, 'Двери и проёмы'], ['STAIRS', 6, 'Лестница'],
+  ['ROOM_TAGS', 4, 'Марки помещений'], ['EXPLICATION', 7, 'Экспликация'], ['DIMS_OUTER', 140, 'Наружные размеры'], ['DIMS_INNER', 30, 'Внутренние размеры']];
+DK.exportDXF = function (p, opts) {
+  opts = Object.assign({ dimOuter: true, dimInner: true }, opts || {});
   const o = [], g = (c, v) => { o.push(String(c), String(v)); };
-  const fl = DK.floorsOf(p), gap = 5000, af = DK.atticOn(p) ? DK.atticFloor(p) : null;
-  let ox = 0;
-  const line = (ly, x1, y1, x2, y2) => { g(0, 'LINE'); g(8, ly); g(10, (ox + x1).toFixed(1)); g(20, (-y1).toFixed(1)); g(30, 0); g(11, (ox + x2).toFixed(1)); g(21, (-y2).toFixed(1)); g(31, 0); };
-  const pline = (ly, pts) => { g(0, 'POLYLINE'); g(8, ly); g(66, 1); g(70, 1); pts.forEach(q => { g(0, 'VERTEX'); g(8, ly); g(10, (ox + q.x).toFixed(1)); g(20, (-q.y).toFixed(1)); g(30, 0); }); g(0, 'SEQEND'); g(8, ly); };
-  const rect = (ly, x0, y0, x1, y1) => pline(ly, [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]);
-  const text = (ly, x, y, h, s, center) => { g(0, 'TEXT'); g(8, ly); g(10, (ox + x).toFixed(1)); g(20, (-y).toFixed(1)); g(30, 0); g(40, h); g(1, s); if (center) { g(72, 1); g(11, (ox + x).toFixed(1)); g(21, (-y).toFixed(1)); g(31, 0); } };
-  const arc = (ly, cx, cy, r, a0, a1) => { g(0, 'ARC'); g(8, ly); g(10, (ox + cx).toFixed(1)); g(20, (-cy).toFixed(1)); g(30, 0); g(40, r); g(50, a0); g(51, a1); };
-  const LAYERS = [['WALLS_OUTER', 7], ['WALLS_BEARING', 1], ['PARTITIONS', 8], ['INSULATION', 3], ['OPENINGS', 5], ['ROOMS', 2], ['DIMS', 4], ['STAIRS', 6], ['TITLE', 7]];
-  g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(9, '$DWGCODEPAGE'); g(3, 'ANSI_1251'); g(9, '$INSUNITS'); g(70, 4); g(0, 'ENDSEC');
-  g(0, 'SECTION'); g(2, 'TABLES'); g(0, 'TABLE'); g(2, 'LAYER'); g(70, LAYERS.length);
-  LAYERS.forEach(([n, c]) => { g(0, 'LAYER'); g(2, n); g(70, 0); g(62, c); g(6, 'CONTINUOUS'); });
-  g(0, 'ENDTAB'); g(0, 'ENDSEC');
-  g(0, 'SECTION'); g(2, 'ENTITIES');
+  const fl = DK.floorsOf(p), af = DK.atticOn(p) ? DK.atticFloor(p) : null, ex = DK.explication(p);
   const t = DK.ts(p), ext = DK.extT(p);
-  fl.forEach(fid => {
-    const nm = fid === af ? 'Мансарда' : DK.floorName(fid);
-    text('TITLE', p.W / 2, -2200, 400, `${nm} — план, мм`, true);
+  let ox = 0, oy = 0; // сдвиг текущего листа/плана; ось Y в DXF смотрит вверх — переворачиваем
+  const X = (x) => (ox + x).toFixed(1), Y = (y) => (-(oy + y)).toFixed(1);
+  const line = (ly, x1, y1, x2, y2) => { g(0, 'LINE'); g(8, ly); g(10, X(x1)); g(20, Y(y1)); g(30, 0); g(11, X(x2)); g(21, Y(y2)); g(31, 0); };
+  const pline = (ly, pts) => { g(0, 'POLYLINE'); g(8, ly); g(66, 1); g(70, 1); pts.forEach(q => { g(0, 'VERTEX'); g(8, ly); g(10, X(q.x)); g(20, Y(q.y)); g(30, 0); }); g(0, 'SEQEND'); g(8, ly); };
+  const rect = (ly, x0, y0, x1, y1) => pline(ly, [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }]);
+  // align: 0 — слева, 1 — по центру, 2 — справа; rot — поворот, градусы
+  const text = (ly, x, y, h, str, align, rot) => { g(0, 'TEXT'); g(8, ly); g(10, X(x)); g(20, Y(y)); g(30, 0); g(40, h.toFixed(1)); g(1, str); if (rot) g(50, rot); if (align) { g(72, align); g(11, X(x)); g(21, Y(y)); g(31, 0); } };
+  const arc = (ly, cx, cy, r, a0, a1) => { g(0, 'ARC'); g(8, ly); g(10, X(cx)); g(20, Y(cy)); g(30, 0); g(40, r); g(50, a0); g(51, a1); };
+
+  g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(9, '$DWGCODEPAGE'); g(3, 'ANSI_1251'); g(9, '$INSUNITS'); g(70, 4); g(0, 'ENDSEC');
+  g(0, 'SECTION'); g(2, 'TABLES');
+  g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1); g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0); g(0, 'ENDTAB');
+  g(0, 'TABLE'); g(2, 'LAYER'); g(70, DK.DXF_LAYERS.length);
+  DK.DXF_LAYERS.forEach(([n, c]) => { g(0, 'LAYER'); g(2, n); g(70, 0); g(62, c); g(6, 'CONTINUOUS'); });
+  g(0, 'ENDTAB');
+  g(0, 'TABLE'); g(2, 'STYLE'); g(70, 1); g(0, 'STYLE'); g(2, 'STANDARD'); g(70, 0); g(40, 0.0); g(41, 1.0); g(50, 0.0); g(71, 0); g(42, 2.5); g(3, 'txt'); g(4, ''); g(0, 'ENDTAB');
+  g(0, 'ENDSEC');
+  g(0, 'SECTION'); g(2, 'ENTITIES');
+
+  // габарит плана с размерами — по нему выбираем масштаб листа
+  const ol = DK.outline(p, ext), bx0 = Math.min(...ol.map(q => q.x)) - 2600, bx1 = Math.max(...ol.map(q => q.x)) + 2600, by0 = Math.min(...ol.map(q => q.y)) - 2600, by1 = Math.max(...ol.map(q => q.y)) + 2600;
+  const AW = 280, AH = 227; // поле под план на листе (слева от экспликации, над штампом), мм бумаги
+  const S = [100, 200, 400].find(k => (bx1 - bx0) / k <= AW && (by1 - by0) / k <= AH) || 400;
+  const SW = 420 * S, SH = 297 * S, total = fl.length, today = new Date().toLocaleDateString('ru-RU');
+  const title = opts.name || p.cloudTitle || p.name || 'Жилой дом';
+  // линейный размер: линия, засечки 45°, выносные, текст над линией
+  const tick = S * 1.5, th = S * 2.5;
+  const hd = (ly, x0, x1, y, from, label) => {
+    line(ly, x0 - tick, y, x1 + tick, y);
+    for (const x of [x0, x1]) { line(ly, x - tick / 2, y + tick / 2, x + tick / 2, y - tick / 2); if (from != null) line(ly, x, from, x, y + Math.sign(y - from) * tick); }
+    if (x1 - x0 > th * 2.2) text(ly, (x0 + x1) / 2, y - S * 0.8, th, String(label || Math.round(x1 - x0)), 1);
+  };
+  const vd = (ly, y0, y1, x, from, label) => {
+    line(ly, x, y0 - tick, x, y1 + tick);
+    for (const y of [y0, y1]) { line(ly, x - tick / 2, y + tick / 2, x + tick / 2, y - tick / 2); if (from != null) line(ly, from, y, x + Math.sign(x - from) * tick, y); }
+    if (y1 - y0 > th * 2.2) text(ly, x - S * 0.8, (y0 + y1) / 2, th, String(label || Math.round(y1 - y0)), 1, 90);
+  };
+
+  fl.forEach((fid, i) => {
+    const nm = fid === af ? 'Мансарда' : DK.floorName(fid), sheetName = fid === af ? 'План мансарды' : fid === 'b' ? 'План цокольного этажа' : `План ${fid[1]} этажа`;
+    // ---- лист: рамка 20/5/5/5 мм и штамп 185 × 40 мм
+    ox = i * (SW + 20 * S); oy = 0;
+    rect('FRAME', 0, 0, SW, SH); rect('FRAME', 20 * S, 5 * S, SW - 5 * S, SH - 5 * S);
+    const sx = SW - 5 * S - 185 * S, sy = SH - 5 * S - 40 * S, m = (v) => v * S;
+    rect('STAMP', sx, sy, sx + m(185), sy + m(40));
+    line('STAMP', sx + m(120), sy, sx + m(120), sy + m(40));
+    line('STAMP', sx, sy + m(10), sx + m(185), sy + m(10)); line('STAMP', sx, sy + m(25), sx + m(120), sy + m(25));
+    line('STAMP', sx + m(120), sy + m(25), sx + m(185), sy + m(25)); line('STAMP', sx + m(140), sy + m(10), sx + m(140), sy + m(40)); line('STAMP', sx + m(162), sy + m(10), sx + m(162), sy + m(40));
+    text('STAMP', sx + m(4), sy + m(7), m(4), 'Логика Дома · Эскизный проект');
+    text('STAMP', sx + m(124), sy + m(7), m(3), today);
+    text('STAMP', sx + m(4), sy + m(19), m(3.5), title.slice(0, 48));
+    text('STAMP', sx + m(4), sy + m(34), m(4), sheetName);
+    text('STAMP', sx + m(130), sy + m(17), m(2.5), 'Стадия', 1); text('STAMP', sx + m(151), sy + m(17), m(2.5), 'Лист', 1); text('STAMP', sx + m(173.5), sy + m(17), m(2.5), 'Листов', 1);
+    text('STAMP', sx + m(130), sy + m(33), m(3.5), 'ЭП', 1); text('STAMP', sx + m(151), sy + m(33), m(3.5), String(i + 1), 1); text('STAMP', sx + m(173.5), sy + m(33), m(3.5), String(total), 1);
+    text('STAMP', 25 * S, 15 * S, m(5), `${sheetName} · М 1:${S}`);
+    // ---- экспликация помещений: справа сверху
+    const grp = ex.groups.find(q => q.fid === fid), ex0 = SW - 5 * S - m(95), ey0 = 10 * S, cw = [m(12), m(63), m(20)], rh = m(7);
+    if (grp) {
+      text('EXPLICATION', ex0 + m(47.5), ey0 + m(5), m(3.5), `Экспликация помещений · ${nm}`, 1);
+      let y = ey0 + m(8);
+      const row = (a, b, c, bold) => { rect('EXPLICATION', ex0, y, ex0 + m(95), y + rh); line('EXPLICATION', ex0 + cw[0], y, ex0 + cw[0], y + rh); line('EXPLICATION', ex0 + cw[0] + cw[1], y, ex0 + cw[0] + cw[1], y + rh);
+        text('EXPLICATION', ex0 + cw[0] / 2, y + m(4.8), m(bold ? 3 : 2.8), a, 1); text('EXPLICATION', ex0 + cw[0] + m(2), y + m(4.8), m(bold ? 3 : 2.8), b); text('EXPLICATION', ex0 + m(95) - m(2), y + m(4.8), m(bold ? 3 : 2.8), c, 2); y += rh; };
+      row('№', 'Наименование', 'Площадь, м²', true);
+      grp.rooms.forEach(r => row(String(r.n), r.name, DK.fmtA(r.area)));
+      row('', 'Итого', DK.fmtA(grp.total), true);
+      text('EXPLICATION', ex0, y + m(8), m(2.5), 'Площади — в чистоте, без учёта отделки.');
+    }
+    // ---- план: по центру поля слева
+    ox += 30 * S + ((AW * S) - (bx1 - bx0)) / 2 - bx0; oy = 22 * S + ((AH * S) - (by1 - by0)) / 2 - by0;
     pline('INSULATION', DK.outline(p, ext)); pline('WALLS_OUTER', DK.outline(p, 0)); pline('WALLS_OUTER', DK.outline(p, -t));
     const ws = DK.walls(p, fid), lv = p.levels[fid];
     ws.forEach(w => { if (w.kind === 'bearing') rect('WALLS_BEARING', w.x0, w.y0, w.x1, w.y1); else if (w.kind === 'part') rect('PARTITIONS', w.x0, w.y0, w.x1, w.y1); });
-    DK.diagWalls(p, fid).forEach(d => { if (d.kind === 'part') { const l = Math.hypot(d.x2 - d.x1, d.y2 - d.y1), nx = -(d.y2 - d.y1) / l * d.t / 2, ny = (d.x2 - d.x1) / l * d.t / 2; pline('PARTITIONS', [{ x: d.x1 + nx, y: d.y1 + ny }, { x: d.x2 + nx, y: d.y2 + ny }, { x: d.x2 - nx, y: d.y2 - ny }, { x: d.x1 - nx, y: d.y1 - ny }]); } });
+    DK.diagWalls(p, fid).forEach(d => { const l = Math.hypot(d.x2 - d.x1, d.y2 - d.y1), nx = -(d.y2 - d.y1) / l * d.t / 2, ny = (d.x2 - d.x1) / l * d.t / 2; pline(d.kind === 'part' ? 'PARTITIONS' : 'WALLS_OUTER', [{ x: d.x1 + nx, y: d.y1 + ny }, { x: d.x2 + nx, y: d.y2 + ny }, { x: d.x2 - nx, y: d.y2 - ny }, { x: d.x1 - nx, y: d.y1 - ny }]); });
     (lv.open || []).forEach(op => {
       const w = ws.find(v => v.id === op.wall); if (!w) return;
+      const ly = op.kind === 'win' ? 'WINDOWS' : 'DOORS';
       const a0 = op.c - op.w / 2, a1 = op.c + op.w / 2, lo = w.axis === 'x' ? w.y0 : w.x0, hi = w.axis === 'x' ? w.y1 : w.x1;
-      const L2 = (a, b, c, d) => w.axis === 'x' ? line('OPENINGS', a, b, c, d) : line('OPENINGS', b, a, d, c);
+      const L2 = (a, b, c, d) => w.axis === 'x' ? line(ly, a, b, c, d) : line(ly, b, a, d, c);
       L2(a0, lo, a0, hi); L2(a1, lo, a1, hi);
-      if (op.kind === 'win') { const m = (lo + hi) / 2; L2(a0, m - 40, a1, m - 40); L2(a0, m + 40, a1, m + 40); }
+      if (op.kind === 'win') { const mm = (lo + hi) / 2; L2(a0, mm - 40, a1, mm - 40); L2(a0, mm + 40, a1, mm + 40); L2(a0, lo, a1, lo); L2(a0, hi, a1, hi); }
       else if (op.kind !== 'pass') {
-        // дверь: полотно и дуга открывания внутрь помещения
-        const s = w.kind === 'outer' ? -w.out : 1, base = s > 0 ? hi : lo;
-        L2(a0, base, a0, base + s * op.w);
-        if (w.axis === 'x') arc('OPENINGS', a0, base, op.w, s > 0 ? 270 : 0, s > 0 ? 360 : 90);
-        else arc('OPENINGS', base, a0, op.w, s > 0 ? 180 : 0, s > 0 ? 270 : 90);
+        const sg = w.kind === 'outer' ? -w.out : 1, base = sg > 0 ? hi : lo;
+        L2(a0, base, a0, base + sg * op.w);
+        if (w.axis === 'x') arc(ly, a0, base, op.w, sg > 0 ? 270 : 0, sg > 0 ? 360 : 90);
+        else arc(ly, base, a0, op.w, sg > 0 ? 180 : 0, sg > 0 ? 270 : 90);
       }
     });
     const sr = DK.stairRect(p); if (sr && fid !== 'b') { rect('STAIRS', sr.x0, sr.y0, sr.x1, sr.y1); line('STAIRS', sr.x0, sr.y0, sr.x1, sr.y1); }
-    DK.rooms(p, fid).forEach((r, i) => {
-      const R = DK.ROOM[r.type] || DK.ROOM.none, area = fid === af ? DK.atticArea(p, r) : r.area;
-      text('ROOMS', r.cx, r.cy - 120, 220, `${i + 1}. ${R.n}`, true); text('ROOMS', r.cx, r.cy + 260, 200, `${DK.fmtA(area)} м²`, true);
+    // марки помещений: номер в кружке, название, площадь
+    const nums = DK.roomNumbers(p)[fid];
+    DK.rooms(p, fid).filter(r => r.type !== 'void').forEach(r => {
+      const R = DK.ROOM[r.type] || DK.ROOM.none, area = fid === af ? DK.atticArea(p, r) : r.area, n = nums ? nums.get(r.i) : '';
+      g(0, 'CIRCLE'); g(8, 'ROOM_TAGS'); g(10, X(r.cx - m(9))); g(20, Y(r.cy)); g(30, 0); g(40, m(3));
+      text('ROOM_TAGS', r.cx - m(9), r.cy + m(1.2), m(3), String(n), 1);
+      text('ROOM_TAGS', r.cx - m(5), r.cy - m(0.5), m(3), r.type === 'none' ? 'Помещение' : R.n);
+      text('ROOM_TAGS', r.cx - m(5), r.cy + m(4), m(2.8), DK.fmtA(area) + ' м²');
     });
-    // габаритные размеры
-    const xs = DK.outline(p, ext).map(q => q.x), ys = DK.outline(p, ext).map(q => q.y), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-    line('DIMS', x0, y1 + 900, x1, y1 + 900); line('DIMS', x0, y1 + 700, x0, y1 + 1100); line('DIMS', x1, y1 + 700, x1, y1 + 1100); text('DIMS', (x0 + x1) / 2, y1 + 800, 220, String(Math.round(x1 - x0)), true);
-    line('DIMS', x1 + 900, y0, x1 + 900, y1); line('DIMS', x1 + 700, y0, x1 + 1100, y0); line('DIMS', x1 + 700, y1, x1 + 1100, y1); text('DIMS', x1 + 1100, (y0 + y1) / 2, 220, String(Math.round(y1 - y0)));
-    ox += p.W + gap + 2 * ext;
+    // наружные размеры: общие габариты, по несущему слою, длины стен, цепочки проёмов
+    if (opts.dimOuter) {
+      const o3 = ext + 1500, o2 = ext + 1050;
+      hd('DIMS_OUTER', -ext, p.W + ext, -o3, -ext); vd('DIMS_OUTER', -ext, p.D + ext, -o3, -ext);
+      hd('DIMS_OUTER', 0, p.W, -o2, null); vd('DIMS_OUTER', 0, p.D, -o2, null);
+      for (const e of DK.edges(p)) {
+        const off = e.line + e.out * (ext + 450);
+        e.axis === 'x' ? hd('DIMS_OUTER', e.lo, e.hi, off, null) : vd('DIMS_OUTER', e.lo, e.hi, off, null);
+        const ops = lv.open.filter(q => q.wall === e.id).sort((a, b) => a.c - b.c); if (!ops.length) continue;
+        const pts = [e.lo].concat(...ops.map(q => [q.c - q.w / 2, q.c + q.w / 2]), [e.hi]), off2 = e.line + e.out * (ext + 800);
+        for (let k = 0; k < pts.length - 1; k++) e.axis === 'x' ? hd('DIMS_OUTER', pts[k], pts[k + 1], off2, null) : vd('DIMS_OUTER', pts[k], pts[k + 1], off2, null);
+      }
+    }
+    // внутренние размеры: ширина и глубина каждого помещения в чистоте
+    if (opts.dimInner) DK.rooms(p, fid).filter(r => r.type !== 'void').forEach(r => {
+      const b = r.rect ? [r.x0, r.y0, r.x1, r.y1] : r.big;
+      if (b[2] - b[0] > 900) hd('DIMS_INNER', b[0], b[2], b[3] - 350, null);
+      if (b[3] - b[1] > 900) vd('DIMS_INNER', b[1], b[3], b[0] + 350, null);
+    });
   });
   g(0, 'ENDSEC'); g(0, 'EOF');
   return cp1251(o.join('\r\n') + '\r\n');

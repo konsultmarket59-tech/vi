@@ -499,7 +499,8 @@ function bind() {
   };
   let skPages = [];
   $('[data-close]', $('#sketchDlg')).onclick = () => $('#sketchDlg').close();
-  $('#sketchBtn').onclick = async () => {
+  // эскизный проект в PDF — для сохранённых на платформе проектов
+  const openSketch = async () => {
     $('#sketchDlg').showModal(); $('#skSheets').innerHTML = ''; $('#skPdf').disabled = true; $('#skStep').textContent = 'Загружаю 3D…';
     try {
       await DK.loadThree();
@@ -510,24 +511,12 @@ function bind() {
       $('#skStep').textContent = `Готово: ${skPages.length} листов`; $('#skPdf').disabled = false;
     } catch (err) { $('#skStep').textContent = 'Не получилось собрать листы: ' + err.message; }
   };
+  app.sketch = openSketch;
+  $('#sketchBtn').onclick = () => {
+    if (P.cloudId) return openSketch();
+    toast('Эскизный проект в PDF доступен после сохранения проекта на платформе'); DK.Market.openPublish('private');
+  };
   $('#skPdf').onclick = async () => { $('#skPdf').disabled = true; try { await DK.sketchPdf(skPages, 'eskiznyj-proekt.pdf'); } catch (e) { toast('PDF не собрался — проверьте интернет'); } $('#skPdf').disabled = false; };
-  // файл
-  $('#saveFile').onclick = () => download('proekt-doma.json', 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(P, null, 1)));
-  $('#openFile').onclick = () => $('#fileIn').click();
-  $('#saveCloud').onclick = () => DK.Market.openPublish('private');
-  const cadName = () => 'proekt-doma-' + Math.round(DK.areas(P).total) + 'm2'; // латиницей: кириллица в имени файла ломается в части браузеров и CAD
-  $('#expIfc').onclick = () => { DK.download(DK.exportIFC(P, { name: P.cloudTitle || P.name }), cadName() + '.ifc', 'application/x-step'); DK.toast('IFC: откройте в ArchiCAD (Файл → Открыть) и сохраните как .pln'); };
-  $('#expDxf').onclick = () => DK.download(DK.exportDXF(P), cadName() + '.dxf', 'application/dxf');
-  $('#fileIn').addEventListener('change', async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    try {
-      const d = JSON.parse(await f.text());
-      if (!DK.migrate(d) || !d.levels) throw new Error('format');
-      P = d; ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!P.levels[k]) P.levels[k] = DK.emptyLevel(); });
-      sel = null; app.commit('Проект открыт'); plan.fit(); toast('Проект открыт');
-    } catch (err) { toast('Это не файл проекта'); }
-    e.target.value = '';
-  });
   $('#resetProj').onclick = () => { $('#shapes').scrollIntoView({ block: 'nearest' }); toast('Выберите форму дома — планировка начнётся заново'); };
   // клавиши
   window.addEventListener('keydown', (e) => {
@@ -692,6 +681,7 @@ DK.goPage = (id) => page(id);
 DK.toast = toast;
 DK.appApi = {
   project: () => P,
+  sketch: () => app.sketch(),
   floor: (f) => { if (DK.floorsOf(P).includes(f)) { siteOn = false; setFloor(f); } },
   setCloud(id, title) { if (id) { P.cloudId = id; if (title) P.cloudTitle = title; } else { delete P.cloudId; delete P.cloudTitle; } save(); },
   load(d) { P = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(d)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!P.levels[k]) P.levels[k] = DK.emptyLevel(); }); sel = null; fid = 'f1'; app.commit('Проект открыт'); plan.fit(); },

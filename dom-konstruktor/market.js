@@ -32,6 +32,8 @@ module.exports = function market(ctx) {
   function adminOk(req) { const k = req.headers['x-admin-key'] || ''; return ADMIN_KEY && k.length === ADMIN_KEY.length && crypto.timingSafeEqual(Buffer.from(k), Buffer.from(ADMIN_KEY)); }
   const projFile = (id) => /^[\w-]+$/.test(id) ? path.join(PROJ, id, 'project.json') : null;
   const allProjects = () => fs.readdirSync(PROJ).map(id => readJSON(path.join(PROJ, id, 'project.json'), null)).filter(Boolean);
+  // архитекторы, которых автор добавил к проекту: по id пользователя или по почте (если ещё не зарегистрирован)
+  const inTeam = (pr, u) => !!(u && (pr.team || []).some(m => m.id === u.id || (m.email && m.email === String(u.email || '').toLowerCase())));
   const rating = (pr) => { const v = Object.values(pr.votes || {}); return { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }; };
   function card(pr, all) {
     const u = (all || users()).find(x => x.id === pr.owner) || {};
@@ -131,11 +133,11 @@ module.exports = function market(ctx) {
       if (mm) {
         const f = projFile(mm[1]), pr = f && readJSON(f, null);
         const act = mm[2], u = me(req);
-        if (!pr || (pr.status !== 'published' && !adminOk(req) && !(u && u.id === pr.owner))) return send(res, 404, { ok: false }), true;
+        if (!pr || (pr.status !== 'published' && !adminOk(req) && !(u && u.id === pr.owner) && !inTeam(pr, u))) return send(res, 404, { ok: false }), true;
         if (!act && M === 'GET') {
-          const out = card(pr); const mine = u && u.id === pr.owner, granted = u && (pr.grants || []).includes(u.id);
+          const out = card(pr); const mine = u && u.id === pr.owner, granted = u && ((pr.grants || []).includes(u.id) || inTeam(pr, u));
           if (!pr.price || mine || granted) out.project = pr.project;
-          out.mine = !!mine;
+          out.mine = !!mine; out.team = !!(u && inTeam(pr, u));
           return send(res, 200, out), true;
         }
         if (act === 'file' && M === 'GET') {
@@ -162,12 +164,17 @@ module.exports = function market(ctx) {
           return send(res, 200, { ok: true }), true;
         }
       }
+      if (p === '/api/architects' && M === 'GET') return send(res, 200, users().filter(x => x.archStatus === 'verified').map(x => ({ id: x.id, name: x.name, city: x.city || '', about: str(x.about, 300) }))), true;
       if (p === '/api/my' && M === 'GET') {
         const u = me(req); if (!u) return send(res, 401, { ok: false }), true;
         const all = allProjects();
         const mine = all.filter(x => x.owner === u.id).sort((a, b) => (b.updatedAt || b.at).localeCompare(a.updatedAt || a.at)).map(x => Object.assign(card(x), { requests: (x.requests || []).map(r => ({ at: r.at, name: r.name, phone: r.phone, comment: r.comment, status: r.status })) }));
         const asked = all.filter(x => (x.requests || []).some(r => r.user === u.id)).map(x => ({ id: x.id, title: x.title, price: x.price, granted: (x.grants || []).includes(u.id) }));
-        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, verifyPrice: VP }), true;
+        const all2 = users();
+        mine.forEach(x => { const pr = all.find(q => q.id === x.id); x.team = (pr.team || []).map(m => ({ key: m.id || m.email, name: m.name || m.email, pending: !m.id && !all2.some(q => String(q.email).toLowerCase() === m.email) })); });
+        // проекты клиентов, к которым автор добавил этого пользователя архитектором
+        const shared = all.filter(x => x.owner !== u.id && inTeam(x, u)).map(x => { const ow = all2.find(q => q.id === x.owner) || {}; return Object.assign(card(x), { client: { name: ow.name || '—', phone: ow.phone || '', email: ow.email || '' } }); });
+        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, shared, verifyPrice: VP }), true;
       }
       if (p.startsWith('/api/my/project/') && M === 'POST') {
         const u = me(req), id = p.split('/').pop(), f = projFile(id), pr = f && readJSON(f, null);
@@ -178,6 +185,18 @@ module.exports = function market(ctx) {
         if (d.status === 'published' && quality) { const q = quality(pr.project); if (!q.ok) return send(res, 422, { ok: false, error: 'Сначала исправьте ошибки в проекте', quality: q }), true; }
         if (['published', 'hidden', 'private'].includes(d.status)) pr.status = d.status;
         if (str(d.title)) pr.title = str(d.title, 120);
+        // архитектор проекта: из каталога платформы (id) или свой — по почте
+        if (d.addArch) {
+          const list = users(), byId = d.addArch.id && list.find(q => q.id === d.addArch.id && q.archStatus === 'verified');
+          const email = byId ? String(byId.email).toLowerCase() : str(d.addArch.email, 120).toLowerCase();
+          if (!byId && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Выберите архитектора или укажите его почту' }), true;
+          if (email === String(u.email).toLowerCase()) return send(res, 400, { ok: false, error: 'Это ваша почта' }), true;
+          const reg = byId || list.find(q => String(q.email).toLowerCase() === email);
+          pr.team = (pr.team || []).filter(m => m.email !== email && (!reg || m.id !== reg.id));
+          pr.team.push({ id: reg ? reg.id : null, email, name: reg ? reg.name : email, at: new Date().toISOString() });
+          if (ctx.mail) ctx.mail(email, `Доступ к проекту «${pr.title}»`, `Здравствуйте!\n\n${u.name} добавил(а) вас архитектором проекта «${pr.title}» на платформе «Логика Дома».\n${reg ? 'Проект — в вашем личном кабинете, раздел «Проекты клиентов»: можно открыть в конструкторе и выгрузить файлы для ArchiCAD.' : 'Зарегистрируйтесь с этой почтой — проект появится в личном кабинете, раздел «Проекты клиентов».'}\n${PUBLIC_URL || ''}\n\nЛогика Дома`);
+        }
+        if (d.removeArch) pr.team = (pr.team || []).filter(m => m.id !== d.removeArch && m.email !== d.removeArch);
         if (d.verify) {
           if (pr.status === 'blocked') return send(res, 403, { ok: false, error: 'Проект заблокирован модератором' }), true;
           if (quality) { const q = quality(pr.project); if (!q.ok) return send(res, 422, { ok: false, error: 'Сначала исправьте ошибки в проекте', quality: q }), true; }

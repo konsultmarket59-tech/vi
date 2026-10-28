@@ -204,42 +204,89 @@ async function openProject(id) {
 }
 
 /* ---------- кабинет ---------- */
+const ST = { published: 'опубликован в каталоге', hidden: 'скрыт из каталога', private: 'сохранён в кабинете', blocked: 'заблокирован модератором' };
+async function getProject(id) { const x = await api('/api/projects/' + id); if (!x.project) throw new Error('Файл проекта недоступен'); return x; }
+/* файлы для архитектора: IFC (модель для ArchiCAD) и DXF (листы по слоям), бесплатно — для проектов на платформе */
+function openCad(id, title) {
+  const d = $('#cadDlg'); $('#cadTitle').textContent = title || 'Проект'; $('#cadErr').textContent = ''; d.showModal();
+  const name = () => 'proekt-' + id;
+  $('#cadIfc').onclick = async () => { try { const x = await getProject(id); DK.download(DK.exportIFC(x.project, { name: x.title }), name() + '.ifc', 'application/x-step'); } catch (e) { $('#cadErr').textContent = e.message; } };
+  $('#cadDxf').onclick = async () => { try { const x = await getProject(id); DK.download(DK.exportDXF(x.project, { name: x.title, dimOuter: $('#cadOuter').checked, dimInner: $('#cadInner').checked }), name() + '.dxf', 'application/dxf'); } catch (e) { $('#cadErr').textContent = e.message; } };
+}
+/* эскизный проект PDF: проект открывается в конструкторе и собираются листы */
+async function openSketchFor(id, mine) {
+  try { const x = await getProject(id); DK.appApi.load(x.project); if (mine) DK.appApi.setCloud(x.id, x.title); DK.goPage('project'); setTimeout(() => DK.appApi.sketch(), 300); }
+  catch (e) { DK.toast && DK.toast(e.message); }
+}
+/* архитектор проекта: из каталога платформы или свой — по почте */
+async function openTeam(id, title) {
+  const d = $('#teamDlg'); $('#teamTitle').textContent = title; $('#teamErr').textContent = ''; $('#teamEmail').value = '';
+  const sel = $('#teamPick'); sel.innerHTML = '<option value="">Загружаю…</option>'; d.showModal();
+  try { const list = await api('/api/architects'); sel.innerHTML = '<option value="">— выберите архитектора —</option>' + list.map(a => `<option value="${esc(a.id)}">${esc(a.name)}${a.city ? ', ' + esc(a.city) : ''}</option>`).join(''); if (!list.length) sel.innerHTML = '<option value="">Пока нет подтверждённых архитекторов</option>'; }
+  catch (e) { sel.innerHTML = '<option value="">Каталог недоступен</option>'; }
+  $('#teamForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const add = sel.value ? { id: sel.value } : { email: $('#teamEmail').value.trim() };
+    try { await api('/api/my/project/' + id, { addArch: add }); d.close(); DK.toast && DK.toast('Архитектор добавлен — ему пришло письмо'); renderCab(); } catch (er) { $('#teamErr').textContent = er.message; }
+  };
+}
 async function renderCab() {
   const el = $('#cabBody');
   await readyP;
-  if (!user) { el.innerHTML = '<div class="empty"><b>Войдите или зарегистрируйтесь</b><p>В кабинете — ваши проекты, запросы покупателей, рейтинг и статус архитектора.</p><button class="btn primary" id="cabLogin">Войти</button></div>'; $('#cabLogin').onclick = () => openAuth(); return; }
+  if (!user) { el.innerHTML = '<div class="empty"><b>Войдите или зарегистрируйтесь</b><p>В кабинете — ваши проекты, эскизный проект в PDF, файлы для ArchiCAD, верификация и запросы покупателей.</p><button class="btn primary" id="cabLogin">Войти</button></div>'; $('#cabLogin').onclick = () => openAuth(); return; }
   let d; try { d = await api('/api/my'); } catch (e) { el.innerHTML = `<div class="empty"><b>Кабинет недоступен</b><p>${esc(e.message)}</p></div>`; return; }
   user = d.user; paintHeader();
-  const st = { none: 'не подана', pending: 'на проверке', verified: 'подтверждён ✓', rejected: 'отклонена — пришлите другие документы' }[user.archStatus];
-  el.innerHTML = `<div class="cols">
+  const st = { none: 'не подана', pending: 'на проверке', verified: 'подтверждён', rejected: 'отклонена — пришлите другие документы' }[user.archStatus];
+  const vp = money(d.verifyPrice || DK.CONFIG.verifyPrice || 15000);
+  const proj = (x) => `<article class="mine">
+      <div class="row between"><b class="mt">${esc(x.title)}</b>${isVer(x) ? VBADGE() : stars(x.rating.avg)}</div>
+      <div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · ${ST[x.status] || x.status}${x.boost ? ' · в подборке' : ''}</div>
+      ${x.status === 'blocked' ? `<div class="err-t">Причина: ${esc(x.blockReason || 'не соответствует правилам')}. Исправьте проект и напишите нам.</div>` : ''}
+      <div class="acts">
+        <button class="btn sm primary" data-open="${esc(x.id)}">Открыть в конструкторе</button>
+        <button class="btn sm" data-pdf="${esc(x.id)}">Эскизный проект PDF</button>
+        <button class="btn sm" data-cad="${esc(x.id)}" data-t="${esc(x.title)}">Файлы для ArchiCAD</button>
+        ${x.status === 'blocked' ? '' : `<button class="btn sm ghost" data-hide="${esc(x.id)}" data-st="${x.status === 'published' ? 'hidden' : 'published'}">${x.status === 'published' ? 'Скрыть из каталога' : 'Опубликовать в каталоге'}</button>`}
+      </div>
+      <div class="sub"><span class="lbl">Верификация</span>${x.verify ? `<span>${isVer(x) ? 'проверено архитектором и инженером платформы' : VSTATUS[x.verify.status] || x.verify.status}</span>` : '<span class="muted">не заказана</span>'}
+        ${x.status !== 'blocked' && (!x.verify || ['rejected', 'outdated', 'none'].includes(x.verify.status)) ? `<button class="btn sm" data-verify="${esc(x.id)}">Заказать — ${vp}</button>` : ''}</div>
+      <div class="sub"><span class="lbl">Архитектор</span>${(x.team || []).map(m => `<span class="chip">${esc(m.name)}${m.pending ? ' · ждёт регистрации' : ''}<button type="button" data-unteam="${esc(x.id)}" data-k="${esc(m.key)}" aria-label="Убрать">×</button></span>`).join('') || '<span class="muted">не добавлен</span>'}
+        <button class="btn sm ghost" data-team="${esc(x.id)}" data-t="${esc(x.title)}">Добавить архитектора</button></div>
+      ${x.status === 'blocked' ? '' : `<div class="sub"><span class="lbl">Цена в каталоге</span><input type="number" data-price="${esc(x.id)}" value="${x.price}" step="500" min="0" aria-label="Цена, ₽"> ₽ <span class="muted">0 — бесплатно</span></div>`}
+      <div class="sub"><span class="lbl">Запросы</span>${x.requests.length ? x.requests.map(r => `${esc(r.name)} — ${new Date(r.at).toLocaleDateString('ru-RU')}`).join('; ') : '<span class="muted">пока нет</span>'}</div>
+    </article>`;
+  const shared = (x) => `<article class="mine"><div class="row between"><b class="mt">${esc(x.title)}</b>${isVer(x) ? VBADGE() : ''}</div>
+      <div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · заказчик ${esc(x.client.name)}${x.client.phone ? ', ' + esc(x.client.phone) : ''}${x.client.email ? ', ' + esc(x.client.email) : ''}</div>
+      <div class="acts"><button class="btn sm primary" data-viewp="${esc(x.id)}">Открыть в конструкторе</button><button class="btn sm" data-pdfs="${esc(x.id)}">Эскизный проект PDF</button><button class="btn sm" data-cad="${esc(x.id)}" data-t="${esc(x.title)}">Файлы для ArchiCAD</button></div></article>`;
+  el.innerHTML = `<div class="cols cab">
     <div class="card"><h2>${esc(user.name)}</h2><div class="muted">${esc(user.email)} · ${esc(user.phone || '')}</div>
-      <div class="box"><b>Статус архитектора: ${st}</b><span>Подтверждённые архитекторы получают отметку ✓ у проектов и попадают в каталог архитекторов.</span></div>
-      ${user.archStatus !== 'verified' && user.archStatus !== 'pending' ? `<form id="archForm" class="q"><label class="fld">Диплом (вуз, специальность, год)<input name="diploma" required></label>
+      <div class="box"><b>Что доступно бесплатно</b><span>Эскизный проект в PDF и файлы для ArchiCAD (IFC — модель, DXF — чертежи по слоям) для сохранённых проектов. Добавьте своего архитектора — проект появится у него в кабинете.</span></div>
+      <div class="box"><b>Статус архитектора: ${st}</b><span>Вы архитектор? Подтвердите диплом — получите отметку у проектов, место в каталоге архитекторов и сможете продавать свои проекты.</span></div>
+      ${user.archStatus !== 'verified' && user.archStatus !== 'pending' ? `<details class="arch-apply"><summary>Подать заявку архитектора</summary><form id="archForm" class="q"><label class="fld">Диплом (вуз, специальность, год)<input name="diploma" required></label>
         <div class="row2"><label class="fld">СРО / членство (если есть)<input name="sro"></label><label class="fld">Сайт или портфолио<input name="site"></label></div>
         <label class="fld">О себе<textarea name="about" rows="2"></textarea></label>
         <label class="fld">Скан диплома и документов (PDF, JPG, PNG, до 8 МБ)<input type="file" name="docs" accept=".pdf,.jpg,.jpeg,.png" multiple required></label>
-        <div class="nav"><span class="err-t" id="arErr"></span><button class="btn primary" type="submit">Отправить на проверку</button></div></form>` : ''}
-      <div class="row"><button class="btn" id="cabPub">Опубликовать текущий проект</button><button class="btn ghost" id="cabOut">Выйти</button></div></div>
-    <div class="card"><h2>Мои проекты</h2>${d.projects.length ? d.projects.map(x => `<div class="mine"><div class="row between"><b>${esc(x.title)}</b>${stars(x.rating.avg)}</div>
-      <div class="row"><span class="muted">${DK.fmtA(x.area)} м² · ${{ published: 'опубликован', hidden: 'скрыт', private: 'сохранён в кабинете', blocked: 'заблокирован модератором' }[x.status] || x.status}${x.boost ? ' · ▲ в подборке' : ''}</span>
-      <button class="btn sm" data-open="${esc(x.id)}">Открыть в конструкторе</button>
-      ${x.status === 'blocked' ? '' : `<label class="fld" style="flex-direction:row;align-items:center;gap:6px">Цена, ₽ <input type="number" data-price="${esc(x.id)}" value="${x.price}" step="500" min="0" style="width:110px"></label>
-      <button class="btn sm ghost" data-hide="${esc(x.id)}" data-st="${x.status === 'published' ? 'hidden' : 'published'}">${x.status === 'published' ? 'Скрыть' : 'Опубликовать'}</button>`}</div>
-      <div class="row vrow">${x.verify ? `<span class="${isVer(x) ? '' : 'muted'}">${isVer(x) ? VBADGE() : 'Верификация: ' + (VSTATUS[x.verify.status] || x.verify.status)}</span>` : '<span class="muted">Без верификации</span>'}
-        ${x.status !== 'blocked' && (!x.verify || ['rejected', 'outdated', 'none'].includes(x.verify.status)) ? `<button class="btn sm" data-verify="${esc(x.id)}">Заказать верификацию — ${money(d.verifyPrice || DK.CONFIG.verifyPrice || 15000)}</button>` : ''}</div>
-      ${x.status === 'blocked' ? `<div class="err-t">Причина: ${esc(x.blockReason || 'не соответствует правилам')}. Исправьте проект и напишите нам.</div>` : ''}
-      ${x.requests.length ? `<div class="muted">Запросы: ${x.requests.map(r => `${esc(r.name)} — ${new Date(r.at).toLocaleDateString('ru-RU')}`).join('; ')}</div>` : '<div class="muted">Запросов пока нет</div>'}</div>`).join('') : '<div class="muted">Пока нет сохранённых проектов. Кнопка «Сохранить в кабинет» — в конструкторе, в блоке «Проект».</div>'}
-      ${d.asked.length ? `<h2 style="margin-top:12px">Мои запросы</h2>${d.asked.map(a => `<div class="mine"><b>${esc(a.title)}</b> <span class="muted">${money(a.price)} · ${a.granted ? 'доступ открыт' : 'ждёт оплаты'}</span></div>`).join('')}` : ''}
+        <div class="nav"><span class="err-t" id="arErr"></span><button class="btn primary" type="submit">Отправить на проверку</button></div></form></details>` : ''}
+      <div class="row"><button class="btn" id="cabPub">Сохранить текущий проект</button><button class="btn ghost" id="cabOut">Выйти</button></div></div>
+    <div class="card"><h2>Мои проекты</h2>${d.projects.length ? d.projects.map(proj).join('') : '<div class="muted">Пока нет сохранённых проектов. В конструкторе нажмите «Опубликовать проект» — можно сохранить только в кабинет, без каталога.</div>'}
+      ${d.shared && d.shared.length ? `<h2 style="margin-top:16px">Проекты клиентов</h2><div class="muted">Заказчики добавили вас архитектором — можно открыть проект и выгрузить файлы.</div>${d.shared.map(shared).join('')}` : ''}
+      ${d.asked.length ? `<h2 style="margin-top:16px">Мои запросы</h2>${d.asked.map(a => `<div class="mine"><b>${esc(a.title)}</b> <span class="muted">${money(a.price)} · ${a.granted ? 'доступ открыт' : 'ждёт оплаты'}</span></div>`).join('')}` : ''}
     </div></div>`;
   $('#cabOut').onclick = async () => { try { await api('/api/auth/logout', {}); } catch (e) { /* уже вышли */ } setToken(null); user = null; paintHeader(); renderCab(); };
-  $('#cabPub').onclick = () => { DK.goPage('project'); openPublish(); };
+  $('#cabPub').onclick = () => { DK.goPage('project'); openPublish('private'); };
   $$('[data-price]', el).forEach(i => i.onchange = async () => { await api('/api/my/project/' + i.dataset.price, { price: +i.value || 0 }); DK.toast && DK.toast('Цена сохранена'); });
   $$('[data-hide]', el).forEach(b => b.onclick = async () => { try { await api('/api/my/project/' + b.dataset.hide, { status: b.dataset.st }); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); } });
   $$('[data-verify]', el).forEach(b => b.onclick = async () => {
-    if (!confirm(`Архитектор и инженер платформы проверят планировку и конструктив и при необходимости исправят проект. Стоимость — ${money(d.verifyPrice || 15000)}, оплата по счёту после звонка менеджера. Отправить заявку?`)) return;
+    if (!confirm(`Архитектор и инженер платформы проверят планировку и конструктив, исправят неточности и подготовят проект в разделе АР. Стоимость — ${vp}, оплата по счёту после звонка менеджера. Отправить заявку?`)) return;
     try { await api('/api/my/project/' + b.dataset.verify, { verify: true }); DK.toast && DK.toast('Заявка на верификацию принята'); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); }
   });
-  $$('[data-open]', el).forEach(b => b.onclick = async () => { try { const x = await api('/api/projects/' + b.dataset.open); DK.appApi.load(x.project); DK.appApi.setCloud(x.id, x.title); DK.goPage('project'); } catch (er) { DK.toast && DK.toast(er.message); } });
+  $$('[data-open]', el).forEach(b => b.onclick = async () => { try { const x = await getProject(b.dataset.open); DK.appApi.load(x.project); DK.appApi.setCloud(x.id, x.title); DK.goPage('project'); } catch (er) { DK.toast && DK.toast(er.message); } });
+  $$('[data-viewp]', el).forEach(b => b.onclick = async () => { try { const x = await getProject(b.dataset.viewp); DK.appApi.load(x.project); DK.appApi.setCloud(null); DK.goPage('project'); DK.toast && DK.toast('Проект заказчика открыт — ваши правки сохраняются только у вас'); } catch (er) { DK.toast && DK.toast(er.message); } });
+  $$('[data-pdf]', el).forEach(b => b.onclick = () => openSketchFor(b.dataset.pdf, true));
+  $$('[data-pdfs]', el).forEach(b => b.onclick = () => openSketchFor(b.dataset.pdfs, false));
+  $$('[data-cad]', el).forEach(b => b.onclick = () => openCad(b.dataset.cad, b.dataset.t));
+  $$('[data-team]', el).forEach(b => b.onclick = () => openTeam(b.dataset.team, b.dataset.t));
+  $$('[data-unteam]', el).forEach(b => b.onclick = async () => { try { await api('/api/my/project/' + b.dataset.unteam, { removeArch: b.dataset.k }); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); } });
   const af = $('#archForm');
   if (af) af.onsubmit = async (e) => {
     e.preventDefault(); const f = e.target;
@@ -259,6 +306,7 @@ DK.Market = {
     $$('[data-cab]', menu).forEach(b => b.onclick = () => { toggle(false); DK.Market.openCabinet(b.dataset.cab); });
     $$('[data-act="publish"]').forEach(b => b.onclick = openPublish);
     $('[data-close]', $('#prDlg')) && ($('[data-close]', $('#prDlg')).onclick = () => $('#prDlg').close());
+    ['#cadDlg', '#teamDlg'].forEach(q => { const dl = $(q); if (dl) $$('[data-close]', dl).forEach(b => b.onclick = () => dl.close()); });
     $('#projQ').oninput = (e) => { flt.q = e.target.value; clearTimeout(this.t); this.t = setTimeout(renderProjects, 250); };
     $('#projSort').onchange = (e) => { flt.sort = e.target.value; renderProjects(); };
     refreshMe().then(readyOk, readyOk);
