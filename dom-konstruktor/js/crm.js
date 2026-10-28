@@ -220,26 +220,43 @@ function tabLog() {
 /* ---------- проекты пользователей: модерация ---------- */
 const PST = { published: 'опубликован', private: 'в кабинете автора', hidden: 'скрыт автором', blocked: 'заблокирован' };
 const PSTC = { published: 'approved', private: '', hidden: 'pending', blocked: 'rejected' };
-let projFilter = { q: '', st: '', bad: false };
+let projFilter = { q: '', st: '', bad: false, ver: false };
+const VST = { requested: 'ждёт оплаты', paid: 'оплачено', in_work: 'в работе', verified: 'проверено', rejected: 'отклонено', outdated: 'устарела', none: 'снята' };
+const VSTC = { requested: 'pending', paid: 'pending', in_work: 'pending', verified: 'approved', rejected: 'rejected', outdated: '', none: '' };
+const vWait = (x) => x.verify && ['requested', 'paid', 'in_work'].includes(x.verify.status);
 const authImg = (root) => $$('img[data-src]', root).forEach(async (img) => { try { const r = await fetch(img.dataset.src, { headers: { Authorization: 'Bearer ' + token } }); if (r.ok) img.src = await dataUrl(await r.blob()); } catch (e) { /* нет */ } });
 async function renderProjects() {
   history.replaceState(null, '', location.pathname);
   const list = await api('/api/crm/projects');
-  $('#main').innerHTML = `<h1>Проекты пользователей</h1><div class="kpi"><div>Всего<b>${list.length}</b></div><div>Опубликовано<b>${list.filter(x => x.status === 'published').length}</b></div><div>Подняты<b>${list.filter(x => x.boost).length}</b></div><div>Заблокировано<b>${list.filter(x => x.status === 'blocked').length}</b></div></div>
+  $('#main').innerHTML = `<h1>Проекты пользователей</h1><div class="kpi"><div>Всего<b>${list.length}</b></div><div>Опубликовано<b>${list.filter(x => x.status === 'published').length}</b></div><div>Подняты<b>${list.filter(x => x.boost).length}</b></div><div>Заблокировано<b>${list.filter(x => x.status === 'blocked').length}</b></div><div>На верификации<b>${list.filter(vWait).length}</b></div><div>Проверено<b>${list.filter(x => x.verify && x.verify.status === 'verified').length}</b></div></div>
   <div class="row" style="margin:14px 0"><input id="pq" placeholder="Поиск: название, автор, почта" style="max-width:300px" value="${esc(projFilter.q)}"><select id="pst" style="max-width:200px"><option value="">Все статусы</option>${Object.entries(PST).map(([k, v]) => `<option value="${k}"${projFilter.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
-    <label class="row"><input type="checkbox" id="pbad"${projFilter.bad ? ' checked' : ''}> с замечаниями</label><span class="muted">Фильтр качества не даёт сохранить проект с ошибками — здесь видно, что прошло.</span></div><div class="pgrid" id="pg"></div>`;
+    <label class="row"><input type="checkbox" id="pbad"${projFilter.bad ? ' checked' : ''}> с замечаниями</label><label class="row"><input type="checkbox" id="pver"${projFilter.ver ? ' checked' : ''}> на верификации</label><span class="muted">Фильтр качества не даёт сохранить проект с ошибками — здесь видно, что прошло.</span></div><div class="pgrid" id="pg"></div>`;
   const draw = () => {
     const q = projFilter.q.toLowerCase();
-    const rows = list.filter(x => (!projFilter.st || x.status === projFilter.st) && (!projFilter.bad || (x.quality && x.quality.warns)) && (!q || [x.title, x.owner.name, x.owner.email].join(' ').toLowerCase().includes(q)))
-      .sort((a, b) => (b.boost ? 1 : 0) - (a.boost ? 1 : 0));
+    const rows = list.filter(x => (!projFilter.st || x.status === projFilter.st) && (!projFilter.bad || (x.quality && x.quality.warns)) && (!projFilter.ver || vWait(x)) && (!q || [x.title, x.owner.name, x.owner.email].join(' ').toLowerCase().includes(q)))
+      .sort((a, b) => (vWait(b) ? 2 : 0) + (b.boost ? 1 : 0) - (vWait(a) ? 2 : 0) - (a.boost ? 1 : 0));
     $('#pg').innerHTML = rows.map(x => `<div class="pcard${x.status === 'blocked' ? ' blocked' : ''}" data-id="${x.id}">${x.cover ? `<img alt="" data-src="/api/crm/project/${x.id}/file/${encodeURIComponent(x.cover)}">` : '<div class="noimg"></div>'}
       <div class="pb"><b>${x.boost ? '<span class="boost">▲ </span>' : ''}${esc(x.title)}</b><small class="muted">${Math.round(x.area)} м² · ${x.floors} эт. · ${esc(x.owner.name)}${x.owner.archStatus === 'verified' ? ' ✓' : ''}</small>
-      <div class="row"><span class="badge ${PSTC[x.status]}">${PST[x.status] || x.status}</span>${x.quality ? `<span class="badge" title="Оценка качества при сохранении">качество ${x.quality.score}</span>` : ''}${x.rating.n ? `<small>★ ${x.rating.avg} (${x.rating.n})</small>` : ''}</div>
+      <div class="row"><span class="badge ${PSTC[x.status]}">${PST[x.status] || x.status}</span>${x.quality ? `<span class="badge" title="Оценка качества при сохранении">качество ${x.quality.score}</span>` : ''}${x.verify ? `<span class="badge ${VSTC[x.verify.status] || ''}" title="Верификация">верификация: ${VST[x.verify.status] || x.verify.status}</span>` : ''}${x.rating.n ? `<small>★ ${x.rating.avg} (${x.rating.n})</small>` : ''}</div>
       <small class="muted">${dt(x.updatedAt)}${x.requests ? ' · запросов: ' + x.requests : ''}</small></div></div>`).join('') || '<div class="muted">Проектов нет</div>';
     authImg($('#pg')); $$('#pg .pcard').forEach(c => c.onclick = () => openProj(c.dataset.id));
   };
-  $('#pq').oninput = (e) => { projFilter.q = e.target.value; draw(); }; $('#pst').onchange = (e) => { projFilter.st = e.target.value; draw(); }; $('#pbad').onchange = (e) => { projFilter.bad = e.target.checked; draw(); };
+  $('#pq').oninput = (e) => { projFilter.q = e.target.value; draw(); }; $('#pst').onchange = (e) => { projFilter.st = e.target.value; draw(); }; $('#pbad').onchange = (e) => { projFilter.bad = e.target.checked; draw(); }; $('#pver').onchange = (e) => { projFilter.ver = e.target.checked; draw(); };
   draw();
+}
+/* верификация: архитектор и инженер платформы проверяют проект и при необходимости правят его в конструкторе */
+function verifyBox(x, can) {
+  const v = x.verify, st = v ? v.status : '', P = (v && v.price) || DK.CONFIG.verifyPrice || 15000;
+  const btn = (s2, t, cls) => `<button class="btn ${cls || ''}" data-ver="${s2}">${t}</button>`;
+  const acts = !can ? '' : !v || ['rejected', 'outdated', 'none'].includes(st) ? btn('paid', 'Принять оплату без заявки')
+    : st === 'requested' ? btn('paid', 'Оплата получена', 'primary') + btn('rejected', 'Отклонить')
+    : st === 'paid' ? btn('in_work', 'Взять в работу', 'primary') + btn('rejected', 'Отклонить')
+    : st === 'in_work' ? `<a class="btn" href="/?crmp=${encodeURIComponent(x.id)}&fix=1" target="_blank">Исправить в конструкторе</a>${btn('verified', 'Проверено — поставить отметку', 'primary')}${btn('rejected', 'Отклонить')}`
+    : st === 'verified' ? btn('none', 'Снять отметку') : '';
+  return `<div class="box" style="max-width:820px"><h2 style="margin-top:0">Верификация ${v ? `<span class="badge ${VSTC[st] || ''}">${VST[st] || st}</span>` : ''}${v && v.fixed ? ' <span class="badge">исправлен архитектором</span>' : ''}</h2>
+    <div class="muted">Архитектор и инженер платформы проверяют планировку и конструктив, при необходимости исправляют проект. После отметки «Проверено» на карточке в каталоге появляется значок, проект поднимается выше. Если автор изменит проект, отметка снимется.</div>
+    ${v ? `<div style="margin:8px 0">Заявка ${dt(v.requestedAt)} · стоимость ${rub(P)}${v.note ? ' · ' + esc(v.note) : ''}</div><div class="timeline">${(v.log || []).slice().reverse().map(l => `<div><small>${dt(l.at)}${l.by ? ' · ' + esc(l.by) : ''}</small><br>${esc(l.text)}</div>`).join('')}</div>` : '<div style="margin:8px 0">Автор верификацию не заказывал.</div>'}
+    ${acts ? `<div class="row" style="margin-top:10px;flex-wrap:wrap">${['requested', 'paid'].includes(st) || !v ? `<label class="row">Цена, ₽ <input id="vPrice" type="number" min="0" step="500" value="${P}" style="width:110px"></label>` : ''}${acts}</div>` : ''}</div>`;
 }
 async function openProj(id) {
   const x = await api('/api/crm/project/' + id), q = x.qualityNow || { errs: [], warns: [], score: 0 }, canMod = me.staffRole !== 'estimator';
@@ -256,6 +273,7 @@ async function openProj(id) {
     <ul class="qlist">${q.errs.map(c => `<li class="err">${esc(c.txt)}</li>`).join('')}${q.warns.map(c => `<li class="warn">${esc(c.txt)}</li>`).join('')}</ul>
     <h2>Модерация</h2><div class="timeline">${x.modLog.slice().reverse().map(l => `<div><small>${dt(l.at)} · ${esc(l.by)}</small><br>${esc(l.text)}</div>`).join('') || '<span class="muted">Действий не было</span>'}</div>
     ${canMod ? '<form id="pnote" class="row" style="margin-top:8px"><input name="note" placeholder="Заметка модератора"><button class="btn">Добавить</button></form>' : ''}</div></div>
+  ${verifyBox(x, canMod && me.staffRole !== 'marketer')}
   <div class="box" style="max-width:820px"><h2 style="margin-top:0">SEO страницы проекта</h2><div class="muted">Страница: <a href="/proekty/${encodeURIComponent(x.id)}/" target="_blank">/proekty/${esc(x.id)}/</a>. Пустые поля заполняются автоматически из названия, площади и описания.</div>
     <form id="pseo" class="grid2" style="margin-top:8px"><label class="f" style="grid-column:1/-1">Заголовок для поиска (title) <span class="muted" id="ptc"></span><input name="title" value="${esc(x.seo.title || '')}" placeholder="${esc(x.title)} — проект дома ${Math.round(x.area)} м²"></label>
     <label class="f" style="grid-column:1/-1">Описание (description) <span class="muted" id="pdc"></span><textarea name="desc" rows="2" placeholder="Проект дома ${Math.round(x.area)} м², ${x.floors} эт. …">${esc(x.seo.desc || '')}</textarea></label>
@@ -265,6 +283,13 @@ async function openProj(id) {
   const mod = async (d, msg) => { try { await api('/api/crm/project/' + id, d); toast(msg); openProj(id); } catch (e) { toast(e.message); } };
   $('#pback').onclick = () => go('projects');
   if ($('#pBoost')) $('#pBoost').onclick = () => mod({ boost: !x.boost }, x.boost ? 'Снят с поднятия' : 'Проект поднят вверх каталога');
+  $$('[data-ver]').forEach(b => b.onclick = () => {
+    const st = b.dataset.ver, ask = { verified: 'Комментарий автору (что проверили и исправили):', rejected: 'Причина (уйдёт автору на почту):', none: 'Почему снимаете отметку:' }[st];
+    const note = ask ? prompt(ask, st === 'verified' ? (x.verify && x.verify.fixed ? 'Проверили планировку и конструктив, внесли исправления.' : 'Проверили планировку и конструктив, замечаний нет.') : '') : '';
+    if (note === null) return;
+    const price = $('#vPrice') ? +$('#vPrice').value : undefined;
+    mod({ verify: st, note, price }, 'Верификация: ' + VST[st]);
+  });
   if ($('#pUnblock')) $('#pUnblock').onclick = () => mod({ status: 'published' }, 'Проект снова опубликован');
   if ($('#pBlock')) $('#pBlock').onclick = () => {
     const r = prompt('Причина блокировки (уйдёт автору на почту):', q.errs.length ? 'Проект с ошибками: ' + q.errs[0].txt : 'Мусор / тестовый проект, не планировка дома');

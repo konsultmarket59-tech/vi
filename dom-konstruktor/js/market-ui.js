@@ -94,6 +94,12 @@ function bindAuth() {
   function done() { $('#authDlg').close(); paintHeader(); const t = afterAuth; afterAuth = null; if (user && user.role === 'company') DK.goPage('company'); else if (t) t(); else DK.goPage('cab'); }
 }
 
+/* ---------- верификация: значок на карточке, статус в кабинете ---------- */
+const VPRICE = () => money(DK.CONFIG.verifyPrice || 15000);
+const isVer = (x) => !!(x.verify && x.verify.status === 'verified');
+const VBADGE = () => `<span class="verified" title="Планировку проверили архитектор и инженер платформы и при необходимости исправили">${DK.icon ? DK.icon('badge-check', 16) : ''}Проверено</span>`;
+const VSTATUS = { requested: 'заявка принята, ждёт оплаты', paid: 'оплачено, скоро возьмём в работу', in_work: 'архитектор и инженер проверяют проект', verified: 'проверено', rejected: 'отклонено — менеджер расскажет, что поправить', outdated: 'проект изменён после проверки — отметка снята', none: 'отметка снята' };
+
 /* ---------- публикация и сохранение в кабинет: сначала фильтр качества ---------- */
 let pubVis = 'published';
 const qLi = (lv, c) => `<li class="${lv}">${esc(c.txt)}${c.fid ? `<button type="button" data-fid="${esc(c.fid)}">показать</button>` : ''}</li>`;
@@ -119,6 +125,7 @@ async function openPublish(vis) {
   const f = $('#pubForm'); f.reset(); f.title.value = P.cloudTitle || (P.name && P.name !== 'Мой дом' ? P.name : `Дом ${DK.fmtA(A.total)} м²`);
   $('#pErr').textContent = ''; $('#pubInfo').textContent = `${DK.fmtA(A.total)} м², ${DK.floorsOf(P).length} эт., ${DK.fmtM(A.outW)} × ${DK.fmtM(A.outD)} м${P.cloudId ? ' · обновит сохранённый проект' : ''}`;
   setVis(typeof vis === 'string' ? vis : 'published');
+  $('#pubVerPrice').textContent = VPRICE();
   qualityBox(DK.quality(P));
   $('#pubDlg').showModal();
 }
@@ -132,10 +139,11 @@ function bindPublish() {
     const btn = $('button[type=submit]', f), label = btn.textContent; btn.disabled = true; btn.textContent = 'Сохраняю…';
     try {
       const p = DK.appApi.project(), A = DK.areas(p), imgs = await DK.appApi.images();
-      const r = await api('/api/projects', { id: p.cloudId || undefined, visibility: pubVis, title: f.title.value, about: f.about.value, price: +f.price.value || 0, license: f.license.value, project: p, images: imgs,
+      const r = await api('/api/projects', { id: p.cloudId || undefined, visibility: pubVis, title: f.title.value, about: f.about.value, price: +f.price.value || 0, license: f.license.value, project: p, images: imgs, verify: f.verify.checked,
         area: Math.round(A.total * 10) / 10, floors: DK.floorsOf(p).length, size: `${DK.fmtM(A.outW)} × ${DK.fmtM(A.outD)} м` });
       DK.appApi.setCloud(r.id, f.title.value);
       $('#pubDlg').close();
+      if (r.verifyAsked) setTimeout(() => DK.toast && DK.toast('Заявка на верификацию принята — менеджер свяжется по оплате'), 1800);
       if (pubVis === 'private') { DK.toast && DK.toast(r.updated ? 'Проект обновлён в кабинете' : 'Проект сохранён в кабинет'); }
       else { DK.toast && DK.toast(r.updated ? 'Проект обновлён' : 'Проект опубликован'); DK.goPage('projects'); setTimeout(() => openProject(r.id), 300); }
     } catch (er) {
@@ -157,7 +165,7 @@ async function renderProjects() {
   if (!list.length) { el.innerHTML = '<div class="empty"><b>Пока пусто</b><p>Опубликуйте свою планировку первым — кнопка «Опубликовать проект» в конструкторе.</p></div>'; return; }
   el.innerHTML = list.map(x => `<article class="proj" data-id="${esc(x.id)}">
     ${x.cover ? `<img src="${(DK.CONFIG.api || '')}/api/projects/${esc(x.id)}/file/${esc(x.cover)}" alt="" loading="lazy">` : '<div class="noimg"></div>'}
-    <div class="pb"><h3>${esc(x.title)}</h3>
+    <div class="pb"><h3>${esc(x.title)}</h3>${isVer(x) ? VBADGE() : ''}
       <div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · ${esc(x.size || '')}</div>
       <div class="row">${stars(x.rating.avg)}<span class="muted">${x.rating.n ? x.rating.avg.toFixed(1) + ' · ' + x.rating.n : 'нет оценок'}</span></div>
       <div class="row between"><span>${esc(x.author.name)} ${archBadge(x.author)}</span><b>${money(x.price)}</b></div></div>
@@ -167,9 +175,10 @@ async function renderProjects() {
 async function openProject(id) {
   let x; try { x = await api('/api/projects/' + id); } catch (e) { DK.toast && DK.toast(e.message); return; }
   const base = (DK.CONFIG.api || '') + `/api/projects/${x.id}/file/`;
-  $('#prBody').innerHTML = `<header><div><h2>${esc(x.title)}</h2><div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · ${esc(x.size || '')} · ${esc(x.author.name)} ${archBadge(x.author)}</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
+  $('#prBody').innerHTML = `<header><div><h2>${esc(x.title)} ${isVer(x) ? VBADGE() : ''}</h2><div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · ${esc(x.size || '')} · ${esc(x.author.name)} ${archBadge(x.author)}</div></div><button class="x" type="button" data-close aria-label="Закрыть">×</button></header>
     <div class="gal">${x.files.map(f => `<img src="${base}${esc(f)}" alt="">`).join('')}</div>
     ${x.about ? `<p>${esc(x.about)}</p>` : ''}
+    ${isVer(x) ? `<div class="box vbox">${DK.icon ? DK.icon('badge-check', 20) : ''}<div><b>Проверено платформой</b><span>Архитектор и инженер «Логики Дома» проверили планировку и конструктив${x.verify.fixed ? ' и внесли исправления' : ''}.</span></div></div>` : ''}
     <div class="row">${stars(x.rating.avg, x.id, true)}<span class="muted" id="prRate">${x.rating.n ? x.rating.avg.toFixed(1) + ' из 5 · оценок: ' + x.rating.n : 'Оцените проект'}</span></div>
     <div class="box"><b>${money(x.price)}</b><span>${x.license === 'build' ? 'Право построить по эскизу: автор передаёт эскизный проект для строительства одного дома.' : 'Эскизный проект для ознакомления и доработки с архитектором.'} Оплата и передача — через площадку.</span></div>
     <div class="nav">${x.project ? '<button class="btn" id="prOpen">Открыть в конструкторе</button>' : '<span class="muted">Файл проекта откроется после оплаты.</span>'}<button class="btn gold" id="prReq">${x.price ? 'Запросить эскизный проект' : 'Связаться с автором'}</button></div>
@@ -216,6 +225,8 @@ async function renderCab() {
       <button class="btn sm" data-open="${esc(x.id)}">Открыть в конструкторе</button>
       ${x.status === 'blocked' ? '' : `<label class="fld" style="flex-direction:row;align-items:center;gap:6px">Цена, ₽ <input type="number" data-price="${esc(x.id)}" value="${x.price}" step="500" min="0" style="width:110px"></label>
       <button class="btn sm ghost" data-hide="${esc(x.id)}" data-st="${x.status === 'published' ? 'hidden' : 'published'}">${x.status === 'published' ? 'Скрыть' : 'Опубликовать'}</button>`}</div>
+      <div class="row vrow">${x.verify ? `<span class="${isVer(x) ? '' : 'muted'}">${isVer(x) ? VBADGE() : 'Верификация: ' + (VSTATUS[x.verify.status] || x.verify.status)}</span>` : '<span class="muted">Без верификации</span>'}
+        ${x.status !== 'blocked' && (!x.verify || ['rejected', 'outdated', 'none'].includes(x.verify.status)) ? `<button class="btn sm" data-verify="${esc(x.id)}">Заказать верификацию — ${money(d.verifyPrice || DK.CONFIG.verifyPrice || 15000)}</button>` : ''}</div>
       ${x.status === 'blocked' ? `<div class="err-t">Причина: ${esc(x.blockReason || 'не соответствует правилам')}. Исправьте проект и напишите нам.</div>` : ''}
       ${x.requests.length ? `<div class="muted">Запросы: ${x.requests.map(r => `${esc(r.name)} — ${new Date(r.at).toLocaleDateString('ru-RU')}`).join('; ')}</div>` : '<div class="muted">Запросов пока нет</div>'}</div>`).join('') : '<div class="muted">Пока нет сохранённых проектов. Кнопка «Сохранить в кабинет» — в конструкторе, в блоке «Проект».</div>'}
       ${d.asked.length ? `<h2 style="margin-top:12px">Мои запросы</h2>${d.asked.map(a => `<div class="mine"><b>${esc(a.title)}</b> <span class="muted">${money(a.price)} · ${a.granted ? 'доступ открыт' : 'ждёт оплаты'}</span></div>`).join('')}` : ''}
@@ -224,6 +235,10 @@ async function renderCab() {
   $('#cabPub').onclick = () => { DK.goPage('project'); openPublish(); };
   $$('[data-price]', el).forEach(i => i.onchange = async () => { await api('/api/my/project/' + i.dataset.price, { price: +i.value || 0 }); DK.toast && DK.toast('Цена сохранена'); });
   $$('[data-hide]', el).forEach(b => b.onclick = async () => { try { await api('/api/my/project/' + b.dataset.hide, { status: b.dataset.st }); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); } });
+  $$('[data-verify]', el).forEach(b => b.onclick = async () => {
+    if (!confirm(`Архитектор и инженер платформы проверят планировку и конструктив и при необходимости исправят проект. Стоимость — ${money(d.verifyPrice || 15000)}, оплата по счёту после звонка менеджера. Отправить заявку?`)) return;
+    try { await api('/api/my/project/' + b.dataset.verify, { verify: true }); DK.toast && DK.toast('Заявка на верификацию принята'); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); }
+  });
   $$('[data-open]', el).forEach(b => b.onclick = async () => { try { const x = await api('/api/projects/' + b.dataset.open); DK.appApi.load(x.project); DK.appApi.setCloud(x.id, x.title); DK.goPage('project'); } catch (er) { DK.toast && DK.toast(er.message); } });
   const af = $('#archForm');
   if (af) af.onsubmit = async (e) => {

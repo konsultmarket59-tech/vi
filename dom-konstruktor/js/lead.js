@@ -20,7 +20,7 @@ DK.CITIES = ['Москва', 'Санкт-Петербург', 'Новосиби�
 
 /* картинка уклона: участок, дом, угол */
 DK.slopeSvg = function (a) {
-  if (a == null) return '<svg viewBox="0 0 120 64" aria-hidden="true"><text x="60" y="40" text-anchor="middle" font-size="26" fill="currentColor" font-family="Alumni Sans, sans-serif" font-weight="800">?</text></svg>';
+  if (a == null) return '<svg viewBox="0 0 120 64" aria-hidden="true"><text x="60" y="40" text-anchor="middle" font-size="26" fill="currentColor" font-family="Manrope, sans-serif" font-weight="800">?</text></svg>';
   const r = a * Math.PI / 180, x0 = 6, x1 = 114, yb = 56, y1 = yb - (x1 - x0) * Math.tan(r) * 0.9;
   const gy = (x) => yb - (x - x0) * Math.tan(r) * 0.9, hx = 60, eave = gy(hx + 12) - 14;
   return `<svg viewBox="0 0 120 64" aria-hidden="true">

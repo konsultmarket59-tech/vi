@@ -31,7 +31,7 @@ async function render(openId) {
       <div><button class="btn primary">Сохранить профиль</button></div></form></details>
     <h2>Запросы на расчёт</h2><div id="compList">${d.requests.length ? d.requests.map(r => `<div class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;cursor:pointer" data-id="${esc(r.id)}">
       <b>№ ${esc(r.id)}</b><span>${dt(r.at)}</span><span>${esc(r.city)}</span><span>${r.area ? Math.round(r.area) + ' м²' : ''}</span><span>${esc(r.material || '')}</span>
-      <span style="flex:1"></span>${r.deal ? '<span class="badge" style="background:#dff2e6">вас выбрали для сделки</span>' : ''}${r.myBid ? `<span class="badge">ваш расчёт ${rub(r.myBid.total)}</span>` : '<span class="badge" style="background:#fbf1da">ждёт расчёта</span>'}</div>`).join('') : '<p class="muted">Запросов пока нет.</p>'}</div><div id="compReq"></div>`;
+      <span style="flex:1"></span>${r.deal ? '<span class="badge" style="background:#E6F6EB">вас выбрали для сделки</span>' : ''}${r.myBid ? `<span class="badge">ваш расчёт ${rub(r.myBid.total)}</span>` : '<span class="badge" style="background:#FEF1E3">ждёт расчёта</span>'}</div>`).join('') : '<p class="muted">Запросов пока нет.</p>'}</div><div id="compReq"></div>`;
   $$('#compList [data-id]').forEach(el => el.onclick = () => openReq(el.dataset.id));
   $('#cProf').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target, cities = $$('[name=cw]:checked', f).map(i => i.value).concat(f.more.value.split(',').map(x => x.trim()).filter(Boolean));
@@ -43,9 +43,9 @@ async function openReq(id) {
   const r = await DK.Market.api('/api/company/lead/' + encodeURIComponent(id)), box = $('#compReq'), b = r.myBid || { rows: {} };
   box.innerHTML = `<div class="card"><h2 style="margin-top:0">Запрос № ${esc(r.id)} — ${esc(r.city)}${r.area ? ', ' + Math.round(r.area) + ' м²' : ''}</h2>
     <div class="muted">Участок: ${esc(r.plot)} · уклон: ${esc(r.slope)} · срок: ${esc(r.term)} · класс: ${esc(r.cls)}${r.range ? ` · предварительная оценка ${r.range[0]}–${r.range[1]} млн ₽` : ''}</div>
-    ${r.deal ? '<p class="card" style="background:#dff2e6"><b>Клиент готов к сделке с вашей компанией.</b> Менеджер «Логика Дома» свяжется с вами, чтобы согласовать встречу.</p>' : ''}
+    ${r.deal ? '<p class="card" style="background:#E6F6EB"><b>Клиент готов к сделке с вашей компанией.</b> Менеджер «Логика Дома» свяжется с вами, чтобы согласовать встречу.</p>' : ''}
     ${r.contacts ? `<p><b>Контакты клиента:</b> ${esc(r.contacts.name)}, ${esc(r.contacts.phone)}</p>` : '<p class="muted">Контакты клиента откроются, когда клиент выберет вашу компанию.</p>'}
-    <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">${r.files.map(f => `<img data-src="/api/company/lead/${encodeURIComponent(r.id)}/file/${encodeURIComponent(f)}" alt="${esc(f)}" style="height:140px;border:1px solid #e2e4e7;border-radius:8px;background:#fff">`).join('')}</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">${r.files.map(f => `<img data-src="/api/company/lead/${encodeURIComponent(r.id)}/file/${encodeURIComponent(f)}" alt="${esc(f)}" style="height:140px;border:1px solid #D9DEE8;border-radius:8px;background:#fff">`).join('')}</div>
     ${r.project ? `<p><a class="btn" href="/?company=${encodeURIComponent(r.id)}" target="_blank">Открыть эскиз в конструкторе — размеры, 3D, рулетка</a></p>` : ''}
     <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px"><div><h3>Описание</h3><ul>${r.brief.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div><div><h3>Техзадание</h3><ul>${(r.tz.length ? r.tz : ['Уточняется после созвона с клиентом']).map(s => `<li>${esc(s)}</li>`).join('')}</ul></div></div>
     <h3>Ваш расчёт — единая форма</h3><form id="bidF"><table class="tbl" style="width:100%;max-width:640px">${Object.entries(r.rows).map(([k, n]) => `<tr><td>${esc(n)}</td><td><input name="${k}" type="number" min="0" step="1000" value="${b.rows[k] || ''}" style="width:160px;text-align:right"> ₽</td></tr>`).join('')}

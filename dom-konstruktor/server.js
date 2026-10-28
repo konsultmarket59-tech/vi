@@ -7,7 +7,7 @@
 const http = require('http'), https = require('https'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 const ROOT = __dirname, DATA = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data', 'runtime'), LEADS = path.join(DATA, 'leads');
-const PORT = +process.env.PORT || 8080, ADMIN_KEY = process.env.ADMIN_KEY || '';
+const PORT = +process.env.PORT || 8080, ADMIN_KEY = process.env.ADMIN_KEY || '', VERIFY_PRICE = +process.env.VERIFY_PRICE || 15000;
 const TG = process.env.TG_BOT_TOKEN || '', TG_OWNER = process.env.TG_OWNER_CHAT || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 fs.mkdirSync(LEADS, { recursive: true });
@@ -202,8 +202,8 @@ function stat(req, res, url) {
 const mail = require('./mailer.js')(DATA);
 const MODEL = require('./model-vm.js')(ROOT);
 const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA, model: MODEL });
-const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview });
-const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard });
+const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview, VERIFY_PRICE });
+const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard, VERIFY_PRICE });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

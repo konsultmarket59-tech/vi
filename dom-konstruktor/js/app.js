@@ -712,8 +712,18 @@ if (VIEW) (async () => {
     P = DK.normalize(DK.migrate(l.project)); ['b', 'f1', 'f2', 'f3'].forEach(f => { if (!P.levels[f]) P.levels[f] = DK.emptyLevel(); });
     hist.length = 0; hist.push(JSON.stringify(P)); hi = 0; sel = null; fid = 'f1'; refresh(); plan.fit();
     const bar = document.createElement('div'); bar.className = 'viewbar';
-    bar.innerHTML = `${VIEW.kind === 'crmp' ? 'Проект пользователя «' + esc(l.title || VIEW.id) + '»' : 'Эскиз заявки № ' + esc(VIEW.id)} — просмотр: размеры, 3D, рулетка. Изменения не сохраняются. <button class="btn sm" id="vbMeasure">Рулетка</button>`;
+    // верификация: архитектор платформы правит проект автора и сохраняет исправления
+    const fix = VIEW.kind === 'crmp' && new URLSearchParams(location.search).get('fix') && l.verify && ['paid', 'in_work'].includes(l.verify.status);
+    bar.innerHTML = `${VIEW.kind === 'crmp' ? 'Проект пользователя «' + esc(l.title || VIEW.id) + '»' : 'Эскиз заявки № ' + esc(VIEW.id)} — ${fix ? 'верификация: исправьте проект и сохраните.' : 'просмотр: размеры, 3D, рулетка. Изменения не сохраняются.'} <button class="btn sm" id="vbMeasure">Рулетка</button>${fix ? ' <button class="btn sm primary" id="vbSave">Сохранить исправления</button>' : ''}`;
     document.body.prepend(bar); $('#vbMeasure').onclick = () => { setView('plan'); app.setTool('measure'); };
+    if (fix) $('#vbSave').onclick = async () => {
+      const q = DK.quality(P); if (!q.ok) { toast('Сначала исправьте ошибки: ' + (q.errs[0] ? q.errs[0].txt : 'много замечаний')); return; }
+      try {
+        const r2 = await fetch('/api/crm/project/' + encodeURIComponent(VIEW.id), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk }, body: JSON.stringify({ project: P }) });
+        const d2 = await r2.json().catch(() => ({})); if (!r2.ok) throw new Error(d2.error || 'Не сохранилось');
+        toast('Исправления сохранены в проект автора');
+      } catch (er) { toast(er.message); }
+    };
   } catch (e) { toast(e.message); }
 })();
 setView('plan');

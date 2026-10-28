@@ -6,6 +6,15 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 module.exports = function market(ctx) {
   const { send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality } = ctx;
   const guard = ctx.guard || (async () => null);
+  // верификация: архитектор и инженер платформы проверяют планировку и при необходимости исправляют; услуга платная
+  const VP = ctx.VERIFY_PRICE || 15000, VACTIVE = ['requested', 'paid', 'in_work', 'verified'];
+  const vPub = (v) => v ? { status: v.status, fixed: !!v.fixed, at: v.at || v.requestedAt, price: v.price } : null;
+  function askVerify(pr, u) {
+    if (pr.verify && VACTIVE.includes(pr.verify.status)) return false;
+    pr.verify = { status: 'requested', price: VP, requestedAt: new Date().toISOString(), log: ((pr.verify && pr.verify.log) || []).concat({ at: new Date().toISOString(), text: 'заявка на верификацию от автора' }) };
+    tg(TG_OWNER, `Заявка на верификацию проекта «${pr.title}» (${VP} ₽) — ${u.name}, ${u.phone || u.email}`);
+    return true;
+  }
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), PROJ = path.join(DATA, 'projects'), DOCS = path.join(DATA, 'docs');
   fs.mkdirSync(PROJ, { recursive: true }); fs.mkdirSync(DOCS, { recursive: true });
   const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.pdf': 'application/pdf' };
@@ -27,7 +36,7 @@ module.exports = function market(ctx) {
   function card(pr, all) {
     const u = (all || users()).find(x => x.id === pr.owner) || {};
     return { id: pr.id, title: pr.title, about: pr.about, price: pr.price, license: pr.license, area: pr.area, floors: pr.floors, size: pr.size, at: pr.at,
-      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', quality: pr.quality || null, updatedAt: pr.updatedAt || pr.at };
+      author: { name: u.name || 'Автор', verified: u.archStatus === 'verified' }, rating: rating(pr), cover: pr.files.find(f => f.startsWith('exterior')) || pr.files[0] || null, files: pr.files, free: !pr.price, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', quality: pr.quality || null, verify: vPub(pr.verify), updatedAt: pr.updatedAt || pr.at };
   }
   function saveFile(dir, url, name, okTypes) {
     const m = /^data:([\w/+.-]+);base64,(.+)$/.exec(String(url || '')); if (!m) return null;
@@ -92,6 +101,8 @@ module.exports = function market(ctx) {
         if (old && old.owner !== u.id) return send(res, 403, { ok: false, error: 'Это не ваш проект' }), true;
         if (old && old.status === 'blocked') return send(res, 403, { ok: false, error: 'Проект заблокирован модератором' + (old.blockReason ? ': ' + old.blockReason : '') }), true;
         const id = old ? old.id : 'p' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), dir = path.join(PROJ, id); fs.mkdirSync(dir, { recursive: true });
+        // проверенный проект изменили — отметка «Проверено» больше не относится к нему
+        const changed = old && JSON.stringify(old.project) !== JSON.stringify(d.project);
         if (old) (old.files || []).forEach(fn => { try { fs.unlinkSync(path.join(dir, fn)); } catch (e) { /* нет файла */ } });
         const files = [];
         const im = d.images || {};
@@ -100,17 +111,20 @@ module.exports = function market(ctx) {
         const pr = Object.assign(old || { id, owner: u.id, votes: {}, requests: [], at: new Date().toISOString() }, { title: str(d.title, 120), about: str(d.about, 3000), price: Math.max(0, Math.min(1e6, Math.round(+d.price || 0))), license: d.license === 'build' ? 'build' : 'view',
           area: +d.area || 0, floors: +d.floors || 1, size: str(d.size, 40), project: d.project, files, status: d.visibility === 'private' ? 'private' : 'published', updatedAt: new Date().toISOString(),
           quality: { score: q.score, errs: q.errs.length, warns: q.warns.length } });
+        if (changed && pr.verify && pr.verify.status === 'verified') { pr.verify.status = 'outdated'; pr.verify.log = (pr.verify.log || []).concat({ at: new Date().toISOString(), text: 'автор изменил проверенный проект — отметка снята' }); }
+        const asked = d.verify ? askVerify(pr, u) : false;
         writeJSON(path.join(dir, 'project.json'), pr);
         if (!old) tg(TG_OWNER, `Новый проект на площадке: «${pr.title}», ${pr.area} м², ${pr.price ? pr.price + ' ₽' : 'бесплатно'} — ${u.name}`);
-        return send(res, 200, { ok: true, id, updated: !!old, status: pr.status }), true;
+        return send(res, 200, { ok: true, id, updated: !!old, status: pr.status, verify: vPub(pr.verify), verifyAsked: asked }), true;
       }
       if (p === '/api/projects' && M === 'GET') {
         const all = users(), q = (url.searchParams.get('q') || '').toLowerCase();
         let list = allProjects().filter(x => x.status === 'published').map(x => card(x, all)).filter(x => !q || (x.title + ' ' + x.about).toLowerCase().includes(q));
         const sort = url.searchParams.get('sort');
         list.sort(sort === 'new' ? (a, b) => b.at.localeCompare(a.at) : sort === 'price' ? (a, b) => a.price - b.price : (a, b) => (b.rating.avg * Math.min(1, b.rating.n / 3)) - (a.rating.avg * Math.min(1, a.rating.n / 3)) || b.at.localeCompare(a.at));
-        // поднятые модератором — сверху при любой сортировке
-        list.sort((a, b) => (b.boost ? 1 : 0) - (a.boost ? 1 : 0));
+        // проверенные платформой и поднятые модератором — сверху при любой сортировке
+        const top = (x) => (x.verify && x.verify.status === 'verified' ? 2 : 0) + (x.boost ? 1 : 0);
+        list.sort((a, b) => top(b) - top(a));
         return send(res, 200, list), true;
       }
       const mm = /^\/api\/projects\/([\w-]+)(?:\/(\w+)(?:\/([\w.-]+))?)?$/.exec(p);
@@ -153,7 +167,7 @@ module.exports = function market(ctx) {
         const all = allProjects();
         const mine = all.filter(x => x.owner === u.id).sort((a, b) => (b.updatedAt || b.at).localeCompare(a.updatedAt || a.at)).map(x => Object.assign(card(x), { requests: (x.requests || []).map(r => ({ at: r.at, name: r.name, phone: r.phone, comment: r.comment, status: r.status })) }));
         const asked = all.filter(x => (x.requests || []).some(r => r.user === u.id)).map(x => ({ id: x.id, title: x.title, price: x.price, granted: (x.grants || []).includes(u.id) }));
-        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked }), true;
+        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, verifyPrice: VP }), true;
       }
       if (p.startsWith('/api/my/project/') && M === 'POST') {
         const u = me(req), id = p.split('/').pop(), f = projFile(id), pr = f && readJSON(f, null);
@@ -164,7 +178,12 @@ module.exports = function market(ctx) {
         if (d.status === 'published' && quality) { const q = quality(pr.project); if (!q.ok) return send(res, 422, { ok: false, error: 'Сначала исправьте ошибки в проекте', quality: q }), true; }
         if (['published', 'hidden', 'private'].includes(d.status)) pr.status = d.status;
         if (str(d.title)) pr.title = str(d.title, 120);
-        writeJSON(f, pr); return send(res, 200, { ok: true }), true;
+        if (d.verify) {
+          if (pr.status === 'blocked') return send(res, 403, { ok: false, error: 'Проект заблокирован модератором' }), true;
+          if (quality) { const q = quality(pr.project); if (!q.ok) return send(res, 422, { ok: false, error: 'Сначала исправьте ошибки в проекте', quality: q }), true; }
+          if (!askVerify(pr, u)) return send(res, 409, { ok: false, error: 'Проект уже на верификации или проверен' }), true;
+        }
+        writeJSON(f, pr); return send(res, 200, { ok: true, verify: vPub(pr.verify) }), true;
       }
       /* ---- админка ---- */
       if (p.startsWith('/api/admin/market/')) {

@@ -7,7 +7,7 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function crm(ctx) {
-  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview } = ctx;
+  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview, VERIFY_PRICE } = ctx;
   const guard = ctx.guard || (async () => null);
   const MEDIA = path.join(DATA, 'media');
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
@@ -54,7 +54,7 @@ module.exports = function crm(ctx) {
   const projFile = (id) => /^[\w-]+$/.test(id) ? path.join(PROJ, id, 'project.json') : null;
   function projCard(pr, us) {
     const o = us.find(x => x.id === pr.owner) || {}, v = Object.values(pr.votes || {});
-    return { id: pr.id, title: pr.title, about: pr.about, area: pr.area, floors: pr.floors, size: pr.size, price: pr.price, license: pr.license, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '',
+    return { id: pr.id, title: pr.title, about: pr.about, area: pr.area, floors: pr.floors, size: pr.size, price: pr.price, license: pr.license, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', verify: pr.verify || null,
       at: pr.at, updatedAt: pr.updatedAt || pr.at, files: pr.files || [], cover: (pr.files || []).find(f => f.startsWith('exterior')) || (pr.files || [])[0] || null, quality: pr.quality || null,
       rating: { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }, requests: (pr.requests || []).length,
       owner: { id: o.id, name: o.name || '—', email: o.email || '', phone: o.phone || '', city: o.city || '', role: o.role || 'user', archStatus: o.archStatus || 'none' } };
@@ -245,7 +245,7 @@ module.exports = function crm(ctx) {
         if (M === 'GET') return json(res, Object.assign(projCard(pr, users()), { project: pr.project, requestsList: pr.requests || [], modLog: pr.modLog || [], seo: pr.seo || {}, qualityNow: quality ? quality(pr.project) : null })), true;
         if (M === 'POST') {
           if (!can('manager', 'marketer')) return send(res, 403, { ok: false, error: 'Нет прав' }), true;
-          const d = await body(req, 20e3), log = (t) => (pr.modLog = pr.modLog || []).push({ at: now(), by: u.name, text: t });
+          const d = await body(req, 5e6), log = (t) => (pr.modLog = pr.modLog || []).push({ at: now(), by: u.name, text: t });
           if (['published', 'hidden', 'blocked', 'private'].includes(d.status) && d.status !== pr.status) {
             if (d.status === 'blocked') { pr.blockReason = str(d.reason, 500) || 'Не соответствует правилам площадки'; pr.boost = false; }
             else pr.blockReason = '';
@@ -254,9 +254,33 @@ module.exports = function crm(ctx) {
             const ow = users().find(x => x.id === pr.owner);
             if (ow && d.status === 'blocked') mail(ow.email, `Проект «${pr.title}» снят с публикации`, `Здравствуйте!\n\nПроект «${pr.title}» снят модератором: ${pr.blockReason}.\nИсправьте проект в конструкторе и напишите нам — мы проверим ещё раз.\n\nЛогика Дома`);
           }
+          // верификация: оплачено → в работе (архитектор правит в конструкторе) → проверено или отклонено
+          const VST = { requested: 'заявка', paid: 'оплачено', in_work: 'в работе', verified: 'проверено', rejected: 'отклонено', none: 'снята' };
+          if (d.verify && VST[d.verify] && (!pr.verify || pr.verify.status !== d.verify)) {
+            if (!can('manager')) return send(res, 403, { ok: false, error: 'Верификацию ведёт менеджер или администратор' }), true;
+            if (d.verify === 'verified' && quality && !quality(pr.project).ok) return send(res, 422, { ok: false, error: 'В проекте остались ошибки — исправьте их перед отметкой «Проверено»' }), true;
+            const v = pr.verify = pr.verify || { price: VERIFY_PRICE || 15000, requestedAt: now(), log: [] }, note = str(d.note, 1000);
+            v.status = d.verify; v.at = now(); v.by = u.name; if (note) v.note = note;
+            if (d.price != null && +d.price >= 0) v.price = Math.round(+d.price);
+            v.log = (v.log || []).concat({ at: now(), by: u.name, text: VST[d.verify] + (note ? ': ' + note : '') });
+            log('верификация: ' + VST[d.verify] + (note ? ' — ' + note : ''));
+            const ow = users().find(x => x.id === pr.owner);
+            if (ow && d.verify === 'verified') mail(ow.email, `Проект «${pr.title}» проверен`, `Здравствуйте!\n\nАрхитектор и инженер «Логики Дома» проверили проект «${pr.title}»${v.fixed ? ' и внесли исправления' : ''}. В каталоге у него теперь отметка «Проверено».${note ? '\n\nКомментарий: ' + note : ''}\n\nЕсли вы измените проект, отметка снимется — верификацию можно будет заказать снова.\n\nЛогика Дома`);
+            if (ow && d.verify === 'rejected') mail(ow.email, `Верификация проекта «${pr.title}»`, `Здравствуйте!\n\nПроект «${pr.title}» не прошёл верификацию${note ? ': ' + note : ''}.\nМенеджер свяжется с вами и расскажет, что поправить.\n\nЛогика Дома`);
+          }
+          // исправления архитектора платформы: сохраняются в проект автора, пока идёт верификация
+          if (d.project && d.project.poly) {
+            if (!can('manager')) return send(res, 403, { ok: false, error: 'Нет прав' }), true;
+            if (!pr.verify || !['paid', 'in_work'].includes(pr.verify.status)) return send(res, 409, { ok: false, error: 'Исправлять можно проект, который в работе на верификации' }), true;
+            const q = quality ? quality(d.project) : { ok: true, score: 100, errs: [], warns: [] };
+            if (!q.ok) return send(res, 422, { ok: false, error: 'Исправления содержат ошибки: ' + (q.errs[0] ? q.errs[0].txt : 'много замечаний'), quality: q }), true;
+            pr.project = d.project; pr.updatedAt = now(); pr.quality = { score: q.score, errs: q.errs.length, warns: q.warns.length };
+            pr.verify.status = 'in_work'; pr.verify.fixed = true; pr.verify.log = (pr.verify.log || []).concat({ at: now(), by: u.name, text: 'исправления сохранены в проект' });
+            log('исправлен архитектором платформы');
+          }
           if (d.boost != null && !!d.boost !== !!pr.boost) { pr.boost = !!d.boost && pr.status !== 'blocked'; log(pr.boost ? 'поднят вверх каталога' : 'снят с поднятия'); }
           if (d.seo && typeof d.seo === 'object') { pr.seo = { title: str(d.seo.title, 120), desc: str(d.seo.desc, 300), keywords: str(d.seo.keywords, 300), noindex: !!d.seo.noindex }; log('SEO страницы обновлено'); }
-          if (str(d.note, 1000)) log('заметка: ' + str(d.note, 1000));
+          if (!d.verify && str(d.note, 1000)) log('заметка: ' + str(d.note, 1000));
           writeJSON(f, pr); return json(res, projCard(pr, users())), true;
         }
       }

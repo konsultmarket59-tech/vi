@@ -175,7 +175,7 @@ nav.main button[aria-current="page"]{font-weight:600;color:var(--brand);border-b
 
 /* ---- каталог и страницы ---- */
 .wrap{max-width:1180px;margin:0 auto;padding:28px clamp(16px,3vw,32px) 60px;display:grid;gap:20px;align-content:start}
-.wrap h1{font:800 clamp(34px,5vw,52px)/0.95 var(--display);text-transform:uppercase;letter-spacing:.01em;color:var(--brand)}
+.wrap h1{font:700 clamp(30px,4vw,44px)/1.15 var(--display);letter-spacing:-.01em;color:var(--brand)}
 .wrap .lead{font-size:15.5px;color:var(--muted);max-width:760px}
 .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end;background:var(--panel);border-radius:var(--r);padding:12px 14px}
 .filters .fld{min-width:150px;flex:1}
@@ -184,7 +184,7 @@ nav.main button[aria-current="page"]{font-weight:600;color:var(--brand);border-b
 .org header{display:flex;justify-content:space-between;gap:10px}
 .org small{font:600 11px var(--text);color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .org small .ok{color:var(--ok)}
-.org h3{font:800 24px/1.05 var(--display);text-transform:uppercase;color:var(--brand);margin-top:3px}
+.org h3{font:600 20px/1.25 var(--display);color:var(--brand);margin-top:3px}
 .org .rate{text-align:right;font:700 16px var(--text);color:var(--accent);display:grid;align-content:start}
 .org .rate small{text-transform:none;letter-spacing:0}
 .org p{font-size:13px;color:var(--ink)}
@@ -193,18 +193,18 @@ nav.main button[aria-current="page"]{font-weight:600;color:var(--brand);border-b
 .org dd{margin:0}
 .org footer{display:flex;gap:6px;flex-wrap:wrap}
 .empty{background:var(--panel);border-radius:var(--r);padding:26px;display:grid;gap:8px;max-width:640px}
-.empty b{font:800 22px var(--display);text-transform:uppercase;color:var(--brand)}
+.empty b{font:600 20px var(--display);color:var(--brand)}
 .join{background:var(--brand);color:#fff;border-radius:var(--r);padding:20px 22px;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-.join b{font:800 26px/1 var(--display);text-transform:uppercase}
+.join b{font:700 22px/1.2 var(--display)}
 .join p{color:#C9CCD1;font-size:13px;margin-top:6px;max-width:620px}
 .steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;counter-reset:s;list-style:none;padding:0;margin:0}
 .steps li{background:var(--panel);border-radius:var(--r);padding:16px 18px;display:grid;gap:6px;counter-increment:s}
-.steps li::before{content:counter(s,decimal-leading-zero);font:800 30px/1 var(--display);color:var(--accent)}
+.steps li::before{content:counter(s,decimal-leading-zero);font:700 28px/1 var(--display);color:var(--brand)}
 .steps b{font:700 14px var(--text)}
 .steps p{font-size:13px;color:var(--muted)}
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
 .card{background:var(--panel);border-radius:var(--r);padding:18px 20px;display:grid;gap:10px;align-content:start}
-.card h2{font:800 26px/1 var(--display);text-transform:uppercase;color:var(--brand)}
+.card h2{font:700 22px/1.2 var(--display);color:var(--brand)}
 .card ul{margin:0;padding-left:18px;display:grid;gap:5px;font-size:13.5px}
 .card .price{font:700 15px var(--text)}
 .viewbar{position:sticky;top:0;z-index:40;background:#c0392b;color:#fff;padding:8px 16px;font-weight:600;display:flex;gap:12px;align-items:center;justify-content:center}
@@ -216,7 +216,7 @@ dialog{border:0;border-radius:20px;padding:0;width:min(640px,calc(100vw - 24px))
 dialog::backdrop{background:rgba(31,33,37,.45)}
 .dlg{display:grid;gap:16px;padding:20px 22px 22px}
 .dlg header{display:flex;justify-content:space-between;align-items:start;gap:10px}
-.dlg h2{font:800 30px/1 var(--display);text-transform:uppercase;color:var(--brand)}
+.dlg h2{font:700 24px/1.2 var(--display);color:var(--brand)}
 .dlg .x{border:0;background:none;font:400 26px/1 var(--text);color:var(--muted);padding:0 4px}
 .prog{display:flex;gap:4px}
 .prog i{flex:1;height:4px;border-radius:4px;background:var(--line)}
@@ -236,7 +236,16 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 .proj{background:var(--panel);border-radius:var(--r);overflow:hidden;border:1px solid var(--line);cursor:pointer;display:grid}
 .proj img,.proj .noimg{width:100%;aspect-ratio:16/10;object-fit:cover;background:#dfe3e8;display:block}
 .proj .pb{padding:12px 14px;display:grid;gap:6px}
-.proj h3{font:800 22px/1.05 var(--display);text-transform:uppercase;color:var(--brand)}
+.proj h3{font:600 18px/1.25 var(--display);color:var(--ld-graphite,#242832)}
+.verified{display:inline-flex;align-items:center;gap:4px;font:500 12px var(--text);color:var(--ld-cyan,#26C6C8);vertical-align:middle}
+.verified svg{flex:none}
+.vbox{display:flex !important;gap:10px;align-items:flex-start;border-color:var(--ld-cyan,#26C6C8) !important}
+.vbox svg{color:var(--ld-cyan,#26C6C8);flex:none;margin-top:2px}
+.vchk{align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--ld-soft-bg,#F5F6F8)}
+.vchk input{margin-top:2px}
+.vchk b{display:block;color:var(--brand);font:600 14px var(--display)}
+.vchk small{display:block;margin-top:2px;line-height:1.4}
+.vrow{gap:8px;align-items:center}
 .proj:hover{box-shadow:var(--shadow)}
 .row.between{justify-content:space-between}
 .stars{display:inline-flex;gap:1px}
@@ -655,6 +664,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
     <div class="row2"><label class="fld">Цена за использование, ₽ (0 — бесплатно)<input name="price" type="number" min="0" step="500" value="0"></label>
       <label class="fld">Что получает покупатель<select name="license"><option value="view">Эскиз для ознакомления и доработки</option><option value="build">Право построить один дом по эскизу</option></select></label></div>
     <div class="muted">Планы этажей и вид снаружи прикрепятся автоматически. Площадка берёт комиссию с платных продаж; оплату и передачу эскиза ведёт менеджер.</div>
+    <label class="chk vchk"><input type="checkbox" name="verify"><span><b>Заказать верификацию — <span id="pubVerPrice">15 000 ₽</span></b><small>Архитектор и инженер платформы проверят планировку и конструктив и при необходимости исправят. На карточке появится отметка «Проверено», проект поднимется в каталоге. Оплата по счёту после звонка менеджера.</small></span></label>
     <label class="chk"><input type="checkbox" name="own">Проект мой, я согласен с правилами публикации</label>
     <div class="nav"><span class="err-t" id="pErr"></span><button class="btn primary" type="submit">Опубликовать</button></div>
   </form>
