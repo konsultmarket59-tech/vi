@@ -37,7 +37,15 @@
   const mail = async () => false, tg = async () => false;
   const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n || 200);
   const quality = (p) => { const DK = window.DK, q = DK.normalize(DK.migrate(JSON.parse(JSON.stringify(p)))); ['b', 'f1', 'f2', 'f3'].forEach(k => { if (!q.levels[k]) q.levels[k] = DK.emptyLevel(); }); return DK.quality(q); };
-  const ctx = { send, body: async (req) => req._body || {}, readJSON, writeJSON, str, tg, DATA: D, limited: () => false, TG_OWNER: '', ADMIN_KEY: '', PUBLIC_URL: 'https://logikadoma.ru', quality, mail, guard: async () => null, VERIFY_PRICE: 15000, cms: { all: () => [], get: () => null }, preview: () => '' };
+
+  // демо-наполнение каталога в просмотре: удалить и вернуть — из снимка данных при загрузке
+  const demoSnap = { files: Object.keys(FS).filter(k => k.startsWith(D + '/projects/demo-')).map(k => [k, FS[k]]), comps: readJSON(D + '/companies.json', []).filter(c => c.demo), users: readJSON(D + '/users.json', []).filter(u => u.demo) };
+  const demoApi = {
+    counts() { const c = readJSON(D + '/companies.json', []).filter(x => x.demo); return { projects: new Set(Object.keys(FS).filter(k => k.startsWith(D + '/projects/demo-')).map(k => k.split('/')[3])).size, builders: c.filter(x => x.type === 'builder').length, architects: c.filter(x => x.type !== 'builder').length, state: {} }; },
+    purge() { Object.keys(FS).filter(k => k.startsWith(D + '/projects/demo-')).forEach(k => delete FS[k]); writeJSON(D + '/companies.json', readJSON(D + '/companies.json', []).filter(c => !c.demo)); writeJSON(D + '/users.json', readJSON(D + '/users.json', []).filter(u => !u.demo)); return this.counts(); },
+    seed() { this.purge(); demoSnap.files.forEach(([k, v]) => { FS[k] = v; }); writeJSON(D + '/companies.json', readJSON(D + '/companies.json', []).concat(demoSnap.comps)); writeJSON(D + '/users.json', readJSON(D + '/users.json', []).concat(demoSnap.users)); return this.counts(); },
+  };
+  const ctx = { demo: demoApi, send, body: async (req) => req._body || {}, readJSON, writeJSON, str, tg, DATA: D, limited: () => false, TG_OWNER: '', ADMIN_KEY: '', PUBLIC_URL: 'https://logikadoma.ru', quality, mail, guard: async () => null, VERIFY_PRICE: 15000, cms: { all: () => [], get: () => null }, preview: () => '' };
   // визуализации: тот же credits.js, что на сервере; в демо — запас кодов и баланс у заказчика
   ctx.credits = (() => { const m = { exports: null }; window.__CREDITS(() => null, m, { env: {} }, Buffer); return m.exports({ readJSON, writeJSON, DATA: D, crypto: ncrypto }); })();
   if (!FS[D + '/viz-codes.json']) {

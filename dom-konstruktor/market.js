@@ -37,7 +37,9 @@ module.exports = function market(ctx) {
   const rating = (pr) => { const v = Object.values(pr.votes || {}); return { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }; };
   // для карточки и фильтра: спальни, санузлы, гараж, терраса, мансарда — из назначенных помещений и пристроек
   function feats(pj) {
-    const nm = [].concat(...Object.values((pj && pj.levels) || {}).map(l => (l && l.names) || [])), ext = (pj && pj.ext) || [];
+    // только этажи, которые есть в доме: после удаления этажа его комнаты остаются в файле, но не считаются
+    const fl = pj ? (pj.basement ? ['b'] : []).concat(['f1', 'f2', 'f3'].slice(0, pj.floors || 1)) : [];
+    const nm = [].concat(...fl.map(f => (pj.levels && pj.levels[f] && pj.levels[f].names) || [])), ext = (pj && pj.ext) || [];
     return { beds: nm.filter(n => n.type === 'bed' || n.type === 'kids').length, baths: nm.filter(n => n.type === 'bath').length,
       garage: ext.some(x => x.kind === 'garage'), terrace: ext.some(x => x.kind === 'terrace' || x.kind === 'porch'), attic: !!(pj && pj.attic && pj.floors > 1) };
   }

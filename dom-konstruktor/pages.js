@@ -215,7 +215,7 @@ ${others.length ? `<section class="more-sec"><h2>Читайте также</h2><
     const s = pr.seo || {}, fl = pr.floors > 1 ? `${pr.floors} этажа` : 'одноэтажный';
     return { title: s.title || `${pr.title} — проект дома ${Math.round(pr.area)} м², ${fl} — ${BRAND}`,
       desc: s.desc || `Проект дома ${Math.round(pr.area)} м², ${fl}${pr.size ? ', ' + pr.size : ''}. ${String(pr.about || '').slice(0, 90)} Планировки этажей и 3D, откройте в конструкторе.`.replace(/\s+/g, ' ').slice(0, 170),
-      keywords: s.keywords || `проект дома ${Math.round(pr.area)} м2, планировка дома ${fl}`, noindex: !!s.noindex };
+      keywords: s.keywords || `проект дома ${Math.round(pr.area)} м2, планировка дома ${fl}`, noindex: !!s.noindex || !!pr.demo };
   }
   const spec = (i, t) => `<span>${ic(i, 14)}${t}</span>`;
   function projCard(p) {

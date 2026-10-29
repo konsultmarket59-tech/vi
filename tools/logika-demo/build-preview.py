@@ -6,6 +6,7 @@ html = build_single.build()
 # демо кабинетов: настоящий market.js и crm-api.js в браузере поверх демо-данных
 ROOT = '/home/user/vi/dom-konstruktor'
 data = json.load(open(SP + '/demo-data.json'))
+import sys as _s; _s.path.insert(0, SP); import demo_content; data = demo_content.add_demo(data)
 users = data['users.json']
 for u in users:
     u['email'] = u['email'].replace('svoydom.ru', 'logikadoma.ru')

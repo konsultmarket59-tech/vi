@@ -274,7 +274,7 @@ const authImg = (root) => $$('img[data-src]', root).forEach(async (img) => { try
 async function renderProjects() {
   history.replaceState(null, '', location.pathname);
   const list = await api('/api/crm/projects');
-  $('#main').innerHTML = `<h1>Проекты пользователей</h1><div class="kpi"><div>Всего<b>${list.length}</b></div><div>Опубликовано<b>${list.filter(x => x.status === 'published').length}</b></div><div>Подняты<b>${list.filter(x => x.boost).length}</b></div><div>Заблокировано<b>${list.filter(x => x.status === 'blocked').length}</b></div><div>На верификации<b>${list.filter(vWait).length}</b></div><div>Проверено<b>${list.filter(x => x.verify && x.verify.status === 'verified').length}</b></div></div>
+  $('#main').innerHTML = `<h1>Проекты пользователей</h1><div class="kpi"><div>Всего<b>${list.length}</b></div><div>Опубликовано<b>${list.filter(x => x.status === 'published').length}</b></div><div>Подняты<b>${list.filter(x => x.boost).length}</b></div><div>Заблокировано<b>${list.filter(x => x.status === 'blocked').length}</b></div><div>На верификации<b>${list.filter(vWait).length}</b></div><div>Проверено<b>${list.filter(x => x.verify && x.verify.status === 'verified').length}</b></div></div><div id="demoBox" style="margin-top:12px"></div>
   <div class="row" style="margin:14px 0"><input id="pq" placeholder="Поиск: название, автор, почта" style="max-width:300px" value="${esc(projFilter.q)}"><select id="pst" style="max-width:200px"><option value="">Все статусы</option>${Object.entries(PST).map(([k, v]) => `<option value="${k}"${projFilter.st === k ? ' selected' : ''}>${v}</option>`).join('')}</select>
     <label class="row"><input type="checkbox" id="pbad"${projFilter.bad ? ' checked' : ''}> с замечаниями</label><label class="row"><input type="checkbox" id="pver"${projFilter.ver ? ' checked' : ''}> на верификации</label><span class="muted">Фильтр качества не даёт сохранить проект с ошибками — здесь видно, что прошло.</span></div><div class="pgrid" id="pg"></div>`;
   const draw = () => {
@@ -282,11 +282,12 @@ async function renderProjects() {
     const rows = list.filter(x => (!projFilter.st || x.status === projFilter.st) && (!projFilter.bad || (x.quality && x.quality.warns)) && (!projFilter.ver || vWait(x)) && (!q || [x.title, x.owner.name, x.owner.email].join(' ').toLowerCase().includes(q)))
       .sort((a, b) => (vWait(b) ? 2 : 0) + (b.boost ? 1 : 0) - (vWait(a) ? 2 : 0) - (a.boost ? 1 : 0));
     $('#pg').innerHTML = rows.map(x => `<div class="pcard${x.status === 'blocked' ? ' blocked' : ''}" data-id="${x.id}">${x.cover ? `<img alt="" data-src="/api/crm/project/${x.id}/file/${encodeURIComponent(x.cover)}">` : '<div class="noimg"></div>'}
-      <div class="pb"><b>${x.boost ? '<span class="boost">▲ </span>' : ''}${esc(x.title)}</b><small class="muted">${Math.round(x.area)} м² · ${x.floors} эт. · ${esc(x.owner.name)}${x.owner.archStatus === 'verified' ? ' ✓' : ''}</small>
+      <div class="pb"><b>${x.boost ? '<span class="boost">▲ </span>' : ''}${esc(x.title)}${x.demo ? ' <span class="badge">демо</span>' : ''}</b><small class="muted">${Math.round(x.area)} м² · ${x.floors} эт. · ${esc(x.owner.name)}${x.owner.archStatus === 'verified' ? ' ✓' : ''}</small>
       <div class="row"><span class="badge ${PSTC[x.status]}">${PST[x.status] || x.status}</span>${x.quality ? `<span class="badge" title="Оценка качества при сохранении">качество ${x.quality.score}</span>` : ''}${x.verify ? `<span class="badge ${VSTC[x.verify.status] || ''}" title="Верификация">верификация: ${VST[x.verify.status] || x.verify.status}</span>` : ''}${x.rating.n ? `<small>★ ${x.rating.avg} (${x.rating.n})</small>` : ''}</div>
       <small class="muted">${dt(x.updatedAt)}${x.requests ? ' · запросов: ' + x.requests : ''}</small></div></div>`).join('') || '<div class="muted">Проектов нет</div>';
     authImg($('#pg')); $$('#pg .pcard').forEach(c => c.onclick = () => openProj(c.dataset.id));
   };
+  demoBox($('#demoBox'), renderProjects);
   $('#pq').oninput = (e) => { projFilter.q = e.target.value; draw(); }; $('#pst').onchange = (e) => { projFilter.st = e.target.value; draw(); }; $('#pbad').onchange = (e) => { projFilter.bad = e.target.checked; draw(); }; $('#pver').onchange = (e) => { projFilter.ver = e.target.checked; draw(); };
   draw();
 }
@@ -309,7 +310,8 @@ async function openProj(id) {
   $('#main').innerHTML = `<div class="row"><button class="btn sm ghost" id="pback">← Проекты</button><h1 style="margin:0">${x.boost ? '▲ ' : ''}${esc(x.title)}</h1><span class="badge ${PSTC[x.status]}">${PST[x.status]}</span>${x.blockReason ? `<span class="err">${esc(x.blockReason)}</span>` : ''}</div>
   <div class="row" style="margin:12px 0"><a class="btn primary" href="/?crmp=${encodeURIComponent(x.id)}" target="_blank">Открыть в конструкторе</a><button class="btn" id="pIfc">Скачать IFC (ArchiCAD, Revit)</button><button class="btn" id="pDxf">Скачать DXF (планы)</button><span style="flex:1"></span>
     ${canMod ? `${x.status !== 'blocked' ? `<button class="btn ${x.boost ? 'gold' : ''}" id="pBoost">${x.boost ? '▲ Поднят — снять' : '▲ Поднять вверх'}</button>` : ''}
-    ${x.status === 'blocked' ? '<button class="btn" id="pUnblock">Разблокировать</button>' : '<button class="btn" id="pBlock" style="border-color:var(--err);color:var(--err)">Заблокировать</button>'}` : ''}</div>
+    ${x.status === 'blocked' ? '<button class="btn" id="pUnblock">Разблокировать</button>' : '<button class="btn" id="pBlock" style="border-color:var(--err);color:var(--err)">Заблокировать</button>'}` : ''}
+    ${me.staffRole === 'admin' ? '<button class="btn ghost" id="pDel">Удалить</button>' : ''}</div>
   <div class="box"><div class="thumbs">${x.files.map(f => `<img alt="" data-src="/api/crm/project/${x.id}/file/${encodeURIComponent(f)}">`).join('')}</div>${x.about ? `<p>${esc(x.about)}</p>` : ''}</div>
   <div class="grid2"><div class="box"><h2 style="margin-top:0">Проект</h2><div>${Math.round(x.area)} м² · ${x.floors} эт. · ${esc(x.size || '')} · ${x.price ? rub(x.price) : 'бесплатно'} · ${x.license === 'build' ? 'право построить' : 'для ознакомления'}</div>
     <div class="muted">Создан ${dt(x.at)}, обновлён ${dt(x.updatedAt)} · ★ ${x.rating.avg} (${x.rating.n}) · запросов: ${x.requests}</div>
@@ -336,6 +338,7 @@ async function openProj(id) {
     const price = $('#vPrice') ? +$('#vPrice').value : undefined;
     mod({ verify: st, note, price }, 'Верификация: ' + VST[st]);
   });
+  if ($('#pDel')) $('#pDel').onclick = async () => { if (!confirm(`Удалить проект «${x.title}» с сайта насовсем?${x.demo ? '' : ' Это проект реального пользователя.'}`)) return; try { await api('/api/crm/project/' + id, null, 'DELETE'); toast('Проект удалён'); go('projects'); } catch (e) { toast(e.message); } };
   if ($('#pUnblock')) $('#pUnblock').onclick = () => mod({ status: 'published' }, 'Проект снова опубликован');
   if ($('#pBlock')) $('#pBlock').onclick = () => {
     const r = prompt('Причина блокировки (уйдёт автору на почту):', q.errs.length ? 'Проект с ошибками: ' + q.errs[0].txt : 'Мусор / тестовый проект, не планировка дома');
@@ -351,22 +354,36 @@ async function openProj(id) {
 }
 
 /* ---------- компании ---------- */
+/* демо-наполнение каталога: видно администратору в «Проектах» и «Компаниях» */
+async function demoBox(el, after) {
+  if (me.staffRole !== 'admin') return;
+  let c; try { c = await api('/api/crm/demo'); } catch (e) { return; }
+  const n = c.projects + c.builders + c.architects;
+  el.innerHTML = `<div class="box demo-box"><div><b>Демо-наполнение каталога</b><div class="muted">${n ? `Сейчас на сайте ${c.projects} проектов, ${c.builders} строительных компании и ${c.architects} архитектора с пометкой «демо» — чтобы каталог не был пустым. Когда появятся реальные пользователи, удалите их одной кнопкой или по одной карточке.` : 'Демо-карточек на сайте нет.'}</div></div>
+    ${n ? '<button class="btn" id="demoPurge" style="border-color:var(--err);color:var(--err)">Удалить все демо-карточки</button>' : '<button class="btn" id="demoSeed">Вернуть демо-карточки</button>'}</div>`;
+  const run = async (u, msg) => { try { await api(u, {}); toast(msg); after(); } catch (e) { toast(e.message); } };
+  if ($('#demoPurge')) $('#demoPurge').onclick = () => { if (confirm(`Удалить с сайта все демо-карточки (${n})? Реальные проекты и компании останутся.`)) run('/api/crm/demo/purge', 'Демо-карточки удалены'); };
+  if ($('#demoSeed')) $('#demoSeed').onclick = () => run('/api/crm/demo/seed', 'Демо-карточки добавлены');
+}
 async function renderCompanies() {
   history.replaceState(null, '', location.pathname);
   const list = companiesCache = await api('/api/crm/companies');
-  $('#main').innerHTML = `<h1>Строительные компании</h1><div class="muted" style="margin-bottom:10px">Одобренные компании получают запросы на расчёт и видны в каталоге. После одобрения компании уходит письмо.</div>
+  $('#main').innerHTML = `<h1>Компании и архитекторы</h1><div class="muted" style="margin-bottom:10px">Одобренные компании получают запросы на расчёт и видны в каталоге. После одобрения компании уходит письмо.</div><div id="demoBox"></div>
   <div class="row" style="margin-bottom:10px"><input id="cq" placeholder="Поиск: название, город, банк" style="max-width:320px"><label class="row"><input type="checkbox" id="cEsc"> только эскроу</label></div>
-  <div class="box" style="padding:0;overflow:auto"><table><thead><tr><th>Компания</th><th>Города работы</th><th>Банки</th><th>Эскроу</th><th>Контакты</th><th>ИНН</th><th>Статус</th><th>Рейтинг</th></tr></thead><tbody>
-  ${list.map(c => `<tr data-id="${c.id}" data-q="${esc([c.name, c.city].concat(c.cities || c.regions || [], c.banks || []).join(' ').toLowerCase())}" data-esc="${c.escrow ? 1 : 0}"><td><b>${esc(c.name)}</b><br><small class="muted">${dt(c.at)} · офис: ${esc(c.city)}</small></td>
+  <div class="box" style="padding:0;overflow:auto"><table><thead><tr><th>Компания</th><th>Города работы</th><th>Банки</th><th>Эскроу</th><th>Контакты</th><th>ИНН</th><th>Статус</th><th>Рейтинг</th><th></th></tr></thead><tbody>
+  ${list.map(c => `<tr data-id="${c.id}" data-q="${esc([c.name, c.city].concat(c.cities || c.regions || [], c.banks || []).join(' ').toLowerCase())}" data-esc="${c.escrow ? 1 : 0}"><td><b>${esc(c.name)}</b>${c.demo ? ' <span class="badge">демо</span>' : ''}<br><small class="muted">${esc({ builder: 'Строительная компания', architect: 'Архитектор', bureau: 'Архитектурное бюро' }[c.type] || 'Строительная компания')} · ${dt(c.at)} · офис: ${esc(c.city)}</small></td>
     <td><input class="ccit" value="${esc((c.cities || c.regions || []).join(', '))}" title="Через запятую" style="min-width:180px"></td>
     <td><details><summary><small>${(c.banks || []).length ? esc(c.banks.join(', ')) : 'нет аккредитации'}</small></summary><div class="chipsC">${DK.BANKS.map(b => `<label class="row"><input type="checkbox" class="cbank" value="${esc(b)}"${(c.banks || []).includes(b) ? ' checked' : ''}> ${esc(b)}</label>`).join('')}</div></details></td>
     <td><input type="checkbox" class="cesc"${c.escrow ? ' checked' : ''}></td>
     <td>${esc(c.phone)}<br><small>${esc(c.email || '')}</small><br><small class="muted">${esc((c.accounts || []).join(', '))}</small></td><td>${esc(c.inn || '')}</td>
     <td><select class="cs">${['pending', 'approved', 'rejected'].map(s => `<option value="${s}"${c.status === s ? ' selected' : ''}>${{ pending: 'На проверке', approved: 'Одобрена', rejected: 'Отклонена' }[s]}</option>`).join('')}</select></td>
-    <td><input class="cr" type="number" min="0" max="5" step="0.1" value="${c.rating || ''}" style="width:70px"></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Компаний нет</td></tr>'}</tbody></table></div>`;
+    <td><input class="cr" type="number" min="0" max="5" step="0.1" value="${c.rating || ''}" style="width:70px"></td>
+    <td>${me.staffRole === 'admin' ? '<button class="btn sm ghost cdel">Удалить</button>' : ''}</td></tr>`).join('') || '<tr><td colspan="9" class="muted">Компаний нет</td></tr>'}</tbody></table></div>`;
+  demoBox($('#demoBox'), renderCompanies);
   const flt = () => { const q = $('#cq').value.toLowerCase(), e = $('#cEsc').checked; $$('#main tr[data-id]').forEach(tr => { tr.hidden = (q && !tr.dataset.q.includes(q)) || (e && tr.dataset.esc !== '1'); }); };
   $('#cq').oninput = flt; $('#cEsc').onchange = flt;
   $$('#main tr[data-id]').forEach(tr => {
+    if ($('.cdel', tr)) $('.cdel', tr).onclick = async () => { if (!confirm('Удалить карточку «' + $('b', tr).textContent + '» из каталога?')) return; try { await api('/api/crm/company/' + tr.dataset.id, null, 'DELETE'); companiesCache = null; toast('Карточка удалена'); renderCompanies(); } catch (er) { toast(er.message); } };
     $('.cs', tr).onchange = async (e) => { try { await api('/api/crm/company/' + tr.dataset.id, { status: e.target.value }); toast('Статус обновлён'); } catch (er) { toast(er.message); } };
     $('.cr', tr).onchange = async (e) => { try { await api('/api/crm/company/' + tr.dataset.id, { rating: +e.target.value }); toast('Рейтинг сохранён'); } catch (er) { toast(er.message); } };
     const prof = async () => { try { await api('/api/crm/company/' + tr.dataset.id, { cities: $('.ccit', tr).value, banks: $$('.cbank:checked', tr).map(i => i.value), escrow: $('.cesc', tr).checked }); companiesCache = null; toast('Профиль компании сохранён'); } catch (er) { toast(er.message); } };

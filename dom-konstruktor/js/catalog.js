@@ -47,8 +47,11 @@ DK.renderCatalog = function (el, kind, f) {
         ${c.phone ? `<a class="btn sm" href="tel:${esc(c.phone.replace(/[^+\d]/g, ''))}">${esc(c.phone)}</a>` : ''}
         ${c.email ? `<a class="btn sm ghost" href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ''}
         ${c.site ? `<a class="btn sm ghost" href="${esc(/^https?:/.test(c.site) ? c.site : 'https://' + c.site)}" target="_blank" rel="noopener">Сайт</a>` : ''}
+        ${!c.phone && !c.email ? '<button class="btn sm primary" type="button" data-lead-org>Связаться через «Логику Дома»</button>' : ''}
       </footer>
     </article>`).join('');
+  // без своих контактов на сайте — связь через заявку на подбор
+  el.querySelectorAll('[data-lead-org]').forEach(b => b.onclick = () => { const t = document.querySelector('.top [data-act="lead"]'); if (t) t.click(); });
 };
 
 DK.registerOrg = async function (data) {

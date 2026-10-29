@@ -7,7 +7,7 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function crm(ctx) {
-  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview, VERIFY_PRICE, credits } = ctx;
+  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview, VERIFY_PRICE, credits, demo } = ctx;
   const guard = ctx.guard || (async () => null);
   const MEDIA = path.join(DATA, 'media');
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
@@ -54,7 +54,7 @@ module.exports = function crm(ctx) {
   const projFile = (id) => /^[\w-]+$/.test(id) ? path.join(PROJ, id, 'project.json') : null;
   function projCard(pr, us) {
     const o = us.find(x => x.id === pr.owner) || {}, v = Object.values(pr.votes || {});
-    return { id: pr.id, title: pr.title, about: pr.about, area: pr.area, floors: pr.floors, size: pr.size, price: pr.price, license: pr.license, status: pr.status, boost: !!pr.boost, blockReason: pr.blockReason || '', verify: pr.verify || null,
+    return { id: pr.id, title: pr.title, about: pr.about, area: pr.area, floors: pr.floors, size: pr.size, price: pr.price, license: pr.license, status: pr.status, boost: !!pr.boost, demo: !!pr.demo, blockReason: pr.blockReason || '', verify: pr.verify || null,
       at: pr.at, updatedAt: pr.updatedAt || pr.at, files: pr.files || [], cover: (pr.files || []).find(f => f.startsWith('exterior')) || (pr.files || [])[0] || null, quality: pr.quality || null,
       rating: { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }, requests: (pr.requests || []).length,
       owner: { id: o.id, name: o.name || '—', email: o.email || '', phone: o.phone || '', city: o.city || '', role: o.role || 'user', archStatus: o.archStatus || 'none' } };
@@ -244,6 +244,11 @@ module.exports = function crm(ctx) {
         const f = projFile(parts[3]), pr = f && readJSON(f, null); if (!pr) return send(res, 404, { ok: false }), true;
         if (M === 'GET' && parts[4] === 'file') { const fn = path.basename(parts[5] || ''); if (!(pr.files || []).includes(fn)) return send(res, 404, { ok: false }), true; return send(res, 200, fs.readFileSync(path.join(PROJ, pr.id, fn)), TYPES[path.extname(fn)] || 'application/octet-stream'), true; }
         if (M === 'GET') return json(res, Object.assign(projCard(pr, users()), { project: pr.project, requestsList: pr.requests || [], modLog: pr.modLog || [], seo: pr.seo || {}, qualityNow: quality ? quality(pr.project) : null })), true;
+        if (M === 'DELETE') {
+          if (!can()) return send(res, 403, { ok: false, error: 'Удаляет администратор' }), true;
+          fs.rmSync(path.join(PROJ, pr.id), { recursive: true, force: true });
+          return json(res, { ok: true }), true;
+        }
         if (M === 'POST') {
           if (!can('manager', 'marketer')) return send(res, 403, { ok: false, error: 'Нет прав' }), true;
           const d = await body(req, 5e6), log = (t) => (pr.modLog = pr.modLog || []).push({ at: now(), by: u.name, text: t });
@@ -315,6 +320,26 @@ module.exports = function crm(ctx) {
         }
         if (p === '/api/crm/viz/settings' && M === 'PUT') { if (!can()) return send(res, 403, { ok: false, error: 'Цены меняет администратор' }), true; return json(res, credits.saveSettings(d)), true; }
         return send(res, 404, { ok: false }), true;
+      }
+      /* демо-наполнение каталога: сколько карточек, добавить, удалить все */
+      if (p.startsWith('/api/crm/demo')) {
+        if (!demo) return send(res, 501, { ok: false }), true;
+        if (p === '/api/crm/demo' && M === 'GET') return json(res, demo.counts()), true;
+        if (!can()) return send(res, 403, { ok: false, error: 'Демо-карточки добавляет и удаляет администратор' }), true;
+        if (p === '/api/crm/demo/seed' && M === 'POST') return json(res, demo.seed()), true;
+        if (p === '/api/crm/demo/purge' && M === 'POST') return json(res, demo.purge()), true;
+        return send(res, 404, { ok: false }), true;
+      }
+      // удалить карточку компании или архитектора; учётные записи компании становятся обычными
+      if (parts[2] === 'company' && parts[3] && M === 'DELETE') {
+        if (!can()) return send(res, 403, { ok: false, error: 'Удаляет администратор' }), true;
+        const cs = companies(), c = cs.find(x => x.id === parts[3]); if (!c) return send(res, 404, { ok: false }), true;
+        writeJSON(COMP, cs.filter(x => x.id !== c.id));
+        const us = users(); let ch = false;
+        us.forEach(x => { if (x.companyId === c.id) { delete x.companyId; if (x.role === 'company') x.role = 'user'; ch = true; } });
+        const keep = us.filter(x => !(x.demo && x.id === c.id));
+        if (ch || keep.length !== us.length) writeJSON(USERS, keep);
+        return json(res, { ok: true }), true;
       }
       if (p === '/api/crm/companies' && M === 'GET') {
         const accs = users().filter(x => x.role === 'company');

@@ -1,6 +1,7 @@
 import json, re, datetime, sys
 SP = sys.argv[1]; ROOT = '/home/user/vi/dom-konstruktor'
 data = json.load(open(SP + '/demo-data.json'))
+import sys as _s; _s.path.insert(0, SP); import demo_content; data = demo_content.add_demo(data)
 order = {'Иван Петров': (0, 9, 40), 'Марина Волкова': (1, 13, 15), 'Ольга Смирнова': (2, 11, 5), 'Алексей Кузнецов': (4, 16, 30)}
 for k, v in data.items():
     if k.endswith('lead.json'):

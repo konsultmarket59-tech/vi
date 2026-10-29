@@ -55,10 +55,18 @@
   const mediaUrls = (t) => String(t).replace(/\/media\/([\w-]+\.(png|jpe?g|webp|gif|mp3|m4a|ogg|mp4|webm))/g, (m, f, e) => { const b = FS[D + '/media/' + f]; if (!b) return m; return blobs[f] || (blobs[f] = 'data:' + MT[e] + ';base64,' + b64of(b)); });
   const credits = (() => { const m = { exports: null }; window.__CREDITS(() => null, m, { env: {} }, Buffer); return m.exports({ readJSON, writeJSON, DATA: D, crypto: ncrypto }); })();
   if (!FS[D + '/viz-codes.json']) { credits.make(3, 6, 'Демо-партия', 'Демо'); credits.make(10, 6, 'Демо-партия', 'Демо'); credits.make(30, 3, 'Для архитекторов', 'Демо'); credits.issue(10, 'client@mail.example', 'Демо', 'Платёж №12345'); }
+
+  // демо-наполнение каталога в просмотре: удалить и вернуть — из снимка данных при загрузке
+  const demoSnap = { files: Object.keys(FS).filter(k => k.startsWith(D + '/projects/demo-')).map(k => [k, FS[k]]), comps: readJSON(D + '/companies.json', []).filter(c => c.demo), users: readJSON(D + '/users.json', []).filter(u => u.demo) };
+  const demoApi = {
+    counts() { const c = readJSON(D + '/companies.json', []).filter(x => x.demo); return { projects: new Set(Object.keys(FS).filter(k => k.startsWith(D + '/projects/demo-')).map(k => k.split('/')[3])).size, builders: c.filter(x => x.type === 'builder').length, architects: c.filter(x => x.type !== 'builder').length, state: {} }; },
+    purge() { Object.keys(FS).filter(k => k.startsWith(D + '/projects/demo-')).forEach(k => delete FS[k]); writeJSON(D + '/companies.json', readJSON(D + '/companies.json', []).filter(c => !c.demo)); writeJSON(D + '/users.json', readJSON(D + '/users.json', []).filter(u => !u.demo)); return this.counts(); },
+    seed() { this.purge(); demoSnap.files.forEach(([k, v]) => { FS[k] = v; }); writeJSON(D + '/companies.json', readJSON(D + '/companies.json', []).concat(demoSnap.comps)); writeJSON(D + '/users.json', readJSON(D + '/users.json', []).concat(demoSnap.users)); return this.counts(); },
+  };
   const mod = { exports: null };
   window.__CRM_API(function (n) { return { fs, path, crypto: ncrypto }[n]; }, mod, { env: {} }, Buffer);
   const handle = mod.exports({ send, body: async (req) => req._body || {}, readJSON, writeJSON, str: (v, n) => String(v == null ? '' : v).trim().slice(0, n || 200),
-    DATA: D, ADMIN_KEY: '', PUBLIC_URL: 'https://logikadoma.ru', credits, mail, limited: () => false, cms: store, preview, quality });
+    DATA: D, ADMIN_KEY: '', PUBLIC_URL: 'https://logikadoma.ru', credits, demo: demoApi, mail, limited: () => false, cms: store, preview, quality });
 
   const realFetch = window.fetch.bind(window); // fetchCss: /css/pages.css отдаём из сборки
 
