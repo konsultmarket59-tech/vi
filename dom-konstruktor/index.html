@@ -306,24 +306,22 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 .sec-t h2{font:700 clamp(24px,2.6vw,32px)/1.2 var(--display);color:var(--brand);margin:0}
 .btn.tertiary{border-color:transparent;background:none;color:var(--ld-blue,#2784EB);padding-left:4px;padding-right:4px}
 .btn.tertiary:hover{color:var(--brand)}
-.hero-home{position:relative;overflow:hidden;background:linear-gradient(180deg,#fff 0%,var(--ld-soft-bg,#F5F6F8) 100%);border-bottom:1px solid var(--line)}
+.hero-home{position:relative;overflow:hidden;min-height:clamp(460px,72vh,720px);display:flex;align-items:flex-end;background:#1f2a44;color:#fff}
+.hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:60% 55%}
+.hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(13,26,69,.78) 0%,rgba(13,26,69,.5) 38%,rgba(13,26,69,0) 68%),linear-gradient(0deg,rgba(13,26,69,.45) 0%,rgba(13,26,69,0) 40%)}
 .hero-grid{position:absolute;inset:0;background-image:linear-gradient(var(--ld-tech-gray,#D9DEE8) 1px,transparent 1px),linear-gradient(90deg,var(--ld-tech-gray,#D9DEE8) 1px,transparent 1px);background-size:64px 64px;opacity:.7}
 .node{position:absolute;width:10px;height:10px;border-radius:50%;transform:translate(-5px,-5px);animation:nodeP 4.5s ease-in-out infinite}
 .nd-cyan{background:var(--ld-cyan,#26C6C8)}.nd-blue{background:var(--ld-blue,#2784EB)}.nd-navy{background:var(--ld-navy,#19317B)}.nd-orange{background:var(--ld-orange,#F49A38)}.nd-coral{background:var(--ld-coral,#F05C78)}.nd-gray{background:var(--ld-cool-gray,#C7CDDA)}
-.hero-home .k0{left:64px;top:64px}.hero-home .k1{left:640px;top:64px;animation-delay:.6s}.hero-home .k2{left:calc(100% - 64px);top:192px;animation-delay:1.2s}.hero-home .k3{left:64px;top:448px;animation-delay:1.8s}
-.hero-home .k4{left:calc(100% - 128px);top:640px;animation-delay:2.4s}.hero-home .k5{left:576px;top:640px;animation-delay:3s}.hero-home .k6{left:calc(100% - 64px);top:64px;animation-delay:3.6s}
 @keyframes nodeP{0%,100%{box-shadow:0 0 0 0 rgba(39,132,235,0)}50%{box-shadow:0 0 0 7px rgba(39,132,235,.12)}}
-.hero-in{position:relative;max-width:1264px;margin:0 auto;padding:72px 32px 40px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:center}
-.hero-main h1{font:700 clamp(34px,4.4vw,56px)/1.08 var(--display);letter-spacing:-.02em;color:var(--brand);margin:0}
-.hero-main p{font:300 20px/1.5 var(--text);color:var(--ld-gray-600,#5B6272);margin:20px 0 28px}
+.hero-in{position:relative;width:100%;max-width:1264px;margin:0 auto;padding:96px 32px 64px}
+.hero-main{max-width:640px}
+.hero-main h1{font:700 clamp(34px,4.6vw,60px)/1.08 var(--display);letter-spacing:-.02em;color:#fff;margin:0;text-shadow:0 2px 24px rgba(13,26,69,.35)}
+.hero-main p{font:300 clamp(18px,1.7vw,22px)/1.5 var(--text);color:#fff;margin:18px 0 30px;opacity:.95}
 .hero-cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-.hero-img{margin:0;position:relative}
-.hero-img img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;border-radius:16px;box-shadow:0 12px 32px rgba(13,26,69,.14);background:#E9EDF3}
-.hero-img figcaption{position:absolute;left:14px;bottom:12px;background:rgba(255,255,255,.92);border-radius:6px;padding:4px 10px;font:500 12px var(--text);color:var(--ink)}
-.hero-img figcaption:empty{display:none}
-.filters.qf-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:-6px}.filters.qf-row .fld{margin:0}
-@media (max-width:760px){.filters.qf-row{grid-template-columns:1fr 1fr}}
-.qf{position:relative;max-width:1264px;margin:0 auto;padding:0 32px 40px}
+.btn.w{background:#fff;color:var(--brand);border-color:#fff}.btn.w:hover{background:#EEF1F9}
+.btn.ow{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.75);backdrop-filter:blur(4px)}.btn.ow:hover{background:rgba(255,255,255,.18)}
+.hero-cap{position:absolute;right:32px;bottom:20px;font:500 12px var(--text);color:#fff;background:rgba(13,26,69,.45);border-radius:6px;padding:4px 10px}
+#qfWrap{padding:48px 0 0}
 .qf-in{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:12px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px rgba(13,26,69,.06);padding:16px}
 .qf-in .fld{margin:0}.qf-in .btn{min-height:40px}
 #steps{padding:56px 0 8px}
@@ -394,9 +392,9 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 .navy-ban>div{position:relative;max-width:560px}.navy-ban h2{font:700 clamp(26px,3vw,36px)/1.2 var(--display);margin:0 0 12px;color:#fff}.navy-ban p{color:#D9DEE8;margin:0 0 24px;font-size:16px}
 .navy-ban .btn{background:#fff;color:var(--brand);border-color:#fff}.navy-ban .btn.ghost-w{background:transparent;color:#fff;border-color:rgba(255,255,255,.6)}
 .navy-ban .b1{left:66%;top:64px}.navy-ban .b2{left:88%;top:64px}.navy-ban .b3{left:80%;top:128px}.navy-ban .b4{left:73%;top:192px}
-@media (max-width:980px){.hero-in{grid-template-columns:1fr;padding:40px 16px 24px;gap:24px}.qf{padding:0 16px 28px}.qf-in{grid-template-columns:1fr 1fr}.qf-in .btn{grid-column:1/-1}.home-in{padding:0 16px}.pgrid3{grid-template-columns:1fr 1fr}.hero-home .node{display:none}.navy-ban .node{display:none}}
+@media (max-width:980px){.hero-in{padding:72px 16px 40px}.hero-cap{right:16px;bottom:12px}.qf-in{grid-template-columns:1fr 1fr}.qf-in .btn{grid-column:1/-1}.home-in{padding:0 16px}.pgrid3{grid-template-columns:1fr 1fr}.hero-home .node{display:none}.navy-ban .node{display:none}}
 @media (max-width:640px){.pgrid3{grid-template-columns:1fr}.qf-in{grid-template-columns:1fr}.stepcard{padding:20px 14px}.sp-l{font-size:11px}.sp-line{margin:0 2px}.sp-line svg{display:none}.steppath button{min-width:44px}.sp-c{width:36px;height:36px;font-size:13px}.sp-line{height:36px}
-  .how-step{grid-template-columns:1fr;gap:14px}.how-art{height:120px}.how-body{min-height:0}.hero-main p{font-size:17px}.navy-ban{padding:36px 22px}.how-page .how-step{grid-template-columns:1fr}}
+  .how-step{grid-template-columns:1fr;gap:14px}.how-art{height:120px}.how-body{min-height:0}.hero-shade{background:linear-gradient(0deg,rgba(13,26,69,.85) 0%,rgba(13,26,69,.55) 55%,rgba(13,26,69,.15) 100%)}.hero-cap{display:none}.navy-ban{padding:36px 22px}.how-page .how-step{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.node,.how-step.in .how-art,.how-step.in .how-txt,.how-step.in .how-ring{animation:none}.how-step.in .how-ic svg *{animation:none;stroke-dashoffset:0}}
 </style>
 </head>
@@ -419,6 +417,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
   <!-- конструктор -->
   <main class="page" id="page-project">
     <section class="hero-home" id="hero" aria-label="Логика Дома"></section>
+    <section class="home-sec" id="qfWrap" aria-label="Проекты пользователей"></section>
     <section class="home-sec" id="steps" aria-label="5 шагов к дому"></section>
     <div class="home-in work-t" id="workT"><div class="sec-t"><h2>Конструктор дома</h2><span class="muted">Бесплатно и без регистрации: планировка, 3D, участок, оценка стоимости</span></div></div>
     <div class="work">
@@ -522,6 +521,11 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
           <div class="sw" id="roofs"></div>
           <label class="rng" id="pitchRow"><span>Уклон</span><input type="range" id="pitch" min="5" max="45" step="1"><output id="pitchV"></output></label>
           <label class="fld" id="ridgeRow">Конёк<div class="seg" id="ridge"><button data-k="long">вдоль длинной стороны</button><button data-k="short">поперёк</button></div></label>
+        </div>
+        <div class="grp" data-v="ext">
+          <h3>Вечер <small>свет в окнах</small></h3>
+          <div class="row"><button class="btn" data-light>Включить свет</button></div>
+          <div class="muted">Сумерки и тёплый свет во всех окнах — для красивых снимков дома.</div>
         </div>
         <div class="grp" data-v="ext plan">
           <h3>Отмостка <small>по периметру дома</small></h3>

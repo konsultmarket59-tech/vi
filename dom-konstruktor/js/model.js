@@ -212,17 +212,19 @@ function roofRects(p) {
     const r = rects[k];
     for (let q = 0; q < k; q++) {
       const o = rects[q], ox = Math.min(r.x1, o.x1) - Math.max(r.x0, o.x0), oz = Math.min(r.y1, o.y1) - Math.max(r.y0, o.y0);
-      if (r.y0 === o.y1 && ox > 0) { r.y0 -= (o.y1 - o.y0) / 2; r.j.z0 = 1; break; }
-      if (r.y1 === o.y0 && ox > 0) { r.y1 += (o.y1 - o.y0) / 2; r.j.z1 = 1; break; }
-      if (r.x0 === o.x1 && oz > 0) { r.x0 -= (o.x1 - o.x0) / 2; r.j.x0 = 1; break; }
-      if (r.x1 === o.x0 && oz > 0) { r.x1 += (o.x1 - o.x0) / 2; r.j.x1 = 1; break; }
+      if (r.y0 === o.y1 && ox > 0) { r.y0 -= (o.y1 - o.y0) / 2; r.j.z0 = 1; r.jq = q; break; }
+      if (r.y1 === o.y0 && ox > 0) { r.y1 += (o.y1 - o.y0) / 2; r.j.z1 = 1; r.jq = q; break; }
+      if (r.x0 === o.x1 && oz > 0) { r.x0 -= (o.x1 - o.x0) / 2; r.j.x0 = 1; r.jq = q; break; }
+      if (r.x1 === o.x0 && oz > 0) { r.x1 += (o.x1 - o.x0) / 2; r.j.x1 = 1; r.jq = q; break; }
     }
   }
   const pitch = (p.roof.pitch || 30) * Math.PI / 180;
   return rects.map((r, k) => {
     const W = { x0: r.x0 - (r.j.x0 ? 0 : e), x1: r.x1 + (r.j.x1 ? 0 : e), y0: r.y0 - (r.j.z0 ? 0 : e), y1: r.y1 + (r.j.z1 ? 0 : e) };
     const longX = (W.x1 - W.x0) >= (W.y1 - W.y0);
-    return { W, j: r.j, ridgeX: k === 0 && p.roof.ridge === 'short' ? !longX : longX, pitch };
+    // крыло (выступ, Г, Т, П): конёк от основного объёма наружу — фронтон на свободном торце, ендовы у примыкания
+    const ridgeX = k === 0 ? (p.roof.ridge === 'short' ? !longX : longX) : r.jq != null ? !!(r.j.x0 || r.j.x1) : longX;
+    return { W, j: r.j, jq: r.jq == null ? null : r.jq, ridgeX, pitch };
   });
 }
 function atticOn(p) { const fl = floorsOf(p).filter(f => f !== 'b'); return !!p.attic && fl.length > 1 && p.roof.type !== 'flat'; }

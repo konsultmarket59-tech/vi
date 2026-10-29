@@ -10,7 +10,7 @@ const readyP = new Promise(r => { readyOk = r; }); // кабинет ждёт п
 try { token = localStorage.getItem(TK); } catch (e) { /* без хранилища — вход на сессию */ }
 
 async function api(path, data, method) {
-  if (location.protocol === 'file:') throw new Error('Нужен сервер площадки (node server.js)');
+  if (location.protocol === 'file:') throw new Error('Регистрация и кабинеты заработают, когда сайт будет на сервере. Сейчас их можно посмотреть в демо-версии.');
   const r = await fetch((DK.CONFIG.api || '') + path, { method: method || (data ? 'POST' : 'GET'), headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: data ? JSON.stringify(data) : undefined });
   let j = {}; try { j = await r.json(); } catch (e) { throw new Error('Сервер площадки недоступен'); }
   if (!r.ok) { const er = new Error(j.error || 'Ошибка ' + r.status); er.status = r.status; er.data = j; throw er; }

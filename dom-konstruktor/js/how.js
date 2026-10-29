@@ -38,7 +38,8 @@ function stepper(root, opts) {
   };
   const stop = () => { auto = false; root.classList.remove('auto'); clearTimeout(timer); };
   btns.forEach(b => b.onclick = () => { stop(); show(+b.dataset.step); });
-  return { show, stop, get i() { return i; } };
+  if (opts.manual) auto = false;
+  return { show, stop, start() { if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) { auto = true; show(i); } }, get i() { return i; } };
 }
 
 function buildDlg() {
@@ -99,28 +100,33 @@ const orgCard = (c) => {
 
 function hero() {
   const h = $('#hero'); if (!h) return;
-  // фото задаётся в CRM → «Контент сайта» → «Настройки сайта»; по умолчанию — рендер из конструктора
-  const H = window.__HERO && window.__HERO.src ? { src: window.__HERO.src, alt: window.__HERO.alt || 'Частный дом', own: true } : { src: "brand/img/hero-house.jpg", alt: 'Дом из конструктора «Логика Дома»' };
-  h.innerHTML = `<div class="hero-grid" aria-hidden="true"></div>${['cyan', 'blue', 'navy', 'orange', 'coral', 'gray', 'cyan'].map((c, i) => `<span class="node nd-${c} k${i}"></span>`).join('')}
+  // фото задаётся в CRM → «Контент сайта» → «Настройки сайта»; по умолчанию — дом, спроектированный на платформе
+  const own = !!(window.__HERO && window.__HERO.src);
+  const H = own ? { src: window.__HERO.src, alt: window.__HERO.alt || 'Частный дом' } : { src: "brand/img/hero-house.jpg", small: "brand/img/hero-house-1000.jpg", alt: 'Одноэтажный дом с террасами и бассейном, спроектированный в конструкторе «Логика Дома»' };
+  h.innerHTML = `<img class="hero-bg" src="${esc(H.src)}"${H.small ? ` srcset="${esc(H.small)} 1000w, ${esc(H.src)} 2000w" sizes="100vw"` : ''} alt="${esc(H.alt)}" fetchpriority="high">
+    <div class="hero-shade" aria-hidden="true"></div>
     <div class="hero-in"><div class="hero-main">
-      <h1>Выберите дом. Продумайте детали. Найдите подрядчика.</h1>
-      <p>Логика. Проекты. Подрядчики.</p>
-      <div class="hero-cta"><button class="btn primary big" type="button" id="heroPick">Выбрать проект ${ic('chevron-right', 16)}</button><button class="btn big" type="button" id="heroFind">Найти подрядчика</button><button class="btn tertiary big" type="button" id="heroStart">Спроектировать свой дом</button></div></div>
-      <figure class="hero-img"><img src="${esc(H.src)}" alt="${esc(H.alt)}" width="1200" height="900" fetchpriority="high"><figcaption>${H.own ? '' : 'Этот дом собран в нашем конструкторе'}</figcaption></figure></div>
-    <form class="qf" id="qf"><div class="qf-in">${DK.qfHtml()}<button class="btn primary" type="submit">${ic('search', 16)}Найти</button></div></form>`;
-  $('#heroPick').onclick = () => DK.goPage('projects');
-  $('#heroFind').onclick = () => DK.goPage('builders');
+      <h1>Создайте свой дом. Продумайте детали. Найдите подрядчика.</h1>
+      <p>Ваша личная логика дома.</p>
+      <div class="hero-cta"><button class="btn big w" type="button" id="heroStart">Создать проект ${ic('chevron-right', 16)}</button><button class="btn big ow" type="button" id="heroFind">Найти подрядчика</button></div></div>
+      ${own ? '' : '<span class="hero-cap">Этот дом спроектирован на платформе «Логика Дома»</span>'}</div>`;
   $('#heroStart').onclick = toWork;
-  $('#qf').onsubmit = (e) => { e.preventDefault(); const f = {}; $$('[data-qf]', e.target).forEach(s => { f[s.dataset.qf] = s.value; }); DK.Market.setFilter && DK.Market.setFilter(f); DK.goPage('projects'); };
+  $('#heroFind').onclick = () => DK.goPage('builders');
+  const q = $('#qfWrap');
+  if (q) {
+    q.innerHTML = `<div class="home-in"><div class="sec-t"><h2>Посмотрите, что создали другие пользователи</h2><button class="btn tertiary" type="button" data-go="projects">Все проекты ${ic('arrow-right', 14)}</button></div>
+      <form class="qf-in" id="qf">${DK.qfHtml()}<button class="btn primary" type="submit">${ic('search', 16)}Найти</button></form></div>`;
+    $('[data-go]', q).onclick = () => DK.goPage('projects');
+    $('#qf').onsubmit = (e) => { e.preventDefault(); const f = {}; $$('[data-qf]', e.target).forEach(x => { f[x.dataset.qf] = x.value; }); DK.Market.setFilter && DK.Market.setFilter(f); DK.goPage('projects'); };
+  }
 }
 function steps() {
   const s = $('#steps'); if (!s) return;
   s.innerHTML = `<div class="home-in"><div class="sec-t"><h2>5 шагов к дому</h2><button class="btn tertiary" type="button" data-act="how">Подробнее о каждом шаге ${ic('arrow-right', 14)}</button></div>
     <div class="stepcard">${pathHtml()}<div class="how-body">${DK.HOW_STEPS.map(stepHtml).join('')}</div></div></div>`;
-  const sp = stepper(s, { delay: 8000 });
-  // автопрокрутка шагов — пока блок на экране
-  if ('IntersectionObserver' in window) { let started = false; new IntersectionObserver((es) => es.forEach(e => { if (e.isIntersecting && !started) { started = true; sp.show(0); } })).observe(s); sp.show(0); sp.stop(); s.classList.remove('auto'); started = false; }
-  else sp.show(0);
+  const sp = stepper(s, { delay: 8000, manual: true }); sp.show(0);
+  // автопрокрутка шагов — когда блок появился на экране
+  if ('IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting)) { io.disconnect(); sp.start(); } }, { threshold: 0.4 }); io.observe(s); } else sp.start();
 }
 async function more() {
   const m = $('#homeMore'); if (!m) return;
