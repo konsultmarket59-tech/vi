@@ -144,9 +144,17 @@ ${S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVeri
 <link rel="icon" href="/brand/favicon-32.png" type="image/png"><link rel="apple-touch-icon" href="/brand/apple-touch-icon.png"><meta name="theme-color" content="#19317B"><link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="stylesheet" href="/brand/ld.css">
 <link rel="stylesheet" href="/css/pages.css">
-<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>${metrika(S)}</head>
+<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>${metrika(S)}${social(S, true)}</head>
 <body>${o.draft ? '<div class="draft-bar">Предпросмотр — страница ещё не опубликована</div>' : ''}${header(o.cur)}<main class="page${o.wide ? ' wide' : ''}">${o.hero || ''}<div class="wrap">${o.body}</div></main>${footer()}</body></html>`;
   }
+  // окно подписки на соцсети: ссылки и тексты из «Настроек сайта»
+  const SOC = [['vk', 'ВКонтакте'], ['telegram', 'Telegram'], ['whatsapp', 'WhatsApp'], ['max', 'MAX'], ['youtube', 'YouTube'], ['dzen', 'Дзен']];
+  const social = (S, withJs) => {
+    const links = SOC.filter(([k]) => /^https?:\/\//i.test(S[k] || '')).map(([k, n]) => ({ k, n, u: S[k] }));
+    if (!links.length || S.socialPopup === '0') return '';
+    const cfg = { on: true, links, title: S.socialTitle || '', text: S.socialText || '', delay: +S.socialDelay || 30 };
+    return `<script>window.__SOCIAL=${JSON.stringify(cfg).replace(/</g, '\\u003c')}</script>` + (withJs ? '<script src="/js/social.js" defer></script>' : '');
+  };
   const metrika = (S) => /^\d{5,12}$/.test(String(S.metrika || '')) ? `<script>(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");ym(${S.metrika},"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true});</script>` : '';
 
   const list = (kind) => store.all().filter(r => r.kind === kind && pub(r));
@@ -261,6 +269,7 @@ ${perks}${pr.about ? `<section><h2>О проекте</h2><p class="about">${esc(
     }
     // фото на главной — из настроек сайта (медиатека CRM), иначе рендер из конструктора
     if (/^\/media\/[\w.-]+\.(jpe?g|png|webp)$/.test(S.heroImage || '')) h = h.replace('</head>', `<script>window.__HERO=${JSON.stringify({ src: S.heroImage, alt: S.heroAlt || '' }).replace(/</g, '\\u003c')}</script></head>`);
+    h = h.replace('</head>', social(S, false) + '</head>');
     const extra = (S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVerify)}">` : '') + (S.gsc ? `<meta name="google-site-verification" content="${esc(S.gsc)}">` : '') + metrika(S);
     if (extra) h = h.replace('</head>', extra + '</head>');
     return h;

@@ -347,6 +347,10 @@ async function renderSite() {
   <form id="sForm"><div class="grid2"><div class="box"><h2 style="margin-top:0">Контакты — в подвале, на «Контактах» и в микроразметке</h2><div class="grid2">${fld('phone', 'Телефон', '+7 (342) 000-00-00')}${fld('email', 'Почта', 'info@…')}${fld('city', 'Город')}${fld('address', 'Адрес офиса')}${fld('hours', 'Часы работы', 'Пн–Пт 9:00–19:00')}${fld('legal', 'Юрлицо / ИП')}${fld('inn', 'ИНН')}</div>
     <label class="f">Текст в подвале<textarea name="footerNote" rows="2">${esc(s.footerNote || '')}</textarea></label></div>
   <div class="box"><h2 style="margin-top:0">Соцсети</h2><div class="grid2">${fld('vk', 'ВКонтакте', 'https://vk.com/…')}${fld('telegram', 'Telegram', 'https://t.me/…')}${fld('whatsapp', 'WhatsApp', 'https://wa.me/7…')}${fld('max', 'MAX', 'https://max.ru/…')}${fld('youtube', 'YouTube')}${fld('dzen', 'Дзен')}</div>
+    <h2>Окно «Подпишитесь на нас»</h2><input type="hidden" name="socialPopup" value="${s.socialPopup === '0' ? '0' : '1'}">
+    <label class="row"><input type="checkbox" id="sSocOn"${s.socialPopup === '0' ? '' : ' checked'}> показывать посетителям окно с соцсетями, которые заполнены выше</label>
+    ${fld('socialTitle', 'Заголовок', 'Подпишитесь на «Логику Дома»')}${fld('socialText', 'Текст', 'Идеи планировок, разборы проектов и цены на стройку — в наших соцсетях.')}${fld('socialDelay', 'Через сколько секунд показать', '30')}
+    <div class="muted">Окно появится один раз через заданное время или когда человек прокрутит половину страницы. Закрыли — снова через 14 дней, перешли в соцсеть — через год.</div>
     <h2>Фото на главной</h2><div class="row" style="align-items:flex-end;gap:10px">${s.heroImage ? `<img src="${esc(s.heroImage)}" alt="" style="width:120px;aspect-ratio:4/3;object-fit:cover;border-radius:8px">` : '<span class="muted">Сейчас — рендер дома из конструктора</span>'}
       <input type="hidden" name="heroImage" value="${esc(s.heroImage || '')}"><button type="button" class="btn sm" id="sHero">Выбрать из медиатеки</button>${s.heroImage ? '<button type="button" class="btn sm ghost" id="sHeroX">Вернуть рендер</button>' : ''}</div>
     ${fld('heroAlt', 'Описание фото (alt) для поиска', 'Двухэтажный дом из газобетона')}<div class="muted">Горизонтальное фото 4:3, от 1200 px по ширине, с лицензией на коммерческое использование.</div>
@@ -354,6 +358,7 @@ async function renderSite() {
     <div class="muted">Счётчик и коды подтверждения добавятся на все страницы сайта и в конструктор.</div></div></div>
   <button class="btn primary">Сохранить настройки</button></form>`;
   $('#sBack').onclick = () => renderList();
+  $('#sSocOn').onchange = (e) => { $('#sForm [name=socialPopup]').value = e.target.checked ? '1' : '0'; };
   const hero = (u) => { $('#sForm [name=heroImage]').value = u; $('#sForm').requestSubmit(); };
   $('#sHero').onclick = () => renderMedia((u) => hero(u));
   if ($('#sHeroX')) $('#sHeroX').onclick = () => hero('');
