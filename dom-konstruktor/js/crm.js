@@ -33,7 +33,7 @@ async function start() {
   $('#loginView').hidden = true; $('#appView').hidden = false;
   $('#who').textContent = `${me.name} · ${{ admin: 'администратор', estimator: 'сметчик', manager: 'менеджер', marketer: 'маркетолог' }[me.staffRole]}`;
   // разделы по ролям: маркетолог — контент и проекты; контент — администратору и маркетологу
-  const allow = me.staffRole === 'admin' ? null : me.staffRole === 'marketer' ? ['content', 'projects'] : ['leads', 'projects', 'companies', 'prices', 'grid', 'outbox', 'staff'];
+  const allow = me.staffRole === 'admin' ? null : me.staffRole === 'marketer' ? ['content', 'projects'] : ['leads', 'projects', 'companies', 'viz', 'prices', 'grid', 'outbox', 'staff'];
   $$('#nav button').forEach(b => { b.hidden = !!allow && !allow.includes(b.dataset.s); });
   await DK.loadPrices();
   const h = location.hash.slice(1);
@@ -43,7 +43,53 @@ async function go(s) {
   if (section === 'content' && s !== 'content' && DK.CMS && !(await DK.CMS.leave())) return;
   section = s; $$('#nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.s === s)));
   if (s === 'content') return DK.CMS.render($('#main'), { api, toast, me });
-  ({ leads: renderLeads, projects: renderProjects, companies: renderCompanies, prices: renderPrices, grid: renderGrid, outbox: renderOutbox, staff: renderStaff })[s]();
+  ({ leads: renderLeads, projects: renderProjects, companies: renderCompanies, prices: renderPrices, grid: renderGrid, outbox: renderOutbox, staff: renderStaff, viz: renderViz })[s]();
+}
+
+/* ---------- реалистичные визуализации: коды активации, баланс, пакеты ---------- */
+let vizTab = 'codes', vizQ = '';
+async function renderViz() {
+  history.replaceState(null, '', location.pathname);
+  const d = await api('/api/crm/viz'), r = d.report, S = d.settings, m = $('#main'), isAdmin = me.staffRole === 'admin';
+  const st = (c) => c.void ? ['аннулирован', 'rejected'] : c.usedBy ? ['активирован', 'approved'] : c.issuedTo ? ['выдан', 'pending'] : ['свободен', ''];
+  m.innerHTML = `<h1>Реалистичные визуализации</h1>
+  <div class="kpi"><div>Свободных кодов<b>${r.free}</b></div><div>Выдано, не активировано<b>${r.issued}</b></div><div>Активировано кодов<b>${r.used}</b></div><div>Начислено по кодам<b>${r.activated}</b></div><div>Израсходовано<b>${r.spent}</b></div></div>
+  <div class="box" style="margin-top:14px"><b>Как продаётся пакет</b><div class="muted">1. Покупатель оплачивает пакет по ссылке банка (ссылки — во вкладке «Пакеты и цены»). 2. Банк присылает вам уведомление об оплате. 3. Здесь нажмите «Выдать код»: код на нужный пакет уйдёт покупателю письмом. 4. Покупатель вводит код в личном кабинете — визуализации начисляются.</div></div>
+  <div class="tabs row" style="margin:16px 0 12px">${[['codes', 'Коды'], ['people', 'Пользователи'], ['packs', 'Пакеты и цены']].map(([k, n]) => `<button class="btn sm ${vizTab === k ? 'primary' : ''}" data-vt="${k}">${n}</button>`).join('')}</div><div id="vizBody"></div>`;
+  $$('[data-vt]').forEach(b => b.onclick = () => { vizTab = b.dataset.vt; renderViz(); });
+  const body = $('#vizBody'), packs = S.packs.map(p => p.n);
+  if (vizTab === 'codes') {
+    body.innerHTML = `<div class="grid2"><form class="box" id="vIssue"><h2 style="margin-top:0">Выдать код покупателю</h2><div class="muted">Берётся свободный код нужного пакета и уходит письмом на почту покупателя.</div>
+        <div class="row" style="margin-top:8px"><select name="n">${packs.map(n => `<option value="${n}">${n} визуализаций</option>`).join('')}</select><input name="email" type="email" placeholder="Почта покупателя" required></div>
+        <input name="note" placeholder="Заметка: номер платежа, телефон" style="margin-top:8px"><div style="margin-top:8px"><button class="btn primary">Выдать код и отправить письмо</button></div><div id="vIssueRes" class="muted" style="margin-top:8px"></div></form>
+      <form class="box" id="vMake"><h2 style="margin-top:0">Выпустить коды</h2><div class="muted">Запас кодов для продажи. Каждый код активируется один раз.</div>
+        <div class="row" style="margin-top:8px"><label class="f">Визуализаций в коде<input name="n" type="number" min="1" max="1000" value="${packs[1] || 10}"></label><label class="f">Сколько кодов<input name="count" type="number" min="1" max="500" value="10"></label></div>
+        <input name="note" placeholder="Заметка: партия для блогера, акция" style="margin-top:8px"><div style="margin-top:8px"><button class="btn">Выпустить</button></div></form></div>
+    <div class="row" style="margin:14px 0"><input id="vq" placeholder="Поиск: код, почта, заметка" style="max-width:320px" value="${esc(vizQ)}"><button class="btn sm ghost" id="vCsv">Скачать свободные коды (CSV)</button></div>
+    <div class="box" style="padding:0;overflow:auto"><table><thead><tr><th>Код</th><th class="num">Визуализаций</th><th>Статус</th><th>Кому выдан / кто активировал</th><th>Заметка</th><th>Выпущен</th><th></th></tr></thead><tbody id="vRows"></tbody></table></div>`;
+    const draw = () => {
+      const q = vizQ.toLowerCase(), rows = d.codes.filter(c => !q || [c.code, c.issuedTo, c.usedName, c.note].join(' ').toLowerCase().includes(q));
+      $('#vRows').innerHTML = rows.slice(0, 400).map(c => { const [t, cl] = st(c); return `<tr><td><code>${esc(c.code)}</code></td><td class="num">${c.n}</td><td><span class="badge ${cl}">${t}</span></td>
+        <td>${c.usedBy ? esc(c.usedName) + '<br><small class="muted">' + dt(c.usedAt) + '</small>' : c.issuedTo ? esc(c.issuedTo) + '<br><small class="muted">' + dt(c.issuedAt) + ' · ' + esc(c.issuedBy || '') + '</small>' : ''}</td>
+        <td>${esc(c.note || '')}</td><td><small>${dt(c.at)}</small></td><td>${!c.usedBy && !c.void ? `<button class="btn sm ghost" data-void="${esc(c.code)}">Аннулировать</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">Кодов пока нет — выпустите первую партию</td></tr>';
+      $$('[data-void]').forEach(b => b.onclick = async () => { if (!confirm('Аннулировать код ' + b.dataset.void + '? Активировать его будет нельзя.')) return; try { await api('/api/crm/viz/void', { code: b.dataset.void }); toast('Код аннулирован'); renderViz(); } catch (e) { toast(e.message); } });
+    };
+    draw(); $('#vq').oninput = (e) => { vizQ = e.target.value; draw(); };
+    $('#vCsv').onclick = () => { const free = d.codes.filter(c => !c.usedBy && !c.issuedTo && !c.void); const csv = 'code;visualizations;note\n' + free.map(c => [c.code, c.n, (c.note || '').replace(/;/g, ',')].join(';')).join('\n'); const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,\ufeff' + encodeURIComponent(csv); a.download = 'kody-vizualizacij.csv'; a.click(); };
+    $('#vMake').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { const x = await api('/api/crm/viz/codes', { n: +f.n.value, count: +f.count.value, note: f.note.value }); toast('Выпущено кодов: ' + x.codes.length); renderViz(); } catch (er) { toast(er.message); } };
+    $('#vIssue').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { const x = await api('/api/crm/viz/issue', { n: +f.n.value, email: f.email.value, note: f.note.value }); $('#vIssueRes').innerHTML = `Код <b>${esc(x.code.code)}</b> ${x.sent ? 'отправлен на ' + esc(f.email.value) : 'выдан. Письмо не ушло (почта не настроена) — отправьте код покупателю сами'}.`; f.email.value = ''; f.note.value = ''; toast('Код выдан'); } catch (er) { toast(er.message); } };
+  } else if (vizTab === 'people') {
+    body.innerHTML = `<form class="box" id="vGrant" style="max-width:720px"><h2 style="margin-top:0">Начислить или списать</h2><div class="muted">Компенсация, подарок, исправление ошибки. Отрицательное число — списание.</div>
+      <div class="row" style="margin-top:8px"><input name="email" type="email" placeholder="Почта пользователя" required><input name="n" type="number" value="1" style="max-width:100px"><input name="note" placeholder="Причина"><button class="btn primary">Провести</button></div></form>
+      <div class="box" style="padding:0;overflow:auto;margin-top:14px"><table><thead><tr><th>Пользователь</th><th>Почта</th><th class="num">Баланс</th></tr></thead><tbody>${d.people.sort((a, b) => b.balance - a.balance).map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td class="num">${x.balance}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Пока ни у кого нет визуализаций</td></tr>'}</tbody></table></div>`;
+    $('#vGrant').onsubmit = async (e) => { e.preventDefault(); const f = e.target; try { const x = await api('/api/crm/viz/grant', { email: f.email.value, n: +f.n.value, note: f.note.value }); toast('Готово, баланс: ' + x.balance); renderViz(); } catch (er) { toast(er.message); } };
+  } else {
+    body.innerHTML = `<form class="box" id="vPacks" style="max-width:860px"><h2 style="margin-top:0">Пакеты в личном кабинете</h2><div class="muted">Ссылка на оплату — из личного кабинета банка (ЮKassa, Т-Банк, Продамус, Робокасса): «Платёжная ссылка» на сумму пакета. Покупатель платит на странице банка, чек присылает банк.</div>
+      <table style="margin-top:10px"><thead><tr><th class="num">Визуализаций</th><th class="num">Цена, ₽</th><th>Ссылка на оплату</th></tr></thead><tbody>${S.packs.concat([{ n: '', price: '', url: '' }]).map((p, i) => `<tr><td><input name="n${i}" type="number" min="1" value="${p.n}" style="width:90px"${isAdmin ? '' : ' disabled'}></td><td><input name="p${i}" type="number" min="0" value="${p.price}" style="width:110px"${isAdmin ? '' : ' disabled'}></td><td><input name="u${i}" value="${esc(p.url)}" placeholder="https://…" ${isAdmin ? '' : ' disabled'}></td></tr>`).join('')}</tbody></table>
+      <label class="f" style="max-width:360px;margin-top:10px">Подарок за регистрацию, визуализаций<input name="welcome" type="number" min="0" max="10" value="${S.welcome || 0}"${isAdmin ? '' : ' disabled'}></label>
+      ${isAdmin ? '<div style="margin-top:10px"><button class="btn primary">Сохранить</button></div>' : '<div class="muted">Цены и ссылки меняет администратор.</div>'}</form>`;
+    if (isAdmin) $('#vPacks').onsubmit = async (e) => { e.preventDefault(); const f = e.target, pk = []; for (let i = 0; i <= S.packs.length; i++) { const n = +f['n' + i].value; if (n > 0) pk.push({ n, price: +f['p' + i].value || 0, url: f['u' + i].value.trim() }); } try { await api('/api/crm/viz/settings', { packs: pk, welcome: +f.welcome.value }, 'PUT'); toast('Сохранено'); renderViz(); } catch (er) { toast(er.message); } };
+  }
 }
 
 /* ---------- заявки ---------- */

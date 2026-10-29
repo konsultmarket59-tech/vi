@@ -227,6 +227,17 @@ async function openTeam(id, title) {
     try { await api('/api/my/project/' + id, { addArch: add }); d.close(); DK.toast && DK.toast('Архитектор добавлен — ему пришло письмо'); renderCab(); } catch (er) { $('#teamErr').textContent = er.message; }
   };
 }
+/* реалистичные визуализации: баланс, код активации, пакеты (оплата на странице банка), история */
+const VIZ_KIND = { code: 'Код активации', grant: 'Начисление', render: 'Визуализация', refund: 'Возврат' };
+function vizCard(v) {
+  if (!v) return '';
+  const word = (n) => n % 10 === 1 && n % 100 !== 11 ? 'визуализация' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'визуализации' : 'визуализаций';
+  return `<div class="viz"><div class="viz-h"><div><b>Реалистичные визуализации</b><span class="muted">Фотореалистичный рендер дома снаружи или интерьера по снимку из конструктора</span></div><div class="viz-bal"><b>${v.balance}</b><small>${word(v.balance)}</small></div></div>
+    ${v.ready ? '' : '<div class="muted viz-soon">Генерация появится на сайте в ближайшее время — купленные визуализации сохранятся на балансе.</div>'}
+    <form id="vizForm" class="viz-code"><input name="code" placeholder="Код вида LD-XXXX-XXXX" autocomplete="off" required><button class="btn primary" type="submit">Активировать</button></form><div class="err-t" id="vizErr"></div>
+    ${v.packs.some(p => p.url) ? `<div class="viz-packs">${v.packs.filter(p => p.url).map(p => `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">${p.n} ${word(p.n)} — ${money(p.price)}</a>`).join('')}</div><div class="muted" style="font-size:12px">Оплата на странице банка. Код придёт на почту — введите его здесь.</div>` : ''}
+    ${v.history.length ? `<details class="viz-hist"><summary>История</summary>${v.history.map(e => `<div><span>${new Date(e.at).toLocaleDateString('ru-RU')} · ${e.kind === 'code' ? 'Код ' + esc(e.ref) : esc(e.note || VIZ_KIND[e.kind] || e.kind)}</span><b>${e.delta > 0 ? '+' : ''}${e.delta}</b></div>`).join('')}</details>` : ''}</div>`;
+}
 async function renderCab() {
   const el = $('#cabBody');
   await readyP;
@@ -258,6 +269,7 @@ async function renderCab() {
   el.innerHTML = `<div class="cols cab">
     <div class="card"><h2>${esc(user.name)}</h2><div class="muted">${esc(user.email)} · ${esc(user.phone || '')}</div>
       <div class="box"><b>Что доступно бесплатно</b><span>Эскизный проект в PDF и файлы для ArchiCAD (IFC — модель, DXF — чертежи по слоям) для сохранённых проектов. Добавьте своего архитектора — проект появится у него в кабинете.</span></div>
+      ${vizCard(d.viz)}
       <div class="box"><b>Статус архитектора: ${st}</b><span>Вы архитектор? Подтвердите диплом — получите отметку у проектов, место в каталоге архитекторов и сможете продавать свои проекты.</span></div>
       ${user.archStatus !== 'verified' && user.archStatus !== 'pending' ? `<details class="arch-apply"><summary>Подать заявку архитектора</summary><form id="archForm" class="q"><label class="fld">Диплом (вуз, специальность, год)<input name="diploma" required></label>
         <div class="row2"><label class="fld">СРО / членство (если есть)<input name="sro"></label><label class="fld">Сайт или портфолио<input name="site"></label></div>
@@ -269,6 +281,13 @@ async function renderCab() {
       ${d.shared && d.shared.length ? `<h2 style="margin-top:16px">Проекты клиентов</h2><div class="muted">Заказчики добавили вас архитектором — можно открыть проект и выгрузить файлы.</div>${d.shared.map(shared).join('')}` : ''}
       ${d.asked.length ? `<h2 style="margin-top:16px">Мои запросы</h2>${d.asked.map(a => `<div class="mine"><b>${esc(a.title)}</b> <span class="muted">${money(a.price)} · ${a.granted ? 'доступ открыт' : 'ждёт оплаты'}</span></div>`).join('')}` : ''}
     </div></div>`;
+  const vf = $('#vizForm');
+  if (vf) vf.onsubmit = async (e) => {
+    e.preventDefault(); const btn = $('button', vf);
+    btn.disabled = true;
+    try { const r = await api('/api/my/redeem', { code: vf.code.value }); DK.toast && DK.toast(`Начислено визуализаций: ${r.n}`); renderCab(); }
+    catch (er) { $('#vizErr').textContent = er.message; btn.disabled = false; }
+  };
   $('#cabOut').onclick = async () => { try { await api('/api/auth/logout', {}); } catch (e) { /* уже вышли */ } setToken(null); user = null; paintHeader(); renderCab(); };
   $('#cabPub').onclick = () => { DK.goPage('project'); openPublish('private'); };
   $$('[data-price]', el).forEach(i => i.onchange = async () => { await api('/api/my/project/' + i.dataset.price, { price: +i.value || 0 }); DK.toast && DK.toast('Цена сохранена'); });

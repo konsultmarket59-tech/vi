@@ -190,7 +190,7 @@ function stat(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(ROOT, p));
-  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store|docs-content)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store|docs-content|credits)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     // библиотеки и шрифты не меняются — кешируем надолго; остальное проверяется при каждом заходе
@@ -202,8 +202,9 @@ function stat(req, res, url) {
 const mail = require('./mailer.js')(DATA);
 const MODEL = require('./model-vm.js')(ROOT);
 const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA, model: MODEL });
-const crmHandle = require('./crm-api.js')({ send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview, VERIFY_PRICE });
-const marketHandle = require('./market.js')({ send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard, VERIFY_PRICE });
+const credits = require('./credits.js')({ readJSON, writeJSON, DATA, crypto });
+const crmHandle = require('./crm-api.js')({ credits,  send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview, VERIFY_PRICE });
+const marketHandle = require('./market.js')({ credits,  send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard, VERIFY_PRICE });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

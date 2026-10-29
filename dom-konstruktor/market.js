@@ -70,6 +70,8 @@ module.exports = function market(ctx) {
         const salt = crypto.randomBytes(16).toString('hex');
         const u = { id: 'u' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), email, name: str(d.name, 100), phone: str(d.phone, 40), city: str(d.city, 80), salt, pass: hash(d.password, salt), role: 'user', archStatus: 'none', docs: [], at: new Date().toISOString() };
         list.push(u); writeJSON(USERS, list);
+        // приветственные визуализации — если заданы в CRM
+        if (ctx.credits && ctx.credits.settings().welcome > 0) ctx.credits.add(u.id, ctx.credits.settings().welcome, 'grant', 'welcome', '', 'Подарок за регистрацию');
         return send(res, 200, { ok: true, token: session(u.id), user: pub(u) }), true;
       }
       if (p === '/api/auth/login' && M === 'POST') {
@@ -170,6 +172,16 @@ module.exports = function market(ctx) {
           return send(res, 200, { ok: true }), true;
         }
       }
+      // код активации визуализаций
+      if (p === '/api/my/redeem' && M === 'POST') {
+        const u = me(req); if (!u) return send(res, 401, { ok: false, error: 'Войдите в кабинет' }), true;
+        if (!ctx.credits) return send(res, 501, { ok: false }), true;
+        if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком часто, попробуйте позже' }), true;
+        const d = await body(req, 2e3), r = ctx.credits.redeem(u.id, d.code);
+        if (r.error) return send(res, 400, { ok: false, error: r.error }), true;
+        tg(TG_OWNER, `Активирован код визуализаций: +${r.n} — ${u.name}, ${u.email}`);
+        return send(res, 200, r), true;
+      }
       if (p === '/api/architects' && M === 'GET') return send(res, 200, users().filter(x => x.archStatus === 'verified').map(x => ({ id: x.id, name: x.name, city: x.city || '', about: str(x.about, 300) }))), true;
       if (p === '/api/my' && M === 'GET') {
         const u = me(req); if (!u) return send(res, 401, { ok: false }), true;
@@ -180,7 +192,8 @@ module.exports = function market(ctx) {
         mine.forEach(x => { const pr = all.find(q => q.id === x.id); x.team = (pr.team || []).map(m => ({ key: m.id || m.email, name: m.name || m.email, pending: !m.id && !all2.some(q => String(q.email).toLowerCase() === m.email) })); });
         // проекты клиентов, к которым автор добавил этого пользователя архитектором
         const shared = all.filter(x => x.owner !== u.id && inTeam(x, u)).map(x => { const ow = all2.find(q => q.id === x.owner) || {}; return Object.assign(card(x), { client: { name: ow.name || '—', phone: ow.phone || '', email: ow.email || '' } }); });
-        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, shared, verifyPrice: VP }), true;
+        const C = ctx.credits, viz = C ? { balance: C.balance(u.id), history: C.history(u.id, 15), packs: C.settings().packs, ready: !!process.env.RENDER_API_URL } : null;
+        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, shared, verifyPrice: VP, viz }), true;
       }
       if (p.startsWith('/api/my/project/') && M === 'POST') {
         const u = me(req), id = p.split('/').pop(), f = projFile(id), pr = f && readJSON(f, null);

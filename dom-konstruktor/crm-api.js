@@ -7,7 +7,7 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 
 module.exports = function crm(ctx) {
-  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview, VERIFY_PRICE } = ctx;
+  const { send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, quality, cms, preview, VERIFY_PRICE, credits } = ctx;
   const guard = ctx.guard || (async () => null);
   const MEDIA = path.join(DATA, 'media');
   const USERS = path.join(DATA, 'users.json'), SESS = path.join(DATA, 'sessions.json'), LEADS = path.join(DATA, 'leads');
@@ -284,6 +284,37 @@ module.exports = function crm(ctx) {
           if (!d.verify && str(d.note, 1000)) log('заметка: ' + str(d.note, 1000));
           writeJSON(f, pr); return json(res, projCard(pr, users())), true;
         }
+      }
+      /* реалистичные визуализации: коды активации, баланс, ручные начисления, цены пакетов */
+      if (p.startsWith('/api/crm/viz')) {
+        if (!credits) return send(res, 501, { ok: false }), true;
+        if (!can('manager')) return send(res, 403, { ok: false, error: 'Раздел для менеджера и администратора' }), true;
+        if (p === '/api/crm/viz' && M === 'GET') {
+          const bal = credits.balances(), us = users();
+          const people = us.filter(x => x.role !== 'staff' && bal[x.id] != null).map(x => ({ id: x.id, name: x.name, email: x.email, balance: bal[x.id] }));
+          const nameOf = (id) => { const x = us.find(q => q.id === id); return x ? x.name + ' · ' + x.email : id; };
+          return json(res, { report: credits.report(), settings: credits.settings(), codes: credits.codes().reverse().slice(0, 1000).map(c => Object.assign(c, { usedName: c.usedBy ? nameOf(c.usedBy) : '' })), people }), true;
+        }
+        const d = await body(req, 50e3);
+        if (p === '/api/crm/viz/codes' && M === 'POST') return json(res, { ok: true, codes: credits.make(+d.n, +d.count, str(d.note, 200), u.name) }), true;
+        if (p === '/api/crm/viz/issue' && M === 'POST') {
+          const email = str(d.email, 120).toLowerCase();
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Укажите почту покупателя' }), true;
+          const c = credits.issue(+d.n, email, u.name, str(d.note, 200));
+          if (!c) return send(res, 409, { ok: false, error: `Свободных кодов на ${+d.n} нет — выпустите новые` }), true;
+          const sent = await mail(email, `Код на ${c.n} визуализаций — Логика Дома`, `Здравствуйте!\n\nСпасибо за покупку. Ваш код: ${c.code}\n\nВведите его в личном кабинете на сайте «Логика Дома» (раздел «Реалистичные визуализации») — на баланс начислится ${c.n} визуализаций.\n${PUBLIC_URL ? PUBLIC_URL + '/#cab' : ''}\n\nЛогика Дома`);
+          return json(res, { ok: true, code: c, sent: !!sent }), true;
+        }
+        if (p === '/api/crm/viz/void' && M === 'POST') return credits.voidCode(d.code) ? json(res, { ok: true }) : send(res, 409, { ok: false, error: 'Код уже активирован или не найден' }), true;
+        if (p === '/api/crm/viz/grant' && M === 'POST') {
+          const x = users().find(q => q.email === str(d.email, 120).toLowerCase() && q.role !== 'staff'), n = Math.round(+d.n || 0);
+          if (!x) return send(res, 404, { ok: false, error: 'Пользователь с такой почтой не найден' }), true;
+          if (!n || Math.abs(n) > 1000) return send(res, 400, { ok: false, error: 'Укажите количество' }), true;
+          credits.add(x.id, n, 'grant', '', u.name, str(d.note, 200) || (n > 0 ? 'Начислено менеджером' : 'Списано менеджером'));
+          return json(res, { ok: true, balance: credits.balance(x.id) }), true;
+        }
+        if (p === '/api/crm/viz/settings' && M === 'PUT') { if (!can()) return send(res, 403, { ok: false, error: 'Цены меняет администратор' }), true; return json(res, credits.saveSettings(d)), true; }
+        return send(res, 404, { ok: false }), true;
       }
       if (p === '/api/crm/companies' && M === 'GET') {
         const accs = users().filter(x => x.role === 'company');
