@@ -159,8 +159,18 @@ function section(p) {
   g.save(); g.beginPath(); g.rect(0, Y(gy), c.width, c.height); g.clip(); g.strokeStyle = 'rgba(0,0,0,.08)';
   for (let x = -c.height; x < c.width; x += 14) { g.beginPath(); g.moveTo(x, c.height); g.lineTo(x + c.height, 0); g.stroke(); }
   g.restore();
-  // фундамент
-  R(sp[0] - ext - 100, sp[0] + t + 100, bottom + 400, 0, '#A3A9B7'); R(sp[1] - t - 100, sp[1] + ext + 100, bottom + 400, 0, '#A3A9B7');
+  // фундамент: в эскизном проекте — типовая монолитная ж/б плита; тип фундамента в АКР — по геологии и топосъёмке участка
+  if (p.basement) { R(sp[0] - ext - 100, sp[0] + t + 100, bottom + 400, 0, '#A3A9B7'); R(sp[1] - t - 100, sp[1] + ext + 100, bottom + 400, 0, '#A3A9B7'); }
+  else {
+    const s0 = sp[0] - ext - 300, s1 = sp[1] + ext + 300;
+    R(s0 - 200, s1 + 200, gy - 550, gy - 250, '#E7E2D6'); // песчано-гравийная подушка
+    R(s0, s1, gy - 250, gy + 50, '#A3A9B7'); // плита 300 мм
+    R(sp[0] - ext, sp[0] + t, gy + 50, 0, '#C3C8D2'); R(sp[1] - t, sp[1] + ext, gy + 50, 0, '#C3C8D2'); // цоколь
+    const ty = Math.min(c.height - 30, Y(gy - 550) + 20), tx = X((s0 + s1) / 2);
+    g.fillStyle = INK; g.font = '600 14px Inter, sans-serif'; g.textAlign = 'center';
+    g.fillText('Фундамент — монолитная ж/б плита 300 мм по подушке (типовое решение ЭП)', tx, ty);
+    g.font = '400 13px Inter, sans-serif'; g.fillStyle = MUTED; g.fillText('Тип фундамента в АКР — по геологии и топосъёмке участка', tx, ty + 18);
+  }
   R(sp[0], sp[1], -120, 0, CUT);
   for (const f of fl) {
     const e = DK.elev(p, f), ws = DK.walls(p, f), regs = DK.rooms(p, f);

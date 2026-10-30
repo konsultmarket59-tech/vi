@@ -210,8 +210,47 @@ function openCad(id, title) {
   $('#cadIfc').onclick = async () => { try { const x = await getProject(id); DK.download(DK.exportIFC(x.project, { name: x.title }), name() + '.ifc', 'application/x-step'); } catch (e) { $('#cadErr').textContent = e.message; } };
   $('#cadDxf').onclick = async () => { try { const x = await getProject(id); DK.download(DK.exportDXF(x.project, { name: x.title, dimOuter: $('#cadOuter').checked, dimInner: $('#cadInner').checked }), name() + '.dxf', 'application/dxf'); } catch (e) { $('#cadErr').textContent = e.message; } };
 }
+/* платные выгрузки проекта: ЭП в PDF и файлы для ArchiCAD — пример состава, оплата по ссылке банка, код из письма */
+const EP_SHEETS = [['1', 'Титульный лист: вид дома, площади, этажность'], ['2', 'Планы этажей: размеры, марки и экспликация помещений, преимущества планировки'], ['3', 'Разрез 1–1 с отметками; фундамент — типовая ж/б плита'],
+  ['4', 'Четыре фасада с высотными отметками'], ['5', 'Виды дома в 3D с разных сторон'], ['6', 'Характеристики дома и техзадание на расчёт для строителей']];
+const EP_LIST = ['Титульный лист с видом дома и ключевыми цифрами', 'План каждого этажа: размеры, марки помещений, экспликация, преимущества планировки', 'Схема участка с отступами по нормам — если участок задан во вкладке «Участок»',
+  'Разрез 1–1 с высотными отметками; фундамент — типовая монолитная ж/б плита', 'Фасады со всех четырёх сторон с отметками', 'Виды дома в 3D', 'Характеристики дома и техзадание на расчёт для строительных компаний'];
+const CAD_LIST = ['IFC — модель для ArchiCAD, Revit, Renga: стены, перекрытия, окна, двери, помещения с площадями', 'DXF — для ArchiCAD, AutoCAD, nanoCAD: каждый этаж на своём листе А3 с рамкой и штампом',
+  'Слои: стены, перегородки, проёмы, помещения, размеры, экспликация — включаются и выключаются', 'Наружные и внутренние размеры — по вашему выбору при выгрузке'];
+let unlockSet = null;
+function openPay(kind, x, after) {
+  let d = $('#payDlg');
+  if (!d) { d = document.createElement('dialog'); d.id = 'payDlg'; d.className = 'pay-dlg'; document.body.appendChild(d); }
+  const S = (unlockSet || {})[kind] || {}, price = money(S.price || (kind === 'ep' ? DK.CONFIG.sketchPrice : DK.CONFIG.cadPrice) || 3000), ep = kind === 'ep';
+  d.innerHTML = `<form method="dialog" class="dlg pay"><header><div><small class="over">${esc(x.title)}</small><h2>${ep ? 'Эскизный проект в PDF' : 'Файлы для ArchiCAD'} — ${price}</h2></div><button class="x" type="submit" aria-label="Закрыть">×</button></header>
+    <p class="muted">${ep ? 'Листы формата А3 по вашему проекту — для строителей, банка и архитектора. Так выглядит эскизный проект:' : 'Модель и чертежи вашего проекта для архитектора: открываются в ArchiCAD и других программах. Так выглядит лист DXF:'}</p>
+    ${ep ? `<div class="pay-g">${EP_SHEETS.map(([n, t]) => `<figure><img src="brand/img/ep/${n}.jpg" alt="${esc(t)}" loading="lazy"><figcaption>${esc(t)}</figcaption></figure>`).join('')}</div>`
+      : `<div class="pay-g one"><figure><img src="brand/img/ep/cad.jpg" alt="Лист DXF: план этажа с размерами, марками и экспликацией" loading="lazy"><figcaption>DXF: план этажа на листе А3 — размеры, марки помещений, экспликация, штамп</figcaption></figure></div>`}
+    <details class="hint"${ep ? '' : ' open'}><summary>${ep ? 'Состав эскизного проекта' : 'Что входит'}</summary><ul>${(ep ? EP_LIST : CAD_LIST).map(t => `<li>${esc(t)}</li>`).join('')}</ul>${ep ? '<p>Эскизный проект показывает дом и планировку; в нём применяется типовой фундамент — монолитная ж/б плита. Тип фундамента под ваш участок подбирают в АКР по геологии и топосъёмке.</p>' : ''}<p>Оплата один раз за проект: после правок выгружайте сколько угодно.</p></details>
+    ${ep && x.mine !== false ? '<button type="button" class="btn sm ghost" id="payPreview">Посмотреть листы своего проекта (с отметкой «Образец»)</button>' : ''}
+    <div class="pay-steps"><div><b>1</b><span>${S.url ? `<a class="btn primary" href="${esc(S.url)}" target="_blank" rel="noopener">Оплатить ${price}</a>` : '<button type="button" class="btn primary" id="payAsk">Получить ссылку на оплату</button>'}<small class="muted">${S.url ? 'Оплата на странице банка, чек придёт на почту.' : 'Менеджер пришлёт ссылку на оплату на вашу почту.'}</small></span></div>
+      <div><b>2</b><span>Код придёт на почту — введите его:<span class="row"><input id="payCode" placeholder="LD-XXXX-XXXX" autocomplete="off"><button type="button" class="btn" id="payGo">Открыть выгрузку</button></span><span class="err-t" id="payErr"></span></span></div></div>
+  </form>`;
+  d.showModal();
+  $$('.pay-g img', d).forEach(im => im.onclick = () => window.open(im.src, '_blank'));
+  const prev = $('#payPreview', d); if (prev) prev.onclick = () => { d.close(); openSketchFor(x.id, x.mine !== false); };
+  const ask = $('#payAsk', d); if (ask) ask.onclick = async () => { ask.disabled = true; try { await api('/api/my/project/' + x.id, { payRequest: kind }); ask.textContent = 'Запрос отправлен — ждите письмо'; } catch (e) { $('#payErr', d).textContent = e.message; ask.disabled = false; } };
+  $('#payGo', d).onclick = async () => {
+    const code = $('#payCode', d).value.trim(); if (!code) { $('#payErr', d).textContent = 'Введите код из письма'; return; }
+    try { await api('/api/my/project/' + x.id, { unlock: { kind, code } }); d.close(); DK.toast && DK.toast(ep ? 'Эскизный проект открыт — можно выгружать' : 'Файлы для ArchiCAD открыты — можно выгружать'); lockCache = null; if (after) after(); else renderCab(); }
+    catch (e) { $('#payErr', d).textContent = e.message; }
+  };
+}
+// открыта ли выгрузка у проекта: для окна ЭП в конструкторе
+let lockCache = null, sketchId = null;
+async function unlocked(id, kind) {
+  if (!user || !id) return false;
+  try { if (!lockCache) lockCache = await api('/api/my'); unlockSet = lockCache.unlock || unlockSet; const x = lockCache.projects.concat(lockCache.shared || []).find(q => q.id === id); return x ? { ok: !!(x.unlock && x.unlock[kind]), x: Object.assign({ mine: lockCache.projects.includes(x) }, x) } : false; }
+  catch (e) { return false; }
+}
 /* эскизный проект PDF: проект открывается в конструкторе и собираются листы */
 async function openSketchFor(id, mine) {
+  sketchId = id;
   try { const x = await getProject(id); DK.appApi.load(x.project); if (mine) DK.appApi.setCloud(x.id, x.title); DK.goPage('project'); setTimeout(() => DK.appApi.sketch(), 300); }
   catch (e) { DK.toast && DK.toast(e.message); }
 }
@@ -246,14 +285,18 @@ async function renderCab() {
   user = d.user; paintHeader();
   const st = { none: 'не подана', pending: 'на проверке', verified: 'подтверждён', rejected: 'отклонена — пришлите другие документы' }[user.archStatus];
   const vp = money(d.verifyPrice || DK.CONFIG.verifyPrice || 15000);
+  unlockSet = d.unlock || unlockSet; lockCache = d;
+  const U = (k) => money(((unlockSet || {})[k] || {}).price || 3000);
+  // выгрузки: открытые — сразу, неоплаченные — с ценой, окно с примером и оплатой
+  const expBtns = (x, mine) => `${x.unlock && x.unlock.ep ? `<button class="btn sm" data-${mine ? 'pdf' : 'pdfs'}="${esc(x.id)}">Эскизный проект PDF</button>` : `<button class="btn sm" data-pay="ep" data-id="${esc(x.id)}" data-mine="${mine ? 1 : 0}">Эскизный проект PDF · ${U('ep')}</button>`}
+        ${x.unlock && x.unlock.cad ? `<button class="btn sm" data-cad="${esc(x.id)}" data-t="${esc(x.title)}">Файлы для ArchiCAD</button>` : `<button class="btn sm" data-pay="cad" data-id="${esc(x.id)}" data-mine="${mine ? 1 : 0}">Файлы для ArchiCAD · ${U('cad')}</button>`}`;
   const proj = (x) => `<article class="mine">
       <div class="row between"><b class="mt">${esc(x.title)}</b>${isVer(x) ? VBADGE() : stars(x.rating.avg)}</div>
       <div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · ${ST[x.status] || x.status}${x.boost ? ' · в подборке' : ''}</div>
       ${x.status === 'blocked' ? `<div class="err-t">Причина: ${esc(x.blockReason || 'не соответствует правилам')}. Исправьте проект и напишите нам.</div>` : ''}
       <div class="acts">
         <button class="btn sm primary" data-open="${esc(x.id)}">Открыть в конструкторе</button>
-        <button class="btn sm" data-pdf="${esc(x.id)}">Эскизный проект PDF</button>
-        <button class="btn sm" data-cad="${esc(x.id)}" data-t="${esc(x.title)}">Файлы для ArchiCAD</button>
+        ${expBtns(x, true)}
         ${x.status === 'blocked' ? '' : `<button class="btn sm ghost" data-hide="${esc(x.id)}" data-st="${x.status === 'published' ? 'hidden' : 'published'}">${x.status === 'published' ? 'Скрыть из каталога' : 'Опубликовать в каталоге'}</button>`}
       </div>
       <div class="sub"><span class="lbl">Верификация</span>${x.verify ? `<span>${isVer(x) ? 'проверено архитектором и инженером платформы' : VSTATUS[x.verify.status] || x.verify.status}</span>` : '<span class="muted">не заказана</span>'}
@@ -265,10 +308,10 @@ async function renderCab() {
     </article>`;
   const shared = (x) => `<article class="mine"><div class="row between"><b class="mt">${esc(x.title)}</b>${isVer(x) ? VBADGE() : ''}</div>
       <div class="muted">${DK.fmtA(x.area)} м² · ${x.floors} эт. · заказчик ${esc(x.client.name)}${x.client.phone ? ', ' + esc(x.client.phone) : ''}${x.client.email ? ', ' + esc(x.client.email) : ''}</div>
-      <div class="acts"><button class="btn sm primary" data-viewp="${esc(x.id)}">Открыть в конструкторе</button><button class="btn sm" data-pdfs="${esc(x.id)}">Эскизный проект PDF</button><button class="btn sm" data-cad="${esc(x.id)}" data-t="${esc(x.title)}">Файлы для ArchiCAD</button></div></article>`;
+      <div class="acts"><button class="btn sm primary" data-viewp="${esc(x.id)}">Открыть в конструкторе</button>${expBtns(x, false)}</div></article>`;
   el.innerHTML = `<div class="cols cab">
     <div class="card"><h2>${esc(user.name)}</h2><div class="muted">${esc(user.email)} · ${esc(user.phone || '')}</div>
-      <div class="box"><b>Что доступно бесплатно</b><span>Эскизный проект в PDF и файлы для ArchiCAD (IFC — модель, DXF — чертежи по слоям) для сохранённых проектов. Добавьте своего архитектора — проект появится у него в кабинете.</span></div>
+      <div class="box"><b>Выгрузки проекта</b><span>Эскизный проект в PDF — ${U('ep')}, файлы для ArchiCAD — ${U('cad')}; оплата один раз за проект.</span><details class="hint"><summary>Подробнее</summary>Нажмите кнопку у проекта — покажем пример листов и состав. Оплата — по ссылке банка, код придёт на почту; введите его у проекта, и выгрузка откроется. После правок выгружайте сколько угодно. Добавьте своего архитектора — проект появится у него в кабинете.</details></div>
       ${vizCard(d.viz)}
       <div class="box"><b>Статус архитектора: ${st}</b><span>Вы архитектор? Подтвердите диплом — получите отметку у проектов, место в каталоге архитекторов и сможете продавать свои проекты.</span></div>
       ${user.archStatus !== 'verified' && user.archStatus !== 'pending' ? `<details class="arch-apply"><summary>Подать заявку архитектора</summary><form id="archForm" class="q"><label class="fld">Диплом (вуз, специальность, год)<input name="diploma" required></label>
@@ -301,6 +344,7 @@ async function renderCab() {
   $$('[data-pdf]', el).forEach(b => b.onclick = () => openSketchFor(b.dataset.pdf, true));
   $$('[data-pdfs]', el).forEach(b => b.onclick = () => openSketchFor(b.dataset.pdfs, false));
   $$('[data-cad]', el).forEach(b => b.onclick = () => openCad(b.dataset.cad, b.dataset.t));
+  $$('[data-pay]', el).forEach(b => b.onclick = () => { const x = d.projects.concat(d.shared || []).find(q => q.id === b.dataset.id); if (x) openPay(b.dataset.pay, Object.assign({ mine: b.dataset.mine === '1' }, x)); });
   $$('[data-team]', el).forEach(b => b.onclick = () => openTeam(b.dataset.team, b.dataset.t));
   $$('[data-unteam]', el).forEach(b => b.onclick = async () => { try { await api('/api/my/project/' + b.dataset.unteam, { removeArch: b.dataset.k }); renderCab(); } catch (er) { DK.toast && DK.toast(er.message); } });
   const af = $('#archForm');
@@ -327,7 +371,7 @@ DK.Market = {
     $('#projSort').onchange = (e) => { flt.sort = e.target.value; renderProjects(); };
     refreshMe().then(readyOk, readyOk);
   },
-  renderProjects, renderCab, openPublish, openProject, ready: readyP,
+  renderProjects, renderCab, openPublish, openProject, ready: readyP, openPay, unlocked, sketchId: () => sketchId, resetSketchId() { sketchId = null; },
   setFilter(f) { Object.assign(flt, f); },
   /* кабинет по роли: компания — кабинет заявок, остальные — кабинет пользователя */
   async openCabinet(kind) {

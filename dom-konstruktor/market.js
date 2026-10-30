@@ -194,13 +194,35 @@ module.exports = function market(ctx) {
         mine.forEach(x => { const pr = all.find(q => q.id === x.id); x.team = (pr.team || []).map(m => ({ key: m.id || m.email, name: m.name || m.email, pending: !m.id && !all2.some(q => String(q.email).toLowerCase() === m.email) })); });
         // проекты клиентов, к которым автор добавил этого пользователя архитектором
         const shared = all.filter(x => x.owner !== u.id && inTeam(x, u)).map(x => { const ow = all2.find(q => q.id === x.owner) || {}; return Object.assign(card(x), { client: { name: ow.name || '—', phone: ow.phone || '', email: ow.email || '' } }); });
-        const C = ctx.credits, viz = C ? { balance: C.balance(u.id), history: C.history(u.id, 15), packs: C.settings().packs, ready: !!process.env.RENDER_API_URL } : null;
-        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, shared, verifyPrice: VP, viz }), true;
+        const C = ctx.credits, viz = C ? { balance: C.balance(u.id), history: C.history(u.id, 15), packs: C.settings().packs, ready: !!(process.env.RENDER_API_URL || process.env.POLZA_API_KEY) } : null;
+        const unl = (x) => { const q = all.find(z => z.id === x.id) || {}; x.unlock = { ep: !!(q.unlock || {}).ep, cad: !!(q.unlock || {}).cad }; };
+        mine.forEach(unl); shared.forEach(unl);
+        return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, shared, verifyPrice: VP, viz, unlock: C ? C.settings().unlock : null }), true;
       }
       if (p.startsWith('/api/my/project/') && M === 'POST') {
         const u = me(req), id = p.split('/').pop(), f = projFile(id), pr = f && readJSON(f, null);
-        if (!u || !pr || pr.owner !== u.id) return send(res, 404, { ok: false }), true;
+        if (!u || !pr || (pr.owner !== u.id && !inTeam(pr, u))) return send(res, 404, { ok: false }), true;
         const d = await body(req, 20e3);
+        // платная выгрузка: код открывает ЭП или файлы для ArchiCAD у этого проекта (может ввести и архитектор проекта)
+        if (d.unlock) {
+          const kind = d.unlock.kind; if (!ctx.credits || !ctx.credits.KINDS[kind]) return send(res, 400, { ok: false, error: 'Неизвестная выгрузка' }), true;
+          if ((pr.unlock || {})[kind]) return send(res, 200, { ok: true, already: true }), true;
+          if (limited(req)) return send(res, 429, { ok: false, error: 'Слишком часто, попробуйте позже' }), true;
+          const r = ctx.credits.redeemUnlock(u.id, d.unlock.code, kind, pr.id);
+          if (r.error) return send(res, 400, { ok: false, error: r.error }), true;
+          pr.unlock = Object.assign({}, pr.unlock, { [kind]: { at: new Date().toISOString(), by: u.id, code: r.code } }); writeJSON(f, pr);
+          tg(TG_OWNER, `Открыта выгрузка (${ctx.credits.KINDS[kind]}): «${pr.title}» — ${u.name}, ${u.email}`);
+          return send(res, 200, { ok: true, kind }), true;
+        }
+        // нет ссылки на оплату в настройках — менеджер пришлёт её письмом
+        if (d.payRequest && ctx.credits && ctx.credits.KINDS[d.payRequest]) {
+          const what = ctx.credits.KINDS[d.payRequest];
+          tg(TG_OWNER, `Запрос ссылки на оплату (${what}): «${pr.title}» — ${u.name}, ${u.email}${u.phone ? ', ' + u.phone : ''}`);
+          if (ctx.mail && ctx.ADMIN_EMAIL) ctx.mail(ctx.ADMIN_EMAIL, `Запрос оплаты: ${what}`, `${u.name} (${u.email}${u.phone ? ', ' + u.phone : ''}) просит ссылку на оплату: ${what}, проект «${pr.title}» (${pr.id}).\nПосле оплаты выдайте код в CRM → «Визуализации и выгрузки».`);
+          pr.payReq = (pr.payReq || []).concat({ at: new Date().toISOString(), kind: d.payRequest, by: u.id }).slice(-20); writeJSON(f, pr);
+          return send(res, 200, { ok: true }), true;
+        }
+        if (pr.owner !== u.id) return send(res, 404, { ok: false }), true;
         if (d.price != null) pr.price = Math.max(0, Math.min(1e6, Math.round(+d.price)));
         if (pr.status === 'blocked' && d.status) return send(res, 403, { ok: false, error: 'Проект заблокирован модератором' + (pr.blockReason ? ': ' + pr.blockReason : '') }), true;
         if (d.status === 'published' && quality) { const q = quality(pr.project); if (!q.ok) return send(res, 422, { ok: false, error: 'Сначала исправьте ошибки в проекте', quality: q }), true; }

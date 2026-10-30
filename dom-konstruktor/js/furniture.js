@@ -126,6 +126,36 @@ DK.furnHit = function (f, x, y) {
   return Math.abs(u) <= F.w / 2 && Math.abs(v) <= F.d / 2;
 };
 
+/* растягиваемая корпусная мебель: тянется за торцы, фасады (ящики и створки) раскладываются сами */
+DK.STRETCH = ['kitchen', 'kitchenL', 'kitchenU', 'island', 'wardrobe', 'hallway', 'shelf', 'dresser'];
+DK.furnStretch = (f) => { const F = DK.FURN[f.type]; return !!F && DK.STRETCH.includes(F.base || f.type); };
+// предел длины: у растягиваемой мебели — до 6 м
+DK.furnClampW = (f, v) => { const F = DK.FURN[f.type]; return DK.furnStretch(f) ? Math.round(Math.max(Math.max(300, F.w * 0.3), Math.min(v, Math.max(F.w * 2.5, 6000))) / 10) * 10 : DK.furnClamp(F.w, v); };
+/* раскладка фасадов по длине, м: модули 400–800 мм, у кухни — мойка, варочная с духовкой, ящики */
+DK.fronts = function (len, step) { const n = Math.max(1, Math.round(len / (step || 0.6))); return { n, m: len / n }; };
+// фасады — на передней плоскости ряда: (cx, cz) — середина передней грани, ry — поворот (фасад смотрит в локальную +z)
+function face(k, cx, cz, ry) {
+  const cs = Math.cos(ry), sn = Math.sin(ry);
+  return (lx, y, bw, bh, col, depth) => { const e = (depth || 0.006) / 2; k.add(bw, bh, depth || 0.006, col, cx + lx * cs + e * sn, y, cz - lx * sn + e * cs, ry); };
+}
+// нижний ряд кухни: модули около 600 мм — ящики, створки, под мойкой — створки, под варочной — духовка
+function lowerRun(k, len, cx, cz, ry, sinkAt, hobAt) {
+  const { n, m } = DK.fronts(len, 0.6), at = face(k, cx, cz, ry), SEAM = '#a9a59d';
+  at(0, 0.05, len - 0.01, 0.1, '#4a4a4a'); // цоколь
+  for (let i = 0; i < n; i++) {
+    const x0 = -len / 2 + i * m, xc = x0 + m / 2, kind = sinkAt != null && Math.abs(xc - sinkAt) < m / 2 ? 'door' : hobAt != null && Math.abs(xc - hobAt) < m / 2 ? 'oven' : i % 2 === 0 ? 'drawers' : 'door';
+    if (i) at(x0, 0.48, 0.006, 0.76, SEAM);
+    if (kind === 'drawers') { for (const y of [0.34, 0.6]) at(xc, y, m - 0.02, 0.006, SEAM); for (const y of [0.3, 0.56, 0.8]) at(xc, y, Math.min(0.3, m * 0.5), 0.015, METAL, 0.02); }
+    else if (kind === 'oven') { at(xc, 0.42, m - 0.06, 0.44, '#1d1f22', 0.012); at(xc, 0.67, m - 0.02, 0.006, SEAM); at(xc, 0.76, Math.min(0.3, m * 0.5), 0.015, METAL, 0.02); }
+    else { const two = m > 0.75; if (two) at(xc, 0.48, 0.006, 0.74, SEAM); for (const sx of two ? [-1, 1] : [1]) at(xc + sx * (two ? 0.05 : m / 2 - 0.06), 0.72, 0.015, 0.18, METAL, 0.02); }
+  }
+}
+// верхний ряд: створки около 450 мм, ручки снизу
+function upperRun(k, len, cx, cz, ry, y0) {
+  const { n, m } = DK.fronts(len, 0.45), at = face(k, cx, cz, ry);
+  for (let i = 0; i < n; i++) { const x0 = -len / 2 + i * m; if (i) at(x0, y0 + 0.36, 0.006, 0.7, '#a9a59d'); at(x0 + m / 2 + (i % 2 ? -1 : 1) * (m / 2 - 0.05), y0 + 0.08, 0.015, 0.14, METAL, 0.02); }
+}
+
 /* 3D-модели: k — набор построителей (add — коробка, cyl — цилиндр), размеры в метрах, начало — центр предмета на полу */
 DK.FURN3D = {
   bed160(k) {
@@ -182,11 +212,11 @@ DK.FURN3D = {
   fireplace(k) { const { w, d, h, c } = k; k.add(w, h, d, c, 0, h / 2, 0); k.add(w * 0.55, h * 0.45, 0.06, '#1b1b1b', 0, 0.2 + h * 0.225, d / 2 - 0.02); k.add(w + 0.1, 0.06, d + 0.06, '#cfcac2', 0, h + 0.03, 0); k.add(w * 0.4, 0.12, 0.06, '#ff9b42', 0, 0.28, d / 2 - 0.05, 0, { glow: '#ff7a1a' }); },
   rug(k) { k.add(k.w, 0.012, k.d, k.c, 0, 0.006, 0); k.add(k.w - 0.16, 0.013, k.d - 0.16, '#cbbca3', 0, 0.007, 0); },
   kitchen(k) {
-    const { w, d, c } = k;
+    const { w, d, c } = k, sinkX = -w / 2 + Math.min(0.9, w * 0.3), hobX = w / 2 - Math.min(0.6, w * 0.25);
     k.add(w, 0.86, d, c, 0, 0.43, 0); k.add(w + 0.02, 0.04, d + 0.02, '#d8d4cc', 0, 0.88, 0);
-    k.add(0.55, 0.01, 0.45, METAL, -w / 2 + 0.9, 0.905, 0); k.add(0.5, 0.02, 0.4, '#c9cfd3', w / 2 - 0.6, 0.9, 0);
-    if (k.upper) k.add(w, 0.72, 0.35, c, 0, 1.5 + 0.36, -d / 2 + 0.175);
-    for (let x = -w / 2 + 0.6; x < w / 2 - 0.01; x += 0.6) k.add(0.008, 0.82, 0.005, '#c9c5bd', x, 0.43, d / 2 + 0.003);
+    k.add(0.55, 0.01, 0.45, METAL, sinkX, 0.905, 0); k.add(0.5, 0.02, 0.4, '#c9cfd3', hobX, 0.9, 0);
+    lowerRun(k, w, 0, d / 2, 0, sinkX, hobX);
+    if (k.upper) { k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175); upperRun(k, w, 0, -d / 2 + 0.35, 0, 1.5); }
   },
   kitchenL(k) {
     const { w, d, c } = k, s = 0.6;
@@ -194,14 +224,22 @@ DK.FURN3D = {
     k.add(w + 0.02, 0.04, s + 0.02, '#d8d4cc', 0, 0.88, -d / 2 + s / 2); k.add(s + 0.02, 0.04, d - s, '#d8d4cc', -w / 2 + s / 2, 0.88, s / 2);
     k.add(0.55, 0.01, 0.45, METAL, w / 2 - 0.8, 0.905, -d / 2 + s / 2); k.add(0.4, 0.02, 0.5, '#c9cfd3', -w / 2 + s / 2, 0.9, d / 2 - 0.6);
     if (k.upper) { k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175); k.add(0.35, 0.72, d - 0.35, c, -w / 2 + 0.175, 1.86, 0.175); }
+    // фасады: длинный ряд — от угла, боковой — до торца
+    lowerRun(k, w - s, s / 2, -d / 2 + s, 0, null, w / 2 - 0.8 - s / 2);
+    lowerRun(k, d - s, -w / 2 + s, s / 2, Math.PI / 2, null, null);
+    if (k.upper) { upperRun(k, w - 0.35, 0.175, -d / 2 + 0.35, 0, 1.5); upperRun(k, d - 0.35, -w / 2 + 0.35, 0.175, Math.PI / 2, 1.5); }
   },
   kitchenU(k) {
     const { w, d, c } = k, s = 0.6;
     k.add(w, 0.86, s, c, 0, 0.43, -d / 2 + s / 2); k.add(s, 0.86, d - s, c, -w / 2 + s / 2, 0.43, s / 2); k.add(s, 0.86, d - s, c, w / 2 - s / 2, 0.43, s / 2);
     k.add(w + 0.02, 0.04, s + 0.02, '#d8d4cc', 0, 0.88, -d / 2 + s / 2); k.add(s + 0.02, 0.04, d - s, '#d8d4cc', -w / 2 + s / 2, 0.88, s / 2); k.add(s + 0.02, 0.04, d - s, '#d8d4cc', w / 2 - s / 2, 0.88, s / 2);
     k.add(0.55, 0.01, 0.45, METAL, 0, 0.905, -d / 2 + s / 2); if (k.upper) k.add(w, 0.72, 0.35, c, 0, 1.86, -d / 2 + 0.175);
+    lowerRun(k, w - 2 * s, 0, -d / 2 + s, 0, 0, null);
+    lowerRun(k, d - s, -w / 2 + s, s / 2, Math.PI / 2, null, null);
+    lowerRun(k, d - s, w / 2 - s, s / 2, -Math.PI / 2, null, null);
+    if (k.upper) upperRun(k, w, 0, -d / 2 + 0.35, 0, 1.5);
   },
-  island(k) { const { w, d, c } = k; k.add(w, 0.86, d, c, 0, 0.43, 0); k.add(w + 0.1, 0.04, d + 0.1, '#d8d4cc', 0, 0.88, 0); },
+  island(k) { const { w, d, c } = k; k.add(w, 0.86, d, c, 0, 0.43, 0); k.add(w + 0.1, 0.04, d + 0.1, '#d8d4cc', 0, 0.88, 0); lowerRun(k, w, 0, d / 2, 0, null, null); },
   fridge(k) { const { w, d, h, c } = k; k.add(w, h, d, c, 0, h / 2, 0); k.add(w - 0.02, 0.005, 0.005, '#bdbdbb', 0, h * 0.62, d / 2 + 0.003); k.add(0.02, 0.4, 0.03, '#a9a9a7', w / 2 - 0.06, h * 0.75, d / 2 + 0.015); },
   barstool(k) { k.cyl(0.19, 0.05, METAL, 0, k.h, 0); k.cyl(0.025, k.h, METAL, 0, k.h / 2, 0); k.cyl(0.2, 0.02, METAL, 0, 0.01, 0); },
   table(k) {
@@ -221,15 +259,26 @@ DK.FURN3D = {
   chair(k) { k.chair(0, 0, 0, k.c); },
   bench(k) { const { w, d, h, c } = k; k.add(w, 0.05, d, c, 0, h - 0.025, 0); for (const s of [-1, 1]) k.add(0.06, h - 0.05, d - 0.04, c, s * (w / 2 - 0.1), (h - 0.05) / 2, 0); },
   nightstand(k) { const { w, d, h, c } = k; k.add(w, h, d, c, 0, h / 2, 0); k.add(w - 0.04, 0.005, 0.005, '#7b5a3e', 0, h * 0.55, d / 2 + 0.003); },
-  dresser(k) { const { w, d, h, c } = k; k.add(w, h - 0.08, d, c, 0, 0.08 + (h - 0.08) / 2, 0); for (let i = 1; i < 3; i++) k.add(w - 0.04, 0.005, 0.005, '#7b5a3e', 0, 0.08 + (h - 0.08) * i / 3, d / 2 + 0.003); for (const sx of [-1, 1]) k.add(0.04, 0.08, 0.04, METAL, sx * (w / 2 - 0.05), 0.04, 0); },
+  dresser(k) { const { w, d, h, c } = k, cols = DK.fronts(w, 0.8), rows = Math.max(2, Math.round((h - 0.08) / 0.25)); k.add(w, h - 0.08, d, c, 0, 0.08 + (h - 0.08) / 2, 0); for (let i = 1; i < rows; i++) k.add(w - 0.04, 0.005, 0.005, '#7b5a3e', 0, 0.08 + (h - 0.08) * i / rows, d / 2 + 0.003);
+    for (let j = 1; j < cols.n; j++) k.add(0.005, h - 0.1, 0.005, '#7b5a3e', -w / 2 + cols.m * j, 0.08 + (h - 0.08) / 2, d / 2 + 0.003);
+    for (let j = 0; j < cols.n; j++) for (let i = 0; i < rows; i++) k.add(Math.min(0.2, cols.m * 0.4), 0.015, 0.02, METAL, -w / 2 + cols.m * (j + 0.5), 0.08 + (h - 0.08) * (i + 0.75) / rows, d / 2 + 0.012); for (const sx of [-1, 1]) k.add(0.04, 0.08, 0.04, METAL, sx * (w / 2 - 0.05), 0.04, 0); },
   vanity(k) { const { w, d, h, c } = k; k.add(w, 0.04, d, c, 0, h - 0.02, 0); for (const s of [-1, 1]) k.add(0.04, h - 0.04, d, c, s * (w / 2 - 0.02), (h - 0.04) / 2, 0); k.add(0.6, 0.8, 0.03, '#cfdde6', 0, h + 0.5, -d / 2 + 0.02); },
   desk(k) { const { w, d, h, c } = k; k.add(w, 0.04, d, c, 0, h - 0.02, 0); k.add(0.4, h - 0.04, d - 0.02, c, w / 2 - 0.2, (h - 0.04) / 2, 0); k.add(0.03, h - 0.04, d - 0.06, METAL, -w / 2 + 0.03, (h - 0.04) / 2, 0); k.add(0.5, 0.32, 0.03, '#141518', 0, h + 0.22, -d / 2 + 0.12); },
   ochair(k) { k.add(0.5, 0.08, 0.5, METAL, 0, 0.47, 0); k.add(0.5, 0.55, 0.08, METAL, 0, 0.78, -0.22); k.cyl(0.03, 0.42, '#888', 0, 0.22, 0); k.cyl(0.28, 0.03, '#555', 0, 0.03, 0); },
   wardrobe(k) {
-    const { w, d, h, c } = k; k.add(w, h, d, c, 0, h / 2, 0);
-    const n = Math.max(2, Math.round(w / 0.6));
-    for (let i = 1; i < n; i++) k.add(0.006, h - 0.1, 0.005, '#8d6a4b', -w / 2 + w * i / n, h / 2, d / 2 + 0.003);
-    for (let i = 0; i < n; i++) k.add(0.015, 0.3, 0.02, METAL, -w / 2 + w * (i + 0.5) / n + (i % 2 ? -1 : 1) * (w / n / 2 - 0.05), h * 0.5, d / 2 + 0.012);
+    const { w, d, h, c, F } = k; k.add(w, h, d, c, 0, h / 2, 0);
+    const SEAM = '#8d6a4b', mez = h > 2.25 ? 0.45 : 0, body = h - mez;
+    if (F.n && /купе/i.test(F.n)) {
+      // купе: раздвижные полотна около 900 мм, вертикальные профили
+      const n = Math.max(2, Math.round(w / 0.9));
+      for (let i = 0; i < n; i++) { const x = -w / 2 + w * i / n; k.add(w / n, h - 0.08, 0.02, i % 2 ? c : '#cfd9df', x + w / n / 2, h / 2, d / 2 + (i % 2 ? 0.012 : 0.034)); k.add(0.025, h - 0.08, 0.03, METAL, x + 0.0125, h / 2, d / 2 + 0.03); }
+      return;
+    }
+    // распашной: створки около 450 мм, парами ручки к центру; при высоте больше 2,25 м — антресоль
+    const n = Math.max(2, Math.round(w / 0.45));
+    for (let i = 1; i < n; i++) k.add(0.006, h - 0.1, 0.005, SEAM, -w / 2 + w * i / n, h / 2, d / 2 + 0.003);
+    if (mez) k.add(w - 0.02, 0.006, 0.005, SEAM, 0, body, d / 2 + 0.003);
+    for (let i = 0; i < n; i++) k.add(0.015, 0.3, 0.02, METAL, -w / 2 + w * (i + 0.5) / n + (i % 2 ? -1 : 1) * (w / n / 2 - 0.05), Math.min(1.1, body * 0.5), d / 2 + 0.012);
   },
   shelf(k) {
     const { w, d, h, c } = k, n = Math.max(2, Math.round(h / 0.4)), gap = (h - 0.025) / n;

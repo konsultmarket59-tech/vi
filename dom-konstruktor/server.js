@@ -205,7 +205,7 @@ const pagesHandle = require('./pages.js')({ send, PUBLIC_URL, ROOT, DATA, model:
 const credits = require('./credits.js')({ readJSON, writeJSON, DATA, crypto });
 const demo = require('./demo-content.js')({ readJSON, writeJSON, DATA, ROOT }); demo.auto();
 const crmHandle = require('./crm-api.js')({ credits, demo,  send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview, VERIFY_PRICE });
-const marketHandle = require('./market.js')({ credits,  send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard, VERIFY_PRICE });
+const marketHandle = require('./market.js')({ credits,  send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard, VERIFY_PRICE, ADMIN_EMAIL: process.env.CRM_ADMIN_EMAIL || '' });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

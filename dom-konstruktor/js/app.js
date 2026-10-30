@@ -225,6 +225,7 @@ function renderSel() {
     h = `<h3>${esc(F.n)} <small>${Z.w} × ${Z.d} × ${Z.h} · ${DK.furnAngle(f)}°</small></h3><div class="muted">Крутите за кружок над предметом (шаг 15°, с Alt — 1°) или нажмите R — 90°. Двигать можно и в 3D: в интерьере и на прогулке — тащите предмет мышью.</div>
       <div class="row2" style="grid-template-columns:1fr 1fr 1fr"><label class="fld">Ширина<input type="number" id="fW" step="50" value="${Z.w}"></label><label class="fld">Глубина<input type="number" id="fD" step="50" value="${Z.d}"></label><label class="fld">Высота<input type="number" id="fH" step="50" value="${Z.h}"></label></div>
       <div class="row"><button type="button" class="btn sm" id="fM">− 10 %</button><button type="button" class="btn sm" id="fP">+ 10 %</button>${own ? '<button type="button" class="btn sm ghost" id="f0">Как в каталоге</button>' : ''}</div>
+      ${DK.furnStretch(f) ? `<div class="muted">${fronts(f)} Тяните синие ручки на торцах — длина меняется, фасады раскладываются сами.</div>` : ''}
       ${DK.KITCHENS.includes(f.type) ? `<label class="fld">Верхние шкафы<div class="seg" id="fUp"><button data-k="1" aria-pressed="${f.upper !== false}">С верхом</button><button data-k="0" aria-pressed="${f.upper === false}">Без верха</button></div></label>` : ''}
       <div class="row"><button type="button" class="btn sm" id="sRot">Повернуть на 90°</button><button type="button" class="btn sm ghost" id="sDel">Удалить</button></div>`;
   } else if (sel.kind === 'room') {
@@ -277,7 +278,8 @@ function renderSel() {
     on('sRot', 'click', () => rotSel()); on('sDel', 'click', () => delSel());
     const f = P.levels[fid].furn.find(q => q.id === sel.id), F = DK.FURN[f.type];
     // свой размер храним, только если он отличается от каталожного
-    const setDim = (k, v) => { const nv = DK.furnClamp(F[k], v); if (nv !== Math.round(v / 10) * 10) toast(`Допустимо ${DK.furnClamp(F[k], 0)}–${DK.furnClamp(F[k], 1e9)} мм`); if (nv === F[k]) delete f[k]; else f[k] = nv; };
+    const clampK = (k, v) => k === 'w' ? DK.furnClampW(f, v) : DK.furnClamp(F[k], v);
+    const setDim = (k, v) => { const nv = clampK(k, v); if (nv !== Math.round(v / 10) * 10) toast(`Допустимо ${clampK(k, 0)}–${clampK(k, 1e9)} мм`); if (nv === F[k]) delete f[k]; else f[k] = nv; };
     for (const [id, k] of [['fW', 'w'], ['fD', 'd'], ['fH', 'h']]) on(id, 'change', (e) => { setDim(k, +e.target.value || F[k]); app.commit('Размер предмета'); });
     const scale = (m) => { const Z = DK.furnSize(f); for (const k of ['w', 'd', 'h']) setDim(k, Z[k] * m); app.commit('Размер предмета'); };
     on('fM', 'click', () => scale(0.9)); on('fP', 'click', () => scale(1.1));
@@ -289,6 +291,17 @@ function renderSel() {
     on('sType', 'change', (e) => setRoomType(sel.x, sel.y, e.target.value));
     $$('#sV2 button', box).forEach(b => b.onclick = () => { const r = DK.rooms(P, fid).at(sel.x, sel.y), msg = DK.secondLight(P, fid, r, b.dataset.k === '1'); app.commit(b.dataset.k === '1' ? 'Второй свет' : 'Перекрытие над помещением'); if (msg) toast(msg); });
   }
+}
+/* сколько фасадов получилось у корпусной мебели */
+function fronts(f) {
+  const F = DK.FURN[f.type], b = F.base || f.type, Z = DK.furnSize(f), n = (len, st) => DK.fronts(len, st).n;
+  if (b === 'kitchen') return `Нижний ряд — модулей: ${n(Z.w, 600)} (ящики, створки, духовка)${f.upper !== false ? `; верхний ряд — створок: ${n(Z.w, 450)}` : '; без верхнего ряда'}.`;
+  if (b === 'kitchenL') return `Нижние модули: ${n(Z.w - 600, 600) + n(Z.d - 600, 600)}${f.upper !== false ? `, верхние створки: ${n(Z.w - 350, 450) + n(Z.d - 350, 450)}` : ', без верхнего ряда'}.`;
+  if (b === 'kitchenU') return `Нижние модули: ${n(Z.w - 1200, 600) + 2 * n(Z.d - 600, 600)}${f.upper !== false ? `, верхние створки: ${n(Z.w, 450)}` : ', без верхнего ряда'}.`;
+  if (b === 'island') return `Модулей: ${n(Z.w, 600)}.`;
+  if (b === 'wardrobe') return /купе/i.test(F.n) ? `Полотен купе: ${n(Z.w, 900)}.` : `Створок: ${n(Z.w, 450)}${Z.h > 2250 ? ', сверху антресоль' : ''}.`;
+  if (b === 'dresser') return `Ящиков: ${n(Z.w, 800) * Math.max(2, Math.round((Z.h - 80) / 250))}.`;
+  return '';
 }
 /* назначение помещения; котельная в доме одна — при переносе старая снимается */
 function setRoomType(x, y, type) {
@@ -508,7 +521,7 @@ function bind() {
     if (view === 'plan') download(`${name}-${fid}-plan.png`, await DK.shotWithExplication(plan.toImage(fid, { numbers: DK.roomNumbers(P) }), P, [fid], true));
     else if (v3) download(`${name}-${view}.png`, await DK.shotWithExplication(v3.shot(), P, view === 'ext' ? DK.floorsOf(P) : [fid]));
   };
-  let skPages = [];
+  let skPages = [], skLock = null;
   $('[data-close]', $('#sketchDlg')).onclick = () => $('#sketchDlg').close();
   // эскизный проект в PDF — для сохранённых на платформе проектов
   const openSketch = async () => {
@@ -517,17 +530,26 @@ function bind() {
       await DK.loadThree();
       if (!v3) v3 = DK._view = DK.View3D($('#c3d'), app);
       skPages = await DK.makeSketch(P, plan, v3, (t) => { $('#skStep').textContent = t; });
-      $('#skSheets').innerHTML = skPages.map((c, i) => `<img src="${c.toDataURL('image/jpeg', 0.85)}" alt="Лист ${i + 1}">`).join('');
+      // выгрузка PDF платная: пока не оплачена — листы с отметкой «Образец», кнопка ведёт к оплате
+      const pid = (DK.Market.sketchId && DK.Market.sketchId()) || P.cloudId, lk = await DK.Market.unlocked(pid, 'ep');
+      skLock = lk && !lk.ok ? lk.x : null; if (!lk) skLock = { none: true };
+      const mark = (c) => { if (!skLock) return c.toDataURL('image/jpeg', 0.85); const t = document.createElement('canvas'); t.width = 1200; t.height = Math.round(1200 * c.height / c.width); const g = t.getContext('2d'); g.drawImage(c, 0, 0, t.width, t.height);
+        g.save(); g.translate(t.width / 2, t.height / 2); g.rotate(-0.5); g.font = '700 110px Manrope, sans-serif'; g.textAlign = 'center'; g.fillStyle = 'rgba(25,49,123,.16)'; g.fillText('ОБРАЗЕЦ', 0, 0); g.font = '600 34px Manrope, sans-serif'; g.fillText('Логика Дома · выгрузка после оплаты', 0, 60); g.restore(); return t.toDataURL('image/jpeg', 0.8); };
+      $('#skSheets').innerHTML = skPages.map((c, i) => `<img src="${mark(c)}" alt="Лист ${i + 1}">`).join('');
       $$('#skSheets img').forEach(im => im.onclick = () => im.classList.toggle('big'));
-      $('#skStep').textContent = `Готово: ${skPages.length} листов`; $('#skPdf').disabled = false;
+      $('#skStep').textContent = `Готово: ${skPages.length} листов` + (skLock ? (skLock.none ? ' — образец; выгрузка PDF — из личного кабинета у сохранённого проекта' : ' — образец; PDF откроется после оплаты') : '');
+      $('#skPdf').textContent = skLock && !skLock.none ? 'Скачать PDF — ' + Number(C.sketchPrice || 3000).toLocaleString('ru-RU') + ' ₽' : 'Скачать PDF'; $('#skPdf').disabled = !!(skLock && skLock.none);
     } catch (err) { $('#skStep').textContent = 'Не получилось собрать листы: ' + err.message; }
   };
   app.sketch = openSketch;
   $('#sketchBtn').onclick = () => {
+    DK.Market.resetSketchId();
     if (P.cloudId) return openSketch();
     toast('Эскизный проект в PDF доступен после сохранения проекта на платформе'); DK.Market.openPublish('private');
   };
-  $('#skPdf').onclick = async () => { $('#skPdf').disabled = true; try { await DK.sketchPdf(skPages, 'eskiznyj-proekt.pdf'); } catch (e) { toast('PDF не собрался — проверьте интернет'); } $('#skPdf').disabled = false; };
+  $('#skPdf').onclick = async () => {
+    if (skLock && !skLock.none) { $('#sketchDlg').close(); DK.Market.openPay('ep', skLock, () => openSketch()); return; }
+    $('#skPdf').disabled = true; try { await DK.sketchPdf(skPages, 'eskiznyj-proekt.pdf'); } catch (e) { toast('PDF не собрался — проверьте интернет'); } $('#skPdf').disabled = false; };
   $('#resetProj').onclick = () => { $('#shapes').scrollIntoView({ block: 'nearest' }); toast('Выберите форму дома — планировка начнётся заново'); };
   // клавиши
   window.addEventListener('keydown', (e) => {
@@ -615,7 +637,9 @@ function bindLead() {
   $('#lTerm').innerHTML = DK.TERMS.map(t => `<button type="button" class="opt" data-k="${t.id}">${esc(t.n)}</button>`).join('');
   const pick = (el, key) => $$('.opt', el).forEach(b => b.onclick = () => { A[key] = b.dataset.k; seg(el, A[key], 'k'); $('#lErr').textContent = ''; });
   pick($('#lPlot'), 'plot'); pick($('#lSlope'), 'slope'); pick($('#lTerm'), 'term'); pick($('#lCls'), 'cls'); pick($('#lMat'), 'material'); pick($('#lSvc'), 'service');
-  $('#lSvcPrice').textContent = 'Компании не видят ваших данных, вы получаете отчёт — ' + Number(C.reportPrice || 14900).toLocaleString('ru-RU') + ' ₽';
+  const rub = (v) => Number(v).toLocaleString('ru-RU') + ' ₽';
+  $('#lSvcR').textContent = 'Проект — компаниям вашего города, вам — отчёт о предложениях. ' + rub(C.reportPrice || 1500);
+  $('#lSvcF').textContent = 'Выбор компании, сравнение стоимости и технологий, график, договор. Данные закрыты до встречи. ' + rub(C.fullPrice || 14900) + ', компания вернёт при договоре';
   $('#lNext').onclick = next; $('#lBack').onclick = () => go(step - 1);
 }
 function openLead() {

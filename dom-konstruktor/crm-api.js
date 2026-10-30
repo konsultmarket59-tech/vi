@@ -56,7 +56,7 @@ module.exports = function crm(ctx) {
     const o = us.find(x => x.id === pr.owner) || {}, v = Object.values(pr.votes || {});
     return { id: pr.id, title: pr.title, about: pr.about, area: pr.area, floors: pr.floors, size: pr.size, price: pr.price, license: pr.license, status: pr.status, boost: !!pr.boost, demo: !!pr.demo, blockReason: pr.blockReason || '', verify: pr.verify || null,
       at: pr.at, updatedAt: pr.updatedAt || pr.at, files: pr.files || [], cover: (pr.files || []).find(f => f.startsWith('exterior')) || (pr.files || [])[0] || null, quality: pr.quality || null,
-      rating: { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }, requests: (pr.requests || []).length,
+      rating: { avg: v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0, n: v.length }, requests: (pr.requests || []).length, unlock: { ep: !!(pr.unlock || {}).ep, cad: !!(pr.unlock || {}).cad },
       owner: { id: o.id, name: o.name || '—', email: o.email || '', phone: o.phone || '', city: o.city || '', role: o.role || 'user', archStatus: o.archStatus || 'none' } };
   }
   const staffPub = (u) => ({ id: u.id, name: u.name, email: u.email, staffRole: u.staffRole });
@@ -69,8 +69,10 @@ module.exports = function crm(ctx) {
   }
   // для компании: без контактов клиента, пока клиент не выбрал компанию
   function forCompany(l, cid) {
-    // контакты закрыты по выбору клиента — компания видит их только после того, как клиент выбрал её для сделки
-    const a = l.answers || {}, c = l.client || {}, shared = a.service === 'closed' ? (l.deal || []).includes(cid) : (l.shareWith || []).includes(cid);
+    // полное сопровождение (и прежний тариф «контакты закрыты»): данные клиента — только компании, с которой он готов встретиться (выбрана для сделки);
+    // рассылка и отчёт: после отчёта менеджер раскрывает данные компаниям по их запросу (shareWith)
+    const a = l.answers || {}, c = l.client || {}, closed = a.service === 'full' || a.service === 'closed';
+    const shared = closed ? (l.deal || []).includes(cid) : (l.shareWith || []).includes(cid);
     return { id: l.id, at: l.at, city: c.city || a.city, area: l.estimate && l.estimate.area, cls: a.cls, material: a.material, term: a.term, plot: a.plot, slope: a.slope,
       brief: l.brief || [], tz: l.tz || [], changes: l.changes || [], files: l.files || [], project: l.project || null, range: l.estimate ? [l.estimate.from, l.estimate.to] : null,
       grade: grade(l), leadPrice: leadPrice(l), myBid: (l.bids || []).find(b => b.company === cid) || null, rows: BID_ROWS, deal: (l.deal || []).includes(cid),
@@ -284,6 +286,15 @@ module.exports = function crm(ctx) {
             pr.verify.status = 'in_work'; pr.verify.fixed = true; pr.verify.log = (pr.verify.log || []).concat({ at: now(), by: u.name, text: 'исправления сохранены в проект' });
             log('исправлен архитектором платформы');
           }
+          // выгрузки ЭП и ArchiCAD: открыть вручную (оплата по счёту, компенсация) или закрыть
+          if (d.unlock && typeof d.unlock === 'object') {
+            if (!can('manager')) return send(res, 403, { ok: false, error: 'Выгрузки открывает менеджер или администратор' }), true;
+            pr.unlock = pr.unlock || {};
+            for (const k of ['ep', 'cad']) if (d.unlock[k] != null && !!d.unlock[k] !== !!pr.unlock[k]) {
+              if (d.unlock[k]) pr.unlock[k] = { at: now(), by: u.name, manual: true }; else delete pr.unlock[k];
+              log((d.unlock[k] ? 'открыта выгрузка: ' : 'закрыта выгрузка: ') + (k === 'ep' ? 'эскизный проект PDF' : 'файлы для ArchiCAD'));
+            }
+          }
           if (d.boost != null && !!d.boost !== !!pr.boost) { pr.boost = !!d.boost && pr.status !== 'blocked'; log(pr.boost ? 'поднят вверх каталога' : 'снят с поднятия'); }
           if (d.seo && typeof d.seo === 'object') { pr.seo = { title: str(d.seo.title, 120), desc: str(d.seo.desc, 300), keywords: str(d.seo.keywords, 300), noindex: !!d.seo.noindex }; log('SEO страницы обновлено'); }
           if (!d.verify && str(d.note, 1000)) log('заметка: ' + str(d.note, 1000));
@@ -301,12 +312,16 @@ module.exports = function crm(ctx) {
           return json(res, { report: credits.report(), settings: credits.settings(), codes: credits.codes().reverse().slice(0, 1000).map(c => Object.assign(c, { usedName: c.usedBy ? nameOf(c.usedBy) : '' })), people }), true;
         }
         const d = await body(req, 50e3);
-        if (p === '/api/crm/viz/codes' && M === 'POST') return json(res, { ok: true, codes: credits.make(+d.n, +d.count, str(d.note, 200), u.name) }), true;
+        if (p === '/api/crm/viz/codes' && M === 'POST') return json(res, { ok: true, codes: credits.make(+d.n, +d.count, str(d.note, 200), u.name, d.kind) }), true;
         if (p === '/api/crm/viz/issue' && M === 'POST') {
           const email = str(d.email, 120).toLowerCase();
           if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return send(res, 400, { ok: false, error: 'Укажите почту покупателя' }), true;
-          const c = credits.issue(+d.n, email, u.name, str(d.note, 200));
-          if (!c) return send(res, 409, { ok: false, error: `Свободных кодов на ${+d.n} нет — выпустите новые` }), true;
+          const kind = credits.KINDS[d.kind] ? d.kind : '', c = credits.issue(+d.n, email, u.name, str(d.note, 200), kind);
+          if (!c) return send(res, 409, { ok: false, error: kind ? `Свободных кодов на ${credits.KINDS[kind]} нет — выпустите новые` : `Свободных кодов на ${+d.n} нет — выпустите новые` }), true;
+          if (kind) {
+            const sent = await mail(email, `Код на ${credits.KINDS[kind]} — Логика Дома`, `Здравствуйте!\n\nСпасибо за оплату. Ваш код: ${c.code}\n\nВ личном кабинете на сайте «Логика Дома» у вашего проекта нажмите «${kind === 'ep' ? 'Эскизный проект PDF' : 'Файлы для ArchiCAD'}» и введите код — выгрузка откроется для этого проекта, повторные выгрузки после правок — без доплаты.\n\n${PUBLIC_URL}/#cab\n\nЛогика Дома`);
+            return json(res, { ok: true, code: c, sent: !!sent }), true;
+          }
           const sent = await mail(email, `Код на ${c.n} визуализаций — Логика Дома`, `Здравствуйте!\n\nСпасибо за покупку. Ваш код: ${c.code}\n\nВведите его в личном кабинете на сайте «Логика Дома» (раздел «Реалистичные визуализации») — на баланс начислится ${c.n} визуализаций.\n${PUBLIC_URL ? PUBLIC_URL + '/#cab' : ''}\n\nЛогика Дома`);
           return json(res, { ok: true, code: c, sent: !!sent }), true;
         }

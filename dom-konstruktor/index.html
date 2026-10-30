@@ -96,6 +96,13 @@ nav.main button[aria-current="page"]{font-weight:600;color:var(--brand);border-b
 .rng input{accent-color:var(--brand);width:100%;margin:0}
 .rng output{font:500 11.5px var(--mono);color:var(--ink);text-align:right}
 .muted{color:var(--muted);font-size:12px}
+.pay-dlg{width:min(860px,calc(100vw - 24px))}.pay header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.pay h2{margin:2px 0 0;font:700 22px var(--display);color:var(--brand)}
+.pay-g{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}.pay-g.one{grid-template-columns:1fr}.pay-g figure{margin:0;border:1px solid var(--line);border-radius:var(--radius-md);overflow:hidden;background:#fff}
+.pay-g img{display:block;width:100%;height:auto;cursor:zoom-in}.pay-g.one img{max-height:420px;object-fit:contain;background:#212830}.pay-g figcaption{font-size:12px;line-height:1.4;padding:6px 8px;color:var(--muted)}
+.pay details.hint ul{margin:6px 0 6px 18px;padding:0}.pay details.hint p{margin:6px 0}
+.pay-steps{display:grid;gap:10px;margin-top:12px;border-top:1px solid var(--line);padding-top:12px}.pay-steps>div{display:flex;gap:12px;align-items:flex-start}.pay-steps>div>b{flex:none;width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font:700 13px var(--display)}
+.pay-steps>div>span{display:flex;flex-direction:column;gap:6px;flex:1}.pay-steps .row{display:flex;gap:8px;flex-wrap:wrap}.pay-steps input{max-width:220px}
+@media (max-width:640px){.pay-g{grid-template-columns:1fr 1fr}}
 details.hint{font-size:12.5px;color:var(--muted);line-height:1.5;margin:6px 0}details.hint>summary{cursor:pointer;color:var(--brand);font-weight:600;list-style:none;display:inline-flex;align-items:center;gap:6px}details.hint>summary::-webkit-details-marker{display:none}details.hint>summary::after{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .15s}details.hint[open]>summary::after{transform:rotate(-135deg)}details.hint[open]>summary{margin-bottom:4px}
 .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .tools .btn{padding:7px 6px}
@@ -362,7 +369,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 @keyframes howRing{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.8);opacity:0}}
 .how-num{position:absolute;left:14px;top:10px;font:700 30px var(--display);color:var(--tone)}
 .how-txt h3{font:700 22px/1.25 var(--display);color:var(--brand);margin:0 0 10px}
-.how-txt p{margin:0 0 14px;font-size:15px;line-height:1.6;color:var(--ink);max-width:720px}
+.how-txt details.hint{font-size:14px;max-width:720px;margin:-6px 0 14px;color:var(--ink-2,#5B6272)}.how-txt p{margin:0 0 14px;font-size:15px;line-height:1.6;color:var(--ink);max-width:720px}
 .how-price{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-width:720px}
 .how-price li{display:flex;justify-content:space-between;gap:14px;align-items:baseline;padding:8px 12px;border-radius:8px;background:var(--ld-soft-bg,#F5F6F8);font-size:13.5px}
 .how-price li b{font:600 13.5px var(--display);color:var(--tone);text-align:right}
@@ -695,7 +702,8 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       <label class="fld">Когда удобно созвониться<input id="lTime" placeholder="Например, будни после 18:00"></label>
       <label class="fld">Пожелания<textarea id="lNote" rows="3" placeholder="Гараж, сауна, терраса, кабинет…"></textarea></label>
       <b>Как работаем со строительными компаниями</b>
-      <div class="opts svc" id="lSvc"><button type="button" class="opt" data-k="open">Рассылка и отчёт<small>Контакты открыты компаниям — для вас бесплатно, платит компания за заявку</small></button><button type="button" class="opt" data-k="closed">Рассылка и отчёт, контакты закрыты<small id="lSvcPrice">Компании не видят ваших данных — 14 900 ₽</small></button><button type="button" class="opt" data-k="agent">Представляем ваши интересы<small>Доработка проекта, разбор смет, переговоры. Оплачивает строительная компания при договоре</small></button></div>
+      <div class="opts svc" id="lSvc"><button type="button" class="opt" data-k="report">Рассылка и отчёт вам о предложениях компаний<small id="lSvcR">1 500 ₽</small></button><button type="button" class="opt" data-k="full">Полное сопровождение<small id="lSvcF">Выбор компании, сравнение стоимости и технологий, график строительства, договор — 14 900 ₽</small></button></div>
+      <details class="hint"><summary>Чем отличаются</summary><b>Рассылка и отчёт.</b> Разошлём проект строительным компаниям вашего города, соберём расчёты и пришлём вам отчёт о предложениях. После отчёта ваши данные могут быть раскрыты заинтересованным компаниям по их запросу.<br><br><b>Полное сопровождение.</b> Выберем компанию, сравним стоимость и технологии строительства, согласуем график и договор. Ваши данные конфиденциальны и раскрываются только тогда, когда вы готовы встретиться с компанией. При подписании договора строительная компания компенсирует вам эту сумму.</details>
       <label class="chk"><input type="checkbox" id="lAgree"><span>Даю <a href="/dokumenty/soglasie-na-obrabotku-dannyh/" target="_blank">согласие на обработку персональных данных</a> и звонок по заявке; условия услуг — в <a href="/dokumenty/dogovor-uslug/" target="_blank">договоре</a></span></label>
     </section>
     <section data-step="4" class="q" hidden>
