@@ -219,14 +219,15 @@ const EP_LIST = ['Титульный лист с видом дома и ключ
 const CAD_LIST = ['IFC — модель для ArchiCAD, Revit, Renga: стены, перекрытия, окна, двери, помещения с площадями', 'DXF — для ArchiCAD, AutoCAD, nanoCAD: каждый этаж на своём листе А3 с рамкой и штампом',
   'Слои: стены, перегородки, проёмы, помещения, размеры, экспликация — включаются и выключаются', 'Наружные и внутренние размеры — по вашему выбору при выгрузке'];
 let unlockSet = null;
+const EPI = (n) => (window.__EP_IMG && window.__EP_IMG[n]) || 'brand/img/ep/' + n + '.jpg'; // в однофайловом просмотре картинки встроены
 function openPay(kind, x, after) {
   let d = $('#payDlg');
   if (!d) { d = document.createElement('dialog'); d.id = 'payDlg'; d.className = 'pay-dlg'; document.body.appendChild(d); }
   const S = (unlockSet || {})[kind] || {}, price = money(S.price || (kind === 'ep' ? DK.CONFIG.sketchPrice : DK.CONFIG.cadPrice) || 3000), ep = kind === 'ep';
   d.innerHTML = `<form method="dialog" class="dlg pay"><header><div><small class="over">${esc(x.title)}</small><h2>${ep ? 'Эскизный проект в PDF' : 'Файлы для ArchiCAD'} — ${price}</h2></div><button class="x" type="submit" aria-label="Закрыть">×</button></header>
     <p class="muted">${ep ? 'Листы формата А3 по вашему проекту — для строителей, банка и архитектора. Так выглядит эскизный проект:' : 'Модель и чертежи вашего проекта для архитектора: открываются в ArchiCAD и других программах. Так выглядит лист DXF:'}</p>
-    ${ep ? `<div class="pay-g">${EP_SHEETS.map(([n, t]) => `<figure><img src="brand/img/ep/${n}.jpg" alt="${esc(t)}" loading="lazy"><figcaption>${esc(t)}</figcaption></figure>`).join('')}</div>`
-      : `<div class="pay-g one"><figure><img src="brand/img/ep/cad.jpg" alt="Лист DXF: план этажа с размерами, марками и экспликацией" loading="lazy"><figcaption>DXF: план этажа на листе А3 — размеры, марки помещений, экспликация, штамп</figcaption></figure></div>`}
+    ${ep ? `<div class="pay-g">${EP_SHEETS.map(([n, t]) => `<figure><img src="${EPI(n)}" alt="${esc(t)}" loading="lazy"><figcaption>${esc(t)}</figcaption></figure>`).join('')}</div>`
+      : `<div class="pay-g one"><figure><img src="${EPI('cad')}" alt="Лист DXF: план этажа с размерами, марками и экспликацией" loading="lazy"><figcaption>DXF: план этажа на листе А3 — размеры, марки помещений, экспликация, штамп</figcaption></figure></div>`}
     <details class="more"${ep ? '' : ' open'}><summary>${ep ? 'Состав эскизного проекта' : 'Что входит'}</summary><ul>${(ep ? EP_LIST : CAD_LIST).map(t => `<li>${esc(t)}</li>`).join('')}</ul>${ep ? '<p>Эскизный проект показывает дом и планировку; в нём применяется типовой фундамент — монолитная ж/б плита. Тип фундамента под ваш участок подбирают в АКР по геологии и топосъёмке.</p>' : ''}<p>Оплата один раз за проект: после правок выгружайте сколько угодно.</p></details>
     ${ep && x.mine !== false ? '<button type="button" class="btn sm ghost" id="payPreview">Посмотреть листы своего проекта (с отметкой «Образец»)</button>' : ''}
     <div class="pay-steps"><div><b>1</b><span>${S.url ? `<a class="btn primary" href="${esc(S.url)}" target="_blank" rel="noopener">Оплатить ${price}</a>` : '<button type="button" class="btn primary" id="payAsk">Получить ссылку на оплату</button>'}<small class="muted">${S.url ? 'Оплата на странице банка, чек придёт на почту.' : 'Менеджер пришлёт ссылку на оплату на вашу почту.'}</small></span></div>
