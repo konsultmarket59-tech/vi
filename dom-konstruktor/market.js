@@ -56,7 +56,9 @@ module.exports = function market(ctx) {
     const fn = name.replace(/[^\w-]/g, '') + ext; fs.writeFileSync(path.join(dir, fn), buf); return fn;
   }
 
-  return async function handle(req, res, url) {
+  handle.me = me;
+  return handle;
+  async function handle(req, res, url) {
     const p = url.pathname, M = req.method;
     try {
       /* ---- аккаунт ---- */
@@ -194,7 +196,7 @@ module.exports = function market(ctx) {
         mine.forEach(x => { const pr = all.find(q => q.id === x.id); x.team = (pr.team || []).map(m => ({ key: m.id || m.email, name: m.name || m.email, pending: !m.id && !all2.some(q => String(q.email).toLowerCase() === m.email) })); });
         // проекты клиентов, к которым автор добавил этого пользователя архитектором
         const shared = all.filter(x => x.owner !== u.id && inTeam(x, u)).map(x => { const ow = all2.find(q => q.id === x.owner) || {}; return Object.assign(card(x), { client: { name: ow.name || '—', phone: ow.phone || '', email: ow.email || '' } }); });
-        const C = ctx.credits, viz = C ? { balance: C.balance(u.id), history: C.history(u.id, 15), packs: C.settings().packs, ready: !!(process.env.RENDER_API_URL || process.env.POLZA_API_KEY) } : null;
+        const C = ctx.credits, viz = C ? { balance: C.balance(u.id), history: C.history(u.id, 15), packs: C.settings().packs, ready: !!process.env.POLZA_API_KEY, renders: readJSON(path.join(DATA, 'renders.json'), []).filter(x => x.user === u.id).slice(-12).reverse().map(x => ({ url: '/api/render/file/' + x.id + '.jpg', at: x.at, kind: x.kind })) } : null;
         const unl = (x) => { const q = all.find(z => z.id === x.id) || {}; x.unlock = { ep: !!(q.unlock || {}).ep, cad: !!(q.unlock || {}).cad }; };
         mine.forEach(unl); shared.forEach(unl);
         return send(res, 200, { ok: true, user: pub(u), projects: mine, asked, shared, verifyPrice: VP, viz, unlock: C ? C.settings().unlock : null }), true;

@@ -18,7 +18,7 @@ DK.HOW_STEPS = [
 ];
 
 // длинное описание: первая фраза на виду, остальное — в «Подробнее»
-const leadMore = (d) => { const k = d.indexOf('. '); return k < 0 || k > d.length - 40 ? `<p>${d}</p>` : `<p>${d.slice(0, k + 1)}</p><details class="hint"><summary>Подробнее</summary>${d.slice(k + 2)}</details>`; };
+const leadMore = (d) => { const k = d.indexOf('. '); return k < 0 || k > d.length - 40 ? `<p>${d}</p>` : `<p>${d.slice(0, k + 1)}</p><details class="more"><summary>Подробнее</summary>${d.slice(k + 2)}</details>`; };
 DK.leadMore = leadMore;
 const stepHtml = (st, i) => `<section class="how-step tone-${st.tone}" data-i="${i}">
     <div class="how-art" aria-hidden="true"><span class="how-num">${String(i + 1).padStart(2, '0')}</span><span class="how-ic">${ic(st.icon, 44)}</span><span class="how-ring"></span></div>

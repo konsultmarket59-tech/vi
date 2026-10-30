@@ -23,6 +23,9 @@ ADMIN_KEY=придумайте-ключ node server.js        # http://localhost
 | `CRM_ADMIN_EMAIL`, `CRM_ADMIN_PASSWORD` | первый администратор CRM (`/crm.html`); остальных сотрудников он добавляет сам |
 | `DATA_DIR` | папка данных вместо `data/runtime/` |
 | `VERIFY_PRICE` | цена верификации проекта архитектором и инженером платформы, ₽ (по умолчанию 15 000; на сайте — `verifyPrice` в `js/config.js`) |
+| `SKETCH_PRICE`, `CAD_PRICE` | цены выгрузки эскизного проекта PDF и файлов для ArchiCAD по умолчанию, ₽ (3 000); цены и ссылки на оплату меняются в CRM → «Визуализации и выгрузки» → «Пакеты и цены» |
+| `POLZA_API_KEY` | ключ API «Пользы» для реалистичных визуализаций — только здесь, в `.env` на сервере; без ключа кнопка показывает «скоро» |
+| `POLZA_MODEL`, `POLZA_BASE_URL`, `POLZA_WAIT` | модель генерации (по умолчанию `gemini-2.5-flash-image`), адрес API (`https://polza.ai/api`), сколько секунд ждать картинку (180) |
 | `TRUST_PROXY` | `1` за nginx: адрес посетителя берётся из `X-Forwarded-For` |
 | `SMARTCAPTCHA_CLIENT_KEY`, `SMARTCAPTCHA_SERVER_KEY` | Яндекс SmartCaptcha в формах (необязательно) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | почта: запросы компаниям, уведомления о расчётах и заявках. Без неё письма копятся в журнале CRM «Почта» |

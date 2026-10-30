@@ -212,7 +212,7 @@ function renderSel() {
       ${x.kind !== 'balcony' ? `<div class="seg" id="xRoof">${Object.entries(DK.EXT_ROOF).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.roof || 'open') === k}">${n.split(' ')[0]}</button>`).join('')}</div>` : ''}
       ${x.kind !== 'balcony' && (x.roof || 'open') !== 'open' ? `<label class="fld">Навес<div class="seg" id="xShape"><button data-k="shed" aria-pressed="${x.shape !== 'gable'}">Односкатный</button><button data-k="gable" aria-pressed="${x.shape === 'gable'}">Двускатный</button></div></label>` : ''}
       <div class="muted">${x.kind === 'balcony' ? (cant ? `Вылет больше ${DK.fmtM(DK.BALCONY_CANT)} м — плита опирается на колонны до земли.` : `Консольная плита с терморазрывом, вылет до ${DK.fmtM(DK.BALCONY_CANT)} м.`) : 'Тяните террасу вдоль стены, квадратики — ширина и глубина. Мебель для улицы — в разделе «Терраса».'}${DK.extExit(P, x) || x.kind === 'porch' ? '' : ' <b>Нужен выход: дверь или панорамное окно.</b>'}</div>
-      ${x.kind !== 'balcony' ? `<details class="hint"><summary>Крыша, колонны, остекление</summary><b>Открытая</b> — настил с ограждением. <b>Крытая</b> — навес над террасой, колонны встают сами: по углам у края и не реже чем через 3 м. <b>Застеклённая</b> — крытая терраса с остеклением по свободным сторонам. Поставьте террасы вплотную в ряд — ограждение и навес станут общими, между ними ограждения нет, колонна на стыке одна.${(() => { const j = DK.extJoin(P, x); return j.lo || j.hi ? ' <b>Эта терраса стоит в ряду с соседней.</b>' : ''; })()}</details>` : ''}
+      ${x.kind !== 'balcony' ? `<details class="more"><summary>Крыша, колонны, остекление</summary><b>Открытая</b> — настил с ограждением. <b>Крытая</b> — навес над террасой, колонны встают сами: по углам у края и не реже чем через 3 м. <b>Застеклённая</b> — крытая терраса с остеклением по свободным сторонам. Поставьте террасы вплотную в ряд — ограждение и навес станут общими, между ними ограждения нет, колонна на стыке одна.${(() => { const j = DK.extJoin(P, x); return j.lo || j.hi ? ' <b>Эта терраса стоит в ряду с соседней.</b>' : ''; })()}</details>` : ''}
       <button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
   } else if (sel.kind === 'edge') {
     const e = DK.edges(P).find(x => x.id === sel.id); if (!e) { box.hidden = true; return; }
@@ -233,7 +233,7 @@ function renderSel() {
     h = `<h3>Помещение <small>${DK.fmtA(r.area)} м²${r.rect ? ' · ' + Math.round(r.x1 - r.x0) + ' × ' + Math.round(r.y1 - r.y0) : ''}</small></h3>
       <label class="fld">Назначение<select id="sType">${Object.entries(DK.ROOM).filter(([k, v]) => !v.upper || DK.floorsOf(P).indexOf(fid) > 0 && fid !== 'b').map(([k, v]) => `<option value="${k}"${r.type === k ? ' selected' : ''}>${esc(v.n)}</option>`).join('')}</select></label>`;
     if (r.type === 'void') h += `<div class="muted">Над помещением нижнего этажа нет перекрытия — двойная высота. Отделите второй свет ограждением, а не стеной. Усиление проёма — в ТЗ.</div>`;
-    if (DK.lightAbove(P, fid) && r.type !== 'void') { const v2 = DK.secondLightOn(P, fid, r); h += `<label class="fld">Второй свет<div class="seg" id="sV2"><button data-k="0" aria-pressed="${!v2}">Нет</button><button data-k="1" aria-pressed="${v2}">Над помещением</button></div></label><details class="hint"><summary>Что это</summary>Над помещением убирается перекрытие — потолок на высоте двух этажей, большие окна в два света. На этаже выше появляется ограждение по краю проёма. Удобно для гостиной или холла с лестницей.</details>`; }
+    if (DK.lightAbove(P, fid) && r.type !== 'void') { const v2 = DK.secondLightOn(P, fid, r); h += `<label class="fld">Второй свет<div class="seg" id="sV2"><button data-k="0" aria-pressed="${!v2}">Нет</button><button data-k="1" aria-pressed="${v2}">Над помещением</button></div></label><details class="more"><summary>Что это</summary>Над помещением убирается перекрытие — потолок на высоте двух этажей, большие окна в два света. На этаже выше появляется ограждение по краю проёма. Удобно для гостиной или холла с лестницей.</details>`; }
     if (r.type === 'boiler') h += `<div class="muted">Котельная: объём от ${DK.BOILER.vol} м³, высота от 2,5 м, у наружной стены с окном (0,03 м² остекления на 1 м³), дверь от 800 мм.</div>`;
   } else if (sel.kind === 'stair') {
     h = `<h3>Лестница <small>${P.stair.w} × ${P.stair.l}</small></h3><div class="muted">${esc(DK.STAIRS[P.stair.type].n)}; на всех этажах в одном месте, в перекрытии — проём. Тип меняется в «Инструментах».</div>
@@ -715,6 +715,9 @@ DK.goPage = (id) => page(id);
 DK.toast = toast;
 DK.appApi = {
   project: () => P,
+  view: () => view,
+  // снимок текущего 3D-вида для визуализации: JPEG до 1600 px по ширине
+  shot3d() { if (!v3 || view === 'plan') return null; const src = $('#c3d'), k = Math.min(1, 1600 / src.width), c = document.createElement('canvas'); c.width = Math.round(src.width * k); c.height = Math.round(src.height * k); v3.shot(); c.getContext('2d').drawImage(src, 0, 0, c.width, c.height); return { data: c.toDataURL('image/jpeg', 0.88), kind: view === 'ext' ? 'ext' : 'int', w: c.width, h: c.height }; },
   sketch: () => app.sketch(),
   floor: (f) => { if (DK.floorsOf(P).includes(f)) { siteOn = false; setFloor(f); } },
   setCloud(id, title) { if (id) { P.cloudId = id; if (title) P.cloudTitle = title; } else { delete P.cloudId; delete P.cloudTitle; } save(); },

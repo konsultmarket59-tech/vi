@@ -190,7 +190,7 @@ function stat(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   const f = path.normalize(path.join(ROOT, p));
-  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store|docs-content|credits|demo-content)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (!f.startsWith(ROOT + path.sep) || f.startsWith(DATA) || f.startsWith(path.join(ROOT, 'data', 'runtime') + path.sep) || /\/(server|market|pages|content|crm-api|mailer|model-vm|cms-store|docs-content|credits|demo-content|render)\.js$|\/\./.test(f)) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
   fs.stat(f, (e, s) => {
     if (e || !s.isFile()) return send(res, 404, 'Not found', 'text/plain; charset=utf-8');
     // библиотеки и шрифты не меняются — кешируем надолго; остальное проверяется при каждом заходе
@@ -206,11 +206,13 @@ const credits = require('./credits.js')({ readJSON, writeJSON, DATA, crypto });
 const demo = require('./demo-content.js')({ readJSON, writeJSON, DATA, ROOT }); demo.auto();
 const crmHandle = require('./crm-api.js')({ credits, demo,  send, body, readJSON, writeJSON, str, DATA, ADMIN_KEY, PUBLIC_URL, mail, limited, guard, ROOT, quality: MODEL.quality, cms: pagesHandle.store, preview: pagesHandle.preview, VERIFY_PRICE });
 const marketHandle = require('./market.js')({ credits,  send, body, readJSON, writeJSON, str, tg, DATA, limited, TG_OWNER, ADMIN_KEY, PUBLIC_URL, quality: MODEL.quality, mail, guard, VERIFY_PRICE, ADMIN_EMAIL: process.env.CRM_ADMIN_EMAIL || '' });
+const renderHandle = require('./render.js')({ send, body, readJSON, writeJSON, DATA, credits, me: marketHandle.me, tg, TG_OWNER });
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname.startsWith('/api/') && await crmHandle(req, res, url)) return;
+    if (url.pathname.startsWith('/api/render') && await renderHandle(req, res, url)) return;
     if (url.pathname.startsWith('/api/') && await marketHandle(req, res, url)) return;
     if (url.pathname === '/api/form-token' && req.method === 'GET') return send(res, 200, { t: formToken(), captchaKey: CAPTCHA_CLIENT });
     if (url.pathname === '/api/lead' && req.method === 'POST') return lead(req, res);
