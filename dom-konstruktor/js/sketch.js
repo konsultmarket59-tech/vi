@@ -135,6 +135,14 @@ function levelMark(g, x, y, text, left) {
   g.fillText(text, x + (left ? -14 : 14), y - 4);
 }
 const lvl = (m) => (m >= 0 ? '+' : '−') + Math.abs(m).toFixed(3).replace('.', ',');
+/* отметка конька, мм от ±0,000 — как на разрезе */
+function ridgeLevel(p) {
+  const M = DK.mainRect(p), alongX = (M.x1 - M.x0) >= (M.y1 - M.y0), cut = alongX ? (M.x0 + M.x1) / 2 : (M.y0 + M.y1) / 2;
+  const sp = DK.lineSpan(p, alongX ? 'v' : 'h', cut) || (alongX ? [M.y0, M.y1] : [M.x0, M.x1]), ext = DK.extT(p), fl = DK.floorsOf(p), af = DK.atticFloor(p);
+  const yt = af ? DK.elev(p, af) + DK.knee(p) : DK.elev(p, fl[fl.length - 1]) + p.hClear + p.slab, pitch = (p.roof.pitch || 30) * Math.PI / 180;
+  const across = p.roof.type !== 'flat' && ((p.roof.ridge === 'short') ? !alongX : alongX);
+  return p.roof.type === 'flat' ? yt + 600 : across ? yt + ((sp[1] - sp[0]) / 2 + ext) * Math.tan(pitch) : yt + (Math.min(M.x1 - M.x0, M.y1 - M.y0) / 2 + ext) * Math.tan(pitch);
+}
 /* разрез 1-1 по середине основного объёма, поперёк длинной стороны */
 DK.section = section;
 function section(p) {
@@ -231,9 +239,10 @@ DK.makeSketch = async function (p, plan, view, onStep) {
   let shots = [];
   if (view) shots = view.shots([{ type: 'persp', az: -0.62, el: 0.2 }, { type: 'elev', side: 'S' }, { type: 'elev', side: 'N' }, { type: 'elev', side: 'E' }, { type: 'elev', side: 'W' },
     { type: 'persp', az: 0.62, el: 0.24 }, { type: 'persp', az: 2.5, el: 0.24 }, { type: 'persp', az: -2.5, el: 0.24 }, { type: 'persp', az: -0.62, el: 0.75, r: 0.9 }], 1500, 940);
-  const plans = fl.map(f => plan.toImage(f, { width: 1500, numbers: nums, noTitle: true }));
+  const OM = DK.openingMarks(p), AX = DK.axes(p);
+  const plans = fl.map(f => plan.toImage(f, { width: 1500, numbers: nums, noTitle: true, axes: true, marks: OM }));
   const siteImg = p.site && DK._site ? DK._site.toImage(1500) : null;
-  const total = 1 + fl.length + (siteImg ? 1 : 0) + 1 + (shots.length ? 4 + 2 : 0) + 1;
+  const total = 2 + fl.length + 1 + (siteImg ? 1 : 0) + 1 + (shots.length ? 4 + 2 : 0) + 1;
   const pages = []; let n = 1;
   const push = async (s) => { await s.ready; pages.push(s.c); };
   // поле листа: под заголовком и над штампом; правая колонка — 95 мм
@@ -264,6 +273,32 @@ DK.makeSketch = async function (p, plan, view, onStep) {
       g.fillStyle = MUTED; g.font = FB(400, 18); g.fillText(t, x, y + 58); });
     const cont = [C.owner && C.owner.phone, C.owner && C.owner.email].filter(Boolean).join(' · ');
     if (cont) { g.fillStyle = MUTED; g.font = FB(400, 16); g.fillText(cont, X0, SH - FRAME.b - 40); }
+    await push(s);
+  }
+  // 2. общие данные: технико-экономические показатели, ведомость листов, общие указания
+  step('Общие данные…');
+  {
+    const s = sheet('Общие данные', n++, total), g = s.g, af = DK.atticFloor(p), top = fl[fl.length - 1];
+    const eave = af ? DK.elev(p, af) + DK.knee(p) : DK.elev(p, top) + p.hClear + p.slab;
+    const rise = ridgeLevel(p) - eave;
+    const live = fl.reduce((sum, f) => sum + DK.rooms(p, f).filter(r => ['bed', 'kids', 'living', 'office'].includes(r.type)).reduce((a, r) => a + (f === af ? DK.atticArea(p, r) : r.area), 0), 0);
+    const hTot = (eave + rise) / 1000, vol = A.footprint * ((eave + 600) / 1000 + rise / 2000);
+    const TEP = [['Площадь застройки', 'м²', DK.fmtA(A.footprint)], ['Общая площадь дома', 'м²', DK.fmtA(A.total)], ...A.per.map(f => ['в т. ч. ' + f.n.toLowerCase(), 'м²', DK.fmtA(f.area)]), ['Жилая площадь', 'м²', DK.fmtA(live)],
+      ['Строительный объём (ориентировочно)', 'м³', DK.fmtA(vol)], ['Этажность', '', String(nf)], ['Высота этажа в чистоте', 'м', DK.fmtM(p.hClear)], ['Высота дома до конька от ±0,000', 'м', hTot.toFixed(2).replace('.', ',')]];
+    const tbl = (x, y, w, head, rows, cols) => { g.textBaseline = 'middle'; g.fillStyle = NAVY; g.font = FD(700, 22); g.textAlign = 'left'; g.fillText(head, x, y); y += 30;
+      g.strokeStyle = BORDER; g.lineWidth = 1; rows.forEach((r, k) => { const rh = 34; if (k === 0) { g.fillStyle = '#F5F6F8'; g.fillRect(x, y, w, rh); } g.strokeRect(x, y, w, rh);
+        let cx = x; r.forEach((cell, ci) => { const cw = cols[ci] * w; if (ci) { g.beginPath(); g.moveTo(cx, y); g.lineTo(cx, y + rh); g.stroke(); } g.fillStyle = k === 0 ? MUTED : INK; g.font = k === 0 ? FB(600, 14) : FB(400, 16); const ra = ci === r.length - 1 && ci && r.length > 2; g.textAlign = ra ? 'right' : 'left'; g.fillText(cell, ra ? cx + cw - 10 : cx + 10, y + rh / 2, cw - 16); cx += cw; }); y += rh; }); return y; };
+    const half = (XR - X0 - 50) / 2;
+    tbl(X0, Y0, half, 'Основные технико-экономические показатели', [['Показатель', 'Ед.', 'Кол-во']].concat(TEP), [0.66, 0.12, 0.22]);
+    const sheets = [['1', 'Титульный лист'], ['2', 'Общие данные'], ...fl.map((f, i) => [String(3 + i), 'План ' + (f === af ? 'мансарды' : DK.floorName(f).toLowerCase()) + ' с осями и марками проёмов']), [String(3 + fl.length), 'Ведомость проёмов']];
+    let k2 = 4 + fl.length; if (siteImg) sheets.push([String(k2++), 'Схема участка']); sheets.push([String(k2++), 'Разрез 1–1']);
+    if (shots.length) { sheets.push([k2 + '–' + (k2 + 3), 'Фасады в осях с высотными отметками']); k2 += 4; sheets.push([k2 + '–' + (k2 + 1), 'Виды дома в 3D']); k2 += 2; }
+    sheets.push([String(k2), 'Характеристики и техзадание']);
+    tbl(X0 + half + 50, Y0, half, 'Ведомость листов', [['Лист', 'Наименование']].concat(sheets), [0.14, 0.86]);
+    let y = YB - 150; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillStyle = NAVY; g.font = FD(700, 20); g.fillText('Общие указания', X0, y); y += 32; g.fillStyle = INK; g.font = FB(400, 15);
+    ['За отметку ±0,000 принят уровень чистого пола первого этажа (верх цоколя). Площади помещений — без учёта черновой отделки; мебель показана схематично.',
+      'Фундамент в эскизном проекте — типовой: монолитная ж/б плита. Тип и размеры фундамента подбираются в АКР по инженерно-геологическим изысканиям и топосъёмке участка.',
+      'Эскизный проект не является рабочей документацией. Конструктивные решения подтверждаются расчётом в разделах АР и КР.'].forEach(t => { const words = t.split(' '); let line = ''; for (const w of words) { const t2 = line ? line + ' ' + w : w; if (g.measureText(t2).width > XR - X0) { g.fillText(line, X0, y); y += 21; line = w; } else line = t2; } g.fillText(line, X0, y); y += 25; });
     await push(s);
   }
   // 2. планы: слева чертёж, справа экспликация, ключевые цифры, площади, преимущества, условные обозначения
@@ -300,6 +335,20 @@ DK.makeSketch = async function (p, plan, view, onStep) {
       g.fillStyle = INK; g.fillText(t, lx + 34, yy + 7); });
     await push(s);
   }
+  // ведомость проёмов: марка, вид, размер, количество по этажам
+  step('Ведомость проёмов…');
+  {
+    const s = sheet('Ведомость проёмов', n++, total), g = s.g, af = DK.atticFloor(p);
+    const cols = [['Марка', 0.1], ['Наименование', 0.3], ['Размер проёма Ш × В, мм', 0.2], ['Низ от пола, мм', 0.12]].concat(fl.map(f => [f === af ? 'Мансарда' : DK.floorName(f), 0.28 / (fl.length + 1)]), [['Всего', 0.28 / (fl.length + 1)]]);
+    const W = XR - X0, rh = 36; let y = Y0;
+    g.strokeStyle = BORDER; g.lineWidth = 1; g.textBaseline = 'middle';
+    const row = (cells, head) => { if (head) { g.fillStyle = '#F5F6F8'; g.fillRect(X0, y, W, rh); } let x = X0; cells.forEach((t, i) => { const cw = cols[i][1] * W; g.strokeRect(x, y, cw, rh); g.fillStyle = head ? MUTED : (i === 0 ? (/^ОП/.test(t) ? BLUE : NAVY) : INK); g.font = head ? FB(600, 14) : i === 0 ? FD(700, 16) : FB(400, 16); g.textAlign = i >= 2 ? 'center' : 'left'; g.fillText(String(t), i >= 2 ? x + cw / 2 : x + 10, y + rh / 2, cw - 14); x += cw; }); y += rh; };
+    row(cols.map(c2 => c2[0]), true);
+    OM.types.forEach(t => { if (y > YB - 120) return; const tot = fl.reduce((a, f) => a + (t.count[f] || 0), 0); row([t.mark, t.kind, t.w + ' × ' + t.h, t.win ? t.sill : '—'].concat(fl.map(f => t.count[f] || '—'), [tot])); });
+    g.textAlign = 'left'; g.textBaseline = 'top'; g.fillStyle = MUTED; g.font = FB(400, 15);
+    g.fillText('Размеры — по проёму в стене. Конструкцию, профиль и остекление окон, утепление и тип дверей уточняют в рабочей документации.', X0, Math.min(y + 24, YB - 40));
+    await push(s);
+  }
   // схема участка: дом в отступах, постройки, проверки норм — сначала нарушения
   if (siteImg) {
     step('Схема участка…');
@@ -323,7 +372,10 @@ DK.makeSketch = async function (p, plan, view, onStep) {
   step('Разрез…');
   { const s = sheet('Разрез 1–1', n++, total); fitImg(s.g, section(p), X0, Y0, XR - X0, YB - Y0); await push(s); }
   // 4. фасады с отметками
-  const names = { S: 'Фасад со стороны юга', N: 'Фасад со стороны севера', E: 'Фасад со стороны востока', W: 'Фасад со стороны запада' };
+  // фасады — по крайним осям, как в рабочей документации: юг 1–N, север N–1, восток А–Я, запад Я–А
+  const v0 = AX.v.length ? AX.v[0].n : '', v1 = AX.v.length ? AX.v[AX.v.length - 1].n : '', h0 = AX.h.length ? AX.h[AX.h.length - 1].n : '', h1 = AX.h.length ? AX.h[0].n : '';
+  const inAx = (a, b, side) => a && b ? `Фасад в осях ${a}–${b} (${side})` : 'Фасад со стороны ' + side;
+  const names = { S: inAx(v0, v1, 'юг'), N: inAx(v1, v0, 'север'), E: inAx(h0, h1, 'восток'), W: inAx(h1, h0, 'запад') };
   for (let i = 1; i <= 4 && shots[i]; i++) {
     const side = ['S', 'N', 'E', 'W'][i - 1], sh = shots[i];
     step(names[side] + '…');

@@ -849,6 +849,35 @@ function secondLight(p, fid, r, on) {
   return null;
 }
 
+/* координационные оси по осям наружных и несущих стен 1 этажа: цифры слева направо, буквы снизу вверх (без Ё З Й О Х Ч Щ Ъ Ы Ь) */
+const AXIS_LET = 'АБВГДЕЖИКЛМНПРСТУФЦШЭЮЯ';
+function axes(p) {
+  const ws = walls(p, 'f1').filter(w => w.kind === 'outer' || w.kind === 'bearing');
+  const uniq = (arr) => arr.sort((a, b) => a - b).reduce((o, v) => { if (!o.length || v - o[o.length - 1] > 150) o.push(v); return o; }, []);
+  const xs = uniq(ws.filter(w => w.axis === 'y').map(w => Math.round(w.m))), ys = uniq(ws.filter(w => w.axis === 'x').map(w => Math.round(w.m)));
+  const v = xs.map((x, i) => ({ x, n: String(i + 1) })), h = ys.slice().reverse().map((y, i) => ({ y, n: AXIS_LET[i] || ('Я' + i) })).reverse();
+  return { v, h };
+}
+/* марки проёмов: ОП — окна, ДП — двери, по одинаковому размеру и виду; нумерация по всему дому */
+function openingMarks(p) {
+  const types = [], map = new Map();
+  for (const fid of floorsOf(p)) {
+    const lv = p.levels[fid]; if (!lv) continue;
+    const outer = new Set(edges(p).map(e => e.id));
+    lv.open.forEach(o => {
+      if (o.kind === 'pass') return;
+      const z = opSize(p, o), win = o.kind === 'win', kind = win ? (o.pano ? 'Окно панорамное' : 'Окно') : o.kind === 'entry' ? 'Дверь входная' : outer.has(o.wall) ? 'Дверь наружная' : 'Дверь межкомнатная';
+      const key = [win ? 'W' : 'D', kind, Math.round(o.w), Math.round(z.h), win ? Math.round(z.sill) : 0].join('|');
+      let t = types.find(q => q.key === key);
+      if (!t) { t = { key, win, kind, w: Math.round(o.w), h: Math.round(z.h), sill: Math.round(z.sill), count: {} }; types.push(t); }
+      t.count[fid] = (t.count[fid] || 0) + 1; map.set(fid + ':' + o.id, t);
+    });
+  }
+  const pre = { true: 'ОП', false: 'ДП' }, nn = { true: 0, false: 0 };
+  types.sort((a, b) => (a.win === b.win ? 0 : a.win ? -1 : 1) || b.w * b.h - a.w * a.h).forEach(t => { nn[t.win]++; t.mark = pre[t.win] + '-' + String(nn[t.win]).padStart(2, '0'); });
+  return { types, of: (fid, o) => { const t = map.get(fid + ':' + o.id); return t ? t.mark : ''; } };
+}
+
 /* ---------- правка контура ---------- */
 function shiftAll(p, dx, dy) {
   if (!dx && !dy) return;
@@ -1129,7 +1158,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

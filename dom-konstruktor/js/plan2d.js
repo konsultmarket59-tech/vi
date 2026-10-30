@@ -917,6 +917,7 @@ function Plan2D(canvas, app) {
   function toImage(fid, opt) {
     opt = opt || {};
     const p = app.p(), b = bounds(p), px = opt.width || 1800;
+    if (opt.axes) { b.x0 -= 900; b.y0 -= 900; b.x1 += 900; b.y1 += 900; }
     const k = px / (b.x1 - b.x0), hpx = Math.round((b.y1 - b.y0) * k) + 60;
     const cv = document.createElement('canvas'); cv.width = px; cv.height = hpx;
     const c = cv.getContext('2d');
@@ -926,8 +927,34 @@ function Plan2D(canvas, app) {
       c.font = FD(700, 22); c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = COL.navy; c.fillText(fl, 24, 16);
       const w1 = c.measureText(fl + ' ').width; c.fillStyle = COL.cyan; c.fillText('·', 24 + w1, 16); c.fillStyle = COL.navy; c.fillText(' ' + DK.fmtA(A) + ' м²', 24 + w1 + c.measureText('·').width, 16);
     }
-    draw(c, { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 }, p, fid, { clean: true, dimOpen: true, numbers: opt.numbers });
+    const V = { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 };
+    draw(c, V, p, fid, { clean: true, dimOpen: true, numbers: opt.numbers });
+    if (opt.axes) drawAxes(c, p, V);
+    if (opt.marks) drawMarks(c, p, fid, V, opt.marks);
     return cv.toDataURL('image/png');
+  }
+
+  /* координационные оси: штрихпунктир через план, марки в кружках по обе стороны */
+  function drawAxes(c, p, V) {
+    const ax = DK.axes(p), ext = DK.extT(p), X = (x) => V.ox + x * V.k, Y = (y) => V.oy + y * V.k, r = Math.max(9, Math.min(15, 300 * V.k));
+    const top = -ext - 1500 - 650, bot = p.D + ext + 650 + 450, left = -ext - 1500 - 650, right = p.W + ext + 650 + 450;
+    c.save(); c.strokeStyle = '#7A8193'; c.lineWidth = 0.8; c.setLineDash([14, 4, 2, 4]);
+    ax.v.forEach(a => line(c, X(a.x), Y(top) + r, X(a.x), Y(bot) - r)); ax.h.forEach(a => line(c, X(left) + r, Y(a.y), X(right) - r, Y(a.y)));
+    c.setLineDash([]); c.font = FB(600, r * 1.05); c.textAlign = 'center'; c.textBaseline = 'middle';
+    const bub = (x, y, t) => { c.fillStyle = '#fff'; c.strokeStyle = COL.ink; c.lineWidth = 1.2; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.stroke(); c.fillStyle = COL.ink; c.fillText(t, x, y + 0.5); };
+    ax.v.forEach(a => { bub(X(a.x), Y(top), a.n); bub(X(a.x), Y(bot), a.n); }); ax.h.forEach(a => { bub(X(left), Y(a.y), a.n); bub(X(right), Y(a.y), a.n); });
+    c.restore();
+  }
+  /* марки проёмов ОП-01 / ДП-01: снаружи у наружных стен, рядом с дверью — у внутренних */
+  function drawMarks(c, p, fid, V, M) {
+    const ws = DK.walls(p, fid), ext = DK.extT(p), X = (x) => V.ox + x * V.k, Y = (y) => V.oy + y * V.k, fs = Math.max(8, Math.min(11, 260 * V.k));
+    c.save(); c.font = FB(600, fs); c.textAlign = 'center'; c.textBaseline = 'middle';
+    p.levels[fid].open.forEach(o => {
+      const m = M.of(fid, o); if (!m) return; const w = ws.find(q => q.id === o.wall); if (!w) return;
+      const d = w.kind === 'outer' ? w.out * (w.t / 2 + ext + 260) : (w.t / 2 + 230), x = w.axis === 'x' ? o.c : w.m + d, y = w.axis === 'x' ? w.m + d : o.c;
+      const tw = c.measureText(m).width + 6; c.fillStyle = 'rgba(255,255,255,.9)'; c.fillRect(X(x) - tw / 2, Y(y) - fs * 0.7, tw, fs * 1.4); c.fillStyle = /^ОП/.test(m) ? COL.blue : COL.ink; c.fillText(m, X(x), Y(y));
+    });
+    c.restore();
   }
 
   window.addEventListener('resize', () => { size(); fit(); });
