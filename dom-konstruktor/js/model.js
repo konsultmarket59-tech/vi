@@ -774,9 +774,29 @@ function extColumns(p, x) {
   }
   if (x.kind === 'balcony' ? x.d <= BALCONY_CANT : (x.roof || 'open') === 'open') return [];
   const n = Math.max(2, Math.ceil(x.w / 3000) + 1), out = [], inset = 150;
+  const j = extJoin(p, x);
   for (let i = 0; i < n; i++) {
-    const a = x.c - x.w / 2 + inset + (x.w - 2 * inset) * i / (n - 1), t = r.far - r.e.out * inset;
+    if (i === 0 && j.lo && (j.lo.roof || 'open') !== 'open' && j.lo.kind !== 'balcony') continue; // общая колонна стоит у соседа
+    // у стыка с соседом колонна одна — ровно на границе террас
+    const a = i === n - 1 && j.hi ? x.c + x.w / 2 : x.c - x.w / 2 + inset + (x.w - 2 * inset) * i / (n - 1), t = r.far - r.e.out * inset;
     out.push(r.e.axis === 'x' ? { x: a, y: t } : { x: t, y: a });
+  }
+  return out;
+}
+/* соседние террасы в ряд: боковая сторона, которой терраса примыкает к другой террасе (крыльцу, балкону того же этажа), —
+   без ограждения, остекления и угловой колонны; ограждение по внешнему краю идёт общей линией */
+function extJoin(p, x) {
+  const r = extRect(p, x), out = { lo: false, hi: false }; if (!r || x.kind === 'garage') return out;
+  const lvl = (q) => q.kind === 'balcony' ? q.fid : 'f1';
+  const others = (p.ext || []).filter(q => q !== x && q.kind !== 'garage' && lvl(q) === lvl(x)).map(q => Object.assign({ q }, extRect(p, q))).filter(o => o.e);
+  const t0 = Math.min(r.face, r.far), t1 = Math.max(r.face, r.far);
+  for (const [k, a] of [['lo', x.c - x.w / 2], ['hi', x.c + x.w / 2]]) {
+    const o = others.find(o => {
+      const [oa0, oa1, ot0, ot1] = r.e.axis === 'x' ? [o.x0, o.x1, o.y0, o.y1] : [o.y0, o.y1, o.x0, o.x1];
+      const ov = Math.min(t1, ot1) - Math.max(t0, ot0);
+      return a >= oa0 - 30 && a <= oa1 + 30 && ov > (t1 - t0) * 0.5;
+    });
+    out[k] = o ? o.q : false;
   }
   return out;
 }
@@ -793,6 +813,41 @@ function exitWin(p, fid, o) {
 }
 /* створка-дверь: средняя (при чётном числе — правая из средних) */
 function exitSash(o) { const n = o.sash || (o.w >= 1300 ? 2 : 1); return { n, i: Math.floor(n / 2) }; }
+
+/* второй свет над помещением: на этаже выше — ограждение по внутренним стенам помещения и тип «второй свет» */
+function lightAbove(p, fid) { const fl = floorsOf(p), i = fl.indexOf(fid); return fid !== 'b' && i >= 0 && i < fl.length - 1 ? fl[i + 1] : null; }
+function secondLightOn(p, fid, r) { const up = lightAbove(p, fid); if (!up || !r) return false; const q = rooms(p, up).at(r.cx, r.cy); return !!q && q.type === 'void'; }
+function secondLight(p, fid, r, on) {
+  const up = lightAbove(p, fid); if (!up || !r) return 'Второй свет — над помещением первого или второго этажа, если выше есть этаж';
+  if (!r.rect) return 'Второй свет делается над прямоугольным помещением';
+  const lv = p.levels[up], inR = (x, y, m) => x > r.x0 - m && x < r.x1 + m && y > r.y0 - m && y < r.y1 + m;
+  // стены этажа выше, проходящие над помещением, мешают: второй свет — одно пространство на два этажа
+  if (on && walls(p, up).some(u => u.kind !== 'outer' && !(u.rail && lv.parts.some(w => w.id === u.id && w.v2)) && (u.axis === 'x' ? u.m > r.y0 + 150 && u.m < r.y1 - 150 && u.a0 < r.x1 - 150 && u.a1 > r.x0 + 150 : u.m > r.x0 + 150 && u.m < r.x1 - 150 && u.a0 < r.y1 - 150 && u.a1 > r.y0 + 150)))
+    return 'Над этим помещением на этаже выше есть стены. Уберите их или выберите другое помещение';
+  // сначала снимаем прежний второй свет над этим помещением
+  lv.names = lv.names.filter(n => !inR(n.x, n.y, 0));
+  const onEdge = (w) => w.v2 && [w.x1, w.x2].every(v => v > r.x0 - 400 && v < r.x1 + 400) && [w.y1, w.y2].every(v => v > r.y0 - 400 && v < r.y1 + 400);
+  lv.parts = lv.parts.filter(w => !onEdge(w));
+  if (!on) return null;
+  const W = walls(p, fid), WU = walls(p, up);
+  // стена нижнего этажа у стороны помещения: ось по середине стены
+  const near = (axis, face, lo, hi) => W.find(w => w.axis === axis && (Math.abs(w.m - w.t / 2 - face) < 6 || Math.abs(w.m + w.t / 2 - face) < 6) && w.a0 < hi - 10 && w.a1 > lo + 10);
+  const L = near('y', r.x0, r.y0, r.y1), R = near('y', r.x1, r.y0, r.y1), T = near('x', r.y0, r.x0, r.x1), B = near('x', r.y1, r.x0, r.x1);
+  const xl = L ? L.m : r.x0 - 30, xr = R ? R.m : r.x1 + 30, yt = T ? T.m : r.y0 - 30, yb = B ? B.m : r.y1 + 30;
+  const sides = [[T, 'x', yt, xl, xr], [B, 'x', yb, xl, xr], [L, 'y', xl, yt, yb], [R, 'y', xr, yt, yb]];
+  for (const [w, axis, m, a0, a1] of sides) {
+    if (w && w.kind === 'outer') continue;
+    // на этаже выше по этой линии уже есть стена — ограждение не нужно
+    if (WU.some(u => u.axis === axis && Math.abs(u.m - m) < 80 && u.a0 <= a0 + 200 && u.a1 >= a1 - 200)) continue;
+    const q = { id: id('w'), rail: true, v2: true };
+    Object.assign(q, axis === 'x' ? { x1: Math.round(a0), y1: Math.round(m), x2: Math.round(a1), y2: Math.round(m) } : { x1: Math.round(m), y1: Math.round(a0), x2: Math.round(m), y2: Math.round(a1) });
+    lv.parts.push(q);
+  }
+  lv.names.push({ x: Math.round(r.cx), y: Math.round(r.cy), type: 'void' });
+  const q = rooms(p, up).at(r.cx, r.cy);
+  if (q && q.area > r.area * 1.25) return 'Второй свет больше помещения: добавьте стены или ограждение на этаже выше';
+  return null;
+}
 
 /* ---------- правка контура ---------- */
 function shiftAll(p, dx, dy) {
@@ -1074,7 +1129,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

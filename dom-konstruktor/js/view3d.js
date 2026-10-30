@@ -773,8 +773,10 @@ function View3D(canvas, app) {
     }
     // ограждение: у открытой террасы — с проходом к ступеням, у балкона — по трём сторонам
     const railH = 1.0, rails = [];
+    const jn = DK.extJoin(p, x);
     if (balcony || (x.kind === 'terrace' && roof !== 'glazed')) {
-      rails.push([A0, A0, face, far], [A1, A1, face, far]);
+      if (!jn.lo) rails.push([A0, A0, face, far]);
+      if (!jn.hi) rails.push([A1, A1, face, far]);
       if (balcony) rails.push([A0, A1, far, far]); else { rails.push([A0, ac - 0.6 - (Math.min(2.0, wd - 0.4) / 2 - 0.6), far, far], [ac + Math.min(2.0, wd - 0.4) / 2, A1, far, far]); }
     }
     for (const [a0, a1, t0, t1] of rails) {
@@ -806,8 +808,8 @@ function View3D(canvas, app) {
         const gl = new T.MeshStandardMaterial({ color: lin('#9fc0d3'), transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.3 }), fr = mat({ c: F.frame });
         const h1 = yFar - 0.05;
         B(A0, A1, far - 0.01, far + 0.01, 0, h1, gl, { noShadow: true });
-        B(A0 - 0.01, A0 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
-        B(A1 - 0.01, A1 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
+        if (!jn.lo) B(A0 - 0.01, A0 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
+        if (!jn.hi) B(A1 - 0.01, A1 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
         for (let a = A0; a <= A1 + 0.001; a += Math.max(0.8, wd / Math.round(wd / 1.0))) B(a - 0.03, a + 0.03, far - 0.03, far + 0.03, 0, h1, fr);
         B(A0, A1, far - 0.04, far + 0.04, 0.9, 0.96, fr);
       }
@@ -1087,7 +1089,8 @@ function View3D(canvas, app) {
         const t = 30, e = r.e;
         const add2 = (a0, a1, t0, t1) => solid.push(e.axis === 'x' ? [a0, Math.min(t0, t1), a1, Math.max(t0, t1)] : [Math.min(t0, t1), a0, Math.max(t0, t1), a1]);
         const a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
-        add2(a0 - t, a0 + t, r.face, r.far); add2(a1 - t, a1 + t, r.face, r.far);
+        const jn = DK.extJoin(p, x);
+        if (!jn.lo) add2(a0 - t, a0 + t, r.face, r.far); if (!jn.hi) add2(a1 - t, a1 + t, r.face, r.far);
         if (x.kind === 'balcony' || x.roof === 'glazed') add2(a0, a1, r.far - t, r.far + t);
         else { const sw = Math.min(2000, x.w - 400); add2(a0, x.c - sw / 2, r.far - t, r.far + t); add2(x.c + sw / 2, a1, r.far - t, r.far + t); }
       }

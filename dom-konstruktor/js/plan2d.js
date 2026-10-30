@@ -192,8 +192,9 @@ function Plan2D(canvas, app) {
       const roof = x.roof || 'open', far = r.far, a0 = x.c - x.w / 2, a1 = x.c + x.w / 2;
       const seg = (s0, s1, t0, t1) => e.axis === 'x' ? line(c, X(s0), Y(t0), X(s1), Y(t1)) : line(c, X(t0), Y(s0), X(t1), Y(s1));
       c.lineWidth = roof === 'glazed' ? 3 : 2.2; c.strokeStyle = roof === 'glazed' ? COL.glass : COL.rail;
-      if (x.kind === 'balcony' || roof === 'glazed') { seg(a0, a1, far, far); seg(a0, a0, r.face, far); seg(a1, a1, r.face, far); }
-      else if (x.kind === 'terrace') { const gap = 600; seg(a0, x.c - gap, far, far); seg(x.c + gap, a1, far, far); seg(a0, a0, r.face, far); seg(a1, a1, r.face, far); }
+      const jn = DK.extJoin(p, x), sides = () => { if (!jn.lo) seg(a0, a0, r.face, far); if (!jn.hi) seg(a1, a1, r.face, far); };
+      if (x.kind === 'balcony' || roof === 'glazed') { seg(a0, a1, far, far); sides(); }
+      else if (x.kind === 'terrace') { const gap = 600; seg(a0, x.c - gap, far, far); seg(x.c + gap, a1, far, far); sides(); }
       c.fillStyle = COL.ink;
       DK.extColumns(p, x).forEach(q => c.fillRect(X(q.x - 150), Y(q.y - 150), L(300), L(300)));
       const fs = Math.max(9, Math.min(13, L(800)));
