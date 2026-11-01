@@ -703,7 +703,12 @@ function View3D(canvas, app) {
         seg(sd, at, L, y0, y0 + H, wm);
       }
       const yt = y0 + H, ov = 0.35, rt = DK.garageRoof(p, x);
-      if (rt === 'flat') {
+      if (rt === 'console') {
+        // хай-тек: толстая плита покрытия с консольным вылетом 1,6 м над въездом, без опор
+        const k = 1.6, s0 = 0.25, cm = mat(F.accentOn === 'none' ? F.main : { c: F.trim }), a0 = A0 - s0 - (gs === 'left' ? k : 0), a1 = A1 + s0 + (gs === 'right' ? k : 0);
+        B(a0, a1, face, tv(D + s0 + (gs === 'far' ? k : 0)), yt, yt + 0.38, cm);
+        B(A0 + TW, A1 - TW, tv(TW), tv(D - TW), yt + 0.38, yt + 0.42, rm);
+      } else if (rt === 'flat') {
         // плоская: парапет по периметру и мембрана
         B(A0, A1, face, far, yt, yt + 0.35, wm); B(A0 + TW, A1 - TW, tv(TW), tv(D - TW), yt + 0.2, yt + 0.24, rm);
       } else if (rt === 'hip') {

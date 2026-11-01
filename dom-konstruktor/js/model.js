@@ -705,8 +705,8 @@ const EXT = {
 const GARAGE = { w: { 1: 4000, 2: 6500, 3: 9500 }, d: 6500, gate: 2500, gap: 2000, h: 2800 };
 const GARAGE_TYPES = { attached: 'Пристрой к дому', detached: 'Отдельно у дома', carport: 'Навес' };
 // кровля гаража: «как у дома» — пристрой односкатный от дома, отдельный повторяет кровлю дома
-const GARAGE_ROOFS = { auto: 'Как у дома', shed: 'Односкатная', gable: 'Двускатная', hip: 'Вальмовая', flat: 'Плоская' };
-function garageRoof(p, x) { if (x.groof && x.groof !== 'auto' && GARAGE_ROOFS[x.groof]) return x.groof; return x.gtype === 'attached' || p.roof.type === 'flat' || p.roof.type === 'shed' ? 'shed' : 'gable'; }
+const GARAGE_ROOFS = { auto: 'Как у дома', shed: 'Односкатная', gable: 'Двускатная', hip: 'Вальмовая', flat: 'Плоская', console: 'Консоль' };
+function garageRoof(p, x) { if (x.groof && x.groof !== 'auto' && GARAGE_ROOFS[x.groof]) return x.groof; if (p.style === 'hitech' && x.gtype === 'attached') return 'console'; return x.gtype === 'attached' || p.roof.type === 'flat' || p.roof.type === 'shed' ? 'shed' : 'gable'; }
 function garageName(x) { const n = x.cars || 1; return `${x.gtype === 'carport' ? 'Навес' : 'Гараж'} на ${n} ${n === 1 ? 'машину' : 'машины'}`; }
 /* сторона ворот гаража: far — от дома, near — к дому (только отдельный), left/right — вдоль стены дома */
 function garageGate(x) { const g = x.gate || 'far'; return g === 'near' && x.gtype === 'attached' ? 'far' : g; }

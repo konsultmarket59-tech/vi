@@ -1,6 +1,6 @@
 /* Тексты сайта, которые правит маркетолог в CRM («Контент» → «Тексты сайта»): ключ — текст по умолчанию.
    Сервер кладёт правки в window.__TEXTS; DK.t(ключ) отдаёт правку или текст по умолчанию.
-   Элементы страницы с атрибутом data-t="ключ" получают текст сами. Тексты шагов — в js/steps.js (ключи step1.t и т. д.). */
+   Элементы страницы с атрибутом data-tx="ключ" получают текст сами. Тексты шагов — в js/steps.js (ключи step1.t и т. д.). */
 (function (root) {
 'use strict';
 const DK = root.DK = root.DK || {};
@@ -41,6 +41,6 @@ if (DK.howSteps) { const st = DK.howSteps(DK.CONFIG); DK.TEXT_GROUPS.push({ g: '
 const O = () => root.__TEXTS || {};
 DK.t = (k, d) => { const v = O()[k]; return v != null && String(v).trim() !== '' ? String(v) : (d != null ? d : (DEF[k] != null ? DEF[k] : '')); };
 DK.tList = (k) => DK.t(k).split('\n').map(s => s.trim()).filter(Boolean);
-DK.applyTexts = (rootEl) => { (rootEl || document).querySelectorAll('[data-t]').forEach(el => { el.textContent = DK.t(el.dataset.t); }); };
+DK.applyTexts = (rootEl) => { (rootEl || document).querySelectorAll('[data-tx]').forEach(el => { el.textContent = DK.t(el.dataset.tx); }); };
 if (typeof document !== 'undefined') { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => DK.applyTexts()); else DK.applyTexts(); }
 })(this);
