@@ -37,8 +37,8 @@ DK.FACADES = {
   hitech: { n: 'Хай-тек', f: F({ main: { m: 'panel', c: '#f1f1f0' }, accent: { m: 'panel', c: '#3b3e44' }, plinth: { m: 'smooth', c: '#2f3237' }, roof: { m: 'smooth', c: '#55585d' }, frame: '#2b2d31', trim: '#2b2d31', door: '#2b2d31', soffit: '#2b2d31', accentOn: 'lower' }) },
 };
 /* кровля по стилю: Райт — низкая вальмовая с широкими свесами, шале — пологая двускатная с широкими свесами, хай-тек — плоская */
-DK.STYLE_ROOF = { wright: { type: 'hip', pitch: 18, ov: 1200 }, chalet: { type: 'gable', pitch: 28, ov: 1200 }, hitech: { type: 'flat', ov: 900 } };
-DK.STYLE_NOTE = { wright: 'Стиль Райта: низкая вальмовая кровля 18° и свесы 1,2 м, горизонтальные пояса', chalet: 'Шале: пологая кровля, свесы 1,2 м, мансардные окна в скатах', hitech: 'Хай-тек: плоская кровля, консольные плиты и угловое остекление' };
+DK.STYLE_ROOF = { wright: { type: 'hip', pitch: 18, ov: 1200 }, chalet: { type: 'gable', pitch: 28, ov: 1200, beams: true, glass: 'one' }, hitech: { type: 'flat', ov: 900 } };
+DK.STYLE_NOTE = { wright: 'Стиль Райта: низкая вальмовая кровля 18° и свесы 1,2 м, горизонтальные пояса', chalet: 'Шале: пологая кровля, свесы 1,2 м, остеклённый фронтон, декоративные балки и мансардные окна в скатах', hitech: 'Хай-тек: плоская кровля, консольные плиты и угловое остекление' };
 /* стили прежней версии → ближайшее сочетание */
 const OLD = { classic: 'beige' };
 DK.facadeOf = function (p) {

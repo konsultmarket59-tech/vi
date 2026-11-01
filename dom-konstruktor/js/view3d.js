@@ -159,8 +159,9 @@ function View3D(canvas, app) {
     return mesh;
   }
   /* скат с толщиной: верх — кровля, низ — подшива, торцы — ветровая/лобовая доска */
+  let roofTh = 0.14; // толщина свеса (пирог кровли + лобовая доска); у основной кровли — по стилю
   function roofPlane(pts, rm, sm, fm, tgt) {
-    const th = 0.14, low = pts.map(q => [q[0], q[1] - th, q[2]]), R = tgt || root;
+    const th = roofTh, low = pts.map(q => [q[0], q[1] - th, q[2]]), R = tgt || root;
     R.add(slope(pts, rm));
     R.add(slope(low.slice().reverse(), sm));
     for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; R.add(slope([pts[i], low[i], low[j], pts[j]], fm)); }
@@ -985,10 +986,46 @@ function View3D(canvas, app) {
   }
 
   /* ---------- кровли: разбиение контура на прямоугольники, крылья заходят в основной объём ---------- */
-  let roofOv = 0.55, roofSky = false;
+  let roofOv = 0.55, roofSky = false, roofGlass = 'none', roofBeams = false, roofF = null;
+  // балка между двумя точками (м): брус сечением w × w
+  function beam(a, b, w, m) {
+    const A = new T.Vector3(a[0], a[1], a[2]), Bv = new T.Vector3(b[0], b[1], b[2]), d = Bv.clone().sub(A), L = d.length(); if (L < 0.01) return;
+    const me = new T.Mesh(new T.BoxGeometry(L, w, w), m); me.position.copy(A).add(Bv).multiplyScalar(0.5);
+    me.quaternion.setFromUnitVectors(new T.Vector3(1, 0, 0), d.normalize()); me.castShadow = true; me.receiveShadow = true; root.add(me);
+  }
+  /* фронтон: остекление треугольника под скатами и декоративные балки (шале) */
+  function gableDecor(P, wu, Uo, sgn, wV0, wV1, vc, yt, yR, yE, V0, V1, glazed) {
+    const wood = mat({ m: 'wood', c: roofF && roofF.trim && roofF.trim !== '#ffffff' ? roofF.trim : '#5a3d26' }), f = wu + sgn * 0.03, half = (wV1 - wV0) / 2;
+    const yAt = (v) => yt + (half - Math.abs(v - vc)) * (yR - yt) / half; // высота ската над точкой фронтона
+    if (glazed) {
+      const glow = lightsOn && mode === 'exterior';
+      const gl = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.8, side: T.DoubleSide }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7, side: T.DoubleSide });
+      const m = 0.18;
+      root.add(poly([P(f, yt + 0.05, wV0 + m * 2), P(f, yt + 0.05, wV1 - m * 2), P(f, yR - m * 1.4, vc)], gl, 0, 1));
+      // импосты: стойки через четверть ширины, ригель на середине высоты
+      const fr = mat({ c: roofF ? roofF.frame : '#3b2a1e' });
+      for (const k of [-0.5, 0.5]) { const v = vc + k * half; beam(P(f + sgn * 0.02, yt, v), P(f + sgn * 0.02, yAt(v) - 0.12, v), 0.07, fr); }
+      const ym = yt + (yR - yt) * 0.45, dv = half * (1 - 0.45);
+      beam(P(f + sgn * 0.02, ym, vc - dv + 0.2), P(f + sgn * 0.02, ym, vc + dv - 0.2), 0.07, fr);
+    }
+    if (roofBeams || glazed) {
+      const w = 0.2, fb = f + sgn * 0.08;
+      beam(P(fb, yt, wV0 + 0.1), P(fb, yt, wV1 - 0.1), w, wood);                  // затяжка по низу фронтона
+      const drop = roofTh + 0.12;                                                    // ниже кровельного пирога, чтобы не торчали над скатом
+      beam(P(fb, yt, vc), P(fb, yR - drop, vc), w, wood);                         // стойка под коньком
+      beam(P(fb, yt - 0.05, wV0 + 0.35), P(fb, yR - drop, vc), w * 0.8, wood); beam(P(fb, yt - 0.05, wV1 - 0.35), P(fb, yR - drop, vc), w * 0.8, wood);
+    }
+    if (roofBeams) {
+      const w = 0.22, bo = Uo + sgn * 0.02;
+      const yb = -roofTh / 2;                                                        // по торцу свеса, в толще пирога
+      beam(P(bo, yE + yb, V0), P(bo, yR + yb, vc), w, wood); beam(P(bo, yE + yb, V1), P(bo, yR + yb, vc), w, wood);   // ветровые балки по скату
+      // консоли-кронштейны под свесом: подкосы от стены к краю свеса
+      for (const v of [wV0 + 0.25, wV1 - 0.25, vc]) { const yr = yAt(v) - roofTh - 0.08; beam(P(wu + sgn * 0.05, yr - 0.9, v), P(Uo - sgn * 0.15, yr - 0.02, v), 0.14, wood); beam(P(wu, yr, v), P(Uo, yr, v), 0.16, wood); }
+    }
+  }
   function roof(p, yt, ext, F, noGable) {
     const t = p.roof.type, e = ext / 1000;
-    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p);
+    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p) && p.roof.glass !== 'both'; roofGlass = p.roof.glass || 'none'; roofBeams = !!p.roof.beams; roofF = F;
     const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
     // у мансарды фронтоны — настоящие стены этажа (с окнами), треугольники не нужны
     const gm = noGable ? null : mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });
@@ -1006,6 +1043,8 @@ function View3D(canvas, app) {
       }
       return;
     }
+    // свес основной кровли толще: пирог кровли и лобовая доска в две доски (шале, Райт) — как на настоящем доме
+    roofTh = (p.roof.fascia || ({ chalet: 340, wright: 300 }[p.style] || 220)) / 1000;
     const RR = DK.roofRects(p), pitch = (p.roof.pitch || DK.ROOFS[t].pitch) * Math.PI / 180;
     const wallM = gm || mat(F.gable || F.main, { side: T.DoubleSide });
     RR.forEach(R => {
@@ -1016,6 +1055,7 @@ function View3D(canvas, app) {
       const cut = surfPlanes(RR[R.jq], t, yt, pitch), cl = (m) => { const m2 = m.clone(); m2.clippingPlanes = cut; m2.clipIntersection = true; m2.clipShadows = true; return m2; };
       roofRect(W, R.j, R.ridgeX, t, yt, pitch, cl(rm), cl(sm), cl(fm), gm && cl(gm), cl(wallM));
     });
+    roofTh = 0.14;
   }
   /* плоскости скатов прямоугольника кровли, положительная сторона — над кровлей */
   function surfPlanes(R, t, yt, pitch) {
@@ -1079,6 +1119,9 @@ function View3D(canvas, app) {
       if (!jU0) root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yR, vc)], gm, uvA, 1));
       if (!jU1) root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yR, vc)], gm, uvA, 1));
       if (jm) for (const u of [jU0 ? wU0 : null, jU1 ? wU1 : null]) if (u != null) root.add(poly([P(u, yt, wV0), P(u, yt, wV1), P(u, yR, vc)], jm, uvA, 1));
+      // остекление фронтона (один — дальний торец основного объёма, оба) и балки шале
+      if (!jU0) gableDecor(P, wU0, U0, -1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && roofGlass === 'both');
+      if (!jU1) gableDecor(P, wU1, U1, 1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && (roofGlass === 'both' || roofGlass === 'one'));
     } else if (t === 'halfhip') {
       const yR = yt + half * tn, yK = yt + half * tn * 0.6, a = half * 0.4;
       roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(U1, yK, vc - a), P(U1 - a, yR, vc), P(U0 + a, yR, vc), P(U0, yK, vc - a)], rm, sm, fm);

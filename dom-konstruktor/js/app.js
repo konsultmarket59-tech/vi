@@ -96,6 +96,8 @@ function refresh() {
   $$('#roofs button').forEach(bt => bt.onclick = () => { P.roof.type = bt.dataset.k; P.roof.pitch = DK.ROOFS[bt.dataset.k].pitch || P.roof.pitch; app.commit('Кровля'); });
   $('#pitchRow').hidden = P.roof.type === 'flat'; $('#ridgeRow').hidden = ['flat', 'hip', 'pyramid'].includes(P.roof.type);
   $('#pitch').value = P.roof.pitch; $('#pitchV').textContent = P.roof.pitch + '°';
+  $('#glassRow').hidden = $('#beamsRow').hidden = P.roof.type !== 'gable';
+  seg($('#gGlass'), P.roof.glass || 'none', 'k'); $('#beams').checked = !!P.roof.beams;
   $('#roofOv').value = P.roof.ov || 550; $('#roofOvV').textContent = ((P.roof.ov || 550) / 1000).toFixed(2).replace('.', ',') + ' м';
   seg($('#ridge'), P.roof.ridge, 'k');
   renderFacade();
@@ -122,6 +124,7 @@ function renderFacade() {
     const k = bt.dataset.k, R = DK.STYLE_ROOF[k]; P.style = k; P.facade = null;
     // стиль задаёт кровлю: тип, уклон и свес (мансарда остаётся под скатной кровлей)
     if (R) { if (!(P.attic && R.type === 'flat')) P.roof.type = R.type; if (R.pitch && !P.attic) P.roof.pitch = R.pitch; P.roof.ov = R.ov; } else delete P.roof.ov;
+    P.roof.beams = !!(R && R.beams); if (R && R.glass) P.roof.glass = R.glass;
     app.commit('Фасад'); if (DK.STYLE_NOTE[k]) toast(DK.STYLE_NOTE[k]);
   });
   const zoneRow = ([k, n]) => {
@@ -517,6 +520,8 @@ function bind() {
   $('#pitch').addEventListener('change', () => app.commit());
   $('#roofOv').addEventListener('input', (e) => { P.roof.ov = +e.target.value; $('#roofOvV').textContent = (P.roof.ov / 1000).toFixed(2).replace('.', ',') + ' м'; if (v3) v3.rebuild(); });
   $('#roofOv').addEventListener('change', () => app.commit());
+  $$('#gGlass button').forEach(b => b.onclick = () => { P.roof.glass = b.dataset.k; app.commit('Остекление фронтона'); });
+  $('#beams').onchange = (e) => { P.roof.beams = e.target.checked; app.commit(e.target.checked ? 'Декоративные балки' : 'Без балок'); };
   $$('#ridge button').forEach(b => b.onclick = () => { P.roof.ridge = b.dataset.k; app.commit(); });
   // виды
   $$('#views button').forEach(b => b.onclick = () => setView(b.dataset.view));
