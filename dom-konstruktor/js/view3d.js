@@ -250,7 +250,7 @@ function View3D(canvas, app) {
       if (af) roofWindows(p, af, ytRoof, F);
       if (p.style === 'hitech') hitechExtras(p, ext, F);
       cornerGlass(p, ext, F);
-      if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), yt + sl);
+      if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), af ? yt - 0.02 : yt + sl - 0.02); // у мансарды — до свеса, иначе накладки протыкают скат
       if (!p.basement) porch(p, ext, F);
     }
     (p.ext || []).forEach(x => { if (x.kind === 'balcony' ? showFloors.includes(x.fid) : showFloors.includes('f1')) extBuild(p, x, F, gy, hc); });
@@ -352,7 +352,7 @@ function View3D(canvas, app) {
     const ws = DK.walls(p, f), ops = p.levels[f].open;
     const logg = regs.filter(r => r.type === 'loggia');
     for (const w of ws) {
-      let my = ops.filter(o => o.wall === w.id && !DK.slopeWin(p, f, o)).map(o => Object.assign({}, o, DK.opSize(p, o)));
+      let my = ops.filter(o => o.wall === w.id && !DK.slopeWin(p, f, o)).map(o => Object.assign({}, o, DK.opSize(p, o), o.gable ? { h: Math.max(600, DK.gableWinH(p, f, o) - (o.sill || 0)) } : {}));
       if (w.kind === 'outer') for (const r of logg.filter(q => q.sides.has(w.id))) {
         // лоджия: вместо стены — парапет 1,0 м, выше открыто до перекрытия
         const lo = w.axis === 'x' ? r.x0 : r.y0, hi = w.axis === 'x' ? r.x1 : r.y1;
@@ -715,7 +715,7 @@ function View3D(canvas, app) {
         B(A0, A1, face, far, yt, yt + 0.35, wm); B(A0 + TW, A1 - TW, tv(TW), tv(D - TW), yt + 0.2, yt + 0.24, rm);
       } else if (rt === 'hip') {
         // вальмовая: конёк вдоль длинной стороны, четыре ската
-        const pitch = Math.min(30, p.roof.pitch || 25) * Math.PI / 180, L0 = A0 - ov, L1 = A1 + ov, t0 = tv(-ov), t1 = tv(D + ov), lu = L1 - L0, lv = D + 2 * ov, yE = yt - ov * Math.tan(pitch);
+        const pitch = (p.roof.gPitch || Math.min(30, p.roof.pitch || 25)) * Math.PI / 180, L0 = A0 - ov, L1 = A1 + ov, t0 = tv(-ov), t1 = tv(D + ov), lu = L1 - L0, lv = D + 2 * ov, yE = yt - ov * Math.tan(pitch);
         if (lu >= lv) {
           const h = lv / 2, yR = yE + h * Math.tan(pitch), tm = tv(D / 2), r0 = L0 + h, r1 = L1 - h;
           roofPlane([P(L0, yE, t0), P(L1, yE, t0), P(r1, yR, tm), P(r0, yR, tm)], rm, sm, fm);
@@ -731,14 +731,14 @@ function View3D(canvas, app) {
         }
       } else if (rt === 'shed') {
         // односкатная от дома; треугольники боковых стен видны с обеих сторон
-        const yHi = yt + D * Math.tan(10 * Math.PI / 180), tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov;
+        const yHi = yt + D * Math.tan((p.roof.gPitch || 10) * Math.PI / 180), tF = far + n * ov, a0 = A0 - ov, a1 = A1 + ov;
         const pts = n > 0 ? [P(a1, yHi, face), P(a0, yHi, face), P(a0, yt, tF), P(a1, yt, tF)] : [P(a0, yHi, face), P(a1, yHi, face), P(a1, yt, tF), P(a0, yt, tF)];
         roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
         for (const aa of [A0 + TW / 2, A1 - TW / 2]) { root.add(poly([P(aa - TW / 2, yt, face), P(aa - TW / 2, yt, far), P(aa - TW / 2, yHi, face)], wm2, ax ? 2 : 0, 1)); root.add(poly([P(aa + TW / 2, yt, face), P(aa + TW / 2, yt, far), P(aa + TW / 2, yHi, face)], wm2, ax ? 2 : 0, 1)); }
         if (!attached) B(A0, A1, face, face + n * TW, yt, yHi, wm);
       } else {
         // двускатная, фронтон над воротами — как у дома
-        const pitch = Math.min(35, p.roof.pitch || 30) * Math.PI / 180, gmat = mat(F.gable || F.main, { side: T.DoubleSide });
+        const pitch = (p.roof.gPitch || Math.min(35, p.roof.pitch || 30)) * Math.PI / 180, gmat = mat(F.gable || F.main, { side: T.DoubleSide });
         if (gs === 'far' || gs === 'near') {
           const yR = yt + ((A1 - A0) / 2) * Math.tan(pitch), t0 = face - n * ov, tF = far + n * ov, L0 = A0 - ov, L1 = A1 + ov, yE = yt - ov * Math.tan(pitch);
           roofPlane([P(L0, yE, t0), P(L0, yE, tF), P(ac, yR, tF), P(ac, yR, t0)], rm, sm, fm);
@@ -832,6 +832,22 @@ function View3D(canvas, app) {
     const place = (mesh, a, y, t) => { mesh.position.set(along ? a : t, y, along ? t : a); return mesh; };
     const mk = (wA, h, d, m) => box(along ? wA : d, h, along ? d : wA, m, 0, 0, 0);
     if (oh <= 0.01) return g;
+    if (o.kind === 'win' && o.gable) {
+      // окно под скат: стекло и импосты до кровли (лишнее срезают плоскости скатов мансарды), верх — рама по скатам
+      const tc = tOut - dirOut * 0.06, prof = 0.08, depth = 0.09, base = y0 + sill;
+      const topAt = (a) => { const X = along ? a * 1000 : w.line - w.out * 50, Y = along ? w.line - w.out * 50 : a * 1000; return y0 + Math.min(DK.atticH(p, X, Y), (sill + oh) * 1000) / 1000; };
+      const glow = lightsOn && mode === 'exterior';
+      const glass = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85, roughness: 0.2 }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7 });
+      g.add(place(mk(ow - prof, oh, 0.02, glass), ac, base + oh / 2, tc));
+      g.add(place(mk(ow, prof, depth, frameM), ac, base + prof / 2, tc));
+      const n = Math.max(2, Math.round(ow / 0.9)), a0 = ac - ow / 2;
+      for (let i = 0; i <= n; i++) { const a = a0 + ow * i / n, top = topAt(Math.max(a0 + 0.05, Math.min(a0 + ow - 0.05, a))); g.add(place(mk(prof, top - base, depth, frameM), a, (base + top) / 2, tc)); }
+      const yt2 = base + 2.2; // ригель на высоте двери
+      if (oh > 2.6) g.add(place(mk(ow, prof, depth, frameM), ac, yt2, tc));
+      // верхняя рама по скатам: короткие отрезки вдоль линии кровли
+      const N = 24; for (let i = 0; i < N; i++) { const a1 = a0 + ow * i / N, a2 = a0 + ow * (i + 1) / N, y1 = topAt(a1), y2 = topAt(a2), L = Math.hypot(a2 - a1, y2 - y1), m2 = mk(L, prof, depth, frameM); place(m2, (a1 + a2) / 2, (y1 + y2) / 2 - prof / 2, tc); m2.rotation[along ? 'z' : 'x'] = (along ? 1 : -1) * Math.atan2(y2 - y1, a2 - a1); g.add(m2); }
+      return g;
+    }
     if (o.kind === 'win') {
       const tc = tOut - dirOut * 0.06, prof = 0.07, depth = 0.08;
       g.add(place(mk(ow, prof, depth, frameM), ac, y0 + sill + prof / 2, tc));
@@ -987,7 +1003,7 @@ function View3D(canvas, app) {
   }
 
   /* ---------- кровли: разбиение контура на прямоугольники, крылья заходят в основной объём ---------- */
-  let roofOv = 0.55, roofSky = false, roofGlass = 'none', roofBeams = false, roofF = null;
+  let roofOv = 0.55, roofSky = false, roofGlass = 'none', roofBeams = false, roofF = null, roofAttic = false;
   // балка между двумя точками (м): брус сечением w × w
   function beam(a, b, w, m) {
     const A = new T.Vector3(a[0], a[1], a[2]), Bv = new T.Vector3(b[0], b[1], b[2]), d = Bv.clone().sub(A), L = d.length(); if (L < 0.01) return;
@@ -1009,7 +1025,7 @@ function View3D(canvas, app) {
       const ym = yt + (yR - yt) * 0.45, dv = half * (1 - 0.45);
       beam(P(f + sgn * 0.02, ym, vc - dv + 0.2), P(f + sgn * 0.02, ym, vc + dv - 0.2), 0.07, fr);
     }
-    if (roofBeams || glazed) {
+    if ((roofBeams || glazed) && !roofAttic) { // у мансарды фронтон — стена с окнами, балки по нему не ставим
       const w = 0.2, fb = f + sgn * 0.08;
       beam(P(fb, yt, wV0 + 0.1), P(fb, yt, wV1 - 0.1), w, wood);                  // затяжка по низу фронтона
       const drop = roofTh + 0.12;                                                    // ниже кровельного пирога, чтобы не торчали над скатом
@@ -1026,7 +1042,7 @@ function View3D(canvas, app) {
   }
   function roof(p, yt, ext, F, noGable) {
     const t = p.roof.type, e = ext / 1000;
-    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p); roofGlass = 'none'; roofBeams = !!p.roof.beams; roofF = F;
+    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p); roofGlass = 'none'; roofBeams = !!p.roof.beams; roofF = F; roofAttic = !!noGable;
     const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
     // у мансарды фронтоны — настоящие стены этажа (с окнами), треугольники не нужны
     const gm = noGable ? null : mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });

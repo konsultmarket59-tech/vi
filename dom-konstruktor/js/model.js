@@ -90,6 +90,7 @@ function opLimits(p, w, o) {
 function opSize(p, o) {
   if (o.kind === 'door' || o.kind === 'pass') return { sill: 0, h: 2100 };
   if (o.kind === 'entry') return { sill: 0, h: 2200 };
+  if (o.gable) return { sill: o.sill || 0, h: o.h || 2500 };
   if (o.pano) return { sill: 0, h: p.hClear - 250 };
   return { sill: o.sill != null ? o.sill : 850, h: o.h || 1500 };
 }
@@ -260,7 +261,7 @@ function atticArea(p, r) {
 }
 /* окно в скате: на мансарде в наружной стене выше колена — становится мансардным окном */
 function slopeWin(p, fid, o) {
-  if (o.kind !== 'win' || fid !== atticFloor(p)) return false;
+  if (o.kind !== 'win' || o.gable || fid !== atticFloor(p)) return false;
   const w = walls(p, fid).find(v => v.id === o.wall); if (!w || w.kind !== 'outer') return false;
   const X = w.axis === 'x' ? o.c : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : o.c;
   return atticH(p, X, Y) < (o.sill || 0) + (o.h || 1500) + 100;
@@ -878,10 +879,18 @@ function openingMarks(p) {
   return { types, of: (fid, o) => { const t = map.get(fid + ':' + o.id); return t ? t.mark : ''; } };
 }
 
+/* окно под скат: остекление фронтона мансарды от пола до кровли; высота по самой высокой точке под скатом в пределах окна */
+function gableWinH(p, fid, o) {
+  const w = walls(p, fid).find(v => v.id === o.wall); if (!w || w.kind !== 'outer') return 0;
+  let mx = 0; for (let k = 0; k <= 10; k++) { const a = o.c - o.w / 2 + o.w * k / 10, X = w.axis === 'x' ? a : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : a; mx = Math.max(mx, atticH(p, X, Y)); }
+  return mx;
+}
+function gableWinOk(p, fid, o) { return atticOn(p) && fid === atticFloor(p) && o.kind === 'win' && gableWinH(p, fid, Object.assign({}, o, { w: Math.max(o.w, 600) })) > knee(p) + 900; }
+
 /* угловое окно: стекло огибает внешний угол дома. Окно ставится у угла (с внутренней стороны стены), на соседней стене
    появляется второе окно той же высоты; снаружи угол закрывает стекло (рисует 3D). cornerSide — ближайший конец стены. */
 function cornerInfo(p, fid, o, loose) {
-  if (o.kind !== 'win' || !o.corner) return null;
+  if (o.kind !== 'win' || !o.corner || (atticOn(p) && fid === atticFloor(p))) return null; // на мансарде угол упирается в скат
   const E = edges(p), e = E.find(q => q.id === o.wall); if (!e) return null;
   const end = o.c - e.lo <= e.hi - o.c ? e.lo : e.hi, sg = end === e.lo ? 1 : -1;
   const n = E.find(q => q.axis !== e.axis && Math.abs(q.line - end) < 3 && e.line >= q.lo - 3 && e.line <= q.hi + 3); if (!n) return null;
@@ -1188,7 +1197,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,
