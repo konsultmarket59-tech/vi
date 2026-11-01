@@ -101,6 +101,9 @@ function refresh() {
   const gar = (P.ext || []).find(x => x.kind === 'garage' && x.gtype !== 'carport' && !['flat', 'console'].includes(DK.garageRoof(P, x)));
   $('#gPitchRow').hidden = !gar;
   if (gar) { const gd = DK.garageRoof(P, gar) === 'shed' ? 10 : Math.min(DK.garageRoof(P, gar) === 'gable' ? 35 : 30, P.roof.pitch || 25), gv = P.roof.gPitch || gd; $('#gPitch').value = gv; $('#gPitchV').textContent = gv + '°'; }
+  // угол свеса: как у ската (по умолчанию) или положе — для двускатной, вальмовой и шатровой
+  $('#ovPRow').hidden = !['gable', 'hip', 'pyramid'].includes(P.roof.type);
+  { const op = P.roof.ovPitch != null ? Math.min(P.roof.ovPitch, P.roof.pitch) : P.roof.pitch; $('#ovPitch').max = P.roof.pitch; $('#ovPitch').value = op; $('#ovPitchV').textContent = op + '°' + (op === P.roof.pitch ? ' (как скат)' : ''); }
   $('#roofOv').value = P.roof.ov || 550; $('#roofOvV').textContent = ((P.roof.ov || 550) / 1000).toFixed(2).replace('.', ',') + ' м';
   seg($('#ridge'), P.roof.ridge, 'k');
   renderFacade();
@@ -549,6 +552,8 @@ function bind() {
   $('#gPitch').addEventListener('change', () => app.commit('Уклон кровли гаража'));
   $('#roofOv').addEventListener('input', (e) => { P.roof.ov = +e.target.value; $('#roofOvV').textContent = (P.roof.ov / 1000).toFixed(2).replace('.', ',') + ' м'; if (v3) v3.rebuild(); });
   $('#roofOv').addEventListener('change', () => app.commit());
+  $('#ovPitch').addEventListener('input', (e) => { const v = +e.target.value; if (v >= P.roof.pitch) delete P.roof.ovPitch; else P.roof.ovPitch = v; $('#ovPitchV').textContent = v + '°' + (v >= P.roof.pitch ? ' (как скат)' : ''); if (v3) v3.rebuild(); });
+  $('#ovPitch').addEventListener('change', () => app.commit('Угол свеса'));
   $('#beams').onchange = (e) => { P.roof.beams = e.target.checked; app.commit(e.target.checked ? 'Декоративные балки' : 'Без балок'); };
   $$('#ridge button').forEach(b => b.onclick = () => { P.roof.ridge = b.dataset.k; app.commit(); });
   // виды

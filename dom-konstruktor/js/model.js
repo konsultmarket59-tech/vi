@@ -272,7 +272,7 @@ function atticArea(p, r) {
 }
 /* окно в скате: на мансарде в наружной стене выше колена — становится мансардным окном */
 function slopeWin(p, fid, o) {
-  if (o.kind !== 'win' || o.gable || fid !== atticFloor(p)) return false;
+  if (o.kind !== 'win' || isGableWin(p, fid, o) || fid !== atticFloor(p)) return false;
   const w = walls(p, fid).find(v => v.id === o.wall); if (!w || w.kind !== 'outer') return false;
   const X = w.axis === 'x' ? o.c : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : o.c;
   if (gableWall(p, w, X, Y)) return false; // во фронтоне ската нет — окно остаётся в стене (высота — по скатам)
@@ -731,7 +731,7 @@ const GARAGE = { w: { 1: 4000, 2: 6500, 3: 9500 }, d: 6500, gate: 2500, gap: 200
 const GARAGE_TYPES = { attached: 'Пристрой к дому', detached: 'Отдельно у дома', carport: 'Навес' };
 // кровля гаража: «как у дома» — пристрой односкатный от дома, отдельный повторяет кровлю дома
 const GARAGE_ROOFS = { auto: 'Как у дома', shed: 'Односкатная', gable: 'Двускатная', hip: 'Вальмовая', flat: 'Плоская', console: 'Консоль' };
-function garageRoof(p, x) { if (x.groof && x.groof !== 'auto' && GARAGE_ROOFS[x.groof]) return x.groof; if (p.style === 'hitech' && x.gtype === 'attached') return 'console'; return x.gtype === 'attached' || p.roof.type === 'flat' || p.roof.type === 'shed' ? 'shed' : 'gable'; }
+function garageRoof(p, x) { if (x.groof && x.groof !== 'auto' && GARAGE_ROOFS[x.groof]) return x.groof; return x.gtype === 'attached' || p.roof.type === 'flat' || p.roof.type === 'shed' ? 'shed' : 'gable'; }
 function garageName(x) { const n = x.cars || 1; return `${x.gtype === 'carport' ? 'Навес' : 'Гараж'} на ${n} ${n === 1 ? 'машину' : 'машины'}`; }
 /* сторона ворот гаража: far — от дома, near — к дому (только отдельный), left/right — вдоль стены дома */
 function garageGate(x) { const g = x.gate || 'far'; return g === 'near' && x.gtype === 'attached' ? 'far' : g; }
@@ -933,7 +933,14 @@ function gableWinH(p, fid, o) {
   let mx = 0; for (let k = 0; k <= 10; k++) { const a = o.c - o.w / 2 + o.w * k / 10, X = w.axis === 'x' ? a : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : a; mx = Math.max(mx, atticH(p, X, Y)); }
   return mx;
 }
-function gableWinOk(p, fid, o) { return atticOn(p) && fid === atticFloor(p) && o.kind === 'win' && gableWinH(p, fid, Object.assign({}, o, { w: Math.max(o.w, 600) })) > knee(p) + 900; }
+/* окно «под скат» стоит во фронтоне мансарды (на вальме ската под фронтон нет) */
+function isGableWin(p, fid, o) {
+  if (!o.gable) return false; const w = walls(p, fid).find(v => v.id === o.wall); if (!w) return false;
+  const X = w.axis === 'x' ? o.c : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : o.c;
+  return gableWall(p, w, X, Y);
+}
+function gableWinOk(p, fid, o) { const w = walls(p, fid).find(v => v.id === o.wall); if (!w) return false; const X = w.axis === 'x' ? o.c : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : o.c; if (!gableWall(p, w, X, Y)) return false;
+  return atticOn(p) && fid === atticFloor(p) && o.kind === 'win' && gableWinH(p, fid, Object.assign({}, o, { w: Math.max(o.w, 600) })) > knee(p) + 900; }
 
 /* угловое окно: стекло огибает внешний угол дома. Окно ставится у угла (с внутренней стороны стены), на соседней стене
    появляется второе окно той же высоты; снаружи угол закрывает стекло (рисует 3D). cornerSide — ближайший конец стены. */
@@ -1049,6 +1056,7 @@ function addBump(p, eid, c, w, d) {
 }
 
 function normalize(p) {
+  if (p.style === 'hitech') p.style = 'modern'; // стиль хай-тек убран
   cleanPoly(p);
   // мансарда — только под скатной кровлей; колено 0,6–1,8 м
   if (p.attic) { if (p.roof.type === 'flat') p.roof.type = 'gable'; p.knee = Math.max(600, Math.min(1800, p.knee || 1200)); }
@@ -1247,7 +1255,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { EXT_RMODE, EXT_STAIRS, extDeck, extRoofForm, extToPlan, extToLocal, extStairs, gableWall, atticWinH, gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { isGableWin, EXT_RMODE, EXT_STAIRS, extDeck, extRoofForm, extToPlan, extToLocal, extStairs, gableWall, atticWinH, gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,
