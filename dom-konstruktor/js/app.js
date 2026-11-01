@@ -168,7 +168,7 @@ function refreshInfo() {
   $('#areas').innerHTML = A.per.map(f => `<div><span>${esc(f.n)}</span><span>${DK.fmtA(f.area)} м²</span></div>`).join('') +
     `<div class="tot"><span>Всего помещений</span><span>${DK.fmtA(A.total)} м²</span></div>${A.loggia ? `<div><span>Лоджии</span><span>${DK.fmtA(A.loggia)} м²</span></div>` : ''}${A.outdoor ? `<div><span>Террасы, крыльца, балконы</span><span>${DK.fmtA(A.outdoor)} м²</span></div>` : ''}${A.garage ? `<div><span>Гараж, навес</span><span>${DK.fmtA(A.garage)} м²</span></div>` : ''}<div><span>Площадь застройки</span><span>${DK.fmtA(A.footprint)} м²</span></div>`;
   const et = DK.estimateText(app.p());
-  $('#est').innerHTML = `<small>Предварительная оценка стоимости строительства (тёплый контур)</small><b>${et.range}</b><small>${et.perM2} · ${esc(C.priceNote)}</small>`;
+  $('#est').innerHTML = `<small>Предварительная оценка стоимости строительства: ${esc(et.inc)}</small><b>${et.range}</b><small>${et.perM2} · ${esc(C.priceNote)}</small>`;
   $('#checks').innerHTML = DK.checks(app.p()).map(c => `<li class="${c.lv}">${esc(c.txt)}</li>`).join('');
 }
 function varIcon(v) {
@@ -707,7 +707,7 @@ function preview() {
   $('#lChanges').innerHTML = (result.ch.length ? result.ch : ['Проект подходит без изменений']).map(t => `<li>${esc(t)}</li>`).join('');
   $('#lNotes').innerHTML = result.notes.map(t => `<li>${esc(t)}</li>`).join(''); $('#lNotesBox').hidden = !result.notes.length;
   const e = result.est;
-  $('#lEst').innerHTML = `<small>Предварительная оценка стоимости строительства (тёплый контур), класс «${esc(C.prices[A.cls].n)}», ${DK.fmtA(e.area)} м²</small><b>${e.range}</b><small>${e.perM2} · ${esc(C.priceNote)}</small>`;
+  $('#lEst').innerHTML = `<small>Предварительная оценка стоимости строительства (${esc(e.inc || 'дом в тёплом контуре')}), класс «${esc(C.prices[A.cls].n)}», ${DK.fmtA(e.area)} м²</small><b>${e.range}</b><small>${e.perM2} · ${esc(C.priceNote)}</small>`;
   override = result.p;
   const imgs = DK.floorsOf(result.p).map(f => plan.toImage(f, { width: 1400 }));
   override = null;

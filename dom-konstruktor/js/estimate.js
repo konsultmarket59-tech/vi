@@ -45,6 +45,7 @@ DK.PRICES_DEFAULT = {
   // пристройки, благоустройство дома
   garage:    { g: 'Пристройки', n: 'Гараж в тёплом контуре (фундамент, стены, кровля, ворота)', u: 'м²', m: 23000, w: 15000 },
   carport:   { g: 'Пристройки', n: 'Навес на стойках с кровлей и площадкой', u: 'м²', m: 7500, w: 4500 },
+  porch:     { g: 'Пристройки', n: 'Крыльцо: бетонная площадка на фундаменте со ступенями', u: 'м²', m: 9500, w: 7500 },
   terrace:   { g: 'Пристройки', n: 'Терраса: сваи, каркас, настил', u: 'м²', m: 8200, w: 6200 },
   terraceRoof:{ g: 'Пристройки', n: 'Навес террасы на колоннах', u: 'м²', m: 7000, w: 5000 },
   terraceGl: { g: 'Пристройки', n: 'Остекление террасы алюминиевым профилем', u: 'м²', m: 14000, w: 4000 },
@@ -137,7 +138,13 @@ DK.estimateQty = function (p) {
     const a = x.w * x.d / 1e6;
     if (x.kind === 'garage') add(x.gtype === 'carport' ? 'carport' : 'garage', a, DK.garageName(x));
     else if (x.kind === 'balcony') add('balcony', a, 'балкон');
+    else if (x.kind === 'porch') { add('porch', a + x.w / 1000 * 0.9, 'крыльцо со ступенями'); if ((x.roof || 'open') !== 'open') add('terraceRoof', a, 'козырёк'); }
     else { add('terrace', a, DK.EXT[x.kind].n); if ((x.roof || 'open') !== 'open') add('terraceRoof', a, 'навес'); if (x.roof === 'glazed') add('terraceGl', (x.w + 2 * x.d) / 1000 * 2.4, 'остекление'); }
+  }
+  // входное крыльцо у двери, если к ней не пристроены крыльцо или терраса (в 3D рисуется всегда): площадка 1,4 м + три ступени
+  const ent = (p.levels.f1.open || []).find(o => o.kind === 'entry');
+  if (ent && !(p.ext || []).some(x => x.kind !== 'balcony' && x.kind !== 'garage' && x.wall === ent.wall && Math.abs(x.c - ent.c) < x.w / 2)) {
+    const pw = ent.w / 1000 + 1.4; add('porch', pw * (1.4 + 0.9), `у входа ${DK.fmtM(pw * 1000)} × 2,3 м`);
   }
   if (p.blind) add('blind', perimeter(DK.outline(p, DK.extT(p) + p.blind / 2)) / 1000 * p.blind / 1000, `ширина ${DK.fmtM(p.blind)} м`);
   return out;
@@ -168,6 +175,10 @@ DK.estimate = function (p, opt) {
 /* строка вилки для экрана */
 DK.estimateText = function (p, cls) {
   const e = DK.estimate(p, { cls }), mln = (v) => (Math.round(v / 1e5) / 10).toLocaleString('ru-RU', { minimumFractionDigits: 1 });
-  return { e, range: `${mln(e.min)}–${mln(e.max)} млн ₽`, perM2: `≈ ${Math.round(e.min / e.area / 1000)}–${Math.round(e.max / e.area / 1000)} тыс. ₽/м²` };
+  // что входит в оценку: дом всегда, остальное — если есть в проекте
+  const has = (k) => e.rows.some(r => r.k === k && r.q > 0), inc = ['дом в тёплом контуре'];
+  if (has('garage') || has('carport')) inc.push('гараж'); if (has('porch')) inc.push('крыльцо'); if (has('terrace')) inc.push('террасы'); if (has('balcony')) inc.push('балконы'); if (has('blind')) inc.push('отмостка');
+  const hk = e.base ? 1 - (e.groups['Пристройки'] || 0) / e.base : 1; // ₽/м² — только по дому, без гаража, крыльца и отмостки
+  return { e, inc: inc.join(', '), range: `${mln(e.min)}–${mln(e.max)} млн ₽`, perM2: `≈ ${Math.round(e.min * hk / e.area / 1000)}–${Math.round(e.max * hk / e.area / 1000)} тыс. ₽/м² дома` };
 };
 })();
