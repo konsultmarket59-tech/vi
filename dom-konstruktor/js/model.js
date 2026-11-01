@@ -878,6 +878,36 @@ function openingMarks(p) {
   return { types, of: (fid, o) => { const t = map.get(fid + ':' + o.id); return t ? t.mark : ''; } };
 }
 
+/* угловое окно: стекло огибает внешний угол дома. Окно ставится у угла (с внутренней стороны стены), на соседней стене
+   появляется второе окно той же высоты; снаружи угол закрывает стекло (рисует 3D). cornerSide — ближайший конец стены. */
+function cornerInfo(p, fid, o, loose) {
+  if (o.kind !== 'win' || !o.corner) return null;
+  const E = edges(p), e = E.find(q => q.id === o.wall); if (!e) return null;
+  const end = o.c - e.lo <= e.hi - o.c ? e.lo : e.hi, sg = end === e.lo ? 1 : -1;
+  const n = E.find(q => q.axis !== e.axis && Math.abs(q.line - end) < 3 && e.line >= q.lo - 3 && e.line <= q.hi + 3); if (!n) return null;
+  const ns = Math.abs(e.line - n.lo) < Math.abs(e.line - n.hi) ? 1 : -1;
+  // окно сдвинули от угла — считаем обычным, пока его не вернут к углу
+  if (!loose && Math.abs(o.c - (end + sg * (ts(p) + o.w / 2))) > 60) return null;
+  return { e, n, end, sg, ns, nEnd: ns > 0 ? n.lo : n.hi };
+}
+function cornerSnap(p, fid, o) {
+  const ci = cornerInfo(p, fid, o, true); if (!ci) return false;
+  o.c = Math.round(ci.end + ci.sg * (ts(p) + o.w / 2)); return true;
+}
+/* проект с добавленными «вторыми половинами» угловых окон — для 3D и плана */
+function withCornerWins(p) {
+  let any = false; const t = ts(p);
+  const lv2 = {};
+  for (const fid of floorsOf(p)) {
+    const lv = p.levels[fid]; if (!lv) continue;
+    const extra = [];
+    lv.open.forEach(o => { const ci = cornerInfo(p, fid, o); if (!ci) return; const cw = o.cw || Math.min(o.w, 1500);
+      extra.push(Object.assign({}, o, { id: o.id + '~c', wall: ci.n.id, c: Math.round(ci.nEnd + ci.ns * (t + cw / 2)), w: cw, sash: 1, corner: false, cornerOf: o.id })); });
+    if (extra.length) { any = true; lv2[fid] = Object.assign({}, lv, { open: lv.open.concat(extra) }); }
+  }
+  return any ? Object.assign({}, p, { levels: Object.assign({}, p.levels, lv2) }) : p;
+}
+
 /* ---------- правка контура ---------- */
 function shiftAll(p, dx, dy) {
   if (!dx && !dy) return;
@@ -1158,7 +1188,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

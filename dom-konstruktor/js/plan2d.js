@@ -149,7 +149,9 @@ function Plan2D(canvas, app) {
       if (w) { c.strokeStyle = COL.sel; c.lineWidth = o.sel && o.sel.id === he ? 4 : 2.5; const e = w.edge;
         if (e.axis === 'x') line(c, X(e.lo), Y(e.line), X(e.hi), Y(e.line)); else line(c, X(e.line), Y(e.lo), X(e.line), Y(e.hi)); }
     }
-    lv.open.forEach(op => drawOpening(c, p, fid, ws, regs, op, X, Y, L, ext, o.sel && o.sel.kind === 'open' && o.sel.id === op.id));
+    // угловые окна: вторая половина на соседней стене
+    const pc = DK.withCornerWins(p), lvc = pc.levels[fid] || lv;
+    lvc.open.forEach(op => drawOpening(c, pc, fid, ws, regs, op, X, Y, L, ext, o.sel && o.sel.kind === 'open' && (o.sel.id === op.id || o.sel.id === op.cornerOf)));
     // подписи помещений
     const nums = o.numbers || (DK.roomNumbers ? DK.roomNumbers(p) : null);
     regs.forEach(r => {

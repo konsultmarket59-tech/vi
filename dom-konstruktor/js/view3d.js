@@ -184,7 +184,7 @@ function View3D(canvas, app) {
 
   /* ---------- сборка ---------- */
   function build() {
-    const p = app.p(), F = DK.facadeOf(p);
+    const p = DK.withCornerWins(app.p()), F = DK.facadeOf(p);
     if (root) { scene.remove(root); root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
     root = new T.Group(); scene.add(root); picks = []; furnPicks = [];
     const ext = DK.extT(p), e = ext / 1000, fl = DK.floorsOf(p), hc = p.hClear / 1000, sl = p.slab / 1000;
@@ -249,6 +249,7 @@ function View3D(canvas, app) {
       roof(p, af ? yt : yt + sl, ext, F, !!af);
       if (af) roofWindows(p, af, ytRoof, F);
       if (p.style === 'hitech') hitechExtras(p, ext, F);
+      cornerGlass(p, ext, F);
       if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), yt + sl);
       if (!p.basement) porch(p, ext, F);
     }
@@ -1025,7 +1026,7 @@ function View3D(canvas, app) {
   }
   function roof(p, yt, ext, F, noGable) {
     const t = p.roof.type, e = ext / 1000;
-    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p) && p.roof.glass !== 'both'; roofGlass = p.roof.glass || 'none'; roofBeams = !!p.roof.beams; roofF = F;
+    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p); roofGlass = 'none'; roofBeams = !!p.roof.beams; roofF = F;
     const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
     // у мансарды фронтоны — настоящие стены этажа (с окнами), треугольники не нужны
     const gm = noGable ? null : mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });
@@ -1081,6 +1082,29 @@ function View3D(canvas, app) {
       q(uc - sw / 2 - 0.06, uc + sw / 2 + 0.06, vA - side * 0.06, vB + side * 0.06, yA - 0.06 * tn, yB + 0.06 * tn, fr, 0);
       q(uc - sw / 2, uc + sw / 2, vA, vB, yA, yB, gl, 0.015);
     }
+  }
+  /* угловые окна: снаружи угол между двумя половинами окна закрыт стеклом, на ребре — тонкий импост */
+  function cornerGlass(p, ext, F) {
+    const t = DK.ts(p), glow = lightsOn && mode === 'exterior';
+    const gl = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85 }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7 }), fr = mat({ c: F.frame });
+    for (const fid of DK.floorsOf(p)) (p.levels[fid].open || []).forEach(o => {
+      const ci = DK.cornerInfo(p, fid, o); if (!ci) return;
+      const sz = DK.opSize(p, o), y0 = DK.elev(p, fid) / 1000 + sz.sill / 1000, h = sz.h / 1000, ym = y0 + h / 2;
+      const e = ci.e, n = ci.n, ce = ci.end / 1000, cn = ci.nEnd / 1000;          // ce — координата угла вдоль стены e, cn — вдоль соседней
+      const fe = (e.line + e.out * ext) / 1000, fn = (n.line + n.out * ext) / 1000; // наружные грани облицовки
+      const L1 = (t + ext) / 1000 + 0.02, oe = e.out * 0.012, on = n.out * 0.012;
+      // панель на стене e: от угла облицовки до начала окна
+      const a0 = ce - ci.sg * ext / 1000, a1 = ce + ci.sg * t / 1000;
+      if (e.axis === 'x') root.add(box(Math.abs(a1 - a0), h, 0.02, gl, (a0 + a1) / 2, ym, fe + oe)); else root.add(box(0.02, h, Math.abs(a1 - a0), gl, fe + oe, ym, (a0 + a1) / 2));
+      const b0 = cn - ci.ns * ext / 1000, b1 = cn + ci.ns * t / 1000;
+      if (n.axis === 'x') root.add(box(Math.abs(b1 - b0), h, 0.02, gl, (b0 + b1) / 2, ym, fn + on)); else root.add(box(0.02, h, Math.abs(b1 - b0), gl, fn + on, ym, (b0 + b1) / 2));
+      // импост на ребре и обвязка сверху и снизу
+      const cx = e.axis === 'x' ? a0 : fe + oe, cz = e.axis === 'x' ? fe + oe : a0;
+      root.add(box(0.07, h, 0.07, fr, cx, ym, cz));
+      for (const yy of [y0, y0 + h]) { if (e.axis === 'x') root.add(box(Math.abs(a1 - a0), 0.06, 0.06, fr, (a0 + a1) / 2, yy, fe + oe)); else root.add(box(0.06, 0.06, Math.abs(a1 - a0), fr, fe + oe, yy, (a0 + a1) / 2));
+        if (n.axis === 'x') root.add(box(Math.abs(b1 - b0), 0.06, 0.06, fr, (b0 + b1) / 2, yy, fn + on)); else root.add(box(0.06, 0.06, Math.abs(b1 - b0), fr, fn + on, yy, (b0 + b1) / 2)); }
+      void L1;
+    });
   }
   /* хай-тек: консольная плита перекрытия по периметру и угловое остекление верхнего этажа */
   function hitechExtras(p, ext, F) {

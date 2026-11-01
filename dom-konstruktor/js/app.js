@@ -96,8 +96,7 @@ function refresh() {
   $$('#roofs button').forEach(bt => bt.onclick = () => { P.roof.type = bt.dataset.k; P.roof.pitch = DK.ROOFS[bt.dataset.k].pitch || P.roof.pitch; app.commit('Кровля'); });
   $('#pitchRow').hidden = P.roof.type === 'flat'; $('#ridgeRow').hidden = ['flat', 'hip', 'pyramid'].includes(P.roof.type);
   $('#pitch').value = P.roof.pitch; $('#pitchV').textContent = P.roof.pitch + '°';
-  $('#glassRow').hidden = $('#beamsRow').hidden = P.roof.type !== 'gable';
-  seg($('#gGlass'), P.roof.glass || 'none', 'k'); $('#beams').checked = !!P.roof.beams;
+  $('#beamsRow').hidden = P.roof.type !== 'gable'; $('#beams').checked = !!P.roof.beams;
   $('#roofOv').value = P.roof.ov || 550; $('#roofOvV').textContent = ((P.roof.ov || 550) / 1000).toFixed(2).replace('.', ',') + ' м';
   seg($('#ridge'), P.roof.ridge, 'k');
   renderFacade();
@@ -124,7 +123,7 @@ function renderFacade() {
     const k = bt.dataset.k, R = DK.STYLE_ROOF[k]; P.style = k; P.facade = null;
     // стиль задаёт кровлю: тип, уклон и свес (мансарда остаётся под скатной кровлей)
     if (R) { if (!(P.attic && R.type === 'flat')) P.roof.type = R.type; if (R.pitch && !P.attic) P.roof.pitch = R.pitch; P.roof.ov = R.ov; } else delete P.roof.ov;
-    P.roof.beams = !!(R && R.beams); if (R && R.glass) P.roof.glass = R.glass;
+    P.roof.beams = !!(R && R.beams); delete P.roof.glass;
     app.commit('Фасад'); if (DK.STYLE_NOTE[k]) toast(DK.STYLE_NOTE[k]);
   });
   const zoneRow = ([k, n]) => {
@@ -195,7 +194,9 @@ function renderSel() {
       <div class="row2"><label class="fld">Сдвиг<span class="row"><button type="button" class="btn sm" id="sL">← 100</button><button type="button" class="btn sm" id="sR">100 →</button></span></label></div>`;
     if (o.kind === 'win') {
       const sz = DK.opSize(P, o);
-      h += `<div class="seg" id="sPano"><button data-k="0" aria-pressed="${!o.pano}">Обычное</button><button data-k="1" aria-pressed="${!!o.pano}">Панорамное</button></div>
+      const wt = o.corner ? (o.pano ? 'cornerP' : 'corner') : o.pano ? 'pano' : 'win', outerW = wl && wl.kind === 'outer';
+      h += `<label class="fld">Тип окна<div class="seg wrap" id="sPano"><button data-k="win" aria-pressed="${wt === 'win'}">Обычное</button><button data-k="pano" aria-pressed="${wt === 'pano'}">Панорамное</button>${outerW ? `<button data-k="corner" aria-pressed="${wt === 'corner'}">Угловое</button><button data-k="cornerP" aria-pressed="${wt === 'cornerP'}">Угловое в пол</button>` : ''}</div></label>
+        ${o.corner ? '<div class="muted">Стекло огибает угол дома: окно встаёт к углу, на соседней стене — вторая половина той же высоты. Угол над окном держит перемычка — учтено в ТЗ.</div>' : ''}
         <label class="fld">Створок<div class="seg" id="sSash">${[1, 2, 3, 4].map(n => `<button data-k="${n}" aria-pressed="${(o.sash || (o.w >= 1300 ? 2 : 1)) === n}">${n}</button>`).join('')}</div></label>
         ${o.pano ? '' : `<div class="row2"><label class="fld">Низ окна от пола<input type="number" id="sSill" step="50" min="300" max="1800" value="${sz.sill}"></label><label class="fld">Высота окна<input type="number" id="sH" step="50" min="400" max="${P.hClear - 300}" value="${sz.h}"></label></div>`}`;
     }
@@ -260,7 +261,13 @@ function renderSel() {
     on('sWm', 'click', () => setW(o.w - 100)); on('sWp', 'click', () => setW(o.w + 100));
     on('sL', 'click', () => { o.c -= 100; clampC(); app.commit(); });
     on('sR', 'click', () => { o.c += 100; clampC(); app.commit(); });
-    $$('#sPano button', box).forEach(b => b.onclick = () => { o.pano = b.dataset.k === '1'; if (o.pano && o.w < 1500) { o.w = 2000; clampC(); } app.commit(); });
+    $$('#sPano button', box).forEach(b => b.onclick = () => {
+      const k = b.dataset.k; o.pano = k === 'pano' || k === 'cornerP'; o.corner = k === 'corner' || k === 'cornerP';
+      if (o.pano && o.w < 1500) o.w = o.corner ? 1500 : 2000;
+      if (o.corner) { if (!DK.cornerSnap(P, r.f, o)) { o.corner = false; toast('Угловое окно — только у внешнего угла дома'); } } else clampC();
+      if (!o.corner) delete o.corner;
+      app.commit(o.corner ? 'Угловое окно' : o.pano ? 'Панорамное окно' : 'Окно');
+    });
     $$('#sSash button', box).forEach(b => b.onclick = () => { o.sash = +b.dataset.k; app.commit(); });
     on('sSill', 'change', (e) => { o.sill = Math.max(0, +e.target.value); app.commit(); });
     on('sH', 'change', (e) => { o.h = Math.max(400, +e.target.value); app.commit(); });
@@ -520,7 +527,6 @@ function bind() {
   $('#pitch').addEventListener('change', () => app.commit());
   $('#roofOv').addEventListener('input', (e) => { P.roof.ov = +e.target.value; $('#roofOvV').textContent = (P.roof.ov / 1000).toFixed(2).replace('.', ',') + ' м'; if (v3) v3.rebuild(); });
   $('#roofOv').addEventListener('change', () => app.commit());
-  $$('#gGlass button').forEach(b => b.onclick = () => { P.roof.glass = b.dataset.k; app.commit('Остекление фронтона'); });
   $('#beams').onchange = (e) => { P.roof.beams = e.target.checked; app.commit(e.target.checked ? 'Декоративные балки' : 'Без балок'); };
   $$('#ridge button').forEach(b => b.onclick = () => { P.roof.ridge = b.dataset.k; app.commit(); });
   // виды
