@@ -208,24 +208,34 @@ function mainRect(p) { return decompose(p)[0]; }
 /* ---------- кровля по прямоугольникам и мансарда ---------- */
 /* прямоугольники кровли (мм, по облицовке): крылья заходят в основной объём; ridgeX — конёк вдоль X */
 function roofRects(p) {
-  const e = extT(p), rects = decompose(p).map(r => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, j: {} }));
+  const e = extT(p), rects = decompose(p).map(r => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1, j: {}, ab: {} }));
+  // направление конька: у основного — по длинной стороне (или короткой по выбору), у крыла — от основного объёма наружу
+  if (rects[0]) { const r = rects[0], longX = (r.x1 - r.x0) >= (r.y1 - r.y0); r.rx = p.roof.ridge === 'short' ? !longX : longX; }
   for (let k = 1; k < rects.length; k++) {
     const r = rects[k];
     for (let q = 0; q < k; q++) {
       const o = rects[q], ox = Math.min(r.x1, o.x1) - Math.max(r.x0, o.x0), oz = Math.min(r.y1, o.y1) - Math.max(r.y0, o.y0);
-      if (r.y0 === o.y1 && ox > 0) { r.y0 -= (o.y1 - o.y0) / 2; r.j.z0 = 1; r.jq = q; break; }
-      if (r.y1 === o.y0 && ox > 0) { r.y1 += (o.y1 - o.y0) / 2; r.j.z1 = 1; r.jq = q; break; }
-      if (r.x0 === o.x1 && oz > 0) { r.x0 -= (o.x1 - o.x0) / 2; r.j.x0 = 1; r.jq = q; break; }
-      if (r.x1 === o.x0 && oz > 0) { r.x1 += (o.x1 - o.x0) / 2; r.j.x1 = 1; r.jq = q; break; }
+      const side = r.y0 === o.y1 && ox > 0 ? 'z0' : r.y1 === o.y0 && ox > 0 ? 'z1' : r.x0 === o.x1 && oz > 0 ? 'x0' : r.x1 === o.x0 && oz > 0 ? 'x1' : null;
+      if (!side) continue;
+      const alongX = side[0] === 'x', opp = { x0: 'x1', x1: 'x0', z0: 'z1', z1: 'z0' }[side];
+      r.j[side] = 1; r.jq = q; r.rx = alongX;
+      if (alongX === !!o.rx) {
+        // примыкание к торцу (фронтону): коньки параллельны — крыло не вдвигаем внутрь основного объёма,
+        // при той же ширине кровли сливаются в одну, иначе у основного объёма на этом торце нет декора
+        const same = alongX ? r.y0 === o.y0 && r.y1 === o.y1 : r.x0 === o.x0 && r.x1 === o.x1;
+        if (same) o.j[opp] = 1; else o.ab[opp] = 1;
+      } else {
+        const d = alongX ? (o.x1 - o.x0) / 2 : (o.y1 - o.y0) / 2;
+        if (side === 'z0') r.y0 -= d; else if (side === 'z1') r.y1 += d; else if (side === 'x0') r.x0 -= d; else r.x1 += d;
+      }
+      break;
     }
+    if (r.rx == null) r.rx = (r.x1 - r.x0) >= (r.y1 - r.y0);
   }
   const pitch = (p.roof.pitch || 30) * Math.PI / 180;
-  return rects.map((r, k) => {
+  return rects.map((r) => {
     const W = { x0: r.x0 - (r.j.x0 ? 0 : e), x1: r.x1 + (r.j.x1 ? 0 : e), y0: r.y0 - (r.j.z0 ? 0 : e), y1: r.y1 + (r.j.z1 ? 0 : e) };
-    const longX = (W.x1 - W.x0) >= (W.y1 - W.y0);
-    // крыло (выступ, Г, Т, П): конёк от основного объёма наружу — фронтон на свободном торце, ендовы у примыкания
-    const ridgeX = k === 0 ? (p.roof.ridge === 'short' ? !longX : longX) : r.jq != null ? !!(r.j.x0 || r.j.x1) : longX;
-    return { W, j: r.j, jq: r.jq == null ? null : r.jq, ridgeX, pitch };
+    return { W, j: r.j, ab: r.ab, jq: r.jq == null ? null : r.jq, ridgeX: r.rx, pitch };
   });
 }
 function atticOn(p) { const fl = floorsOf(p).filter(f => f !== 'b'); return !!p.attic && fl.length > 1 && p.roof.type !== 'flat'; }

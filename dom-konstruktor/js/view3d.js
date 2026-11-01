@@ -291,17 +291,28 @@ function View3D(canvas, app) {
     const sets = atticPlanes(p, ytRoof), bb = new T.Box3(), c = new T.Vector3();
     // ключ кеша — по самим плоскостям: после правки формы дома прежние срезы не годятся
     const sig = sets.map(S => S.planes.map(q => q.normal.toArray().concat(q.constant).map(v => v.toFixed(3)).join(',')).join(';')).join('|');
-    root.children.slice(n0).forEach(obj => {
-      obj.updateMatrixWorld(true);
-      obj.traverse(o => {
-        if (!o.isMesh || !o.material) return;
-        bb.setFromObject(o); bb.getCenter(c);
-        let k = sets.findIndex(S => c.x >= S.W.x0 - 0.01 && c.x <= S.W.x1 + 0.01 && c.z >= S.W.z0 - 0.01 && c.z <= S.W.z1 + 0.01);
-        if (k < 0) k = 0;
-        const m = o.material, key = m.uuid + '|' + k + '|' + sig;
-        if (!clipCache[key]) { const m2 = m.clone(); m2.clippingPlanes = (m.clippingPlanes || []).concat(sets[k].planes); m2.clipShadows = true; clipCache[key] = m2; }
-        o.material = clipCache[key];
-      });
+    // стена, проходящая под несколькими кровлями (например, вдоль конька через основной объём и пристройку),
+    // режется по каждой своей: копия на каждый прямоугольник кровли, обрезанная его скатами и его границами
+    const bound = (W) => [new T.Plane(new T.Vector3(1, 0, 0), -(W.x0 - 0.01)), new T.Plane(new T.Vector3(-1, 0, 0), W.x1 + 0.01), new T.Plane(new T.Vector3(0, 0, 1), -(W.z0 - 0.01)), new T.Plane(new T.Vector3(0, 0, -1), W.z1 + 0.01)];
+    const meshes = [];
+    root.children.slice(n0).forEach(obj => { obj.updateMatrixWorld(true); obj.traverse(o => { if (o.isMesh && o.material) meshes.push(o); }); });
+    const clipMat = (m, k, multi) => {
+      const key = m.uuid + '|' + k + '|' + (multi ? 'b' : '') + sig;
+      if (!clipCache[key]) { const m2 = m.clone(); m2.clippingPlanes = (m.clippingPlanes || []).concat(sets[k].planes, multi ? bound(sets[k].W) : []); m2.clipShadows = true; clipCache[key] = m2; }
+      return clipCache[key];
+    };
+    meshes.forEach(o => {
+      bb.setFromObject(o); bb.getCenter(c);
+      const over = sets.map((S, i) => (Math.min(bb.max.x, S.W.x1) - Math.max(bb.min.x, S.W.x0) > 0.05 && Math.min(bb.max.z, S.W.z1) - Math.max(bb.min.z, S.W.z0) > 0.05) ? i : -1).filter(i => i >= 0);
+      if (over.length > 1 && !(over.some(i => bb.min.x >= sets[i].W.x0 - 0.01 && bb.max.x <= sets[i].W.x1 + 0.01 && bb.min.z >= sets[i].W.z0 - 0.01 && bb.max.z <= sets[i].W.z1 + 0.01))) {
+        const m = o.material;
+        over.slice(1).forEach(k => { const cp = new T.Mesh(o.geometry, clipMat(m, k, true)); cp.position.copy(o.position); cp.quaternion.copy(o.quaternion); cp.scale.copy(o.scale); cp.castShadow = o.castShadow; cp.receiveShadow = o.receiveShadow; o.parent.add(cp); });
+        o.material = clipMat(m, over[0], true);
+        return;
+      }
+      let k = sets.findIndex(S => c.x >= S.W.x0 - 0.01 && c.x <= S.W.x1 + 0.01 && c.z >= S.W.z0 - 0.01 && c.z <= S.W.z1 + 0.01);
+      if (k < 0) k = 0;
+      o.material = clipMat(o.material, k, false);
     });
   }
   /* мансардные окна в скатах: стекло с окладом по плоскости кровли */
@@ -1066,13 +1077,21 @@ function View3D(canvas, app) {
     const wallM = gm || mat(F.gable || F.main, { side: T.DoubleSide });
     RR.forEach(R => {
       const W = { x0: R.W.x0 / 1000, x1: R.W.x1 / 1000, z0: R.W.y0 / 1000, z1: R.W.y1 / 1000 };
-      if (R.jq == null) { roofRect(W, R.j, R.ridgeX, t, yt, pitch, rm, sm, fm, gm, null, true); if (roofSky) skylights(W, R.ridgeX, t, yt, pitch); return; }
+      if (R.jq == null) { roofRect(W, R.j, R.ridgeX, t, yt, pitch, rm, sm, fm, gm, null, true, R.ab, wallM); if (roofSky) skylights(W, R.ridgeX, t, yt, pitch); return; }
       // крыло: всё, что ниже кровли основного объёма, отсекается — получаются ендовы без торчащих свесов;
       // торец у примыкания закрыт фронтоном (виден только там, где крыло выше основной кровли)
-      const cut = surfPlanes(RR[R.jq], t, yt, pitch), cl = (m) => { const m2 = m.clone(); m2.clippingPlanes = cut; m2.clipIntersection = true; m2.clipShadows = true; return m2; };
-      roofRect(W, R.j, R.ridgeX, t, yt, pitch, cl(rm), cl(sm), cl(fm), gm && cl(gm), cl(wallM));
+      const cut = surfPlanes(RR[R.jq], t, yt, pitch).concat(boundPlanes(RR[R.jq])), cl = (m) => { const m2 = m.clone(); m2.clippingPlanes = cut; m2.clipIntersection = true; m2.clipShadows = true; return m2; };
+      roofRect(W, R.j, R.ridgeX, t, yt, pitch, cl(rm), cl(sm), cl(fm), gm && cl(gm), cl(wallM), false, R.ab);
     });
     roofTh = 0.14;
+  }
+  /* границы прямоугольника кровли со свесами (положительная сторона — снаружи): крыло срезается скатами
+     основного объёма только над ним самим, а не по бесконечным плоскостям — иначе пропадала кровля пристроек у торца */
+  function boundPlanes(R) {
+    // вдоль карнизов — со свесом (там ендовы), по торцам — до стены: под свесом фронтона кровля пристройки идёт до стены
+    const W = R.W, J = R.j || {}, ox = R.ridgeX ? 0 : roofOv, oz = R.ridgeX ? roofOv : 0;
+    const x0 = W.x0 / 1000 - (J.x0 ? 0 : ox), x1 = W.x1 / 1000 + (J.x1 ? 0 : ox), z0 = W.y0 / 1000 - (J.z0 ? 0 : oz), z1 = W.y1 / 1000 + (J.z1 ? 0 : oz);
+    return [new T.Plane(new T.Vector3(-1, 0, 0), x0), new T.Plane(new T.Vector3(1, 0, 0), -x1), new T.Plane(new T.Vector3(0, 0, -1), z0), new T.Plane(new T.Vector3(0, 0, 1), -z1)];
   }
   /* плоскости скатов прямоугольника кровли, положительная сторона — над кровлей */
   function surfPlanes(R, t, yt, pitch) {
@@ -1144,7 +1163,7 @@ function View3D(canvas, app) {
       root.add(box(0.08, yb - ya, 0.08, fr, c.x / 1000, (ya + yb) / 2, c.y / 1000));
     }
   }
-  function roofRect(W, J, ridgeX, t, yt, pitch, rm, sm, fm, gm, jm, main) {
+  function roofRect(W, J, ridgeX, t, yt, pitch, rm, sm, fm, gm, jm, main, ab, am) {
     const ov = roofOv, tn = Math.tan(pitch);
     const wU0 = ridgeX ? W.x0 : W.z0, wU1 = ridgeX ? W.x1 : W.z1, wV0 = ridgeX ? W.z0 : W.x0, wV1 = ridgeX ? W.z1 : W.x1;
     const jU0 = ridgeX ? J.x0 : J.z0, jU1 = ridgeX ? J.x1 : J.z1, jV0 = ridgeX ? J.z0 : J.x0, jV1 = ridgeX ? J.z1 : J.x1;
@@ -1152,20 +1171,29 @@ function View3D(canvas, app) {
     const P = (u, y, v) => ridgeX ? [u, y, v] : [v, y, u];
     const half = (wV1 - wV0) / 2, vc = (wV0 + wV1) / 2, yE = yt - ov * tn;
     const uvA = ridgeX ? 2 : 0;
+    // к торцу примыкает пристройка (её кровля ниже) — балки и кронштейны на этом фронтоне не ставим
+    ab = ab || {}; const aU0 = ridgeX ? ab.x0 : ab.z0, aU1 = ridgeX ? ab.x1 : ab.z1;
+    const jEnd = (u) => { if (jm) root.add(poly([P(u, yt, wV0), P(u, yt, wV1), P(u, yt + half * tn, vc)], jm, uvA, 1)); };
     if (t === 'gable') {
       const yR = yt + half * tn;
       roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(U1, yR, vc), P(U0, yR, vc)], rm, sm, fm);
       roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(U0, yR, vc), P(U1, yR, vc)], rm, sm, fm);
-      if (!jU0) root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yR, vc)], gm, uvA, 1));
-      if (!jU1) root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yR, vc)], gm, uvA, 1));
+      // у мансарды фронтон — стена этажа; но над низкой пристройкой у торца она внутренняя, снаружи закрываем отделкой
+      const g0 = gm || (aU0 && am), g1 = gm || (aU1 && am);
+      if (!jU0 && g0) root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yR, vc)], g0, uvA, 1));
+      if (!jU1 && g1) root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yR, vc)], g1, uvA, 1));
       if (jm) for (const u of [jU0 ? wU0 : null, jU1 ? wU1 : null]) if (u != null) root.add(poly([P(u, yt, wV0), P(u, yt, wV1), P(u, yR, vc)], jm, uvA, 1));
       // остекление фронтона (один — дальний торец основного объёма, оба) и балки шале
-      if (!jU0) gableDecor(P, wU0, U0, -1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && roofGlass === 'both');
-      if (!jU1) gableDecor(P, wU1, U1, 1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && (roofGlass === 'both' || roofGlass === 'one'));
+      if (!jU0 && !aU0) gableDecor(P, wU0, U0, -1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && roofGlass === 'both');
+      if (!jU1 && !aU1) gableDecor(P, wU1, U1, 1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && (roofGlass === 'both' || roofGlass === 'one'));
     } else if (t === 'halfhip') {
       const yR = yt + half * tn, yK = yt + half * tn * 0.6, a = half * 0.4;
-      roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(U1, yK, vc - a), P(U1 - a, yR, vc), P(U0 + a, yR, vc), P(U0, yK, vc - a)], rm, sm, fm);
-      roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(U0, yK, vc + a), P(U0 + a, yR, vc), P(U1 - a, yR, vc), P(U1, yK, vc + a)], rm, sm, fm);
+      // у примыкания (крыло) скат доходит до торца без вальмы
+      const e0 = (s) => jU0 ? [P(U0, yR, vc)] : s > 0 ? [P(U0 + a, yR, vc), P(U0, yK, vc - a)] : [P(U0, yK, vc + a), P(U0 + a, yR, vc)];
+      const e1 = (s) => jU1 ? [P(U1, yR, vc)] : s > 0 ? [P(U1, yK, vc - a), P(U1 - a, yR, vc)] : [P(U1 - a, yR, vc), P(U1, yK, vc + a)];
+      roofPlane([P(U0, yE, V0), P(U1, yE, V0), ...e1(1), ...e0(1)], rm, sm, fm);
+      roofPlane([P(U1, yE, V1), P(U0, yE, V1), ...e0(-1), ...e1(-1)], rm, sm, fm);
+      if (jU0) jEnd(wU0); if (jU1) jEnd(wU1);
       if (!jU0) { roofPlane([P(U0, yK, vc + a), P(U0, yK, vc - a), P(U0 + a, yR, vc)], rm, sm, fm); root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yK, vc + a), P(wU0, yK, vc - a)], gm, uvA, 1)); }
       if (!jU1) { roofPlane([P(U1, yK, vc - a), P(U1, yK, vc + a), P(U1 - a, yR, vc)], rm, sm, fm); root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yK, vc + a), P(wU1, yK, vc - a)], gm, uvA, 1)); }
     } else if (t === 'pyramid') {
@@ -1175,12 +1203,14 @@ function View3D(canvas, app) {
       roofPlane([P(U0, yE, V1), P(U0, yE, V0), P(uc, yR, vc)], rm, sm, fm);
       roofPlane([P(U1, yE, V0), P(U1, yE, V1), P(uc, yR, vc)], rm, sm, fm);
     } else if (t === 'hip') {
-      const hv = (V1 - V0) / 2, yR = yE + hv * tn, uc = (U0 + U1) / 2, rl = Math.max(0, (U1 - U0) / 2 - hv);
-      const a = uc - rl, b = uc + rl;
+      const hv = (V1 - V0) / 2, yR = yE + hv * tn, uc = (U0 + U1) / 2;
+      // у примыкания (крыло) вальмы нет: конёк доходит до торца, торец закрыт фронтоном
+      let a = jU0 ? U0 : U0 + hv, b = jU1 ? U1 : U1 - hv;
+      if (a > b) { if (jU0 && !jU1) b = a; else if (jU1 && !jU0) a = b; else a = b = uc; }
       roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(b, yR, vc), P(a, yR, vc)], rm, sm, fm);
       roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(a, yR, vc), P(b, yR, vc)], rm, sm, fm);
-      roofPlane([P(U0, yE, V1), P(U0, yE, V0), P(a, yR, vc)], rm, sm, fm);
-      roofPlane([P(U1, yE, V0), P(U1, yE, V1), P(b, yR, vc)], rm, sm, fm);
+      if (!jU0) roofPlane([P(U0, yE, V1), P(U0, yE, V0), P(a, yR, vc)], rm, sm, fm); else jEnd(wU0);
+      if (!jU1) roofPlane([P(U1, yE, V0), P(U1, yE, V1), P(b, yR, vc)], rm, sm, fm); else jEnd(wU1);
     } else if (t === 'shed') {
       const yH = yt + (wV1 - wV0) * tn, yLo = yt - ov * tn, yHi = yH + ov * tn;
       roofPlane([P(U0, yLo, V0), P(U1, yLo, V0), P(U1, yHi, V1), P(U0, yHi, V1)], rm, sm, fm);
@@ -1485,6 +1515,7 @@ function View3D(canvas, app) {
     stop() { running = false; if (document.pointerLockElement === canvas) document.exitPointerLock(); },
     rebuild() { schedule(); },
     fit() { frame(); placeCam(); },
+    orbit(o) { if (o) { Object.assign(orbit, o); placeCam(); } return Object.assign({}, orbit); },
     zoom(f) { orbit.r = Math.max(2, Math.min(180, orbit.r * f)); placeCam(); },
     walkFloor(f) { fid = f; startWalk(f); placeCam(); },
     shot() { renderer.render(scene, cam); return canvas.toDataURL('image/png'); },
