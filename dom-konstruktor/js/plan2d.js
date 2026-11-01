@@ -177,6 +177,22 @@ function Plan2D(canvas, app) {
       c.fillText('МОКРАЯ ЗОНА', X(p.wet.x) + 5, Y(p.wet.y) + 4);
     }
     if (o.dims !== false) dims(c, p, fid, ws, X, Y, L, ext, o.dimOpen);
+    // инструмент «Второй свет»: где он возможен (зелёным), уже есть (синим), нельзя (серой штриховкой)
+    if (tool === 'light2' && !o.noTools) {
+      for (const sp of DK.secondLightSpots(p, fid)) {
+        const r = sp.r, R = [X(r.x0), Y(r.y0), L(r.x1 - r.x0), L(r.y1 - r.y0)];
+        c.save();
+        if (sp.ok) { c.fillStyle = sp.on ? 'rgba(39,132,235,.22)' : 'rgba(47,179,90,.20)'; c.strokeStyle = sp.on ? '#2784EB' : '#2FB35A'; c.lineWidth = 2.5; c.setLineDash(sp.on ? [] : [8, 5]); }
+        else { c.fillStyle = 'rgba(120,120,120,.10)'; c.strokeStyle = 'rgba(120,120,120,.6)'; c.lineWidth = 1; c.setLineDash([3, 4]); }
+        r.cells.forEach(q => c.fillRect(X(q[0]), Y(q[1]), L(q[2] - q[0]), L(q[3] - q[1])));
+        if (r.rect) c.strokeRect(R[0] + 2, R[1] + 2, R[2] - 4, R[3] - 4);
+        const fs = Math.max(9, Math.min(12, L(450)));
+        if (R[2] > 60 && R[3] > 30) { c.font = FB(700, fs); c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = sp.ok ? (sp.on ? '#2784EB' : '#1f8a45') : '#777';
+          c.fillText(sp.ok ? (sp.on ? 'Второй свет — убрать' : 'Можно второй свет') : 'Нельзя', R[0] + R[2] / 2, R[1] + R[3] / 2 - fs * 0.7);
+          c.font = FB(500, fs * 0.85); c.fillText(sp.ok ? `над «${(DK.ROOM[sp.r.type] || DK.ROOM.none).n}», ${DK.fmtA(sp.r.area)} м²` : sp.why, R[0] + R[2] / 2, R[1] + R[3] / 2 + fs * 0.6); }
+        c.restore();
+      }
+    }
     c.restore();
   }
   function extsOn(p, fid) { return (p.ext || []).filter(x => x.kind === 'balcony' ? x.fid === fid : fid === 'f1'); }
@@ -703,6 +719,15 @@ function Plan2D(canvas, app) {
     if (tool === 'bump') { placeBump(p, fid, w.x, w.y); return; }
     if (tool === 'terrace' || tool === 'porch' || tool === 'balcony' || tool === 'garage') { placeExt(p, fid, w.x, w.y); return; }
     if (tool === 'post') { placePost(p, fid, w.x, w.y); return; }
+    if (tool === 'light2') {
+      if (!DK.lightBelow(p, fid)) { app.toast('Второй свет делается на плане верхнего этажа — над помещением этажа ниже'); return; }
+      const sp = DK.secondLightSpots(p, fid).find(q => q.r.cells.some(c2 => w.x >= c2[0] && w.x <= c2[2] && w.y >= c2[1] && w.y <= c2[3]));
+      if (!sp) { app.toast('Нажмите на подсвеченное помещение'); return; }
+      if (!sp.ok) { app.toast('Здесь второй свет нельзя: ' + sp.why); return; }
+      const msg = DK.secondLight(p, sp.lo, sp.r, !sp.on);
+      app.commit(sp.on ? 'Второй свет убран' : 'Второй свет'); if (msg) app.toast(msg);
+      return;
+    }
     if (tool === 'xstair') { placeXStair(p, fid, w.x, w.y); return; }
     if (tool === 'wet' && p.wet) {
       const z = p.wet, tol = 10 / view.k;
@@ -1001,7 +1026,7 @@ function Plan2D(canvas, app) {
       const w1 = c.measureText(fl + ' ').width; c.fillStyle = COL.cyan; c.fillText('·', 24 + w1, 16); c.fillStyle = COL.navy; c.fillText(' ' + DK.fmtA(A) + ' м²', 24 + w1 + c.measureText('·').width, 16);
     }
     const V = { k, ox: -b.x0 * k, oy: -b.y0 * k + 50 };
-    draw(c, V, p, fid, { clean: true, dimOpen: true, numbers: opt.numbers });
+    draw(c, V, p, fid, { clean: true, noTools: true, dimOpen: true, numbers: opt.numbers });
     if (opt.axes) drawAxes(c, p, V);
     if (opt.marks) drawMarks(c, p, fid, V, opt.marks);
     return cv.toDataURL('image/png');

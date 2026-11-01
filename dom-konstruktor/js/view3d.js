@@ -1254,10 +1254,14 @@ function View3D(canvas, app) {
     const pl = (k, y0, v0) => new T.Plane(new T.Vector3(vAx === 'x' ? -k : 0, 1, vAx === 'z' ? -k : 0), -(y0 - k * v0)).normalize();
     if (t === 'mansard') { const a = half * 0.22, k1 = Math.tan(62 * Math.PI / 180), yB = yt + a * k1; return [pl(k1, yt, wV0), pl(-k1, yt, wV1), pl(tn, yB, wV0 + a), pl(-tn, yB, wV1 - a)]; }
     if (t === 'shed') return [pl(tn, yt, wV0)];
-    const out = [pl(tn, yt, wV0), pl(-tn, yt, wV1)];
+    const wU0 = (R.ridgeX ? W.x0 : W.y0) / 1000, wU1 = (R.ridgeX ? W.x1 : W.y1) / 1000;
+    // шатёр: вершина по большей стороне — у граней свои уклоны
+    let kV = tn, kU = tn;
+    if (t === 'pyramid') { const hu = (wU1 - wU0) / 2, H = Math.max(half, hu) * tn; kV = H / half; kU = H / hu; }
+    const out = [pl(kV, yt, wV0), pl(-kV, yt, wV1)];
     // вальма и шатёр: торцевые скаты тоже ограничивают кровлю (иначе крыло торчит над вальмой)
     if (t === 'hip' || t === 'pyramid') {
-      const uAx = R.ridgeX ? 'x' : 'z', J = R.j || {}, wU0 = (R.ridgeX ? W.x0 : W.y0) / 1000, wU1 = (R.ridgeX ? W.x1 : W.y1) / 1000;
+      const uAx = R.ridgeX ? 'x' : 'z', J = R.j || {}, tn = kU;
       const pu = (k, y0, u0) => new T.Plane(new T.Vector3(uAx === 'x' ? -k : 0, 1, uAx === 'z' ? -k : 0), -(y0 - k * u0)).normalize();
       if (!(R.ridgeX ? J.x0 : J.z0)) out.push(pu(tn, yt, wU0));
       if (!(R.ridgeX ? J.x1 : J.z1)) out.push(pu(-tn, yt, wU1));
@@ -1282,13 +1286,13 @@ function View3D(canvas, app) {
   /* угловые окна: снаружи угол между двумя половинами окна закрыт стеклом, на ребре — тонкий импост */
   function cornerGlass(p, ext, F) {
     const t = DK.ts(p), glow = lightsOn && mode === 'exterior';
-    const gl = winGlass(glow), fr = mat({ c: F.frame });
+    const gl = glow ? winGlass(true) : new T.MeshStandardMaterial({ color: lin('#3e5566'), roughness: 0.05, metalness: 0.6 }), fr = mat({ c: F.frame }); // непрозрачное: панель стоит перед стеной, иначе рябит
     for (const fid of DK.floorsOf(p)) (p.levels[fid].open || []).forEach(o => {
       const ci = DK.cornerInfo(p, fid, o); if (!ci) return;
       const sz = DK.opSize(p, o), y0 = DK.elev(p, fid) / 1000 + sz.sill / 1000, h = sz.h / 1000, ym = y0 + h / 2;
       const e = ci.e, n = ci.n, ce = ci.end / 1000, cn = ci.nEnd / 1000;          // ce — координата угла вдоль стены e, cn — вдоль соседней
       const fe = (e.line + e.out * ext) / 1000, fn = (n.line + n.out * ext) / 1000; // наружные грани облицовки
-      const L1 = (t + ext) / 1000 + 0.02, oe = e.out * 0.012, on = n.out * 0.012;
+      const L1 = (t + ext) / 1000 + 0.02, oe = e.out * 0.025, on = n.out * 0.025;
       // панель на стене e: от угла облицовки до начала окна
       const a0 = ce - ci.sg * ext / 1000, a1 = ce + ci.sg * t / 1000;
       if (e.axis === 'x') root.add(box(Math.abs(a1 - a0), h, 0.02, gl, (a0 + a1) / 2, ym, fe + oe)); else root.add(box(0.02, h, Math.abs(a1 - a0), gl, fe + oe, ym, (a0 + a1) / 2));
@@ -1378,7 +1382,7 @@ function View3D(canvas, app) {
       const yK = yt - ov * roofKick, uc = (U0 + U1) / 2, iU0 = jU0 ? U0 : wU0, iU1 = jU1 ? U1 : wU1;
       let a = t === 'pyramid' ? uc : jU0 ? U0 : wU0 + half, b = t === 'pyramid' ? uc : jU1 ? U1 : wU1 - half;
       if (a > b) { if (jU0 && !jU1) b = a; else if (jU1 && !jU0) a = b; else a = b = uc; }
-      const yR = yt + (t === 'pyramid' ? Math.min(half, (wU1 - wU0) / 2) : half) * tn;
+      const yR = yt + (t === 'pyramid' ? Math.max(half, (wU1 - wU0) / 2) : half) * tn;
       roofPlane([P(iU0, yt, wV0), P(iU1, yt, wV0), P(b, yR, vc), P(a, yR, vc)], rm, sm, fm);
       roofPlane([P(iU1, yt, wV1), P(iU0, yt, wV1), P(a, yR, vc), P(b, yR, vc)], rm, sm, fm);
       if (!jU0) roofPlane([P(wU0, yt, wV1), P(wU0, yt, wV0), P(a, yR, vc)], rm, sm, fm); else jEnd(wU0);
@@ -1388,7 +1392,7 @@ function View3D(canvas, app) {
       if (!jU0) roofPlane([P(U0, yK, V1), P(U0, yK, V0), P(wU0, yt, wV0), P(wU0, yt, wV1)], rm, sm, fm);
       if (!jU1) roofPlane([P(U1, yK, V0), P(U1, yK, V1), P(wU1, yt, wV1), P(wU1, yt, wV0)], rm, sm, fm);
     } else if (t === 'pyramid') {
-      const uc = (U0 + U1) / 2, yR = yE + Math.min((V1 - V0) / 2, (U1 - U0) / 2) * tn;
+      const uc = (U0 + U1) / 2, yR = yE + Math.max((V1 - V0) / 2, (U1 - U0) / 2) * tn; // по большей стороне: грани не опускаются ниже стен
       roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(uc, yR, vc)], rm, sm, fm);
       roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(uc, yR, vc)], rm, sm, fm);
       roofPlane([P(U0, yE, V1), P(U0, yE, V0), P(uc, yR, vc)], rm, sm, fm);
