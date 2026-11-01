@@ -170,8 +170,14 @@ ${S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVeri
     const b = base(req);
     if (r.path === '/uslugi/') {
       const items = [['Главная', '/'], ['Услуги', '/uslugi/']], sv = list('service');
+      // пять шагов к дому: подробности и цены каждого шага; цены пакетов визуализаций — из настроек CRM
+      let packs = null; try { packs = JSON.parse(fs.readFileSync(path.join(DATA, 'viz-settings.json'), 'utf8')).packs; } catch (e) { /* по умолчанию */ }
+      const ST = require('./js/steps.js')(Object.assign({}, cfg, { verifyPrice: +process.env.VERIFY_PRICE || cfg.verifyPrice, sketchPrice: +process.env.SKETCH_PRICE || cfg.sketchPrice, cadPrice: +process.env.CAD_PRICE || cfg.cadPrice, vizPacks: packs && packs.length ? packs : null }));
+      const stepsHtml = `<section class="steps-x" id="shagi"><h2>5 шагов к дому: что входит и сколько стоит</h2>${ST.map((st, i) => `<article class="stx tone-${st.tone}" id="shag-${i + 1}"><div class="stx-n">${String(i + 1).padStart(2, '0')}<span>${ic(st.icon, 26)}</span></div>
+        <div class="stx-b"><small>${esc(st.s)}</small><h3>${esc(st.t)}</h3><p>${esc(st.d)}</p><p class="stx-more">${esc(st.more || '')}</p>
+        <table class="stx-p">${st.price.map(([a, v]) => `<tr><td>${esc(a)}</td><td>${esc(v)}</td></tr>`).join('')}</table></div></article>`).join('')}</section>`;
       return page(req, r, { cur: 'uslugi', draft, wide: true, hero: hero(items, r.title, r.lead), ld: [crumbs(b, items), { '@type': 'ItemList', itemListElement: sv.map((s, i) => ({ '@type': 'ListItem', position: i + 1, url: b + s.path, name: s.name || s.title })) }],
-        body: `<div class="cards">${sv.map(s => `<a class="card svc" href="${s.path}"><span class="svc-ic">${ic(SERVICE_ICON[s.path.split('/')[2]] || 'house', 22)}</span><h3>${esc(s.name || s.title)}</h3><p>${esc(s.desc)}</p><div class="card-foot">${s.price ? `<span class="badge soft">${esc(s.price)}</span>` : '<span></span>'}${more()}</div></a>`).join('')}</div>${blocksHtml(r)}${ctaOf(r)}` });
+        body: stepsHtml + `<h2 class="svc-h">Все услуги</h2><div class="cards">${sv.map(s => `<a class="card svc" href="${s.path}"><span class="svc-ic">${ic(SERVICE_ICON[s.path.split('/')[2]] || 'house', 22)}</span><h3>${esc(s.name || s.title)}</h3><p>${esc(s.desc)}</p><div class="card-foot">${s.price ? `<span class="badge soft">${esc(s.price)}</span>` : '<span></span>'}${more()}</div></a>`).join('')}</div>${blocksHtml(r)}${ctaOf(r)}` });
     }
     if (r.path === '/blog/') {
       const items = [['Главная', '/'], ['Блог', '/blog/']], ps = posts();

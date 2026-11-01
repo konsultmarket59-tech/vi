@@ -15,7 +15,7 @@ module.exports = function credits(ctx) {
   const rnd = (n) => { const b = crypto.randomBytes(n * 2); let s = ''; for (let i = 0; i < n; i++) s += ABC[(b[i * 2] * 256 + b[i * 2 + 1]) % ABC.length]; return s; };
   const norm = (c) => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^LD/, '').replace(/O/g, '0');
   const fmt = (c) => 'LD-' + c.slice(0, 4) + '-' + c.slice(4, 8);
-  const DEF = { packs: [{ n: 3, price: 150, url: '' }, { n: 10, price: 450, url: '' }, { n: 30, price: 1200, url: '' }], welcome: 0,
+  const DEF = { packs: [{ n: 3, price: 150, url: '' }, { n: 5, price: 250, url: '' }], welcome: 1,
     unlock: { ep: { price: +process.env.SKETCH_PRICE || 3000, url: '' }, cad: { price: +process.env.CAD_PRICE || 3000, url: '' } } };
   const KINDS = { ep: 'эскизный проект PDF', cad: 'файлы для ArchiCAD' };
 

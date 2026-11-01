@@ -49,11 +49,11 @@
   // визуализации: тот же credits.js, что на сервере; в демо — запас кодов и баланс у заказчика
   ctx.credits = (() => { const m = { exports: null }; window.__CREDITS(() => null, m, { env: {} }, Buffer); return m.exports({ readJSON, writeJSON, DATA: D, crypto: ncrypto }); })();
   if (!FS[D + '/viz-codes.json']) {
-    writeJSON(D + '/viz-settings.json', { packs: [{ n: 3, price: 150, url: 'https://example.com/pay-3' }, { n: 10, price: 450, url: 'https://example.com/pay-10' }, { n: 30, price: 1200, url: 'https://example.com/pay-30' }], welcome: 1 });
-    ctx.credits.make(3, 5, 'Демо-партия', 'Демо'); ctx.credits.make(10, 5, 'Демо-партия', 'Демо');
+    writeJSON(D + '/viz-settings.json', { packs: [{ n: 3, price: 150, url: 'https://example.com/pay-3' }, { n: 5, price: 250, url: 'https://example.com/pay-5' }], welcome: 1 });
+    ctx.credits.make(3, 5, 'Демо-партия', 'Демо'); ctx.credits.make(5, 5, 'Демо-партия', 'Демо');
     ctx.credits.make(1, 3, 'Демо: эскизный проект', 'Демо', 'ep'); ctx.credits.make(1, 3, 'Демо: ArchiCAD', 'Демо', 'cad');
     ctx.credits.saveSettings({ unlock: { ep: { price: 3000, url: 'https://example.com/pay-ep' }, cad: { price: 3000, url: 'https://example.com/pay-cad' } } });
-    if (ROLES.client.id) { ctx.credits.add(ROLES.client.id, 1, 'grant', 'welcome', '', 'Подарок за регистрацию'); ctx.credits.add(ROLES.client.id, 10, 'code', 'LD-DEMO-0010', '', 'Код на 10'); ctx.credits.add(ROLES.client.id, -2, 'render', '', '', 'Визуализация'); }
+    if (ROLES.client.id) { ctx.credits.add(ROLES.client.id, 1, 'grant', 'welcome', '', 'Подарок за регистрацию'); ctx.credits.add(ROLES.client.id, 5, 'code', 'LD-DEMO-0005', '', 'Код на 5'); ctx.credits.add(ROLES.client.id, -2, 'render', '', '', 'Визуализация'); }
   }
   window.__DEMO_CODE = (ctx.credits.codes().find(c => !c.usedBy && !c.kind) || {}).code;
   window.__DEMO_CODE_EP = (ctx.credits.codes().find(c => !c.usedBy && c.kind === 'ep') || {}).code;
