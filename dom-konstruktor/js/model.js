@@ -722,7 +722,7 @@ function areas(p) {
 /* ---------- террасы, крыльца, балконы ---------- */
 const EXT = {
   terrace: { n: 'Терраса', fl: 'ground', w: 4000, d: 2500 },
-  porch: { n: 'Крыльцо', fl: 'ground', w: 2200, d: 1500 },
+  porch: { n: 'Входная группа', fl: 'ground', w: 2400, d: 1800 },
   balcony: { n: 'Балкон', fl: 'upper', w: 3000, d: 1200 },
   garage: { n: 'Гараж', fl: 'ground', w: 4000, d: 6500 },
 };
@@ -784,9 +784,33 @@ function extRect(p, x) {
   const t0 = Math.min(f0, f1), t1 = Math.max(f0, f1);
   return Object.assign(e.axis === 'x' ? { x0: a0, x1: a1, y0: t0, y1: t1 } : { x0: t0, x1: t1, y0: a0, y1: a1 }, { e, face: f0, far: f1 });
 }
+/* терраса и входная группа — один элемент: кровля своя или общая с домом, форма и уклон — как у дома,
+   поворот кровли (конёк от дома или вдоль стены), опорные столбы (сами или вручную), наружная лестница */
+const EXT_RMODE = { own: 'Своя кровля', house: 'Общая с домом' };
+const EXT_STAIRS = { far: 'Спереди', lo: 'Слева', hi: 'Справа', none: 'Нет' };
+function extDeck(x) { return x.kind === 'terrace' || x.kind === 'porch'; }
+/* форма кровли террасы: как у дома (двускатная, вальмовая, односкатная, плоская) или односкатный навес по выбору */
+function extRoofForm(p, x) {
+  if (x.shape === 'shed') return 'shed';
+  const t = p.roof.type;
+  return t === 'flat' ? 'flat' : t === 'shed' ? 'shed' : t === 'hip' || t === 'pyramid' || t === 'halfhip' ? 'hip' : 'gable';
+}
+/* локальные координаты террасы: u — вдоль стены от левого края, v — от стены наружу; и обратно */
+function extToPlan(p, x, u, v) { const r = extRect(p, x); if (!r) return null; const a = x.c - x.w / 2 + u, t = r.face + r.e.out * v; return r.e.axis === 'x' ? { x: a, y: t } : { x: t, y: a }; }
+function extToLocal(p, x, X, Y) { const r = extRect(p, x); if (!r) return null; const a = r.e.axis === 'x' ? X : Y, t = r.e.axis === 'x' ? Y : X; return { u: a - (x.c - x.w / 2), v: (t - r.face) * r.e.out }; }
+/* лестница: сторона и положение центра (мм вдоль стороны), ширина марша; ступени до земли */
+function extStairs(p, x) {
+  if (!extDeck(x)) return null;
+  const s = x.stairs || {}, side = s.side || 'far'; if (side === 'none') return null;
+  const len = side === 'far' ? x.w : x.d, w = Math.min(s.w || (x.kind === 'porch' ? 1600 : 1400), len - 200);
+  const at = Math.max(w / 2 + 100, Math.min(len - w / 2 - 100, s.at != null ? s.at : side === 'far' ? len / 2 : len / 2));
+  return { side, at, w };
+}
 /* колонны: по углам у внешнего края и не реже чем через 3 м; у балкона — только если вылет больше консоли */
 function extColumns(p, x) {
   const r = extRect(p, x); if (!r) return [];
+  // поставлены вручную — кровля опирается на них
+  if (extDeck(x) && Array.isArray(x.posts) && x.posts.length) return x.posts.map(q => extToPlan(p, x, q.u, q.v));
   if (x.kind === 'garage') {
     // навес: стойки по обеим длинным сторонам не реже чем через 3 м
     if (x.gtype !== 'carport') return [];
@@ -1081,6 +1105,8 @@ function normalize(p) {
     else { x.w = Math.max(1000, Math.min(x.w, e.hi - e.lo)); x.d = Math.max(800, Math.min(x.d, x.kind === 'balcony' ? 3000 : 8000)); }
     // гараж может быть шире стены — достаточно, чтобы он примыкал к ней
     x.c = x.kind === 'garage' ? Math.max(e.lo, Math.min(x.c, e.hi)) : Math.max(e.lo + x.w / 2, Math.min(x.c, e.hi - x.w / 2));
+    // столбы — в пределах площадки (после изменения размеров)
+    if (Array.isArray(x.posts)) x.posts = x.posts.filter(q => q.u >= -50 && q.u <= x.w + 50 && q.v >= -50 && q.v <= x.d + 50).map(q => ({ u: Math.max(120, Math.min(x.w - 120, q.u)), v: Math.max(120, Math.min(x.d - 120, q.v)) }));
     return true;
   });
   if (p.stair) {
@@ -1221,7 +1247,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { gableWall, atticWinH, gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { EXT_RMODE, EXT_STAIRS, extDeck, extRoofForm, extToPlan, extToLocal, extStairs, gableWall, atticWinH, gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,

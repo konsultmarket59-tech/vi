@@ -196,7 +196,26 @@ function Plan2D(canvas, app) {
       c.lineWidth = roof === 'glazed' ? 3 : 2.2; c.strokeStyle = roof === 'glazed' ? COL.glass : COL.rail;
       const jn = DK.extJoin(p, x), sides = () => { if (!jn.lo) seg(a0, a0, r.face, far); if (!jn.hi) seg(a1, a1, r.face, far); };
       if (x.kind === 'balcony' || roof === 'glazed') { seg(a0, a1, far, far); sides(); }
-      else if (x.kind === 'terrace') { const gap = 600; seg(a0, x.c - gap, far, far); seg(x.c + gap, a1, far, far); sides(); }
+      else if (x.kind === 'terrace') {
+        const st = DK.extStairs(p, x), g = st ? [st.at - st.w / 2, st.at + st.w / 2] : null, o = e.out;
+        if (st && st.side === 'far') { seg(a0, a0 + g[0], far, far); seg(a0 + g[1], a1, far, far); } else seg(a0, a1, far, far);
+        for (const [k, a] of [['lo', a0], ['hi', a1]]) if (!jn[k]) { if (st && st.side === k) { seg(a, a, r.face, r.face + o * g[0]); seg(a, a, r.face + o * g[1], far); } else seg(a, a, r.face, far); }
+      }
+      // наружная лестница: марш со ступенями по 300 мм
+      const st = DK.extStairs(p, x);
+      if (st) {
+        const n3 = 3, o = e.out, pts = [];
+        for (let k = 0; k <= n3; k++) {
+          if (st.side === 'far') pts.push([[a0 + st.at - st.w / 2, far + o * 300 * k], [a0 + st.at + st.w / 2, far + o * 300 * k]]);
+          else { const sg = st.side === 'lo' ? -1 : 1, a = (st.side === 'lo' ? a0 : a1) + sg * 300 * k; pts.push([[a, r.face + o * (st.at - st.w / 2)], [a, r.face + o * (st.at + st.w / 2)]]); }
+        }
+        const P = (q) => e.axis === 'x' ? [X(q[0]), Y(q[1])] : [X(q[1]), Y(q[0])];
+        c.save(); c.fillStyle = '#e3e0da'; c.strokeStyle = COL.ink; c.lineWidth = 1;
+        const A = P(pts[0][0]), Bq = P(pts[0][1]), C = P(pts[n3][1]), D = P(pts[n3][0]);
+        c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(Bq[0], Bq[1]); c.lineTo(C[0], C[1]); c.lineTo(D[0], D[1]); c.closePath(); c.fill(); c.stroke();
+        for (let k = 1; k < n3; k++) { const u = P(pts[k][0]), v = P(pts[k][1]); line(c, u[0], u[1], v[0], v[1]); }
+        c.restore();
+      }
       c.fillStyle = COL.ink;
       DK.extColumns(p, x).forEach(q => c.fillRect(X(q.x - 150), Y(q.y - 150), L(300), L(300)));
       const fs = Math.max(9, Math.min(13, L(800)));
@@ -561,6 +580,45 @@ function Plan2D(canvas, app) {
   function hitExt(p, fid, x, y) {
     return extsOn(p, fid).slice().reverse().find(q => { const r = DK.extRect(p, q); return r && x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1; });
   }
+  /* опорный столб, поставленный вручную; марш наружной лестницы */
+  function hitPost(p, fid, x, y) {
+    for (const q of extsOn(p, fid)) { if (!DK.extDeck(q) || !Array.isArray(q.posts) || !q.posts.length) continue;
+      const i = DK.extColumns(p, q).findIndex(c => Math.abs(c.x - x) < 220 && Math.abs(c.y - y) < 220); if (i >= 0) return { x: q, i }; }
+    return null;
+  }
+  function stairRectOf(p, q) {
+    const st = DK.extStairs(p, q); if (!st) return null; const r = DK.extRect(p, q), o = r.e.out, a0 = q.c - q.w / 2, a1 = q.c + q.w / 2, L = 900;
+    let A, T2;
+    if (st.side === 'far') { A = [a0 + st.at - st.w / 2, a0 + st.at + st.w / 2]; T2 = [r.far, r.far + o * L]; }
+    else { const a = st.side === 'lo' ? a0 : a1, sg = st.side === 'lo' ? -1 : 1; A = [a, a + sg * L]; T2 = [r.face + o * (st.at - st.w / 2), r.face + o * (st.at + st.w / 2)]; }
+    const [u0, u1] = [Math.min(...A), Math.max(...A)], [t0, t1] = [Math.min(...T2), Math.max(...T2)];
+    return r.e.axis === 'x' ? { x0: u0, x1: u1, y0: t0, y1: t1 } : { x0: t0, x1: t1, y0: u0, y1: u1 };
+  }
+  function hitXStair(p, fid, x, y) { return extsOn(p, fid).find(q => { const R = stairRectOf(p, q); return R && x > R.x0 && x < R.x1 && y > R.y0 && y < R.y1; }) || null; }
+  /* сторона и место лестницы по точке у площадки */
+  function stairAt(p, q, x, y) {
+    const L = DK.extToLocal(p, q, x, y); if (!L) return null;
+    if (L.v > q.d - 500) return { side: 'far', at: Math.round(Math.max(0, Math.min(q.w, L.u)) / 50) * 50 };
+    return { side: L.u < q.w / 2 ? 'lo' : 'hi', at: Math.round(Math.max(0, Math.min(q.d, L.v)) / 50) * 50 };
+  }
+  function nearDeck(p, fid, x, y, pad) {
+    return extsOn(p, fid).filter(DK.extDeck).find(q => { const r = DK.extRect(p, q); return r && x > r.x0 - pad && x < r.x1 + pad && y > r.y0 - pad && y < r.y1 + pad; }) || null;
+  }
+  function placePost(p, fid, x, y) {
+    const q = hitExt(p, fid, x, y);
+    if (!q || !DK.extDeck(q)) { app.toast('Опорный столб ставится на террасу или входную группу — сначала добавьте её у стены'); return; }
+    if (!Array.isArray(q.posts) || !q.posts.length) q.posts = DK.extColumns(p, q).map(c => DK.extToLocal(p, q, c.x, c.y)).map(l => ({ u: Math.round(l.u), v: Math.round(l.v) }));
+    const L = DK.extToLocal(p, q, x, y); q.posts.push({ u: Math.max(120, Math.min(q.w - 120, Math.round(L.u / 50) * 50)), v: Math.max(120, Math.min(q.d - 120, Math.round(L.v / 50) * 50)) });
+    const was = q.roof || 'open'; if (was === 'open') q.roof = 'covered';
+    app.commit('Опорный столб'); app.select({ kind: 'ext', id: q.id });
+    if (was === 'open') app.toast('На столбы опирается кровля — площадка стала крытой');
+  }
+  function placeXStair(p, fid, x, y) {
+    const q = nearDeck(p, fid, x, y, 1500);
+    if (!q) { app.toast('Наружная лестница ставится у террасы или входной группы — нажмите у её края'); return; }
+    const s = stairAt(p, q, x, y); q.stairs = Object.assign({}, q.stairs || {}, s);
+    app.commit('Наружная лестница'); app.select({ kind: 'ext', id: q.id }); app.setTool('select');
+  }
   function hitExtHandle(p, fid, x, y) {
     const s = app.sel(); if (!s || s.kind !== 'ext') return null;
     const q = (p.ext || []).find(v => v.id === s.id); if (!q) return null;
@@ -644,6 +702,8 @@ function Plan2D(canvas, app) {
     if (tool === 'furn') { placeFurn(p, fid, w.x, w.y); return; }
     if (tool === 'bump') { placeBump(p, fid, w.x, w.y); return; }
     if (tool === 'terrace' || tool === 'porch' || tool === 'balcony' || tool === 'garage') { placeExt(p, fid, w.x, w.y); return; }
+    if (tool === 'post') { placePost(p, fid, w.x, w.y); return; }
+    if (tool === 'xstair') { placeXStair(p, fid, w.x, w.y); return; }
     if (tool === 'wet' && p.wet) {
       const z = p.wet, tol = 10 / view.k;
       const ed = { l: Math.abs(w.x - z.x) < tol, r: Math.abs(w.x - z.x - z.w) < tol, t: Math.abs(w.y - z.y) < tol, b: Math.abs(w.y - z.y - z.h) < tol };
@@ -654,6 +714,10 @@ function Plan2D(canvas, app) {
     if (tool === 'erase') { erase(p, fid, w.x, w.y); return; }
     const xh = hitExtHandle(p, fid, w.x, w.y);
     if (xh) { drag = { kind: 'xh', x: xh.x, k: xh.k }; return; }
+    const hp = hitPost(p, fid, w.x, w.y);
+    if (hp) { app.select({ kind: 'ext', id: hp.x.id }); drag = { kind: 'xpost', x: hp.x, i: hp.i }; return; }
+    const hxs = hitXStair(p, fid, w.x, w.y);
+    if (hxs) { app.select({ kind: 'ext', id: hxs.id }); drag = { kind: 'xstair', x: hxs }; return; }
     const rh = hitRot(p, fid, sx, sy);
     if (rh) { drag = { kind: 'frot', t: rh }; return; }
     const st = hitStretch(p, fid, sx, sy);
@@ -734,7 +798,12 @@ function Plan2D(canvas, app) {
       render(); return;
     }
     drag.moved = true;
-    if (drag.kind === 'xm') {
+    if (drag.kind === 'xpost') {
+      const q = drag.x, L = DK.extToLocal(p, q, w.x, w.y);
+      q.posts[drag.i] = { u: Math.max(120, Math.min(q.w - 120, Math.round(L.u / 50) * 50)), v: Math.max(120, Math.min(q.d - 120, Math.round(L.v / 50) * 50)) };
+    } else if (drag.kind === 'xstair') {
+      const s2 = stairAt(p, drag.x, w.x, w.y); if (s2) drag.x.stairs = Object.assign({}, drag.x.stairs || {}, s2);
+    } else if (drag.kind === 'xm') {
       const e = DK.extRect(p, drag.x).e, d = e.axis === 'x' ? w.x - drag.w0.x : w.y - drag.w0.y;
       drag.x.c = Math.max(e.lo + drag.x.w / 2, Math.min(snap(drag.c0 + d, 100), e.hi - drag.x.w / 2));
     } else if (drag.kind === 'xh') {
@@ -911,6 +980,8 @@ function Plan2D(canvas, app) {
   function erase(p, fid, x, y) {
     const lv = p.levels[fid];
     const o = hitOpen(p, fid, x, y); if (o) { lv.open = lv.open.filter(q => q !== o); app.commit('Удалён проём'); return; }
+    const hp = hitPost(p, fid, x, y); if (hp) { hp.x.posts.splice(hp.i, 1); app.commit(hp.x.posts.length ? 'Столб убран' : 'Столбы — автоматически'); return; }
+    const hs = hitXStair(p, fid, x, y); if (hs) { hs.stairs = Object.assign({}, hs.stairs || {}, { side: 'none' }); app.commit('Лестница убрана'); return; }
     const xx = hitExt(p, fid, x, y); if (xx) { p.ext = p.ext.filter(q => q !== xx); app.commit('Удалено'); return; }
     const f = hitFurn(p, fid, x, y); if (f) { lv.furn = lv.furn.filter(q => q !== f); app.commit('Удалена мебель'); return; }
     const w = hitWall(p, fid, x, y, ['part']) || hitDiag(p, fid, x, y); if (w) { lv.parts = lv.parts.filter(q => q.id !== w.id); lv.open = lv.open.filter(q => q.wall !== w.id); app.commit('Удалена перегородка'); }

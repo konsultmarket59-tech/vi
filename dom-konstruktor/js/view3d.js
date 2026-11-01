@@ -181,6 +181,12 @@ function View3D(canvas, app) {
     const t = new T.CanvasTexture(cv); t.encoding = T.sRGBEncoding; return t;
   }
   const SKY = skyTex();
+  /* стекло окон — одно для всех видов окон (обычные, панорамные, угловые, под скат, мансардные): как у окон первого этажа */
+  function winGlass(glow, side) {
+    const o = glow ? { color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85, roughness: 0.2, metalness: 0 }
+      : { color: mode === 'exterior' ? lin('#3e5566') : lin('#b9d3e2'), transparent: true, opacity: mode === 'exterior' ? 0.82 : 0.22, roughness: 0.04, metalness: 0.6 };
+    if (side) o.side = side; return new T.MeshStandardMaterial(o);
+  }
 
   /* ---------- сборка ---------- */
   function build() {
@@ -253,6 +259,7 @@ function View3D(canvas, app) {
       if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), af ? yt - 0.02 : yt + sl - 0.02); // у мансарды — до свеса, иначе накладки протыкают скат
       if (!p.basement) porch(p, ext, F);
     }
+    { const top = fl[fl.length - 1]; houseYt = af ? ytRoof : DK.elev(p, top) / 1000 + hc + sl; }
     (p.ext || []).forEach(x => { if (x.kind === 'balcony' ? showFloors.includes(x.fid) : showFloors.includes('f1')) extBuild(p, x, F, gy, hc); });
     if (p.site && outside) siteBuild(p, F, gy);
     const R = (p.site && outside ? Math.max(p.site.W, p.site.D) / 1000 * 0.9 : Math.max(p.W, p.D) / 1000 * 1.6) + 8;
@@ -318,7 +325,7 @@ function View3D(canvas, app) {
   /* мансардные окна в скатах: стекло с окладом по плоскости кровли */
   function roofWindows(p, af, ytRoof, F) {
     const ext = DK.extT(p) / 1000, frame = mat({ c: '#4a4d52' }, { metalness: 0.4, roughness: 0.5 });
-    const glass = lightsOn && mode === 'exterior' ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85 }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7 });
+    const glass = winGlass(lightsOn && mode === 'exterior');
     for (const o of p.levels[af].open.filter(q => DK.slopeWin(p, af, q))) {
       const w = DK.walls(p, af).find(v => v.id === o.wall); if (!w) continue;
       const R = DK.roofRects(p).find(r => (w.axis === 'x' ? o.c >= r.W.x0 && o.c <= r.W.x1 : o.c >= r.W.y0 && o.c <= r.W.y1)) || DK.roofRects(p)[0];
@@ -790,18 +797,26 @@ function View3D(canvas, app) {
     else {
       B(A0, A1, face, far, gy, -0.02, mat({ c: '#6f6a64' }));
       B(A0, A1, face, far, -0.02, 0, deck);
-      if (x.kind === 'terrace' || x.kind === 'porch') { // ступени по центру внешнего края
-        const sw = Math.min(2.0, wd - 0.4), steps = Math.max(1, Math.round(-gy / 0.17));
-        for (let k = 1; k <= steps; k++) { const top = -k * (-gy / steps); B(ac - sw / 2, ac + sw / 2, far + n * 0.3 * (k - 1), far + n * 0.3 * k, gy, top + (-gy / steps) - (-gy / steps), mat({ m: 'concrete', c: '#bdb8b0' })); }
+      const st = DK.extStairs(p, x);
+      if (st) { // наружная лестница: сторона и место — как выбрано на плане, ступени до земли
+        const steps = Math.max(1, Math.round(-gy / 0.17)), hS = -gy / steps, sw = st.w / 1000, at = st.at / 1000, cm = mat({ m: 'concrete', c: '#bdb8b0' });
+        for (let k = 1; k <= steps; k++) {
+          const yTop = -k * hS;
+          if (st.side === 'far') B(A0 + at - sw / 2, A0 + at + sw / 2, far + n * 0.3 * (k - 1), far + n * 0.3 * k, gy, yTop, cm);
+          else { const sg = st.side === 'lo' ? -1 : 1, a = st.side === 'lo' ? A0 : A1, a0 = a + sg * 0.3 * (k - 1), a1 = a + sg * 0.3 * k; B(Math.min(a0, a1), Math.max(a0, a1), face + n * (at - sw / 2), face + n * (at + sw / 2), gy, yTop, cm); }
+        }
       }
     }
     // ограждение: у открытой террасы — с проходом к ступеням, у балкона — по трём сторонам
     const railH = 1.0, rails = [];
     const jn = DK.extJoin(p, x);
     if (balcony || (x.kind === 'terrace' && roof !== 'glazed')) {
-      if (!jn.lo) rails.push([A0, A0, face, far]);
-      if (!jn.hi) rails.push([A1, A1, face, far]);
-      if (balcony) rails.push([A0, A1, far, far]); else { rails.push([A0, ac - 0.6 - (Math.min(2.0, wd - 0.4) / 2 - 0.6), far, far], [ac + Math.min(2.0, wd - 0.4) / 2, A1, far, far]); }
+      // проход в ограждении — там, где лестница
+      const st = balcony ? null : DK.extStairs(p, x), gap = (side) => st && st.side === side ? [st.at / 1000 - st.w / 2000, st.at / 1000 + st.w / 2000] : null;
+      const sideRail = (a, side) => { const g = gap(side); if (!g) rails.push([a, a, face, far]); else { rails.push([a, a, face, face + n * g[0]], [a, a, face + n * g[1], far]); } };
+      if (!jn.lo) sideRail(A0, 'lo');
+      if (!jn.hi) sideRail(A1, 'hi');
+      const g = gap('far'); if (!g) rails.push([A0, A1, far, far]); else rails.push([A0, A0 + g[0], far, far], [A0 + g[1], A1, far, far]);
     }
     for (const [a0, a1, t0, t1] of rails) {
       const isA = a0 !== a1, len = isA ? a1 - a0 : Math.abs(t1 - t0); if (len < 0.05) continue;
@@ -810,34 +825,113 @@ function View3D(canvas, app) {
       const cnt = Math.max(2, Math.round(len / 0.13));
       for (let i = 0; i <= cnt; i++) { const q = i / cnt; if (isA) B(a0 + (a1 - a0) * q - 0.012, a0 + (a1 - a0) * q + 0.012, t0 - 0.012, t0 + 0.012, y0, y0 + railH, metal, { noShadow: i % 2 === 1 }); else { const t = Math.min(t0, t1) + len * q; B(a0 - 0.012, a0 + 0.012, t - 0.012, t + 0.012, y0, y0 + railH, metal, { noShadow: i % 2 === 1 }); } }
     }
-    // колонны и навес
+    // кровля, столбы и остекление
     const cols = DK.extColumns(p, x), colM = mat(F.accentOn !== 'none' ? F.accent : { c: F.trim });
-    const topY = DK.elev(p, 'f1') / 1000 + hc - 0.05, pitch = 12 * Math.PI / 180;
-    const yFar = topY - (d + 0.3) * Math.tan(pitch);
-    cols.forEach(q => { const yb = balcony ? gy : 0, yt2 = balcony ? y0 - 0.2 : yFar + 0.1; const cx = q.x / 1000, cz = q.y / 1000; root.add(box(0.25, yt2 - yb, 0.25, colM, cx, (yb + yt2) / 2, cz)); });
-    if (!balcony && roof !== 'open') {
-      const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
-      const P = (a, y, t) => ax ? [a, y, t] : [t, y, a];
-      const tF = far + n * 0.3, a0 = A0 - 0.2, a1 = A1 + 0.2;
-      if (x.shape === 'gable') {
-        const yE = yFar, yR = yE + (wd / 2 + 0.2) * Math.tan(25 * Math.PI / 180);
-        roofPlane([P(a0, yE, face), P(a0, yE, tF), P(ac, yR, tF), P(ac, yR, face)].map(q => q), rm, sm, fm);
-        roofPlane([P(a1, yE, tF), P(a1, yE, face), P(ac, yR, face), P(ac, yR, tF)], rm, sm, fm);
-        root.add(poly([P(a0 + 0.2, yE, far), P(a1 - 0.2, yE, far), P(ac, yR - 0.1, far)], mat({ c: F.trim }, { side: T.DoubleSide }), ax ? 0 : 2, 1));
-      } else {
-        const pts = n > 0 ? [P(a1, topY, face), P(a0, topY, face), P(a0, yFar, tF), P(a1, yFar, tF)] : [P(a0, topY, face), P(a1, topY, face), P(a1, yFar, tF), P(a0, yFar, tF)];
-        roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
-      }
-      if (roof === 'glazed') {
-        const gl = new T.MeshStandardMaterial({ color: lin('#9fc0d3'), transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.3 }), fr = mat({ c: F.frame });
-        const h1 = yFar - 0.05;
-        B(A0, A1, far - 0.01, far + 0.01, 0, h1, gl, { noShadow: true });
-        if (!jn.lo) B(A0 - 0.01, A0 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
-        if (!jn.hi) B(A1 - 0.01, A1 + 0.01, Math.min(face, far), Math.max(face, far), 0, h1, gl, { noShadow: true });
-        for (let a = A0; a <= A1 + 0.001; a += Math.max(0.8, wd / Math.round(wd / 1.0))) B(a - 0.03, a + 0.03, far - 0.03, far + 0.03, 0, h1, fr);
-        B(A0, A1, far - 0.04, far + 0.04, 0.9, 0.96, fr);
+    if (balcony) { cols.forEach(q => root.add(box(0.25, y0 - 0.2 - gy, 0.25, colM, q.x / 1000, (gy + y0 - 0.2) / 2, q.y / 1000))); return; }
+    const top = extRoof(p, x, F, r, roof !== 'open' || cols.length > 0);
+    cols.forEach(q => { const yt2 = top ? top(q.x / 1000, q.y / 1000) : 2.6, cx = q.x / 1000, cz = q.y / 1000; root.add(box(0.2, yt2, 0.2, colM, cx, yt2 / 2, cz)); });
+    if (roof === 'glazed' && top) {
+      const gl = new T.MeshStandardMaterial({ color: lin('#9fc0d3'), transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.3 }), fr = mat({ c: F.frame });
+      const P2 = (a, t) => ax ? [a, t] : [t, a], hAt = (a, t) => { const q = P2(a, t); return top(q[0], q[1]) - 0.05; };
+      const h1 = Math.min(hAt(A0 + 0.1, far), hAt(A1 - 0.1, far), hAt(ac, far));
+      B(A0, A1, far - 0.01, far + 0.01, 0, h1, gl, { noShadow: true });
+      if (!jn.lo) B(A0 - 0.01, A0 + 0.01, Math.min(face, far), Math.max(face, far), 0, Math.min(h1, hAt(A0 + 0.1, face)), gl, { noShadow: true });
+      if (!jn.hi) B(A1 - 0.01, A1 + 0.01, Math.min(face, far), Math.max(face, far), 0, Math.min(h1, hAt(A1 - 0.1, face)), gl, { noShadow: true });
+      for (let a = A0; a <= A1 + 0.001; a += Math.max(0.8, wd / Math.round(wd / 1.0))) B(a - 0.03, a + 0.03, far - 0.03, far + 0.03, 0, h1, fr);
+      B(A0, A1, far - 0.04, far + 0.04, 0.9, 0.96, fr);
+    }
+  }
+  /* кровля террасы или входной группы. Своя — та же форма и уклон, что у дома (конёк от дома или вдоль стены);
+     общая с домом — скат дома продолжается над площадкой (у фронтона — кровля дома вытягивается вперёд).
+     Возвращает функцию высоты низа кровли в точке (x, z, м) — до неё поднимаются столбы. */
+  function extRoof(p, x, F, r, covered) {
+    if (!covered) return null;
+    const e = r.e, n = e.out, ax = e.axis === 'x';
+    const A0 = (x.c - x.w / 2) / 1000, A1 = (x.c + x.w / 2) / 1000, face = r.face / 1000, far = r.far / 1000, d = x.d / 1000, ac = x.c / 1000;
+    const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit }, { side: T.DoubleSide });
+    const gmat = mat(F.gable || F.main, { side: T.DoubleSide });
+    const t = p.roof.type, pitchH = (p.roof.pitch || (DK.ROOFS[t] || {}).pitch || 30) * Math.PI / 180, tanH = Math.tan(pitchH), ovH = (p.roof.ov || 550) / 1000;
+    const topF1 = DK.elev(p, 'f1') / 1000 + p.hClear / 1000, ytH = houseYt;
+    const lc = (a, tt) => ax ? [a, tt] : [tt, a];                       // (вдоль стены, наружу) → (x, z)
+    const loc = (X, Z) => ax ? { a: X, v: (Z - face) * n } : { a: Z, v: (X - face) * n };  // → вдоль, от стены
+    const keep = { ov: roofOv, th: roofTh, at: roofAttic };
+    const done = (fn) => { roofOv = keep.ov; roofTh = keep.th; roofAttic = keep.at; return fn; };
+    roofTh = 0.14; roofAttic = false;
+    // общая с домом
+    if (x.rmode === 'house' && t !== 'flat') {
+      const R = DK.roofRects(p).find(q => { const c = lc(ac, face - n * 0.3); return c[0] * 1000 >= q.W.x0 && c[0] * 1000 <= q.W.x1 && c[1] * 1000 >= q.W.y0 && c[1] * 1000 <= q.W.y1; });
+      const yEh = ytH - ovH * tanH;
+      if (R) {
+        const eave = (R.ridgeX === ax) || !['gable', 'mansard'].includes(t);
+        const V0h = (ax ? R.W.x0 : R.W.y0) / 1000, V1h = (ax ? R.W.x1 : R.W.y1) / 1000;
+        if (!eave && A0 >= V0h - 0.01 && A1 <= V1h + 0.01) {
+          // фронтон: кровля дома вытягивается над площадкой, впереди — фронтон на столбах
+          const half = (V1h - V0h) / 2, vc = (V0h + V1h) / 2, yRh = ytH + half * tanH, ovT = 0.4, u0 = face + n * ovH, u1 = far + n * ovT, V0e = V0h - ovH, V1e = V1h + ovH;
+          const P = (u, y, v) => ax ? [v, y, u] : [u, y, v];
+          if (Math.abs(u1 - u0) > 0.05 && (u1 - u0) * n > 0) {
+            roofPlane([P(u0, yEh, V0e), P(u1, yEh, V0e), P(u1, yRh, vc), P(u0, yRh, vc)], rm, sm, fm);
+            roofPlane([P(u1, yEh, V1e), P(u0, yEh, V1e), P(u0, yRh, vc), P(u1, yRh, vc)], rm, sm, fm);
+          }
+          root.add(poly([P(far, ytH, V0h), P(far, ytH, V1h), P(far, yRh, vc)], gmat, ax ? 0 : 2, 1));
+          if (roofBeams) gableDecor(P, far, u1, n, V0h, V1h, vc, ytH, yRh, yEh, V0e, V1e, false);
+          return done((X, Z) => { const q = loc(X, Z), dv = Math.max(0, Math.min(q.a - V0h, V1h - q.a)); return ytH + dv * tanH - 0.14; });
+        }
+        // карниз: скат дома продолжается от края свеса; если до края площадки слишком низко — уклон положе (перелом ската)
+        const dist = d + 0.3 - ovH;
+        if (dist <= 0.15) return done((X, Z) => { const v = loc(X, Z).v; return ytH - v * tanH - roofTh - 0.02; });
+        const tan2 = Math.min(tanH, (yEh - 2.35) / dist);
+        if (tan2 > Math.tan(4 * Math.PI / 180)) {
+          const P = (a, y, tt) => ax ? [a, y, tt] : [tt, y, a], a0 = A0 - 0.3, a1 = A1 + 0.3, t0 = face + n * ovH, t1 = far + n * 0.3, y1 = yEh - dist * tan2;
+          const pts = [P(a0, yEh, t0), P(a1, yEh, t0), P(a1, y1, t1), P(a0, y1, t1)];
+          roofPlane((n > 0) === ax ? pts.slice().reverse() : pts, rm, sm, fm);
+          return done((X, Z) => { const v = loc(X, Z).v; return (v < ovH ? ytH - v * tanH - 0.3 : yEh - (v - ovH) * tan2 - 0.14); });
+        }
+        // карниз низко (одноэтажный дом, широкий свес): скат террасы выходит из кровли дома у стены, уклон положе
+        const tan3 = Math.min(tanH, (ytH - 2.35) / (d + 0.3));
+        if (tan3 > Math.tan(4 * Math.PI / 180)) {
+          const P = (a, y, tt) => ax ? [a, y, tt] : [tt, y, a], a0 = A0 - 0.3, a1 = A1 + 0.3, t0 = face - n * 0.05, t1 = far + n * 0.3, y0 = ytH + 0.03, y1 = y0 - (d + 0.35) * tan3;
+          const pts = [P(a0, y0, t0), P(a1, y0, t0), P(a1, y1, t1), P(a0, y1, t1)];
+          roofPlane((n > 0) === ax ? pts.slice().reverse() : pts, rm, sm, fm);
+          return done((X, Z) => y0 - (loc(X, Z).v + 0.05) * tan3 - 0.14);
+        }
       }
     }
+    if (x.rmode === 'house' && t === 'flat') {
+      // плоская кровля дома продолжается консолью над площадкой
+      const P = DK.outline(p, 0), yy = ytH + 0.05;
+      const q0 = lc(A0 - 0.3, face - n * 0.2), q1 = lc(A1 + 0.3, far + n * 0.3);
+      root.add(box(Math.abs(q1[0] - q0[0]), 0.3, Math.abs(q1[1] - q0[1]), mat({ c: F.accentOn === 'none' ? F.main.c : F.trim }), (q0[0] + q1[0]) / 2, yy + 0.15, (q0[1] + q1[1]) / 2));
+      void P; return done(() => yy);
+    }
+    // своя кровля: форма и уклон как у дома
+    const form = DK.extRoofForm(p, x), yt = Math.max(2.45, Math.min(topF1 - 0.1, ytH - 0.3));
+    if (form === 'flat') {
+      const q0 = lc(A0 - 0.3, face), q1 = lc(A1 + 0.3, far + n * 0.3);
+      root.add(box(Math.abs(q1[0] - q0[0]), 0.25, Math.abs(q1[1] - q0[1]), mat({ c: F.accentOn === 'none' ? F.main.c : F.trim }), (q0[0] + q1[0]) / 2, yt + 0.125, (q0[1] + q1[1]) / 2));
+      return done(() => yt);
+    }
+    if (form === 'shed') {
+      // односкатная: от стены дома наружу, у края не ниже 2,35 м
+      const tn = Math.tan((x.shape === 'shed' || t !== 'shed' ? 12 : Math.min(25, p.roof.pitch || 12)) * Math.PI / 180), P = (a, y, tt) => ax ? [a, y, tt] : [tt, y, a];
+      const yW = Math.max(yt, 2.35 + (d + 0.3) * tn), yF = yW - (d + 0.3) * tn, a0 = A0 - 0.2, a1 = A1 + 0.2, tF = far + n * 0.3;
+      const pts = n > 0 ? [P(a1, yW, face), P(a0, yW, face), P(a0, yF, tF), P(a1, yF, tF)] : [P(a0, yW, face), P(a1, yW, face), P(a1, yF, tF), P(a0, yF, tF)];
+      roofPlane(ax ? pts : pts.slice().reverse(), rm, sm, fm);
+      return done((X, Z) => yW - loc(X, Z).v * tn - 0.14);
+    }
+    // двускатная или вальмовая: конёк от дома (по умолчанию) или вдоль стены (поворот)
+    const tn = Math.tan(Math.max(15, Math.min(40, (p.roof.pitch || 30))) * Math.PI / 180);
+    const z0 = Math.min(face, far), z1 = Math.max(face, far);
+    const W = ax ? { x0: A0, x1: A1, z0, z1 } : { x0: z0, x1: z1, z0: A0, z1: A1 };
+    const J = ax ? (n > 0 ? { z0: 1 } : { z1: 1 }) : (n > 0 ? { x0: 1 } : { x1: 1 });
+    const ridgeX = x.rrot ? ax : !ax;
+    roofOv = Math.min(0.5, ovH);
+    roofRect(W, J, ridgeX, form, yt, Math.atan(tn), rm, sm, fm, gmat, null, false, {});
+    const wV0 = ridgeX ? W.z0 : W.x0, wV1 = ridgeX ? W.z1 : W.x1, wU0 = ridgeX ? W.x0 : W.z0, wU1 = ridgeX ? W.x1 : W.z1, jU0 = ridgeX ? J.x0 : J.z0, jU1 = ridgeX ? J.x1 : J.z1;
+    return done((X, Z) => {
+      const u = ridgeX ? X : Z, v = ridgeX ? Z : X; let dv = Math.max(0, Math.min(v - wV0, wV1 - v));
+      if (form === 'hip') dv = Math.min(dv, jU0 ? 1e9 : Math.max(0, u - wU0), jU1 ? 1e9 : Math.max(0, wU1 - u));
+      return yt + dv * tn - 0.14;
+    });
   }
 
   function opening(p, f, w, o, y0, hWall, e, F, regs) {
@@ -853,7 +947,7 @@ function View3D(canvas, app) {
       const tc = tOut - dirOut * 0.06, prof = 0.08, depth = 0.09, base = y0 + sill;
       const topAt = (a) => { const X = along ? a * 1000 : w.line - w.out * 50, Y = along ? w.line - w.out * 50 : a * 1000; return y0 + Math.min(DK.atticH(p, X, Y), (sill + oh) * 1000) / 1000; };
       const glow = lightsOn && mode === 'exterior';
-      const glass = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85, roughness: 0.2 }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7 });
+      const glass = winGlass(glow);
       g.add(place(mk(ow - prof, oh, 0.02, glass), ac, base + oh / 2, tc));
       g.add(place(mk(ow, prof, depth, frameM), ac, base + prof / 2, tc));
       const n = Math.max(2, Math.round(ow / 0.9)), a0 = ac - ow / 2;
@@ -874,8 +968,7 @@ function View3D(canvas, app) {
       for (let i = 1; i < n; i++) g.add(place(mk(prof * 1.2, oh, depth, frameM), ac - ow / 2 + ow * i / n, y0 + sill + oh / 2, tc));
       if (!o.pano && oh > 1.2 && n <= 2) g.add(place(mk(ow, prof, depth, frameM), ac, y0 + sill + oh * 0.74, tc));
       const glow = lightsOn && mode === 'exterior';
-      const glass = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85, roughness: 0.2, metalness: 0 })
-        : new T.MeshStandardMaterial({ color: mode === 'exterior' ? lin('#3e5566') : lin('#b9d3e2'), transparent: true, opacity: mode === 'exterior' ? 0.82 : 0.22, roughness: 0.04, metalness: 0.6 });
+      const glass = winGlass(glow);
       const ex = outer && DK.exitWin(p, f, o) ? DK.exitSash(o) : null, sw = ow / n;
       for (let i = 0; i < n; i++) {
         const sc = ac - ow / 2 + sw * (i + 0.5);
@@ -1019,6 +1112,7 @@ function View3D(canvas, app) {
   }
 
   /* ---------- кровли: разбиение контура на прямоугольники, крылья заходят в основной объём ---------- */
+  let houseYt = 3; // высота низа кровли дома над карнизом (для общей кровли террас)
   let roofOv = 0.55, roofSky = false, roofGlass = 'none', roofBeams = false, roofF = null, roofAttic = false;
   // балка между двумя точками (м): брус сечением w × w
   function beam(a, b, w, m) {
@@ -1032,7 +1126,7 @@ function View3D(canvas, app) {
     const yAt = (v) => yt + (half - Math.abs(v - vc)) * (yR - yt) / half; // высота ската над точкой фронтона
     if (glazed) {
       const glow = lightsOn && mode === 'exterior';
-      const gl = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.8, side: T.DoubleSide }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7, side: T.DoubleSide });
+      const gl = winGlass(glow, T.DoubleSide);
       const m = 0.18;
       root.add(poly([P(f, yt + 0.05, wV0 + m * 2), P(f, yt + 0.05, wV1 - m * 2), P(f, yR - m * 1.4, vc)], gl, 0, 1));
       // импосты: стойки через четверть ширины, ригель на середине высоты
@@ -1113,7 +1207,7 @@ function View3D(canvas, app) {
     if (!['gable', 'hip', 'halfhip'].includes(t)) return;
     const tn = Math.tan(pitch), wU0 = ridgeX ? W.x0 : W.z0, wU1 = ridgeX ? W.x1 : W.z1, wV0 = ridgeX ? W.z0 : W.x0, wV1 = ridgeX ? W.z1 : W.x1;
     const half = (wV1 - wV0) / 2, len = wU1 - wU0; if (len < 5 || half < 2.5) return;
-    const gl = new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7, side: T.DoubleSide }), fr = mat({ c: '#4a3a2e' }, { side: T.DoubleSide });
+    const gl = winGlass(lightsOn && mode === 'exterior', T.DoubleSide), fr = mat({ c: '#4a3a2e' }, { side: T.DoubleSide });
     const P = (u, y, v) => ridgeX ? [u, y, v] : [v, y, u], n = len > 11 ? 3 : 2, sw = 0.78, sl = 1.18;
     for (const side of [-1, 1]) for (let i = 0; i < n; i++) {
       const uc = wU0 + len * (i + 1) / (n + 1), dv = half * 0.42, v0 = side < 0 ? wV0 + dv : wV1 - dv, run = sl * Math.cos(pitch);
@@ -1126,7 +1220,7 @@ function View3D(canvas, app) {
   /* угловые окна: снаружи угол между двумя половинами окна закрыт стеклом, на ребре — тонкий импост */
   function cornerGlass(p, ext, F) {
     const t = DK.ts(p), glow = lightsOn && mode === 'exterior';
-    const gl = glow ? new T.MeshStandardMaterial({ color: lin('#ffd59a'), emissive: lin('#ffc06a'), emissiveIntensity: 0.85 }) : new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7 }), fr = mat({ c: F.frame });
+    const gl = winGlass(glow), fr = mat({ c: F.frame });
     for (const fid of DK.floorsOf(p)) (p.levels[fid].open || []).forEach(o => {
       const ci = DK.cornerInfo(p, fid, o); if (!ci) return;
       const sz = DK.opSize(p, o), y0 = DK.elev(p, fid) / 1000 + sz.sill / 1000, h = sz.h / 1000, ym = y0 + h / 2;
@@ -1153,7 +1247,7 @@ function View3D(canvas, app) {
     const P = DK.outline(p, ext), n = P.length, area = P.reduce((s, q, i) => s + q.x * P[(i + 1) % n].y - P[(i + 1) % n].x * q.y, 0);
     const ws = DK.walls(p, top), ops = (p.levels[top].open || []).map(o => { const w = ws.find(v => v.id === o.wall); return w ? { x: w.axis === 'x' ? o.c : w.m, y: w.axis === 'x' ? w.m : o.c, w: o.w } : null; }).filter(Boolean);
     const y0 = DK.elev(p, top) / 1000, ya = y0 + 0.5, yb = y0 + hc - 0.25;
-    const gl = new T.MeshStandardMaterial({ color: lin(lightsOn && mode === 'exterior' ? '#ffd59a' : '#2e3f4d'), emissive: lin(lightsOn && mode === 'exterior' ? '#ffc06a' : '#000000'), emissiveIntensity: lightsOn ? 0.8 : 0, roughness: 0.05, metalness: 0.7 }), fr = mat({ c: F.frame });
+    const gl = winGlass(lightsOn && mode === 'exterior'), fr = mat({ c: F.frame });
     for (let i = 0; i < n; i++) {
       const a = P[(i + n - 1) % n], c = P[i], b = P[(i + 1) % n], cr = (c.x - a.x) * (b.y - c.y) - (c.y - a.y) * (b.x - c.x);
       if (Math.sign(cr) !== Math.sign(area)) continue; // только выпуклые углы

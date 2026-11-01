@@ -226,9 +226,17 @@ function renderSel() {
     else h = `<h3>${D.n} <small>${DK.fmtA(x.w * x.d / 1e6)} м²</small></h3>
       <div class="row2"><label class="fld">Ширина, мм<input type="number" id="xW" step="100" value="${x.w}"></label><label class="fld">Глубина, мм<input type="number" id="xD" step="100" value="${x.d}"></label></div>
       ${x.kind !== 'balcony' ? `<div class="seg" id="xRoof">${Object.entries(DK.EXT_ROOF).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.roof || 'open') === k}">${n.split(' ')[0]}</button>`).join('')}</div>` : ''}
-      ${x.kind !== 'balcony' && (x.roof || 'open') !== 'open' ? `<label class="fld">Навес<div class="seg" id="xShape"><button data-k="shed" aria-pressed="${x.shape !== 'gable'}">Односкатный</button><button data-k="gable" aria-pressed="${x.shape === 'gable'}">Двускатный</button></div></label>` : ''}
+      ${x.kind !== 'balcony' && (x.roof || 'open') !== 'open' ? (() => {
+        const form = DK.extRoofForm(P, x), FN = { gable: 'двускатная', hip: 'вальмовая', shed: 'односкатная', flat: 'плоская' }, own = x.rmode !== 'house', manual = Array.isArray(x.posts) && x.posts.length;
+        return `<label class="fld">Кровля<div class="seg" id="xRMode">${Object.entries(DK.EXT_RMODE).map(([k, n]) => `<button data-k="${k}" aria-pressed="${(x.rmode || 'own') === k}">${n}</button>`).join('')}</div></label>
+        ${own ? `<label class="fld">Форма<div class="seg" id="xShape"><button data-k="auto" aria-pressed="${x.shape !== 'shed'}">Как у дома</button><button data-k="shed" aria-pressed="${x.shape === 'shed'}">Односкатная</button></div></label>` : ''}
+        <div class="muted">${own ? `Своя кровля: ${FN[form]}, уклон как у дома (${P.roof.pitch || ''}°)${form === 'gable' || form === 'hip' ? `, конёк ${x.rrot ? 'вдоль стены' : 'от дома'}` : ''}.` : 'Скат дома продолжается над площадкой; у фронтона кровля дома вытягивается вперёд, впереди — фронтон на столбах.'}</div>
+        <div class="row">${own && (form === 'gable' || form === 'hip') ? '<button type="button" class="btn sm" id="xRot">Повернуть кровлю (R)</button>' : ''}${manual ? '<button type="button" class="btn sm ghost" id="xPostsAuto">Столбы — автоматически</button>' : ''}</div>
+        <div class="muted">Столбы: ${manual ? `поставлены вручную (${x.posts.length}) — тяните на плане, ластик убирает` : 'расставлены сами по углам и не реже чем через 3 м'}. Инструмент «Опорный столб» добавляет столб.</div>`;
+      })() : ''}
+      ${DK.extDeck(x) ? `<label class="fld">Наружная лестница<div class="seg" id="xStairs">${Object.entries(DK.EXT_STAIRS).map(([k, n]) => `<button data-k="${k}" aria-pressed="${((x.stairs || {}).side || 'far') === k}">${n}</button>`).join('')}</div></label>` : ''}
       <div class="muted">${x.kind === 'balcony' ? (cant ? `Вылет больше ${DK.fmtM(DK.BALCONY_CANT)} м — плита опирается на колонны до земли.` : `Консольная плита с терморазрывом, вылет до ${DK.fmtM(DK.BALCONY_CANT)} м.`) : 'Тяните террасу вдоль стены, квадратики — ширина и глубина. Мебель для улицы — в разделе «Терраса».'}${DK.extExit(P, x) || x.kind === 'porch' ? '' : ' <b>Нужен выход: дверь или панорамное окно.</b>'}</div>
-      ${x.kind !== 'balcony' ? `<details class="more"><summary>Крыша, колонны, остекление</summary><b>Открытая</b> — настил с ограждением. <b>Крытая</b> — навес над террасой, колонны встают сами: по углам у края и не реже чем через 3 м. <b>Застеклённая</b> — крытая терраса с остеклением по свободным сторонам. Поставьте террасы вплотную в ряд — ограждение и навес станут общими, между ними ограждения нет, колонна на стыке одна.${(() => { const j = DK.extJoin(P, x); return j.lo || j.hi ? ' <b>Эта терраса стоит в ряду с соседней.</b>' : ''; })()}</details>` : ''}
+      ${x.kind !== 'balcony' ? `<details class="more"><summary>Крыша, колонны, остекление</summary><b>Открытая</b> — настил с ограждением. <b>Крытая</b> — кровля над площадкой в стиле дома (своя или общая с домом), столбы встают сами: по углам у края и не реже чем через 3 м; инструментом «Опорный столб» их можно поставить вручную. <b>Застеклённая</b> — крытая терраса с остеклением по свободным сторонам. Поставьте террасы вплотную в ряд — ограждение и навес станут общими, между ними ограждения нет, колонна на стыке одна.${(() => { const j = DK.extJoin(P, x); return j.lo || j.hi ? ' <b>Эта терраса стоит в ряду с соседней.</b>' : ''; })()}</details>` : ''}
       <button type="button" class="btn sm ghost" id="sDel">Удалить</button>`;
   } else if (sel.kind === 'edge') {
     const e = DK.edges(P).find(x => x.id === sel.id); if (!e) { box.hidden = true; return; }
@@ -293,7 +301,11 @@ function renderSel() {
     $$('#gRoof button', box).forEach(b => b.onclick = () => { x.groof = b.dataset.k; app.commit('Кровля гаража'); });
     $$('#gType button', box).forEach(b => b.onclick = () => { x.gtype = b.dataset.k; app.commit(DK.GARAGE_TYPES[x.gtype]); });
     on('gGap', 'change', (e) => { x.gap = Math.max(1000, Math.min(15000, +e.target.value || DK.GARAGE.gap)); app.commit(); });
-    $$('#xShape button', box).forEach(b => b.onclick = () => { x.shape = b.dataset.k; app.commit(); });
+    $$('#xShape button', box).forEach(b => b.onclick = () => { if (b.dataset.k === 'auto') delete x.shape; else x.shape = b.dataset.k; app.commit('Форма кровли'); });
+    $$('#xRMode button', box).forEach(b => b.onclick = () => { x.rmode = b.dataset.k; app.commit(DK.EXT_RMODE[x.rmode]); });
+    $$('#xStairs button', box).forEach(b => b.onclick = () => { x.stairs = Object.assign({}, x.stairs || {}, { side: b.dataset.k }); delete x.stairs.at; app.commit('Наружная лестница'); });
+    on('xRot', 'click', () => { x.rrot = x.rrot ? 0 : 1; app.commit('Кровля повёрнута'); });
+    on('xPostsAuto', 'click', () => { delete x.posts; app.commit('Столбы — автоматически'); });
     on('sDel', 'click', () => { P.ext = P.ext.filter(q => q !== x); sel = null; app.commit(); });
   }
   if (sel.kind === 'edge') { const mv = (d) => { const e = DK.edges(P).find(x => x.id === sel.id); if (!DK.moveEdge(P, sel.id, d * e.out)) { toast('Так стену не сдвинуть'); return; } const mx = Math.min(...P.poly.map(v => v.x)), my = Math.min(...P.poly.map(v => v.y)); app.commit('Стена'); plan.view.ox += mx * plan.view.k; plan.view.oy += my * plan.view.k; plan.render(); };
@@ -372,7 +384,7 @@ function rotSel() {
   if (!sel) return;
   if (sel.kind === 'furn') { const f = P.levels[fid].furn.find(q => q.id === sel.id); if (f) { f.a = (DK.furnAngle(f) + 90) % 360; delete f.rot; app.commit(); } }
   if (sel.kind === 'stair' && P.stair) { P.stair.rot = (P.stair.rot + 1) % 4; app.commit(); }
-  if (sel.kind === 'ext') { const x = (P.ext || []).find(q => q.id === sel.id); if (x && x.kind === 'garage') { DK.garageRotate(x); app.commit('Гараж повёрнут'); } }
+  if (sel.kind === 'ext') { const x = (P.ext || []).find(q => q.id === sel.id); if (x && x.kind === 'garage') { DK.garageRotate(x); app.commit('Гараж повёрнут'); } else if (x && DK.extDeck(x)) { x.rrot = x.rrot ? 0 : 1; app.commit('Кровля повёрнута'); } }
 }
 
 /* ---------- виды ---------- */
@@ -382,7 +394,7 @@ function hint() {
     plan: { select: 'Нажмите на помещение, чтобы назначить его; тяните мебель, проёмы и перегородки. Колёсико — масштаб, тяните пустое место — сдвиг.',
             wall: 'Тяните от стены до стены — перегородка в полкирпича прилипает к граням стен.', door: 'Нажмите на стену — дверь 800 мм, на наружной — входная 1000 мм.',
             win: 'Нажмите на наружную стену — окно 1500 мм.', pass: 'Нажмите на внутреннюю стену — проём без двери 1200 мм. В несущей стене в ТЗ добавится перемычка.',
-            terrace: 'Нажмите на наружную стену 1 этажа — терраса встанет у ближайшего панорамного окна или двери.', porch: 'Нажмите на наружную стену у входной двери.',
+            terrace: 'Нажмите на наружную стену 1 этажа — терраса встанет у ближайшего панорамного окна или двери.', porch: 'Нажмите на наружную стену у входной двери.', post: 'Нажмите на террасу или входную группу — встанет опорный столб, на него опирается кровля. Тяните столб на плане, ластик убирает.', xstair: 'Нажмите у края террасы или входной группы — с этой стороны встанет наружная лестница. Потом её можно тянуть вдоль краёв.',
             wallD: 'Тяните от стены до стены — перегородка под любым углом с шагом 15°, длина с шагом 50 мм. Двери в косых перегородках не ставятся.',
             chamfer: 'Нажмите у выпуклого наружного угла — срез 1,5 м под 45°, ещё раз — 2 м, 1 м, без среза. Эркерный срез уменьшает комнату, кровля остаётся над углом.',
             measure: 'Тяните от точки до точки — длина в мм; концы прилипают к граням стен, с Shift — строго по горизонтали или вертикали.',
