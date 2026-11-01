@@ -80,7 +80,7 @@ async function renderList() {
   cur = null; history.replaceState(null, '', location.pathname);
   list = await api('/api/crm/cms');
   main.innerHTML = `<h1>Контент сайта</h1><div class="muted" style="margin-bottom:10px">Страницы, услуги и статьи собираются из блоков. У каждой — свой заголовок и описание для поиска, подсказки по SEO и ответам нейросетей. Изменения видны на сайте сразу после «Сохранить» со статусом «Опубликовано».</div>
-  <div class="row" style="margin-bottom:12px"><button class="btn primary" data-new="post">+ Статья</button><button class="btn" data-new="page">+ Страница</button><button class="btn" data-new="service">+ Услуга</button><span style="flex:1"></span><button class="btn ghost" id="cmsSite">Настройки сайта</button><button class="btn ghost" id="cmsMedia">Медиатека</button></div>
+  <div class="row" style="margin-bottom:12px"><button class="btn primary" data-new="post">+ Статья</button><button class="btn" data-new="page">+ Страница</button><button class="btn" data-new="service">+ Услуга</button><span style="flex:1"></span><button class="btn ghost" id="cmsTexts">Тексты сайта</button><button class="btn ghost" id="cmsSite">Настройки сайта</button><button class="btn ghost" id="cmsMedia">Медиатека</button></div>
   <div class="row" style="margin-bottom:10px"><div class="tabs" style="margin:0">${[['', 'Все'], ['page', 'Страницы'], ['service', 'Услуги'], ['post', 'Статьи'], ['list', 'Разделы и главная']].map(([k, n]) => `<button data-k="${k}" aria-pressed="${filter.kind === k}">${n}</button>`).join('')}</div><input id="cmsQ" placeholder="Поиск по названию и адресу" style="max-width:280px" value="${esc(filter.q)}"></div>
   <div class="box" style="padding:0;overflow:auto"><table><thead><tr><th>Страница</th><th>Адрес</th><th>Тип</th><th>Статус</th><th class="num">SEO</th><th>Изменено</th></tr></thead><tbody id="cmsT"></tbody></table></div>`;
   const draw = () => {
@@ -94,7 +94,7 @@ async function renderList() {
   $$('.tabs [data-k]', main).forEach(b => b.onclick = () => { filter.kind = b.dataset.k; $$('.tabs [data-k]', main).forEach(x => x.setAttribute('aria-pressed', String(x === b))); draw(); });
   $('#cmsQ').oninput = (e) => { filter.q = e.target.value; draw(); };
   $$('[data-new]', main).forEach(b => b.onclick = () => create(b.dataset.new));
-  $('#cmsSite').onclick = renderSite; $('#cmsMedia').onclick = () => renderMedia();
+  $('#cmsSite').onclick = renderSite; $('#cmsTexts').onclick = renderTexts; $('#cmsMedia').onclick = () => renderMedia();
   draw();
 }
 async function leave() { if (!dirty) return true; if (!confirm('Есть несохранённые изменения. Уйти без сохранения?')) return false; dirty = false; return true; }
@@ -336,6 +336,23 @@ async function previewPage() {
   root.addEventListener('click', (e) => { const a = e.target.closest('a'); if (a) { e.preventDefault(); toast('В предпросмотре ссылки не открываются: ' + (a.getAttribute('href') || '')); } });
   $$('[data-w]', d).forEach(b => b.onclick = () => { host.style.width = b.dataset.w; $$('[data-w]', d).forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
   $('[data-x]', d).onclick = () => d.remove(); d.onclick = (e) => { if (e.target === d) d.remove(); };
+}
+
+/* ---------- тексты сайта: главная, «О проекте», шаги, конструктор — всё из реестра js/texts.js ---------- */
+let textsQ = '';
+async function renderTexts() {
+  if (!(await leave())) return;
+  const cur = await api('/api/crm/cms/texts'), G = window.DK && DK.TEXT_GROUPS || [];
+  main.innerHTML = `<div class="row"><button class="btn sm ghost" id="tBack">← Контент</button><h1 style="margin:0">Тексты сайта</h1></div>
+  <div class="box"><div class="muted">Здесь — тексты главной страницы, блока «О проекте», «5 шагов к дому» (их подробности и цены показывает страница «Услуги»), конструктора и баннера. Серым внутри поля — текст по умолчанию: оставьте поле пустым, чтобы его вернуть. Статьи, услуги, документы и другие страницы правятся в «Контенте» как обычно.</div>
+    <div class="row" style="margin-top:10px"><input id="tQ" placeholder="Поиск по текстам" style="max-width:320px" value="${esc(textsQ)}"><span style="flex:1"></span><button class="btn primary" id="tSave">Сохранить</button></div></div>
+  <form id="tForm">${G.map(g => `<div class="box tgrp"><h2 style="margin-top:0">${esc(g.g)}</h2>${g.items.map(it => `<label class="f tfld" data-s="${esc((g.g + ' ' + it.n + ' ' + it.d).toLowerCase())}"><span class="row" style="justify-content:space-between">${esc(it.n)}<button type="button" class="btn sm ghost" data-reset="${esc(it.k)}" title="Вернуть текст по умолчанию">↺</button></span>
+      ${it.long ? `<textarea name="${esc(it.k)}" rows="${Math.min(8, Math.max(2, Math.ceil(String(it.d).length / 90)))}" placeholder="${esc(it.d)}">${esc(cur[it.k] || '')}</textarea>` : `<input name="${esc(it.k)}" value="${esc(cur[it.k] || '')}" placeholder="${esc(it.d)}">`}</label>`).join('')}</div>`).join('')}</form>`;
+  $('#tBack').onclick = () => renderList();
+  const filter = () => { const q = textsQ.toLowerCase(); $$('.tfld').forEach(l => { l.hidden = q && !l.dataset.s.includes(q) && !String(l.querySelector('[name]').value).toLowerCase().includes(q); }); $$('.tgrp').forEach(b => { b.hidden = !$$('.tfld', b).some(l => !l.hidden); }); };
+  $('#tQ').oninput = (e) => { textsQ = e.target.value; filter(); }; filter();
+  $$('[data-reset]').forEach(b => b.onclick = () => { $(`#tForm [name="${b.dataset.reset}"]`).value = ''; });
+  $('#tSave').onclick = async () => { const d = {}; $$('#tForm [name]').forEach(i => { if (i.value.trim()) d[i.name] = i.value; }); try { await api('/api/crm/cms/texts', d, 'PUT'); toast('Тексты сохранены — на сайте они появятся сразу'); } catch (er) { toast(er.message); } };
 }
 
 /* ---------- настройки сайта ---------- */

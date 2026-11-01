@@ -7,6 +7,7 @@ const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => Array.from(
 const esc = (s) => DK.esc(s);
 const rub = (v) => Number(v).toLocaleString('ru-RU') + ' ₽', ic = (n, s) => DK.icon ? DK.icon(n, s || 24) : '';
 const KEY = 'ld-how-seen';
+const T = (k) => (DK.t ? DK.t(k) : k); // тексты правит маркетолог в CRM (js/texts.js)
 
 // пять шагов — в js/steps.js (их же показывает страница «Услуги» с подробностями и ценами)
 
@@ -16,7 +17,7 @@ DK.leadMore = leadMore;
 const stepHtml = (st, i) => `<section class="how-step tone-${st.tone}" data-i="${i}">
     <div class="how-art" aria-hidden="true"><span class="how-num">${String(i + 1).padStart(2, '0')}</span><span class="how-ic">${ic(st.icon, 44)}</span><span class="how-ring"></span></div>
     <div class="how-txt"><h3>${st.t}</h3><p>${st.d}</p>${st.more ? `<details class="more"><summary>Подробнее</summary>${st.more}</details>` : ''}
-      <a class="how-more" href="/uslugi/#shag-${i + 1}">Что входит и сколько стоит ${ic('arrow-right', 14)}</a></div></section>`;
+      <a class="how-more" href="/uslugi/#shag-${i + 1}">${esc(T('steps.link'))} ${ic('arrow-right', 14)}</a></div></section>`;
 // StepPath: круги 44, номер Manrope, подпись Inter; пройден — Navy, текущий — Cyan, будущий — серый
 const pathHtml = () => `<ol class="steppath">${DK.HOW_STEPS.map((st, i) => `<li><button type="button" data-step="${i}"><span class="sp-c">${String(i + 1).padStart(2, '0')}</span><span class="sp-l">${st.s}</span></button>${i < DK.HOW_STEPS.length - 1 ? `<span class="sp-line" aria-hidden="true">${ic('chevron-right', 12)}</span>` : ''}</li>`).join('')}</ol>`;
 
@@ -103,12 +104,12 @@ function hero() {
   h.innerHTML = `<img class="hero-bg" src="${esc(H.src)}"${H.small ? ` srcset="${esc(H.small)} 1000w, ${esc(H.src)} 2000w" sizes="100vw"` : ''} alt="${esc(H.alt)}" fetchpriority="high">
     <div class="hero-shade" aria-hidden="true"></div>
     <div class="hero-in"><div class="hero-main">
-      <h1>Создайте свой дом. Продумайте детали. Найдите подрядчика.</h1>
-      <p>Ваша личная логика дома.</p>
-      <div class="hero-cta"><button class="btn big w" type="button" id="heroStart">Создать проект ${ic('chevron-right', 16)}</button><button class="btn big ow" type="button" id="heroFind">Найти подрядчика</button></div></div>
-      <div class="hero-qf"><div class="hqf-t"><b>Проекты, созданные на нашей платформе</b><button class="hqf-all" type="button" id="hqfAll">Все проекты ${ic('arrow-right', 14)}</button></div>
+      <h1>${esc(T('hero.l1'))}<br>${esc(T('hero.l2'))}<br>${esc(T('hero.l3'))}</h1>
+      <p>${esc(T('hero.sub'))}</p>
+      <div class="hero-cta"><button class="btn big w" type="button" id="heroStart">${esc(T('hero.btn1'))} ${ic('chevron-right', 16)}</button><button class="btn big ow" type="button" id="heroFind">${esc(T('hero.btn2'))}</button></div></div>
+      <div class="hero-qf"><div class="hqf-t"><b>${esc(T('hero.qf'))}</b><button class="hqf-all" type="button" id="hqfAll">${esc(T('hero.qfAll'))} ${ic('arrow-right', 14)}</button></div>
         <form class="qf-in" id="hqf">${DK.qfHtml()}<button class="btn primary" type="submit">${ic('search', 16)}Найти</button></form></div>
-      ${own ? '' : '<span class="hero-cap">Этот дом спроектирован на платформе «Логика Дома»</span>'}</div>`;
+      ${own ? '' : `<span class="hero-cap">${esc(T('hero.cap'))}</span>`}</div>`;
   $('#heroStart').onclick = toWork;
   $('#heroFind').onclick = () => DK.goPage('builders');
   // поиск проектов поверх фото
@@ -117,47 +118,43 @@ function hero() {
 }
 function steps() {
   const s = $('#steps'); if (!s) return;
-  s.innerHTML = `<div class="home-in"><div class="sec-t"><h2>5 шагов к дому</h2><a class="btn tertiary" href="/uslugi/#shagi">Подробнее и цены ${ic('arrow-right', 14)}</a></div>
+  s.innerHTML = `<div class="home-in"><div class="sec-t"><h2>${esc(T('steps.title'))}</h2><a class="btn tertiary" href="/uslugi/#shagi">${esc(T('steps.more'))} ${ic('arrow-right', 14)}</a></div>
     <div class="stepcard">${pathHtml()}<div class="how-body">${DK.HOW_STEPS.map(stepHtml).join('')}</div></div></div>`;
   const sp = stepper(s, { delay: 8000, manual: true }); sp.show(0);
   // автопрокрутка шагов — когда блок появился на экране
   if ('IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting)) { io.disconnect(); sp.start(); } }, { threshold: 0.4 }); io.observe(s); } else sp.start();
 }
-/* о проекте: позиционирование — для кого платформа и что она экономит */
+/* о проекте: позиционирование — «как обычно» против «с нами», что бесплатно и что в кабинете; тексты — в CRM */
 function about() {
   const a = $('#about'); if (!a) return;
-  const free = [['Конструктор: планировка по этажам, мебель, стили отделки', 'layout-grid'], ['3D, прогулка по дому и участок с постройками', 'box'], ['Проверка базовых нормативов и подсказки', 'shield-check'],
-    ['Снимки планов и оценка стоимости строительства', 'calculator'], ['Каталог строительных компаний и архитекторов', 'users'], ['Первая реалистичная визуализация — при регистрации', 'sparkles']];
-  const paid = [['Эскизный проект из 13 листов — с ним можно идти в строительную компанию или к архитектору', 'file-check'], ['Пакеты дополнительных визуализаций', 'image'], ['Сопровождение в подборе строительной компании', 'briefcase'], ['Публикация своего проекта с ценой за использование', 'share-2']];
+  const li = (k, i) => `<li>${ic(i, 18)}<span>${esc(T(k))}</span></li>`;
+  const chips = (k) => DK.tList ? DK.tList(k).map(x => `<span class="ab-chip">${esc(x)}</span>`).join('') : '';
   a.innerHTML = `<div class="home-in about">
-    <div class="sec-t"><h2>О проекте</h2></div>
-    <div class="ab-grid">
-      <div class="ab-txt">
-        <p class="ab-lead">«Логика Дома» — для тех, кто мечтает о своём доме и думает о том, каким именно он должен быть: что нужно вам, вашей семье и что будет удобно каждый день.</p>
-        <p>Эти вопросы решаются на этапе эскизного проекта. Это первый шаг, на котором мечта обретает форму: планировка, внешний вид дома и первая оценка стоимости.</p>
-        <details class="more"><summary>Почему на это обычно уходят месяцы</summary>
-          <p>Чтобы понять, какой дом вам подходит, приходится перебрать тысячи планировок и обойти десятки сайтов. Потом — отдельная работа с архитектором, расчёт стоимости и снова правки, чтобы вписаться в бюджет.</p>
-          <p>Это долго и недёшево: эскизный проект у архитектора стоит обычно 500–1 000 ₽ за м², но не меньше 50–100 тыс. ₽. Для дома 150 м² это 75–150 тыс. ₽ и от 2 недель до 2 месяцев с правками. Поэтому многие откладывают идею о доме в долгий ящик.</p></details>
-        <h3>Теперь есть другой путь</h3>
-        <p>В нашем конструкторе вы сами создаёте планировку по этажам, ставите дом на участок и прикидываете, где будут баня, гараж и беседка. Примеряете разные стили отделки, расставляете мебель и решаете, хватает ли места для жизни. Смотрите дом в 3D и гуляете по нему.</p>
-        <p>В конструктор заложены базовые нормативы: явные ошибки система подсветит сама. Тут же она посчитает ценовой ориентир строительства по средним ценам рынка.</p>
-        <p>Мы уверены, что платформа поможет и тем, кто мечтает о доме, и профессионалам рынка — архитекторам и строительным компаниям.</p>
-        <div class="hero-cta"><button class="btn primary big" type="button" id="abStart">Создать свой дом ${ic('chevron-right', 16)}</button><a class="btn big" href="/uslugi/">Услуги и цены</a></div>
-      </div>
-      <div class="ab-side">
-        <div class="ab-card"><b>Бесплатно и без ограничений</b><ul>${free.map(([t, i]) => `<li>${ic(i, 18)}<span>${t}</span></li>`).join('')}</ul></div>
-        <div class="ab-card alt"><b>В личном кабинете — по доступной цене</b><ul>${paid.map(([t, i]) => `<li>${ic(i, 18)}<span>${t}</span></li>`).join('')}</ul></div>
-      </div>
-    </div></div>`;
+    <div class="ab-head"><small class="over">${esc(T('ab.over'))}</small><h2>${esc(T('ab.title'))}</h2><p class="ab-lead">${esc(T('ab.lead'))}</p></div>
+    <div class="ab-vs">
+      <div class="ab-old"><b class="ab-t">${esc(T('ab.oldT'))}</b>
+        <ul>${li('ab.old1', 'search')}${li('ab.old2', 'users')}${li('ab.old3', 'clock')}</ul>
+        <div class="ab-nums"><div><strong>${esc(T('ab.oldN1'))}</strong><span>${esc(T('ab.oldS1'))}</span></div><div><strong>${esc(T('ab.oldN2'))}</strong><span>${esc(T('ab.oldS2'))}</span></div></div></div>
+      <div class="ab-arrow" aria-hidden="true">${ic('arrow-right', 22)}</div>
+      <div class="ab-new"><div class="hero-grid" aria-hidden="true"></div><b class="ab-t">${esc(T('ab.newT'))}</b>
+        <ul>${li('ab.new1', 'layout-grid')}${li('ab.new2', 'box')}${li('ab.new3', 'shield-check')}</ul>
+        <div class="ab-nums"><div><strong>${esc(T('ab.newN1'))}</strong><span>${esc(T('ab.newS1'))}</span></div><div><strong>${esc(T('ab.newN2'))}</strong><span>${esc(T('ab.newS2'))}</span></div></div></div>
+    </div>
+    <div class="ab-offer">
+      <div><b>${ic('check', 18)}${esc(T('ab.freeT'))}</b><div class="ab-chips">${chips('ab.free')}</div></div>
+      <div class="paid"><b>${ic('lock', 18)}${esc(T('ab.paidT'))}</b><div class="ab-chips">${chips('ab.paid')}</div></div>
+    </div>
+    <div class="ab-foot"><p>${esc(T('ab.foot'))}</p><div class="hero-cta"><button class="btn primary big" type="button" id="abStart">${esc(T('ab.btn1'))} ${ic('chevron-right', 16)}</button><a class="btn big" href="/uslugi/">${esc(T('ab.btn2'))}</a></div></div>
+  </div>`;
   $('#abStart').onclick = toWork;
 }
 async function more() {
   const m = $('#homeMore'); if (!m) return;
-  m.innerHTML = `<div class="home-in"><section id="hmProj" hidden><div class="sec-t"><h2>Популярные проекты</h2><button class="btn tertiary" type="button" data-go="projects">Все проекты ${ic('arrow-right', 14)}</button></div><div class="pgrid3" id="hmProjList"></div></section>
-    <section id="hmOrg" hidden><div class="sec-t"><h2>Проверенные подрядчики</h2><button class="btn tertiary" type="button" data-go="builders">Все подрядчики ${ic('arrow-right', 14)}</button></div><div class="pgrid3" id="hmOrgList"></div></section>
+  m.innerHTML = `<div class="home-in"><section id="hmProj" hidden><div class="sec-t"><h2>${esc(T('home.proj'))}</h2><button class="btn tertiary" type="button" data-go="projects">Все проекты ${ic('arrow-right', 14)}</button></div><div class="pgrid3" id="hmProjList"></div></section>
+    <section id="hmOrg" hidden><div class="sec-t"><h2>${esc(T('home.org'))}</h2><button class="btn tertiary" type="button" data-go="builders">Все подрядчики ${ic('arrow-right', 14)}</button></div><div class="pgrid3" id="hmOrgList"></div></section>
     <section class="navy-ban"><div class="hero-grid" aria-hidden="true"></div><span class="node nd-cyan b1"></span><span class="node nd-orange b2"></span><span class="node nd-blue b3"></span><span class="node nd-coral b4"></span>
-      <div><h2>Найдите проект или создайте свой</h2><p>Настройте планировку, материалы и инженерию — смета пересчитается автоматически.</p>
-      <div class="hero-cta"><button class="btn big" type="button" data-go="projects">Подобрать проект</button><button class="btn big ghost-w" type="button" id="banStart">Спроектировать свой</button></div></div></section></div>`;
+      <div><h2>${esc(T('ban.title'))}</h2><p>${esc(T('ban.text'))}</p>
+      <div class="hero-cta"><button class="btn big" type="button" data-go="projects">${esc(T('ban.btn1'))}</button><button class="btn big ghost-w" type="button" id="banStart">${esc(T('ban.btn2'))}</button></div></div></section></div>`;
   $('#banStart').onclick = toWork;
   $$('[data-go]', m).forEach(b => b.onclick = () => DK.goPage(b.dataset.go));
   try {

@@ -172,7 +172,7 @@ ${S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVeri
       const items = [['Главная', '/'], ['Услуги', '/uslugi/']], sv = list('service');
       // пять шагов к дому: подробности и цены каждого шага; цены пакетов визуализаций — из настроек CRM
       let packs = null; try { packs = JSON.parse(fs.readFileSync(path.join(DATA, 'viz-settings.json'), 'utf8')).packs; } catch (e) { /* по умолчанию */ }
-      const ST = require('./js/steps.js')(Object.assign({}, cfg, { verifyPrice: +process.env.VERIFY_PRICE || cfg.verifyPrice, sketchPrice: +process.env.SKETCH_PRICE || cfg.sketchPrice, cadPrice: +process.env.CAD_PRICE || cfg.cadPrice, vizPacks: packs && packs.length ? packs : null }));
+      const ST = require('./js/steps.js')(Object.assign({}, cfg, { verifyPrice: +process.env.VERIFY_PRICE || cfg.verifyPrice, sketchPrice: +process.env.SKETCH_PRICE || cfg.sketchPrice, cadPrice: +process.env.CAD_PRICE || cfg.cadPrice, vizPacks: packs && packs.length ? packs : null }), store.texts ? store.texts() : {});
       const stepsHtml = `<section class="steps-x" id="shagi"><h2>5 шагов к дому: что входит и сколько стоит</h2>${ST.map((st, i) => `<article class="stx tone-${st.tone}" id="shag-${i + 1}"><div class="stx-n">${String(i + 1).padStart(2, '0')}<span>${ic(st.icon, 26)}</span></div>
         <div class="stx-b"><small>${esc(st.s)}</small><h3>${esc(st.t)}</h3><p>${esc(st.d)}</p><p class="stx-more">${esc(st.more || '')}</p>
         <table class="stx-p">${st.price.map(([a, v]) => `<tr><td>${esc(a)}</td><td>${esc(v)}</td></tr>`).join('')}</table></div></article>`).join('')}</section>`;
@@ -275,6 +275,9 @@ ${perks}${pr.about ? `<section><h2>О проекте</h2><p class="about">${esc(
     }
     // фото на главной — из настроек сайта (медиатека CRM), иначе рендер из конструктора
     if (/^\/media\/[\w.-]+\.(jpe?g|png|webp)$/.test(S.heroImage || '')) h = h.replace('</head>', `<script>window.__HERO=${JSON.stringify({ src: S.heroImage, alt: S.heroAlt || '' }).replace(/</g, '\\u003c')}</script></head>`);
+    // тексты главной из CRM («Тексты сайта»)
+    const TX = store.texts ? store.texts() : {};
+    if (Object.keys(TX).length) h = h.replace('</head>', `<script>window.__TEXTS=${JSON.stringify(TX).replace(/</g, '\\u003c')}</script></head>`);
     h = h.replace('</head>', social(S, false) + '</head>');
     const extra = (S.yandexVerify ? `<meta name="yandex-verification" content="${esc(S.yandexVerify)}">` : '') + (S.gsc ? `<meta name="google-site-verification" content="${esc(S.gsc)}">` : '') + metrika(S);
     if (extra) h = h.replace('</head>', extra + '</head>');

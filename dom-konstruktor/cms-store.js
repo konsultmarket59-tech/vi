@@ -68,5 +68,8 @@ module.exports = function cmsStore(DATA, C, CFG) {
   const SITE_KEYS = ['phone', 'email', 'city', 'address', 'legal', 'inn', 'hours', 'vk', 'telegram', 'whatsapp', 'max', 'youtube', 'dzen', 'metrika', 'gsc', 'yandexVerify', 'footerNote', 'heroImage', 'heroAlt', 'socialPopup', 'socialTitle', 'socialText', 'socialDelay'];
   function site() { const s = read().site || {}; return Object.assign({ phone: OWNER.phone || '', email: OWNER.email || '', city: OWNER.city || 'Пермь, работаем по России', legal: OWNER.name || BRAND }, s); }
   function saveSite(d) { const st = read(); st.site = {}; SITE_KEYS.forEach(k => { if (d[k] != null) st.site[k] = String(d[k]).slice(0, 500); }); write(st); return site(); }
-  return { all, get, save, remove, reset, site, saveSite, KINDS, BRAND };
+  // тексты сайта из реестра js/texts.js: { ключ: текст }; пустой — значит текст по умолчанию
+  function texts() { return read().texts || {}; }
+  function saveTexts(d) { const st = read(), out = {}; Object.keys(d || {}).slice(0, 500).forEach(k => { if (/^[\w.-]{1,60}$/.test(k) && String(d[k]).trim()) out[k] = String(d[k]).slice(0, 5000); }); st.texts = out; write(st); return out; }
+  return { all, get, save, remove, reset, site, saveSite, texts, saveTexts, KINDS, BRAND };
 };

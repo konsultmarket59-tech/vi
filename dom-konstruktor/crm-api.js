@@ -175,6 +175,10 @@ module.exports = function crm(ctx) {
         if (p === '/api/crm/cms/page' && M === 'DELETE') { try { cms.remove(q); return json(res, { ok: true }), true; } catch (e) { return send(res, 400, { ok: false, error: e.message }), true; } }
         if (p === '/api/crm/cms/reset' && M === 'POST') { const d = await body(req, 5e3); return json(res, cms.reset(str(d.path, 300))), true; }
         if (p === '/api/crm/cms/preview' && M === 'POST') { const d = await body(req, 2e6); return json(res, { html: preview ? preview(req, Object.assign({ path: str(d.path, 300) || '/' }, d.rec || {})) : '' }), true; }
+        if (p === '/api/crm/cms/texts') {
+          if (M === 'GET') return json(res, cms.texts ? cms.texts() : {}), true;
+          if (M === 'PUT') return json(res, cms.saveTexts(await body(req, 400e3))), true;
+        }
         if (p === '/api/crm/cms/site') {
           if (M === 'GET') return json(res, cms.site()), true;
           if (M === 'PUT') return json(res, cms.saveSite(await body(req, 50e3))), true;

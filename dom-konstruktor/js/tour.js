@@ -58,7 +58,7 @@ function stop() { on = false; if (hole) hole.hidden = box.hidden = true; try { l
 DK.tour = start;
 function init() {
   // кнопка «Как пользоваться» над конструктором
-  const t = $('#workT .sec-t'); if (t && !$('#tourBtn')) { const b = document.createElement('button'); b.type = 'button'; b.id = 'tourBtn'; b.className = 'btn tertiary'; b.textContent = 'Как пользоваться'; b.onclick = start; t.appendChild(b); }
+  const t = $('#workT .sec-t'); if (t && !$('#tourBtn')) { const b = document.createElement('button'); b.type = 'button'; b.id = 'tourBtn'; b.className = 'btn tertiary'; b.textContent = DK.t ? DK.t('work.tour') : 'Как пользоваться'; b.onclick = start; t.appendChild(b); }
   let done = false; try { done = !!localStorage.getItem(KEY); } catch (e) { /* приватный режим */ }
   const q = new URLSearchParams(location.search);
   if (done || q.get('crm') || q.get('crmp') || q.get('company') || window.__DEMO_AS || /^#(cab|company|projects|builders|arch)/.test(location.hash)) return;

@@ -131,6 +131,25 @@ DK.exportIFC = function (p, opts) {
     const ol = DK.outline(p, -t), slab = E('IFCSLAB', istr(guid()), OH, istr(fid === 'f1' ? 'Цокольное перекрытие' : fid === 'b' ? 'Плита пола цоколя' : 'Перекрытие'), '$', '$', elPl(), body([poly(ol, -p.slab, p.slab)]), '$', fid === 'f1' || fid === 'b' ? '.BASESLAB.' : '.FLOOR.');
     els.push(slab);
     if (fid === DK.floorsOf(p).slice(-1)[0] && fid !== af) els.push(E('IFCSLAB', istr(guid()), OH, istr('Чердачное перекрытие'), '$', '$', elPl(), body([poly(ol, p.hClear, p.slab)]), '$', '.ROOF.'));
+    // пристройки этого этажа: настил террасы, крыльца или балкона с колоннами; гараж — стены и плита покрытия
+    (p.ext || []).filter(x => x.kind === 'balcony' ? x.fid === fid : fid === 'f1').forEach(x => {
+      const r = DK.extRect(p, x); if (!r) return;
+      const nm3 = DK.extName ? DK.extName(x) : x.kind, cols = DK.extColumns ? DK.extColumns(p, x) : [];
+      if (x.kind === 'garage') {
+        const gh = 2700, gt = 300;
+        if (x.gtype !== 'carport') [[r.x0, r.y0, r.x1, r.y0 + gt], [r.x0, r.y1 - gt, r.x1, r.y1], [r.x0, r.y0, r.x0 + gt, r.y1], [r.x1 - gt, r.y0, r.x1, r.y1]].forEach(q => els.push(E('IFCWALL', istr(guid()), OH, istr(nm3 + ': стена'), '$', "'Гараж'", elPl(), body([box(q[0], q[1], q[2], q[3], 0, gh)]), '$')));
+        els.push(E('IFCSLAB', istr(guid()), OH, istr(nm3 + ': пол'), '$', '$', elPl(), body([box(r.x0, r.y0, r.x1, r.y1, -150, 150)]), '$', '.FLOOR.'));
+        els.push(E('IFCSLAB', istr(guid()), OH, istr(nm3 + ': покрытие'), '$', '$', elPl(), body([box(r.x0 - 200, r.y0 - 200, r.x1 + 200, r.y1 + 200, gh, 200)]), '$', '.ROOF.'));
+        cols.forEach(q => els.push(E('IFCCOLUMN', istr(guid()), OH, istr(nm3 + ': стойка'), '$', '$', elPl(), body([box(q.x - 80, q.y - 80, q.x + 80, q.y + 80, 0, gh)]), '$')));
+        return;
+      }
+      const bal = x.kind === 'balcony', z0 = bal ? -200 : -150;
+      const sl = E('IFCSLAB', istr(guid()), OH, istr(nm3 + ' ' + DK.fmtA((r.x1 - r.x0) * (r.y1 - r.y0) / 1e6) + ' м²'), '$', '$', elPl(), body([box(r.x0, r.y0, r.x1, r.y1, z0, bal ? 200 : 150)]), '$', '.FLOOR.');
+      els.push(sl); pset(sl, 'Pset_SlabCommon', { IsExternal: true });
+      const hc = bal ? -DK.elev(p, fid) : p.hClear;
+      cols.forEach(q => els.push(E('IFCCOLUMN', istr(guid()), OH, istr(nm3 + ': колонна'), '$', '$', elPl(), body([box(q.x - 125, q.y - 125, q.x + 125, q.y + 125, bal ? hc : 0, bal ? -hc - 200 : p.hClear)]), '$')));
+      if (!bal && (x.roof || 'open') !== 'open') els.push(E('IFCSLAB', istr(guid()), OH, istr(nm3 + ': навес'), '$', '$', elPl(), body([box(r.x0 - 200, r.y0 - 200, r.x1 + 200, r.y1 + 200, p.hClear, 150)]), '$', '.ROOF.'));
+    });
     // лестница — габарит марша
     const sr = DK.stairRect(p);
     if (sr && fid !== DK.floorsOf(p).slice(-1)[0] && fid !== 'b') els.push(E('IFCSTAIR', istr(guid()), OH, istr('Лестница (габарит)'), '$', '$', elPl(), body([box(sr.x0, sr.y0, sr.x1, sr.y1, 0, H)]), '$', '.NOTDEFINED.'));
@@ -170,7 +189,8 @@ function cp1251(s) {
    opts.dimOuter / opts.dimInner — наружные и внутренние размеры (по умолчанию оба). */
 DK.DXF_LAYERS = [['FRAME', 7, 'Рамка листа'], ['STAMP', 7, 'Штамп и надписи листа'], ['WALLS_OUTER', 7, 'Наружные стены'], ['INSULATION', 51, 'Утеплитель'],
   ['WALLS_BEARING', 1, 'Несущие стены'], ['PARTITIONS', 8, 'Перегородки'], ['WINDOWS', 5, 'Окна'], ['DOORS', 3, 'Двери и проёмы'], ['STAIRS', 6, 'Лестница'],
-  ['ROOM_TAGS', 4, 'Марки помещений'], ['EXPLICATION', 7, 'Экспликация'], ['DIMS_OUTER', 140, 'Наружные размеры'], ['DIMS_INNER', 30, 'Внутренние размеры']];
+  ['ROOM_TAGS', 4, 'Марки помещений'], ['EXPLICATION', 7, 'Экспликация'], ['DIMS_OUTER', 140, 'Наружные размеры'], ['DIMS_INNER', 30, 'Внутренние размеры'],
+  ['EXTENSIONS', 32, 'Терраса, крыльцо, балкон, гараж'], ['AXES', 9, 'Координационные оси'], ['OPENING_TAGS', 5, 'Марки проёмов']];
 DK.exportDXF = function (p, opts) {
   opts = Object.assign({ dimOuter: true, dimInner: true }, opts || {});
   const o = [], g = (c, v) => { o.push(String(c), String(v)); };
@@ -196,7 +216,10 @@ DK.exportDXF = function (p, opts) {
   g(0, 'SECTION'); g(2, 'ENTITIES');
 
   // габарит плана с размерами — по нему выбираем масштаб листа
-  const ol = DK.outline(p, ext), bx0 = Math.min(...ol.map(q => q.x)) - 2600, bx1 = Math.max(...ol.map(q => q.x)) + 2600, by0 = Math.min(...ol.map(q => q.y)) - 2600, by1 = Math.max(...ol.map(q => q.y)) + 2600;
+  // габарит: дом с размерами и осями, пристройки (терраса, гараж) — тоже на листе
+  const ol = DK.outline(p, ext).concat(...(p.ext || []).map(x => { const r = DK.extRect(p, x); return r ? [{ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y1 }] : []; }));
+  const bx0 = Math.min(...ol.map(q => q.x)) - 3400, bx1 = Math.max(...ol.map(q => q.x)) + 3400, by0 = Math.min(...ol.map(q => q.y)) - 3400, by1 = Math.max(...ol.map(q => q.y)) + 3400;
+  const OM = DK.openingMarks ? DK.openingMarks(p) : null, AX = DK.axes ? DK.axes(p) : null;
   const AW = 280, AH = 227; // поле под план на листе (слева от экспликации, над штампом), мм бумаги
   const S = [100, 200, 400].find(k => (bx1 - bx0) / k <= AW && (by1 - by0) / k <= AH) || 400;
   const SW = 420 * S, SH = 297 * S, total = fl.length, today = new Date().toLocaleDateString('ru-RU');
@@ -264,6 +287,27 @@ DK.exportDXF = function (p, opts) {
       }
     });
     const sr = DK.stairRect(p); if (sr && fid !== 'b') { rect('STAIRS', sr.x0, sr.y0, sr.x1, sr.y1); line('STAIRS', sr.x0, sr.y0, sr.x1, sr.y1); }
+    // пристройки этого этажа: терраса, крыльцо, гараж — на 1-м, балкон — на своём
+    (p.ext || []).filter(x => x.kind === 'balcony' ? x.fid === fid : fid === 'f1').forEach(x => {
+      const r = DK.extRect(p, x); if (!r) return;
+      rect('EXTENSIONS', r.x0, r.y0, r.x1, r.y1);
+      if (DK.extColumns) DK.extColumns(p, x).forEach(q => rect('EXTENSIONS', q.x - 125, q.y - 125, q.x + 125, q.y + 125));
+      const nm2 = (DK.extName ? DK.extName(x) : x.kind) + (x.kind !== 'garage' && x.roof && x.roof !== 'open' ? ' (' + (DK.EXT_ROOF[x.roof] || '').toLowerCase() + ')' : '');
+      text('EXTENSIONS', (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, m(2.8), nm2, 1); text('EXTENSIONS', (r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2 + m(4.5), m(2.5), DK.fmtA((r.x1 - r.x0) * (r.y1 - r.y0) / 1e6) + ' м²', 1);
+    });
+    // координационные оси: линии через план и марки в кружках с обеих сторон
+    if (AX) {
+      const top = -ext - 2300, bot = p.D + ext + 1300, lft = -ext - 2300, rgt = p.W + ext + 1300, rr = m(4);
+      const bub = (x, y, n) => { g(0, 'CIRCLE'); g(8, 'AXES'); g(10, X(x)); g(20, Y(y)); g(30, 0); g(40, rr); text('AXES', x, y + m(1.3), m(3.5), n, 1); };
+      AX.v.forEach(a => { line('AXES', a.x, top + rr, a.x, bot - rr); bub(a.x, top, a.n); bub(a.x, bot, a.n); });
+      AX.h.forEach(a => { line('AXES', lft + rr, a.y, rgt - rr, a.y); bub(lft, a.y, a.n); bub(rgt, a.y, a.n); });
+    }
+    // марки проёмов ОП-01 / ДП-01
+    if (OM) (lv.open || []).forEach(op => {
+      const mk = OM.of(fid, op), w = ws.find(v => v.id === op.wall); if (!mk || !w) return;
+      const d = w.kind === 'outer' ? w.out * (w.t / 2 + ext + 300) : w.t / 2 + 260, x = w.axis === 'x' ? op.c : w.m + d, y = w.axis === 'x' ? w.m + d : op.c;
+      text('OPENING_TAGS', x, y + m(1), m(2.5), mk, 1);
+    });
     // марки помещений: номер в кружке, название, площадь
     const nums = DK.roomNumbers(p)[fid];
     DK.rooms(p, fid).filter(r => r.type !== 'void').forEach(r => {
