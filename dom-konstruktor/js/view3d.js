@@ -363,7 +363,12 @@ function View3D(canvas, app) {
     const ws = DK.walls(p, f), ops = p.levels[f].open;
     const logg = regs.filter(r => r.type === 'loggia');
     for (const w of ws) {
-      let my = ops.filter(o => o.wall === w.id && !DK.slopeWin(p, f, o)).map(o => Object.assign({}, o, DK.opSize(p, o), o.gable ? { h: Math.max(600, DK.gableWinH(p, f, o) - (o.sill || 0)) } : {}));
+      let my = ops.filter(o => o.wall === w.id && !DK.slopeWin(p, f, o)).map(o => Object.assign({}, o, DK.opSize(p, o), o.gable ? { h: Math.max(600, DK.gableWinH(p, f, o) - (o.sill || 0)) } : {})).map(o => {
+        // окно мансарды во фронтоне — не выше ската над ним: опускаем верх (при нехватке места — и подоконник)
+        if (o.gable || o.kind !== 'win' || f !== DK.atticFloor(p)) return o;
+        const top = DK.atticWinH(p, f, o) - 120; if (o.sill + o.h <= top) return o;
+        const sill = Math.max(300, Math.min(o.sill, top - 600)); return Object.assign(o, { sill, h: Math.max(400, top - sill) });
+      });
       if (w.kind === 'outer') for (const r of logg.filter(q => q.sides.has(w.id))) {
         // лоджия: вместо стены — парапет 1,0 м, выше открыто до перекрытия
         const lo = w.axis === 'x' ? r.x0 : r.y0, hi = w.axis === 'x' ? r.x1 : r.y1;
@@ -1178,10 +1183,16 @@ function View3D(canvas, app) {
       const yR = yt + half * tn;
       roofPlane([P(U0, yE, V0), P(U1, yE, V0), P(U1, yR, vc), P(U0, yR, vc)], rm, sm, fm);
       roofPlane([P(U1, yE, V1), P(U0, yE, V1), P(U0, yR, vc), P(U1, yR, vc)], rm, sm, fm);
-      // у мансарды фронтон — стена этажа; но над низкой пристройкой у торца она внутренняя, снаружи закрываем отделкой
-      const g0 = gm || (aU0 && am), g1 = gm || (aU1 && am);
-      if (!jU0 && g0) root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yR, vc)], g0, uvA, 1));
-      if (!jU1 && g1) root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yR, vc)], g1, uvA, 1));
+      if (!jU0 && gm) root.add(poly([P(wU0, yt, wV0), P(wU0, yt, wV1), P(wU0, yR, vc)], gm, uvA, 1));
+      if (!jU1 && gm) root.add(poly([P(wU1, yt, wV0), P(wU1, yt, wV1), P(wU1, yR, vc)], gm, uvA, 1));
+      // у мансарды фронтон — стена этажа с окнами; там, где к торцу примыкает низкая пристройка, стена над её кровлей
+      // внутренняя — закрываем снаружи отделкой только этот участок, окна на остальном фронтоне остаются открытыми
+      if (!gm && am) for (const [u, A] of [[wU0, aU0], [wU1, aU1]]) if (Array.isArray(A)) for (const [a0, a1] of A) {
+        const va = Math.max(wV0, a0 / 1000), vb = Math.min(wV1, a1 / 1000); if (vb - va < 0.05) continue;
+        const yA = (v) => yt + (half - Math.abs(v - vc)) * tn, pts = [P(u, yt, va), P(u, yt, vb), P(u, yA(vb), vb)];
+        if (va < vc && vc < vb) pts.push(P(u, yR, vc)); pts.push(P(u, yA(va), va));
+        root.add(poly(pts, am, uvA, 1));
+      }
       if (jm) for (const u of [jU0 ? wU0 : null, jU1 ? wU1 : null]) if (u != null) root.add(poly([P(u, yt, wV0), P(u, yt, wV1), P(u, yR, vc)], jm, uvA, 1));
       // остекление фронтона (один — дальний торец основного объёма, оба) и балки шале
       if (!jU0 && !aU0) gableDecor(P, wU0, U0, -1, wV0, wV1, vc, yt, yR, yE, V0, V1, main && roofGlass === 'both');

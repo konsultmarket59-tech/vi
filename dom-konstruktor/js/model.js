@@ -223,7 +223,8 @@ function roofRects(p) {
         // примыкание к торцу (фронтону): коньки параллельны — крыло не вдвигаем внутрь основного объёма,
         // при той же ширине кровли сливаются в одну, иначе у основного объёма на этом торце нет декора
         const same = alongX ? r.y0 === o.y0 && r.y1 === o.y1 : r.x0 === o.x0 && r.x1 === o.x1;
-        if (same) o.j[opp] = 1; else o.ab[opp] = 1;
+        // ab — участки торца (по поперечной оси, с облицовкой), к которым примыкает пристройка
+        if (same) o.j[opp] = 1; else (o.ab[opp] = o.ab[opp] || []).push(alongX ? [r.y0 - e, r.y1 + e] : [r.x0 - e, r.x1 + e]);
       } else {
         const d = alongX ? (o.x1 - o.x0) / 2 : (o.y1 - o.y0) / 2;
         if (side === 'z0') r.y0 -= d; else if (side === 'z1') r.y1 += d; else if (side === 'x0') r.x0 -= d; else r.x1 += d;
@@ -274,7 +275,20 @@ function slopeWin(p, fid, o) {
   if (o.kind !== 'win' || o.gable || fid !== atticFloor(p)) return false;
   const w = walls(p, fid).find(v => v.id === o.wall); if (!w || w.kind !== 'outer') return false;
   const X = w.axis === 'x' ? o.c : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : o.c;
+  if (gableWall(p, w, X, Y)) return false; // во фронтоне ската нет — окно остаётся в стене (высота — по скатам)
   return atticH(p, X, Y) < (o.sill || 0) + (o.h || 1500) + 100;
+}
+/* стена мансарды — фронтон: поперёк конька двускатной (мансардной, полувальмовой) кровли, над ней скат не опускается */
+function gableWall(p, w, X, Y) {
+  if (!['gable', 'mansard', 'halfhip'].includes(p.roof.type)) return false;
+  const R = roofRects(p).filter(r => X >= r.W.x0 && X <= r.W.x1 && Y >= r.W.y0 && Y <= r.W.y1);
+  return R.length > 0 && R.every(r => (w.axis === 'x') !== !!r.ridgeX);
+}
+/* высота окна мансарды во фронтоне: не выше низа ската над окном (по краям), мм */
+function atticWinH(p, fid, o) {
+  const w = walls(p, fid).find(v => v.id === o.wall); if (!w) return o.h;
+  let mn = 1e9; for (let k = 0; k <= 6; k++) { const a = o.c - o.w / 2 + o.w * k / 6, X = w.axis === 'x' ? a : w.line - w.out * 50, Y = w.axis === 'x' ? w.line - w.out * 50 : a; mn = Math.min(mn, atticH(p, X, Y)); }
+  return mn;
 }
 /* интервал линии внутри контура (по наружным граням); для несущей стены */
 function lineSpan(p, axis, pos, prefer) {
@@ -1207,7 +1221,7 @@ function starter() {
   });
 }
 
-Object.assign(DK, { gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
+Object.assign(DK, { gableWall, atticWinH, gableWinH, gableWinOk, cornerInfo, cornerSnap, withCornerWins, axes, openingMarks, extJoin, lightAbove, secondLight, secondLightOn, outline, diagWalls, segDist, chamferOf, roofRects, atticOn, atticFloor, knee, roofRise, atticH, atticH0, atticArea, slopeWin, GARAGE, GARAGE_TYPES, GARAGE_ROOFS, garageRoof, garageName, garageGate, garageRotate, garageCars, garageGates, extName, exitWin, exitSash, EXT, EXT_ROOF, BALCONY_CANT, extRect, extColumns, extExit, opLimits, SPEC, FLOORS, ROOM, BOILER, PASS, STAIRS, TEMPLATES, id, ts, extT, totalT, storey, floorsOf, floorName, elev, emptyLevel, opSize,
   edges, offsetPoly, polyArea, inside, decompose, mainRect, lineSpan, walls, cladRect, rooms, opRegions, opSides, doorSwing,
   stairParts, stairToWorld, stairToLocal, stairDir, stairRect, stairHeight, stairExit, stairExitOk,
   bearingVariants, spansOf, spanReport, wetVariants, checks, tzItems, areas, moveEdge, addBump, cleanPoly, normalize, migrate,
