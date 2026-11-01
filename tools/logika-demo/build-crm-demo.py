@@ -24,7 +24,7 @@ def js(p): return open(p, encoding='utf-8').read().replace('</script', '<\\/scri
 head = ('<script>window.__DEMO_DATA=' + json.dumps(data, ensure_ascii=False).replace('</', '<\\/') + ';</script>\n'
         '<script>window.__CRM_API=function(require,module,process,Buffer){\n' + api.replace('</script', '<\\/script') + '\n};</script>\n'
         + '<script>window.__CREDITS=function(require,module,process,Buffer){\n' + open(ROOT + '/credits.js', encoding='utf-8').read().replace('</script', '<\\/script') + '\n};</script>\n'
-        + ''.join('<script>window.__MOD_%s=function(require,module,process,Buffer,__dirname){\n%s\n};</script>\n' % (n, open(ROOT + '/' + f, encoding='utf-8').read().replace('</script', '<\\/script')) for n, f in [('content', 'content.js'), ('docs', 'docs-content.js'), ('cms', 'cms-store.js'), ('pages', 'pages.js')])
+        + ''.join('<script>window.__MOD_%s=function(require,module,process,Buffer,__dirname){\n%s\n};</script>\n' % (n, open(ROOT + '/' + f, encoding='utf-8').read().replace('</script', '<\\/script')) for n, f in [('content', 'content.js'), ('docs', 'docs-content.js'), ('cms', 'cms-store.js'), ('steps', 'js/steps.js'), ('pages', 'pages.js')])
         + '<script>window.__PAGES_CSS=' + json.dumps(open(ROOT + '/css/pages.css', encoding='utf-8').read()).replace('</', '<\\/') + ';</script>\n'
         '<script>' + js(SP + '/demo-shim.js') + '</script>\n')
 first = True

@@ -40,9 +40,9 @@
   };
   // модули сервера в браузере: контент, CMS, генератор страниц (для предпросмотра)
   const mods = {};
-  const req2 = (n) => ({ fs, path, crypto: ncrypto, vm: { runInNewContext() {} }, './content.js': mods.content, './cms-store.js': mods.cms, './docs-content.js': mods.docs }[n]);
+  const req2 = (n) => ({ fs, path, crypto: ncrypto, vm: { runInNewContext() {} }, './content.js': mods.content, './cms-store.js': mods.cms, './docs-content.js': mods.docs, './js/steps.js': mods.steps }[n]);
   const load = (n) => { const m = { exports: null }; window['__MOD_' + n](req2, m, { env: {} }, Buffer, '/app'); return (mods[n] = m.exports); };
-  load('content'); load('docs'); load('cms');
+  load('content'); load('docs'); load('cms'); load('steps');
   const store = mods.cms(D, mods.content, { brand: 'Логика Дома', owner: {} });
   const pagesH = load('pages')({ send() {}, PUBLIC_URL: 'https://logikadoma.ru', ROOT: '/app', DATA: D, cms: store });
   const preview = (rq, r) => mediaUrls(pagesH.preview(rq, r)).replace('<link rel="stylesheet" href="/css/pages.css">', '<style>' + window.__PAGES_CSS + '</style>');
