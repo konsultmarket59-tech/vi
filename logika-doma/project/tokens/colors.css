@@ -1,0 +1,19 @@
+:root{
+/* Base — brand book "Основные цвета" */
+--ld-navy:#19317B;--ld-navy-700:#132662;--ld-navy-900:#0D1A45;--ld-navy-50:#EEF1F9;
+--ld-white:#FFFFFF;--ld-graphite:#242832;--ld-tech-gray:#D9DEE8;--ld-soft-bg:#F5F6F8;
+/* Accent "узлы и сигналы" */
+--ld-cyan:#26C6C8;--ld-cyan-50:#E6F8F8;--ld-blue:#2784EB;--ld-blue-50:#E9F2FD;
+--ld-orange:#F49A38;--ld-orange-50:#FEF3E6;--ld-coral:#F05C78;--ld-coral-50:#FDECEF;
+--ld-cool-gray:#C7CDDA;--ld-green:#2FB35A;
+/* Neutrals for text */
+--ld-gray-600:#5B6272;--ld-gray-500:#7A8193;--ld-gray-400:#A3A9B7;
+/* Semantic */
+--text-primary:var(--ld-graphite);--text-heading:var(--ld-navy);--text-secondary:var(--ld-gray-600);--text-muted:var(--ld-gray-500);--text-inverse:var(--ld-white);--text-link:var(--ld-blue);
+--surface-page:var(--ld-white);--surface-soft:var(--ld-soft-bg);--surface-card:var(--ld-white);--surface-inverse:var(--ld-navy);--surface-disabled:#E6E9EF;
+--border-default:var(--ld-tech-gray);--border-strong:var(--ld-cool-gray);--border-focus:var(--ld-blue);--grid-line:#E4E8EF;
+--action-primary:var(--ld-navy);--action-primary-hover:var(--ld-navy-700);--action-primary-press:var(--ld-navy-900);
+--node-active:var(--ld-cyan);--node-selected:var(--ld-blue);--node-secondary:var(--ld-orange);--node-important:var(--ld-coral);--node-neutral:var(--ld-cool-gray);
+--status-draft:var(--ld-gray-400);--status-review:var(--ld-orange);--status-progress:var(--ld-cyan);--status-done:var(--ld-green);
+--rating-star:var(--ld-orange);
+}

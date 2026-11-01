@@ -1,0 +1,14 @@
+# Запуск на сервере: docker compose up -d   (файл .env рядом — см. env.example)
+services:
+  app:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 8080
+      DATA_DIR: /data
+      TRUST_PROXY: 1
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8080:8080"   # наружу — только через nginx

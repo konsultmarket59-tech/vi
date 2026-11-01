@@ -1,0 +1,16 @@
+# Вариант без Docker: /etc/systemd/system/logika-doma.service, затем systemctl enable --now logika-doma
+[Unit]
+Description=Svoy Dom site
+After=network.target
+
+[Service]
+User=logika
+WorkingDirectory=/opt/logika-doma/dom-konstruktor
+EnvironmentFile=/opt/logika-doma/.env
+Environment=PORT=8080 DATA_DIR=/var/lib/logika-doma TRUST_PROXY=1
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

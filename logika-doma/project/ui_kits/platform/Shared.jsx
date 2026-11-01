@@ -1,0 +1,8 @@
+const NSX=window.DesignSystem_94a3e6;
+const LOGO='../../assets/logo-horizontal.svg';
+const gridBg={backgroundImage:'linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px)',backgroundSize:'64px 64px'};
+function Nodes({nodes,cell=64,dark}){return <>{nodes.map(([x,y,c],i)=><span key={i} style={{position:'absolute',left:x*cell-5,top:y*cell-5,width:10,height:10,borderRadius:'50%',background:`var(--ld-${c})`,opacity:dark?.9:1}}/>)}</>;}
+function Container({children,style}){return <div style={{maxWidth:'var(--container)',margin:'0 auto',padding:'0 32px',...style}}>{children}</div>;}
+function SectionTitle({children,action}){return <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',marginBottom:24,gap:16}}><h2 style={{margin:0,font:'var(--text-h2)',color:'var(--text-heading)',letterSpacing:'var(--ls-heading)'}}>{children}</h2>{action}</div>;}
+function Footer(){const {Wordmark}=NSX;return <footer style={{borderTop:'1px solid var(--border-default)',padding:'32px 0',marginTop:64}}><Container style={{display:'flex',alignItems:'center',gap:24,flexWrap:'wrap'}}><Wordmark src={LOGO} height={32}/><span style={{font:'var(--text-secondary-font)',color:'var(--text-secondary)',flex:1}}>— технологичная платформа для выбора проектов, настройки и поиска проверенных подрядчиков.</span><span style={{font:'var(--text-caption)',color:'var(--text-muted)'}}>© 2026 Логика Дома</span></Container></footer>;}
+Object.assign(window,{NSX,LOGO,gridBg,Nodes,Container,SectionTitle,Footer});

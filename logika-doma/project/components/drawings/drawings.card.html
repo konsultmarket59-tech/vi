@@ -1,0 +1,16 @@
+<!-- @dsCard group="Components" viewport="700x330" name="Drawings" subtitle="Explication, RoomTag, TitleBlock" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script><style>body{padding:20px;box-sizing:border-box}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const {Explication,RoomTag,TitleBlock}=window.DesignSystem_94a3e6;
+const rooms=[{n:1,name:'Кабинет',area:11.7},{n:2,name:'Спальня',area:14.9},{n:3,name:'Кухня-гостиная',area:48.3},{n:4,name:'Лестничный холл',area:12.8},{n:5,name:'Санузел',area:10.2,wet:true},{n:6,name:'Прихожая',area:8.6},{n:7,name:'Котельная',area:7.9,wet:true}];
+ReactDOM.createRoot(document.getElementById('root')).render(<div style={{display:'flex',gap:28}}>
+<Explication groups={[{title:'1 этаж',rooms}]} style={{width:260}}/>
+<div style={{display:'flex',flexDirection:'column',gap:18}}>
+<RoomTag n={3} name="Кухня-гостиная" area={48.3} dims="5800 × 8200"/><RoomTag n={5} name="Санузел" area={10.2} dims="4750 × 2100" wet/>
+<TitleBlock logoSrc="../../assets/mark.png" project="Логика Дома" sheet="План 1 этажа" page={2} pages={12} date="10.2026" style={{marginTop:24,width:380}}/>
+</div></div>);
+</script></body></html>
