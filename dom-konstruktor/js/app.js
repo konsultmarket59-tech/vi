@@ -96,6 +96,7 @@ function refresh() {
   $$('#roofs button').forEach(bt => bt.onclick = () => { P.roof.type = bt.dataset.k; P.roof.pitch = DK.ROOFS[bt.dataset.k].pitch || P.roof.pitch; app.commit('Кровля'); });
   $('#pitchRow').hidden = P.roof.type === 'flat'; $('#ridgeRow').hidden = ['flat', 'hip', 'pyramid'].includes(P.roof.type);
   $('#pitch').value = P.roof.pitch; $('#pitchV').textContent = P.roof.pitch + '°';
+  $('#roofOv').value = P.roof.ov || 550; $('#roofOvV').textContent = ((P.roof.ov || 550) / 1000).toFixed(2).replace('.', ',') + ' м';
   seg($('#ridge'), P.roof.ridge, 'k');
   renderFacade();
   $('#stairType').value = P.stair ? P.stair.type : '';
@@ -117,7 +118,12 @@ function renderFacade() {
   const F = DK.facadeOf(P);
   const sw = (f) => `linear-gradient(135deg,${f.main.c} 0 45%,${(f.accentOn !== 'none' ? f.accent : f.main).c} 45% 62%,${f.plinth.c} 62% 74%,${f.roof.c} 74%)`;
   $('#styles').innerHTML = Object.entries(DK.FACADES).map(([k, s]) => `<button data-k="${k}" aria-pressed="${!P.facade && DK.facadeOf(P) === s.f}"><i style="background:${sw(s.f)}"></i>${esc(s.n)}</button>`).join('');
-  $$('#styles button').forEach(bt => bt.onclick = () => { P.style = bt.dataset.k; P.facade = null; if (bt.dataset.k === 'hitech' && P.roof.type !== 'flat') { P.roof.type = 'flat'; toast('Хай-тек — с плоской кровлей'); } app.commit('Фасад'); });
+  $$('#styles button').forEach(bt => bt.onclick = () => {
+    const k = bt.dataset.k, R = DK.STYLE_ROOF[k]; P.style = k; P.facade = null;
+    // стиль задаёт кровлю: тип, уклон и свес (мансарда остаётся под скатной кровлей)
+    if (R) { if (!(P.attic && R.type === 'flat')) P.roof.type = R.type; if (R.pitch && !P.attic) P.roof.pitch = R.pitch; P.roof.ov = R.ov; } else delete P.roof.ov;
+    app.commit('Фасад'); if (DK.STYLE_NOTE[k]) toast(DK.STYLE_NOTE[k]);
+  });
   const zoneRow = ([k, n]) => {
     const z = F[k] || (k === 'gable' ? null : F.main), opts2 = k === 'roof' ? DK.ROOF_MATS : DK.WALL_MATS;
     if (k === 'gable' && !z) return `<span>${n}</span><button type="button" class="lnk" data-gable>как стены — изменить</button>`;
@@ -509,6 +515,8 @@ function bind() {
   });
   $('#pitch').addEventListener('input', (e) => { P.roof.pitch = +e.target.value; $('#pitchV').textContent = e.target.value + '°'; if (v3) v3.rebuild(); });
   $('#pitch').addEventListener('change', () => app.commit());
+  $('#roofOv').addEventListener('input', (e) => { P.roof.ov = +e.target.value; $('#roofOvV').textContent = (P.roof.ov / 1000).toFixed(2).replace('.', ',') + ' м'; if (v3) v3.rebuild(); });
+  $('#roofOv').addEventListener('change', () => app.commit());
   $$('#ridge button').forEach(b => b.onclick = () => { P.roof.ridge = b.dataset.k; app.commit(); });
   // виды
   $$('#views button').forEach(b => b.onclick = () => setView(b.dataset.view));

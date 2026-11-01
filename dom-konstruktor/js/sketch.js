@@ -154,7 +154,7 @@ function section(p) {
   const sp = DK.lineSpan(p, ax, cut) || (alongX ? [M.y0, M.y1] : [M.x0, M.x1]);
   const t = DK.ts(p), ext = DK.extT(p), fl = DK.floorsOf(p), H = DK.storey(p), hc = p.hClear, sl = p.slab;
   const af = DK.atticFloor(p), yt = af ? DK.elev(p, af) + DK.knee(p) : DK.elev(p, fl[fl.length - 1]) + hc + sl, span = sp[1] - sp[0];
-  const pitch = (p.roof.pitch || 30) * Math.PI / 180, ov = 550;
+  const pitch = (p.roof.pitch || 30) * Math.PI / 180, ov = p.roof.ov || 550;
   const ridgeAcross = p.roof.type !== 'flat' && ((p.roof.ridge === 'short') ? !alongX : alongX);
   const yR = p.roof.type === 'flat' ? yt + 600 : ridgeAcross ? yt + (span / 2 + ext) * Math.tan(pitch) : yt + (Math.min(M.x1 - M.x0, M.y1 - M.y0) / 2 + ext) * Math.tan(pitch);
   const gy = p.basement ? DK.elev(p, 'b') + 1400 : -600, bottom = (p.basement ? DK.elev(p, 'b') : 0) - 1200;

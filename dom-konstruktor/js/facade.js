@@ -33,8 +33,12 @@ DK.FACADES = {
   brick: { n: 'Кирпичный', f: F({ main: { m: 'brick', c: '#9c4f3a' }, accent: { m: 'brick', c: '#9c4f3a' }, plinth: { m: 'stone', c: '#5f5a55' }, roof: { m: 'mtile', c: '#3d3a39' }, frame: '#f4f4f4', trim: '#e9e4dc', door: '#4a3a2e', soffit: '#e9e4dc', surrounds: true, belt: true }) },
   scandi: { n: 'Скандинавский', f: F({ main: { m: 'bnb', c: '#2f3134' }, accent: { m: 'bnb', c: '#2f3134' }, plinth: { m: 'smooth', c: '#262729' }, roof: { m: 'falz', c: '#222325' }, frame: '#1d1e20', trim: '#1d1e20', door: '#a4744a', soffit: '#2f3134' }) },
   chalet: { n: 'Шале', f: F({ main: { m: 'planken', c: '#a4744a' }, accent: { m: 'stone', c: '#a29c92' }, plinth: { m: 'stone', c: '#77716a' }, roof: { m: 'shingle', c: '#4b3a2e' }, frame: '#5a3d26', trim: '#5a3d26', door: '#5a3d26', soffit: '#a4744a', accentOn: 'lower' }) },
+  wright: { n: 'Стиль Райта', f: F({ main: { m: 'brick', c: '#8a5a44' }, accent: { m: 'planken', c: '#7a5232' }, plinth: { m: 'stone', c: '#6e6458' }, roof: { m: 'shingle', c: '#3b3632' }, frame: '#3a2a1f', trim: '#4a3526', door: '#3a2a1f', soffit: '#7a5232', accentOn: 'upper', belt: true }) },
   hitech: { n: 'Хай-тек', f: F({ main: { m: 'panel', c: '#f1f1f0' }, accent: { m: 'panel', c: '#3b3e44' }, plinth: { m: 'smooth', c: '#2f3237' }, roof: { m: 'smooth', c: '#55585d' }, frame: '#2b2d31', trim: '#2b2d31', door: '#2b2d31', soffit: '#2b2d31', accentOn: 'lower' }) },
 };
+/* кровля по стилю: Райт — низкая вальмовая с широкими свесами, шале — пологая двускатная с широкими свесами, хай-тек — плоская */
+DK.STYLE_ROOF = { wright: { type: 'hip', pitch: 18, ov: 1200 }, chalet: { type: 'gable', pitch: 28, ov: 1200 }, hitech: { type: 'flat', ov: 900 } };
+DK.STYLE_NOTE = { wright: 'Стиль Райта: низкая вальмовая кровля 18° и свесы 1,2 м, горизонтальные пояса', chalet: 'Шале: пологая кровля, свесы 1,2 м, мансардные окна в скатах', hitech: 'Хай-тек: плоская кровля, консольные плиты и угловое остекление' };
 /* стили прежней версии → ближайшее сочетание */
 const OLD = { classic: 'beige' };
 DK.facadeOf = function (p) {

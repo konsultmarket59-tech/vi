@@ -1,9 +1,8 @@
-/* Обучение в конструкторе: при первом открытии — короткий тур по экрану с подсветкой элементов (что здесь можно сделать).
-   Повторить — кнопка «Как пользоваться» над конструктором. Показ запоминается в браузере. */
+/* Обучение в конструкторе: при каждом открытии страницы с конструктором — короткий тур по экрану с подсветкой элементов.
+   Тур можно пропустить; повторить — кнопка «Как пользоваться» над конструктором. */
 (function () {
 'use strict';
 const DK = window.DK, $ = (s, r) => (r || document).querySelector(s);
-const KEY = 'ld-tour-done';
 const STEPS = [
   { sel: '#shapes', t: 'Начните с формы дома', d: 'Выберите готовую форму — это стартовая планировка. Потом тяните стены прямо на плане: дом примет любую форму.', view: 'plan' },
   { sel: '#floorsN', t: 'Этажи и высота', d: 'Один, два или три этажа, цокольный этаж и мансарда. Этажи переключаются вкладками над планом.', view: 'plan' },
@@ -54,15 +53,14 @@ function go(k) {
   requestAnimationFrame(place); setTimeout(place, 320);
 }
 function start() { ui(); on = true; hole.hidden = box.hidden = false; const w = $('.work'); if (w) { const r = w.getBoundingClientRect(); if (r.top > 80 || r.bottom < 200) w.scrollIntoView({ block: 'start' }); } setTimeout(() => go(0), 250); }
-function stop() { on = false; if (hole) hole.hidden = box.hidden = true; try { localStorage.setItem(KEY, '1'); } catch (e) { /* приватный режим */ } }
+function stop() { on = false; if (hole) hole.hidden = box.hidden = true; }
 DK.tour = start;
 function init() {
   // кнопка «Как пользоваться» над конструктором
   const t = $('#workT .sec-t'); if (t && !$('#tourBtn')) { const b = document.createElement('button'); b.type = 'button'; b.id = 'tourBtn'; b.className = 'btn tertiary'; b.textContent = DK.t ? DK.t('work.tour') : 'Как пользоваться'; b.onclick = start; t.appendChild(b); }
-  let done = false; try { done = !!localStorage.getItem(KEY); } catch (e) { /* приватный режим */ }
   const q = new URLSearchParams(location.search);
-  if (done || q.get('crm') || q.get('crmp') || q.get('company') || window.__DEMO_AS || /^#(cab|company|projects|builders|arch)/.test(location.hash)) return;
-  // первый раз: когда конструктор появился на экране (прокрутили или нажали «Создать проект»)
+  if (q.get('crm') || q.get('crmp') || q.get('company') || window.__DEMO_AS || /^#(cab|company|projects|builders|arch)/.test(location.hash)) return;
+  // при каждом открытии: когда конструктор появился на экране (прокрутили или нажали «Создать проект»)
   const w = $('.work'); if (!w || !('IntersectionObserver' in window)) return;
   const io = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting && e.intersectionRatio > 0.45) && !document.querySelector('dialog[open]')) { io.disconnect(); setTimeout(start, 400); } }, { threshold: [0.45, 0.6] });
   io.observe(w);

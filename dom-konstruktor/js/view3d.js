@@ -247,6 +247,7 @@ function View3D(canvas, app) {
       if (!af) slabCells(p, yt, sl, [], white);
       roof(p, af ? yt : yt + sl, ext, F, !!af);
       if (af) roofWindows(p, af, ytRoof, F);
+      if (p.style === 'hitech') hitechExtras(p, ext, F);
       if (F.corners) corners(p, ext, mat({ c: F.trim }), DK.elev(p, fl[0]) / 1000 - (p.basement ? 0 : 0), yt + sl);
       if (!p.basement) porch(p, ext, F);
     }
@@ -979,14 +980,18 @@ function View3D(canvas, app) {
   }
 
   /* ---------- кровли: разбиение контура на прямоугольники, крылья заходят в основной объём ---------- */
+  let roofOv = 0.55, roofSky = false;
   function roof(p, yt, ext, F, noGable) {
     const t = p.roof.type, e = ext / 1000;
+    roofOv = (p.roof.ov || 550) / 1000; roofSky = p.style === 'chalet' && !DK.atticOn(p);
     const rm = mat(F.roof, { side: T.DoubleSide, roughness: 0.8 }), sm = mat({ c: F.soffit }, { side: T.DoubleSide }), fm = mat({ c: F.soffit });
     // у мансарды фронтоны — настоящие стены этажа (с окнами), треугольники не нужны
     const gm = noGable ? null : mat(F.gable || (DK.floorsOf(p).length > 1 && F.accentOn === 'upper' ? F.accent : F.main), { side: T.DoubleSide });
     if (t === 'flat') {
       const P = DK.outline(p, ext);
       root.add(extrudePoly(P, yt, 0.05, mat({ c: '#5a5d62' })));
+      // хай-тек: консольная плита кровли с вылетом по свесу и толстым торцом
+      if (p.style === 'hitech') { const ov2 = p.roof.ov || 900; root.add(extrudePoly(DK.outline(p, ext + ov2), yt + 0.25, 0.32, mat({ c: F.accentOn === 'none' ? F.main.c : F.trim }))); return; }
       const pm = mat(F.accentOn === 'upper' ? F.accent : F.main), cap = mat({ c: F.trim });
       for (const w of DK.walls(p, 'f1').filter(v => v.kind === 'outer')) {
         const cr = DK.cladRect(p, w, ext), L = (cr.a1 - cr.a0) / 1000, ac = (cr.a0 + cr.a1) / 2000;
@@ -1000,7 +1005,7 @@ function View3D(canvas, app) {
     const wallM = gm || mat(F.gable || F.main, { side: T.DoubleSide });
     RR.forEach(R => {
       const W = { x0: R.W.x0 / 1000, x1: R.W.x1 / 1000, z0: R.W.y0 / 1000, z1: R.W.y1 / 1000 };
-      if (R.jq == null) { roofRect(W, R.j, R.ridgeX, t, yt, pitch, rm, sm, fm, gm); return; }
+      if (R.jq == null) { roofRect(W, R.j, R.ridgeX, t, yt, pitch, rm, sm, fm, gm, null, true); if (roofSky) skylights(W, R.ridgeX, t, yt, pitch); return; }
       // крыло: всё, что ниже кровли основного объёма, отсекается — получаются ендовы без торчащих свесов;
       // торец у примыкания закрыт фронтоном (виден только там, где крыло выше основной кровли)
       const cut = surfPlanes(RR[R.jq], t, yt, pitch), cl = (m) => { const m2 = m.clone(); m2.clippingPlanes = cut; m2.clipIntersection = true; m2.clipShadows = true; return m2; };
@@ -1017,8 +1022,45 @@ function View3D(canvas, app) {
     if (t === 'shed') return [pl(tn, yt, wV0)];
     return [pl(tn, yt, wV0), pl(-tn, yt, wV1)];
   }
-  function roofRect(W, J, ridgeX, t, yt, pitch, rm, sm, fm, gm, jm) {
-    const ov = 0.55, tn = Math.tan(pitch);
+  /* шале: мансардные окна в длинных скатах основной кровли (по два, в средней трети по высоте) */
+  function skylights(W, ridgeX, t, yt, pitch) {
+    if (!['gable', 'hip', 'halfhip'].includes(t)) return;
+    const tn = Math.tan(pitch), wU0 = ridgeX ? W.x0 : W.z0, wU1 = ridgeX ? W.x1 : W.z1, wV0 = ridgeX ? W.z0 : W.x0, wV1 = ridgeX ? W.z1 : W.x1;
+    const half = (wV1 - wV0) / 2, len = wU1 - wU0; if (len < 5 || half < 2.5) return;
+    const gl = new T.MeshStandardMaterial({ color: lin('#2e3f4d'), roughness: 0.05, metalness: 0.7, side: T.DoubleSide }), fr = mat({ c: '#4a3a2e' }, { side: T.DoubleSide });
+    const P = (u, y, v) => ridgeX ? [u, y, v] : [v, y, u], n = len > 11 ? 3 : 2, sw = 0.78, sl = 1.18;
+    for (const side of [-1, 1]) for (let i = 0; i < n; i++) {
+      const uc = wU0 + len * (i + 1) / (n + 1), dv = half * 0.42, v0 = side < 0 ? wV0 + dv : wV1 - dv, run = sl * Math.cos(pitch);
+      const vA = v0, vB = v0 + (side < 0 ? run : -run), yA = yt + (side < 0 ? vA - wV0 : wV1 - vA) * tn + 0.06, yB = yt + (side < 0 ? vB - wV0 : wV1 - vB) * tn + 0.06;
+      const q = (u0, u1, a, b, ya, yb, m, dy) => root.add(poly([P(u0, ya + dy, a), P(u1, ya + dy, a), P(u1, yb + dy, b), P(u0, yb + dy, b)], m, 0, 1));
+      q(uc - sw / 2 - 0.06, uc + sw / 2 + 0.06, vA - side * 0.06, vB + side * 0.06, yA - 0.06 * tn, yB + 0.06 * tn, fr, 0);
+      q(uc - sw / 2, uc + sw / 2, vA, vB, yA, yB, gl, 0.015);
+    }
+  }
+  /* хай-тек: консольная плита перекрытия по периметру и угловое остекление верхнего этажа */
+  function hitechExtras(p, ext, F) {
+    const fl = DK.floorsOf(p).filter(f => f !== 'b'), top = fl[fl.length - 1], hc = p.hClear / 1000;
+    if (fl.length > 1) root.add(extrudePoly(DK.outline(p, ext + 600), DK.elev(p, fl[1]) / 1000 - 0.3, 0.3, mat({ c: F.trim })));
+    const P = DK.outline(p, ext), n = P.length, area = P.reduce((s, q, i) => s + q.x * P[(i + 1) % n].y - P[(i + 1) % n].x * q.y, 0);
+    const ws = DK.walls(p, top), ops = (p.levels[top].open || []).map(o => { const w = ws.find(v => v.id === o.wall); return w ? { x: w.axis === 'x' ? o.c : w.m, y: w.axis === 'x' ? w.m : o.c, w: o.w } : null; }).filter(Boolean);
+    const y0 = DK.elev(p, top) / 1000, ya = y0 + 0.5, yb = y0 + hc - 0.25;
+    const gl = new T.MeshStandardMaterial({ color: lin(lightsOn && mode === 'exterior' ? '#ffd59a' : '#2e3f4d'), emissive: lin(lightsOn && mode === 'exterior' ? '#ffc06a' : '#000000'), emissiveIntensity: lightsOn ? 0.8 : 0, roughness: 0.05, metalness: 0.7 }), fr = mat({ c: F.frame });
+    for (let i = 0; i < n; i++) {
+      const a = P[(i + n - 1) % n], c = P[i], b = P[(i + 1) % n], cr = (c.x - a.x) * (b.y - c.y) - (c.y - a.y) * (b.x - c.x);
+      if (Math.sign(cr) !== Math.sign(area)) continue; // только выпуклые углы
+      if (ops.some(o => Math.hypot(o.x - c.x, o.y - c.y) < 1900 + o.w / 2)) continue; // рядом уже есть окно
+      for (const q of [a, b]) {
+        const L = Math.hypot(q.x - c.x, q.y - c.y); if (L < 3000) continue;
+        const ux = (q.x - c.x) / L, uy = (q.y - c.y) / L, len = 1.3, nx = -uy, ny = ux, sgn = Math.sign(area) > 0 ? 1 : -1;
+        const ox = nx * sgn * -0.02, oy = ny * sgn * -0.02, mx = c.x / 1000 + ux * len / 2 + ox, mz = c.y / 1000 + uy * len / 2 + oy;
+        const pane = box(Math.abs(ux) > 0.5 ? len : 0.04, yb - ya, Math.abs(ux) > 0.5 ? 0.04 : len, gl, mx, (ya + yb) / 2, mz); root.add(pane);
+        root.add(box(Math.abs(ux) > 0.5 ? len : 0.07, 0.07, Math.abs(ux) > 0.5 ? 0.07 : len, fr, mx, yb, mz)); root.add(box(Math.abs(ux) > 0.5 ? len : 0.07, 0.07, Math.abs(ux) > 0.5 ? 0.07 : len, fr, mx, ya, mz));
+      }
+      root.add(box(0.08, yb - ya, 0.08, fr, c.x / 1000, (ya + yb) / 2, c.y / 1000));
+    }
+  }
+  function roofRect(W, J, ridgeX, t, yt, pitch, rm, sm, fm, gm, jm, main) {
+    const ov = roofOv, tn = Math.tan(pitch);
     const wU0 = ridgeX ? W.x0 : W.z0, wU1 = ridgeX ? W.x1 : W.z1, wV0 = ridgeX ? W.z0 : W.x0, wV1 = ridgeX ? W.z1 : W.x1;
     const jU0 = ridgeX ? J.x0 : J.z0, jU1 = ridgeX ? J.x1 : J.z1, jV0 = ridgeX ? J.z0 : J.x0, jV1 = ridgeX ? J.z1 : J.x1;
     const U0 = wU0 - (jU0 ? 0 : ov), U1 = wU1 + (jU1 ? 0 : ov), V0 = wV0 - (jV0 ? 0 : ov), V1 = wV1 + (jV1 ? 0 : ov);
