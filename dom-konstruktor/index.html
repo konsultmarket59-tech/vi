@@ -353,6 +353,11 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
 #qfWrap{padding:56px 0 0}
 .qf-in{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:12px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px rgba(13,26,69,.06);padding:16px}
 .qf-in .fld{margin:0}.qf-in .btn{min-height:40px}
+.hero-qf{margin-top:40px;max-width:1040px}.hqf-t{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.hqf-t b{font:700 18px var(--display);color:#fff;text-shadow:0 1px 12px rgba(13,26,69,.45)}
+.hqf-all{border:0;background:none;color:#fff;font:600 14px var(--text);display:inline-flex;gap:6px;align-items:center;cursor:pointer;opacity:.92}.hqf-all:hover{opacity:1;text-decoration:underline}
+.hero-qf .qf-in{background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border-color:transparent;box-shadow:0 12px 32px -12px rgba(13,26,69,.45)}
+.hero-home .hero-cap{bottom:auto;top:20px}.hqf-all{white-space:nowrap}
+@media (max-width:640px){.hero-qf{margin-top:28px}.hero-qf .qf-in{grid-template-columns:1fr 1fr;gap:8px;padding:12px}.hero-qf .qf-in .fld{font-size:12px}.hqf-t b{font-size:16px}}
 #steps{padding:56px 0 8px}
 .stepcard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:28px 32px;display:grid;gap:24px}
 .steppath{list-style:none;margin:0;padding:0;display:flex;align-items:flex-start}
@@ -446,6 +451,7 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
   <!-- конструктор -->
   <main class="page" id="page-project">
     <section class="hero-home" id="hero" aria-label="Логика Дома"></section>
+    <section class="home-sec" id="about" aria-label="О проекте"></section>
     <div class="home-in work-t" id="workT"><div class="sec-t"><h2>Конструктор дома</h2><span class="muted">Бесплатно и без регистрации: планировка, 3D, участок, оценка стоимости</span></div></div>
     <div class="work">
       <aside class="side" id="side">
@@ -632,8 +638,6 @@ dialog::backdrop{background:rgba(31,33,37,.45)}
       </section>
     </div>
     <section class="home-sec" id="steps" aria-label="5 шагов к дому"></section>
-    <section class="home-sec" id="qfWrap" aria-label="Проекты пользователей"></section>
-    <section class="home-sec" id="about" aria-label="О проекте"></section>
     <section class="home-sec" id="homeMore"></section>
   </main>
 
