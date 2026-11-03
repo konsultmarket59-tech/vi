@@ -80,6 +80,14 @@ const WALL_SIDING = [
   { n: 'Газобетон Твинблок D400', t: 300, m: 'aerated' },
   { n: 'Внутренняя штукатурка', t: 10, m: 'plaster', a: 1 },
 ];
+// SLATE: несущая стена 400 мм без утепления, фасад — полимерно-пробковая штукатурка Isocork
+const WALL_ISOCORK = [
+  { n: 'Декоративная полимерно-пробковая штукатурка Isocork', t: 4, m: 'cork', a: 1 },
+  { n: 'Выравнивание поверхности фасада', t: 10, m: 'level', a: 1 },
+  { n: 'Газобетонные блоки D400, B3.5 — 400 мм, без дополнительного утепления', t: 400, m: 'aerated' },
+  { n: 'Внутренняя штукатурка', t: 10, m: 'plaster', a: 1 },
+];
+const ISOCORK_NOTE = 'Isocork эластичен — растягивается и не растрескивается со временем, даёт дополнительную поверхностную теплоизоляцию. Наносится летом; для договоров, уходящих в зиму, — планкен или комбинированная отделка (пробковая штукатурка + планкен).';
 const WALL_PLASTER = [
   { n: 'Декоративная штукатурка', t: 5, m: 'dplaster', a: 1 },
   { n: 'Армирующая сетка', t: 1, m: 'fmesh' },
@@ -161,6 +169,7 @@ const NODESETS = [
   {
     id: 'slate85', n: 'SLATE 85', src: 'SLATE 85 (IT-arc): разрезы 1-1, 4-4, 5-5, 6-6', plans: ['slate85-1', 'slate85-2'],
     nodes: [
+      { id: 'wallK', n: 'Стена — пробковая штукатурка', type: 'wall', layers: WALL_ISOCORK, note: ISOCORK_NOTE },
       { id: 'wall', n: 'Стена', type: 'wall', layers: slateWall({ n: 'Планкен из лиственницы 20 мм, вертикально, модуль 90-120-90-90-120-140, зазор 3–5 мм', t: 20, m: 'gap', bars: { ws: [90, 120, 90, 90, 120, 140], gap: 4, dir: 'w', m: 'planken' } }) },
       { id: 'roof', n: 'Кровля', type: 'roof', pitch: 20, layers: slateRoof(false) },
       { id: 'floor', n: 'Пол по грунту (УШП)', type: 'slab', layers: SLATE_FLOOR85 },
@@ -172,6 +181,7 @@ const NODESETS = [
     id: 'slate100', n: 'SLATE 100', src: 'SLATE 100 (IT-arc): разрезы 5-5, 6-6', plans: ['slate100-1', 'slate100-2', 'slate100-3', 'slate100-4', 'slate100-5', 'dom100-1', 'dom100-2', 'dom100-3'],
     nodes: [
       { id: 'wall', n: 'Стена (фальц-панели)', type: 'wall', layers: slateWall({ n: 'Фальцевые панели (графит)', t: 13, m: 'falzwall' }) },
+      { id: 'wallK', n: 'Стена (пробковая штукатурка)', type: 'wall', layers: WALL_ISOCORK, note: ISOCORK_NOTE },
       { id: 'wall2', n: 'Стена (планкен)', type: 'wall', layers: slateWall({ n: 'Планкен из лиственницы 20 мм, вертикально, модуль 90-120-90-90-120-140, зазор 10 мм', t: 20, m: 'gap', bars: { ws: [90, 120, 90, 90, 120, 140], gap: 10, dir: 'w', m: 'planken' } }) },
       { id: 'roof', n: 'Кровля', type: 'roof', pitch: 20, layers: slateRoof(true) },
       { id: 'floor', n: 'Пол по грунту (УШП)', type: 'slab', layers: SLATE_FLOOR100 },
@@ -197,7 +207,7 @@ const NMAT = {
   paver: { c: '#9d9a94', tex: 'paver', ts: .6 },
   aerated: { c: '#e7e5e0', tex: 'aerated', ts: { f: [1.2, .5], su: [.5, 2], sw: [1.2, 2] } }, ondutis: { c: '#f6f6f4', tex: 'ondutis', ts: .9 },
   metal: { c: '#dfe3e7', m: .15, r: .35 }, glue: { c: '#8f8c87', tex: 'comb', ts: .3 }, fmesh: { c: '#e9eef2', tex: 'mesh', ts: .15 },
-  dplaster: { c: '#f3efe6', tex: 'rough', ts: .4 }, pipe: { c: '#e5532f', r: .5 }, rebar: { c: '#6d6052', m: .6, r: .5 },
+  dplaster: { c: '#f3efe6', tex: 'rough', ts: .4 }, cork: { c: '#b98a5e', tex: 'cork', ts: .25 }, level: { c: '#c9c6c0', tex: 'speckle', ts: .4 }, pipe: { c: '#e5532f', r: .5 }, rebar: { c: '#6d6052', m: .6, r: .5 },
 };
 const NODE_DEF = { nair: true, nset: '', nnode: 'wall', labels: true, nlabelColor: '#261A7E', naz: .75, nel: .5, tab: 'plan' };
 
@@ -250,6 +260,7 @@ function nodeTex(kind, base, v = 'f', rot = false) {
     case 'seams': if (v === 'f') for (const x of [0, 128]) { vline(x, 5, 1.35); vline(x + 5, 3, .7); } break;
     case 'mesh': c.fillStyle = 'rgba(255,255,255,0)'; c.clearRect(0, 0, 256, 256); c.fillStyle = base; for (let i = 0; i < 256; i += 12) { c.fillRect(i, 0, 3, 256); c.fillRect(0, i, 256, 3); } break;
     case 'comb': for (let x = 0; x < 256; x += 6) vline(x, 3, .82); dots(400, .4, 1, .8, 1.1); break;
+    case 'cork': dots(2200, .6, 1.8, .7, 1.2); dots(700, 1.2, 2.6, .55, .8); dots(400, .8, 1.6, 1.15, 1.3); break;
     case 'rough': dots(2600, .5, 2.2, .86, 1.1); for (let i = 0; i < 260; i++) { c.fillStyle = rgb(.8 + rnd() * .1, .5); c.beginPath(); c.arc(rnd() * 256, rnd() * 256, 2 + rnd() * 3, 0, 7); c.fill(); } break;
   }
   if (rot) { const o = document.createElement('canvas'); o.width = o.height = 256; const oc = o.getContext('2d'); oc.translate(256, 0); oc.rotate(Math.PI / 2); oc.drawImage(cv, 0, 0); cv = o; }
@@ -257,7 +268,7 @@ function nodeTex(kind, base, v = 'f', rot = false) {
   N.texs.set(key, t); return t;
 }
 /* цвет облицовки, который выбирают в панели */
-const NCOL = { brick: '#b2583d', siding: '#e3dfd4', dplaster: '#f3efe6', mtile: '#6a2b25', falz: '#3b3f45' };
+const NCOL = { brick: '#b2583d', siding: '#e3dfd4', dplaster: '#f3efe6', cork: '#b98a5e', mtile: '#6a2b25', falz: '#3b3f45' };
 const ncolor = (m) => (NCOL[m] && S.ncol && S.ncol[m]) || (NMAT[m] || {}).c || '#cccccc';
 function nodeMat(m, v = 'f', rot = false) {
   const d = NMAT[m] || { c: '#cccccc' }, c = ncolor(m), key = [m, v, rot, c].join('|');
@@ -562,7 +573,7 @@ function renderNodeLegend() {
   el.append(rs);
   const any = N.labels.some((l) => l.a);
   const p = document.createElement('div'); p.className = 'muted';
-  p.textContent = 'Подписи можно исправить в списке или двойным щелчком по подписи на рисунке. ' + (any ? '* Толщина в проекте не указана — принята типовая. ' : '') + (set.note ? set.note + ' ' : '') + 'Источник: ' + set.src + '.';
+  p.textContent = 'Подписи можно исправить в списке или двойным щелчком по подписи на рисунке. ' + (any ? '* Толщина в проекте не указана — принята типовая. ' : '') + (nd.note ? nd.note + ' ' : '') + (set.note ? set.note + ' ' : '') + 'Источник: ' + set.src + '.';
   el.append(p);
   $('#nodeTitle').textContent = set.n + ' · ' + nd.n;
 }
