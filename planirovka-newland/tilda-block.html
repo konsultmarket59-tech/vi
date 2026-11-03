@@ -842,6 +842,14 @@ $$('.tag button').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); don
 $('#nlTips').onclick = () => { tagsDone = {}; lsSet('nl-plan-tags', '{}'); renderTags(); };
 
 /* ---------- открыть планировку ---------- */
+/* после возврата на вкладку или из кеша браузера холсты бывают пустыми — перерисовываем */
+function redrawAll() {
+  if (!P || $('#nlEd').hidden) return;
+  if (K && view === 'plan') { stage.size({ width: board.clientWidth || stage.width(), height: board.clientHeight || stage.height() }); if (autoFit || needFit) fit(); render2D(); }
+  if (three && (view === '3d' || view === 'top' || view === 'eye')) { resize3D(); build3D(); three.renderer.setAnimationLoop(loop3D); }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(redrawAll, 60); });
+window.addEventListener('pageshow', (e) => { if (e.persisted) setTimeout(redrawAll, 60); });
 function renderFacades() {
   const list = (P && P.facades) || [], box = $('#nlFac'), el = $('#nlFacList');
   box.hidden = !list.length; $('.work').classList.toggle('has-fac', !!list.length); el.innerHTML = '';
@@ -906,8 +914,11 @@ function showBoard() {
   const r = board.getBoundingClientRect();
   if (r.top < -40 || r.top > window.innerHeight * .35) board.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+let autoFit = true, needFit = false;  // план вписывается заново при изменении размера, пока посетитель сам не двигал и не масштабировал
 function initKonva() {
   K = window.Konva;
+  // на телефонах с плотным экраном не раздуваем холсты: у Safari есть предел памяти под canvas, при превышении слои пропадают
+  K.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   stage = new K.Stage({ container: $('#nlStage'), width: board.clientWidth || 800, height: board.clientHeight || 600 });
   Lroom = new K.Layer(); Lwall = new K.Layer({ listening: false }); Lfurn = new K.Layer(); Lover = new K.Layer({ listening: false });
   stage.add(Lroom, Lwall, Lfurn, Lover);
@@ -920,8 +931,9 @@ function initKonva() {
   Lfurn.add(tr);
   bindStage();
   new ResizeObserver(() => {
-    if (!board.clientWidth) return;
+    if (!board.clientWidth || !board.clientHeight) return;
     stage.size({ width: board.clientWidth, height: board.clientHeight });
+    if (P && (needFit || autoFit)) fit();
     if (view === 'unfold') drawUnfold();
     if (three) resize3D();
     renderOver(); placeFt();
@@ -934,13 +946,17 @@ function fit() {
   if (!K || !P) return;
   // поля в пикселях: с наружными размерами нужно место под цепочки и оси
   const e = extent(P), m = dims.out ? 120 : 40, ex = [e[0] - 300, e[1] - 300, e[2] + 300, e[3] + 300];
-  const W = stage.width(), H = stage.height();
-  vw.s = Math.min((W - 2 * m) / (ex[2] - ex[0]), (H - 2 * m - 40) / (ex[3] - ex[1]));
+  const W = board.clientWidth, H = board.clientHeight;
+  // блок ещё не показан (Тильда дорисовывает страницу) — впишем, когда появится размер
+  if (W < 80 || H < 80) { needFit = true; return; }
+  needFit = false; autoFit = true;
+  if (stage.width() !== W || stage.height() !== H) stage.size({ width: W, height: H });
+  vw.s = Math.max(.005, Math.min((W - 2 * m) / (ex[2] - ex[0]), (H - 2 * m - 40) / (ex[3] - ex[1])));
   vw.x = W / 2 - (ex[0] + ex[2]) / 2 * vw.s + (dims.out ? m * .5 : 0); vw.y = H / 2 - (ex[1] + ex[3]) / 2 * vw.s + (dims.out ? m * .5 : 0) - 10;
   applyView();
 }
 function zoomAt(f, p) {
-  const ns = clamp(vw.s * f, .01, 1.2); p = p || { x: stage.width() / 2, y: stage.height() / 2 };
+  autoFit = false; const ns = clamp(vw.s * f, .01, 1.2); p = p || { x: stage.width() / 2, y: stage.height() / 2 };
   const w = toWorld(p); vw.s = ns; vw.x = p.x - w.x * ns; vw.y = p.y - w.y * ns; applyView();
 }
 $('#nlZin').onclick = () => zoomAt(1.25); $('#nlZout').onclick = () => zoomAt(.8); $('#nlZfit').onclick = () => fit();
@@ -980,6 +996,7 @@ function renderWalls() {
   Lwall.destroyChildren();
   const sh = new K.Shape({
     sceneFunc: (ctx) => {
+      if (!P) return;
       const c = ctx._context, px = 1 / vw.s;
       c.fillStyle = WALL;
       for (const r of P.walls) c.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
@@ -1042,7 +1059,7 @@ function bindStage() {
   stage.on('pointermove', () => {
     if (!pan || pinch) return; const p = stage.getPointerPosition();
     if (Math.hypot(p.x - pan.x, p.y - pan.y) > 4) pan.moved = true;
-    if (pan.moved) { vw.x = pan.vx + p.x - pan.x; vw.y = pan.vy + p.y - pan.y; applyView(); }
+    if (pan.moved) { autoFit = false; vw.x = pan.vx + p.x - pan.x; vw.y = pan.vy + p.y - pan.y; applyView(); }
   });
   stage.on('pointerup pointercancel', () => {
     if (pan && !pan.moved) {
@@ -1203,7 +1220,7 @@ async function setView(v, quiet) {
     ? (v === 'eye' ? 'Ведите пальцем — осмотреться, два пальца — шаг' : 'Палец — вращение, два пальца — масштаб')
     : (v === 'eye' ? 'Тяните, чтобы осмотреться · колёсико — шаг вперёд' : 'Тяните — вращение, правая кнопка — сдвиг, колёсико — масштаб');
   placeFt();
-  if (v === 'plan') { if (three) three.renderer.setAnimationLoop(null); if (K && !quiet) { stage.size({ width: board.clientWidth, height: board.clientHeight }); render2D(); } else if (K) render2D(); return; }
+  if (v === 'plan') { if (three) three.renderer.setAnimationLoop(null); if (K && !quiet) { stage.size({ width: board.clientWidth, height: board.clientHeight }); if (needFit) fit(); render2D(); } else if (K) render2D(); return; }
   if (v === 'unfold') { if (three) three.renderer.setAnimationLoop(null); renderRoomChips(); drawUnfold(); return; }
   if (!three) {
     $('#nlThree').innerHTML = '<div class="loading">Загружаю 3D…</div>';
@@ -1220,14 +1237,20 @@ async function init3D() {
   THREE = window.THREE;
   const el = $('#nlThree'); el.innerHTML = '';
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, touch() ? 1.5 : 2)); renderer.outputEncoding = THREE.sRGBEncoding;
+  // браузер может отобрать WebGL (мало памяти, вкладка в фоне) — тогда сцена пропадает; при возврате собираем её заново
+  renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); renderer.setAnimationLoop(null); }, false);
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    three.mats.clear(); three.texs.clear(); RB.clear(); build3D();
+    if (view === '3d' || view === 'top' || view === 'eye') renderer.setAnimationLoop(loop3D);
+  }, false);
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   el.append(renderer.domElement);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, 1, .05, 300);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x9a8f80, .66));
   const sun = new THREE.DirectionalLight(0xfff4e6, .72);
-  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0005; sun.shadow.normalBias = .02;
+  sun.castShadow = true; sun.shadow.mapSize.set(touch() ? 1024 : 2048, touch() ? 1024 : 2048); sun.shadow.bias = -.0005; sun.shadow.normalBias = .02;
   scene.add(sun, sun.target);
   const group = new THREE.Group(); scene.add(group);
   three = { renderer, scene, camera, group, sun, mats: new Map(), texs: new Map() };

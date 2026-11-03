@@ -333,7 +333,14 @@ SMART = [
      'terrace': [3210, -3000, 9020, 0], 'posts': [[3810, -1920], [8470, -1920]]},
     # 101 м² (Ландышевая 3, 7, 11) — 11 000 × 7 000, две террасы
     {'area': 101, 'plan': 'p68', 'note': '3 спальни · кабинет · 2 террасы',
-     'area_fix': {0: 11.83, 2: 4.80, 3: 19.80, 4: 7.22, 5: 4.95, 6: 6.64, 7: 5.18}},
+     'area_fix': {0: 11.83, 2: 4.80, 3: 19.80, 4: 7.22, 5: 4.95, 6: 6.64, 7: 5.18},
+     # стена между спальней и кабинетом по чертежу — уступом: шкаф спальни в нише слева, шкаф кабинета справа
+     'walls_drop': [[330, 4650, 3230, 4860]],
+     'walls_add': [[330, 4790, 1770, 4890], [1720, 4150, 3233, 4250], [1720, 4150, 1820, 4890]],
+     'rooms_set': {0: [[330, 310, 3230, 4150], [330, 4150, 1720, 4790]], 4: [[330, 4890, 3230, 7030], [1820, 4250, 3230, 4890]]},
+     'furn_drop': [('wardrobe2', 1805, 4390), ('wardrobe', 2370, 5145)],
+     'furn_add': [{'type': 'wardrobe', 'x': 1025, 'y': 4480, 'rot': 180, 'w': 1370, 'd': 600},
+                  {'type': 'wardrobe', 'x': 2525, 'y': 4560, 'rot': 0, 'w': 1390, 'd': 600}]},
     # 108 м² — 11 200 × 8 200: 84 м² + терраса 20 м² справа сверху, 6,7 × 3 м
     {'area': 108, 'plan': 'slate100-5', 'note': '3 спальни · гардероб · 2 санузла · терраса 20 м²',
      'area_fix': {10: 20.00}, 'terrace': [5450, -3000, 12120, 0], 'posts': []},
@@ -359,7 +366,12 @@ def smart():
     out = []
     for s in SMART:
         m = plans3d.mm(src[s['plan']])
+        near = lambda r, q: all(abs(x - y) <= 60 for x, y in zip(r, q))
+        m['walls'] = [w for w in m['walls'] if not any(near(w, q) for q in s.get('walls_drop', []))] + s.get('walls_add', [])
+        m['furn'] = [f for f in m['furn'] if not any(f['type'] == t and abs(f['x'] - x) < 60 and abs(f['y'] - y) < 60 for t, x, y in s.get('furn_drop', []))] + s.get('furn_add', [])
         rooms = [dict(r) for r in m['rooms']]
+        for i, rr in s.get('rooms_set', {}).items():
+            rooms[i]['r'] = rr
         for i, a in s.get('area_fix', {}).items():
             rooms[i]['a'] = a
         if 'terrace' in s:
