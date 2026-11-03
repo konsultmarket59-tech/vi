@@ -342,6 +342,16 @@ SMART = [
 ]
 
 
+# Фасады домов СМАРТ: id планировки → [(подпись, ссылка на картинку)], по 4 стороны.
+# Картинки загрузите в Тильду (или на сайт) и вставьте сюда ссылки, затем python3 build.py.
+FACADES = {
+    'slate100-5': [],   # СМАРТ 85
+    'p68': [],          # СМАРТ 101
+    'slate85-1': [],    # СМАРТ 108
+    'dom100-1': [],     # СМАРТ 161
+}
+
+
 def smart():
     """Дома СМАРТ из plans3d.py. В названии — площадь дома из выгрузки."""
     import plans3d
@@ -365,6 +375,7 @@ def smart():
             'walls': m['walls'], 'windows': m['windows'], 'doors': m['doors'], 'rooms': rooms,
             'zones': [], 'decks': [{'k': 'porch', 'r': r} for r in m['decks']], 'posts': s.get('posts', m['posts']),
             'roof': [], 'fixed': [], 'box': m['box'], 'rec': m['furn'],
+            'facades': [{'n': n, 'src': u} for n, u in FACADES.get(s['plan'], [])],
         })
     return out
 

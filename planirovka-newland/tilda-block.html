@@ -28,6 +28,7 @@
       <div class="ob-nav"><div class="ob-dots" id="nlObDots"></div><button class="btn sm" id="nlObPrev">Назад</button><button class="btn sm primary" id="nlObNext">Далее</button></div>
     </div>
   </div>
+  <div class="lb" id="nlLb" hidden role="dialog" aria-modal="true"><button class="ob-x" id="nlLbX" aria-label="Закрыть">×</button><figure><img id="nlLbImg" alt=""><figcaption id="nlLbCap"></figcaption></figure></div>
   <section class="ed" id="nlEd" hidden>
     <header class="bar">
       <button class="btn back" id="nlBack" title="Ко всем планировкам"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span class="lbl">Планировки</span></button>
@@ -69,6 +70,10 @@
         <button class="lnk tips" id="nlTips">Показать подсказки</button>
       </aside>
 
+      <aside class="fac" id="nlFac" hidden>
+        <h3>Фасады</h3>
+        <div class="fac-list" id="nlFacList"></div>
+      </aside>
       <section class="board" id="nlBoard">
         <div id="nlStage"></div>
         <div id="nlThree" hidden></div>
@@ -147,6 +152,20 @@
 #nl-plan .views>button[aria-pressed="true"]{background:var(--brand);color:#fff}
 #nl-plan .acts{display:flex;gap:6px;flex-wrap:wrap}
 #nl-plan .work{display:grid;grid-template-columns:minmax(0,1fr);min-height:0}
+#nl-plan .work.has-fac{grid-template-columns:280px minmax(0,1fr)}
+/* фасады: слева на компьютере, лентой под планом на телефоне */
+#nl-plan .fac{background:var(--panel);border-right:1px solid var(--line);overflow:auto;min-height:0;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+#nl-plan .fac h3{font:800 17px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--brand);margin:0}
+#nl-plan .fac-list{display:grid;gap:12px}
+#nl-plan .fac-list button{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--sheet);padding:8px;display:grid;gap:6px;text-align:left;cursor:zoom-in;transition:border-color .15s}
+#nl-plan .fac-list button:hover{border-color:var(--accent)}
+#nl-plan .fac-list img{width:100%;aspect-ratio:16/9;object-fit:contain;background:#fff;border-radius:6px;display:block}
+#nl-plan .fac-list span{font:600 12px var(--text);color:var(--brand)}
+#nl-plan .lb{position:fixed;inset:0;z-index:99991;background:rgba(28,19,97,.55);display:grid;place-items:center;padding:16px}
+#nl-plan .lb figure{margin:0;background:#fff;border-radius:var(--r-lg);padding:14px;max-width:min(1100px,100%);max-height:100%;display:grid;gap:8px}
+#nl-plan .lb img{max-width:100%;max-height:calc(100vh - 110px);object-fit:contain;display:block}
+#nl-plan .lb figcaption{font:700 14px var(--text);color:var(--brand)}
+#nl-plan .lb .ob-x{position:fixed;top:14px;right:14px}
 #nl-plan .side{background:var(--panel);border-right:1px solid var(--line);min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #nl-plan .side .pane{flex:1 1 auto;min-height:0;overflow:auto}
 #nl-plan .side[data-pane="furn"] .pane[data-pane="paint"],#nl-plan .side[data-pane="paint"] .pane[data-pane="furn"]{display:none}
@@ -277,6 +296,12 @@
   #nl-plan .ed{height:auto;min-height:0}
   #nl-plan .work{grid-template-columns:1fr}
   #nl-plan .board{height:62vh;height:60svh;min-height:360px;max-height:720px;order:-1}
+  #nl-plan .work.has-fac{grid-template-columns:minmax(0,1fr)}
+  #nl-plan .fac{border-right:0;border-top:1px solid var(--line);overflow:visible;padding:14px 0 18px}
+  #nl-plan .fac h3{padding:0 16px}
+  #nl-plan .fac-list{grid-auto-flow:column;grid-auto-columns:78%;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 16px 4px;scrollbar-width:none}
+  #nl-plan .fac-list::-webkit-scrollbar{display:none}
+  #nl-plan .fac-list button{scroll-snap-align:center}
   #nl-plan .side{border-right:0;overflow:visible;display:block;padding-bottom:12px}
   #nl-plan .side .pane{overflow:visible}
   #nl-plan .stabs button{padding:7px}
@@ -817,6 +842,19 @@ $$('.tag button').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); don
 $('#nlTips').onclick = () => { tagsDone = {}; lsSet('nl-plan-tags', '{}'); renderTags(); };
 
 /* ---------- открыть планировку ---------- */
+function renderFacades() {
+  const list = (P && P.facades) || [], box = $('#nlFac'), el = $('#nlFacList');
+  box.hidden = !list.length; $('.work').classList.toggle('has-fac', !!list.length); el.innerHTML = '';
+  for (const f of list) {
+    const b = document.createElement('button'); b.innerHTML = `<img loading="lazy" alt="${f.n}"><span>${f.n}</span>`; b.querySelector('img').src = f.src;
+    b.onclick = () => { $('#nlLbImg').src = f.src; $('#nlLbImg').alt = f.n; $('#nlLbCap').textContent = f.n; $('#nlLb').hidden = false; };
+    el.append(b);
+  }
+  if (K) requestAnimationFrame(() => { stage.size({ width: board.clientWidth, height: board.clientHeight }); fit(); });
+}
+$('#nlLbX').onclick = () => { $('#nlLb').hidden = true; };
+$('#nlLb').addEventListener('click', (e) => { if (e.target.id === 'nlLb') $('#nlLb').hidden = true; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#nlLb').hidden = true; });
 function openPlan(id, keepView) {
   P = PLANS.find((p) => p.id === id); if (!P) return;
   ST = loadState(); hist = []; sel = null; paintColor = null; unfoldRoom = -1;
@@ -837,7 +875,7 @@ function openPlan(id, keepView) {
     else { wh.removeAttribute('href'); wh.setAttribute('aria-disabled', 'true'); wh.textContent = 'Скоро в каталоге'; wh.title = 'Дома этой площади скоро появятся в каталоге'; }
   }
   try { history.replaceState(null, '', location.pathname + location.search + '#plan-' + P.id); } catch (e) { }
-  renderSwatches(); renderFloors(); renderFgroups(); renderTags(); setPaint(null);
+  renderSwatches(); renderFloors(); renderFgroups(); renderTags(); setPaint(null); renderFacades();
   if (!keepView) ROOT.scrollIntoView({ block: 'start', behavior: 'smooth' });
   const v = keepView ? view : 'plan';
   ensureKonva().then(() => { setView(v, true); fit(); changed(); $('#nlUndo').disabled = true; if (three && (v === '3d' || v === 'top' || v === 'eye')) camPreset(v); });
@@ -1339,7 +1377,7 @@ function glassLeaf(L, H) {
   }
   return g;
 }
-/* входная дверь — та наружная, что ведёт в прихожую или тамбур; остальные наружные — на террасу */
+/* входная дверь — та наружная, что ведёт в прихожую или тамбур; остальные наружные (на террасу) стеклянные */
 function isEntrance(d) {
   const r = d.r, cx = (r[0] + r[2]) / 2, cy = (r[1] + r[3]) / 2, hz = isHoriz(r);
   for (const k of [-1, 1]) {
@@ -1402,7 +1440,7 @@ function build3D() {
     const g = doorGeom(d), ang = 70 * Math.PI / 180, ll = g.L - 20;
     const jx = h ? (d.hinge === 'a' ? 1 : -1) : 0, jy = h ? 0 : (d.hinge === 'a' ? 1 : -1), nx = h ? 0 : d.side, ny = h ? d.side : 0;
     const dx = jx * Math.cos(ang) + nx * Math.sin(ang), dy = jy * Math.cos(ang) + ny * Math.sin(ang);
-    const lf = CFG.glass ? glassLeaf(mm(ll), lh) : new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat('#f4f1ec'));
+    const lf = new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat('#f4f1ec'));
     lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx); lf.castShadow = true; lf.traverse((o) => { o.userData.skip = true; }); group.add(lf);
   }
   for (const p of P.posts) { const m = new THREE.Mesh(new THREE.BoxGeometry(.15, H, .15), mat(CAP)); m.position.set(mm(p[0]), H / 2, mm(p[1])); m.castShadow = true; m.userData.skip = true; group.add(m); }
