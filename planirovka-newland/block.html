@@ -637,7 +637,7 @@ function extent(P) {
   for (const r of [...P.roof, ...P.walls, ...P.decks.map((d) => d.r), ...P.rooms.flatMap((m) => m.r)]) { x1 = Math.min(x1, r[0]); y1 = Math.min(y1, r[1]); x2 = Math.max(x2, r[2]); y2 = Math.max(y2, r[3]); }
   return [x1, y1, x2, y2];
 }
-const roomsCount = (P) => P.rooms.filter((r) => r.k === 'bed').length;
+const roomsCount = (P) => P.rooms.filter((r) => /^Спальня/.test(r.n)).length;
 const livingArea = (P) => P.rooms.filter((r) => r.k !== 'terrace').reduce((s, r) => s + r.a, 0);
 
 /* ---------- экран 1: выбор планировки ---------- */
@@ -1330,6 +1330,24 @@ function floorMesh(r, kind, y = .002) {
   me.rotation.x = -Math.PI / 2; me.position.set((r[0] + r[2]) / 2000, y, (r[1] + r[3]) / 2000); me.receiveShadow = true; me.userData.ownMat = true;
   return me;
 }
+/* стеклянная дверь: прозрачное полотно в тёмной раме */
+function glassLeaf(L, H) {
+  const g = new THREE.Group(), fr = mat('#3f434a', { r: .5 }), t = .045;
+  const pane = new THREE.Mesh(new THREE.BoxGeometry(L - t * 2, H - t * 2, .012), mat('#b9d4e6', { op: .32, r: .08 })); g.add(pane);
+  for (const [w, hh, x, y] of [[L, t, 0, H / 2 - t / 2], [L, t, 0, -H / 2 + t / 2], [t, H, -L / 2 + t / 2, 0], [t, H, L / 2 - t / 2, 0]]) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, hh, .04), fr); b.position.set(x, y, 0); b.castShadow = true; g.add(b);
+  }
+  return g;
+}
+/* входная дверь — та наружная, что ведёт в прихожую или тамбур; остальные наружные — на террасу */
+function isEntrance(d) {
+  const r = d.r, cx = (r[0] + r[2]) / 2, cy = (r[1] + r[3]) / 2, hz = isHoriz(r);
+  for (const k of [-1, 1]) {
+    const x = hz ? cx : cx + k * ((r[2] - r[0]) / 2 + 150), y = hz ? cy + k * ((r[3] - r[1]) / 2 + 150) : cy, i = roomAt(x, y);
+    if (i >= 0 && /Прихож|Тамбур/.test(P.rooms[i].n)) return true;
+  }
+  return false;
+}
 const DEFAULT_WALL = '#FBFBFC', FACADE = '#F4F5FA', CAP = '#261A7E';
 function wallColorAt(x, y) {
   const i = roomAt(x, y); if (i < 0 || P.rooms[i].k === 'terrace') return { c: FACADE, p: null };
@@ -1378,14 +1396,14 @@ function build3D() {
   for (const d of P.doors) {
     const lh = Math.min(2.05, H), r = d.r, h = isHoriz(r);
     if (d.ext) {
-      const lf = new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) - .02 : .06, lh, h ? .06 : mm(r[3] - r[1]) - .02), mat(CAP));
-      lf.position.set(mm(r[0] + r[2]) / 2, lh / 2, mm(r[1] + r[3]) / 2); lf.castShadow = true; lf.userData.skip = true; group.add(lf); continue;
+      const L = h ? mm(r[2] - r[0]) - .02 : mm(r[3] - r[1]) - .02, g = CFG.glass && !isEntrance(d) ? glassLeaf(L, lh) : (() => { const lf = new THREE.Mesh(new THREE.BoxGeometry(L, lh, .06), mat(CAP)); lf.castShadow = true; return lf; })();
+      g.position.set(mm(r[0] + r[2]) / 2, lh / 2, mm(r[1] + r[3]) / 2); g.rotation.y = h ? 0 : Math.PI / 2; g.traverse((o) => { o.userData.skip = true; }); group.add(g); continue;
     }
     const g = doorGeom(d), ang = 70 * Math.PI / 180, ll = g.L - 20;
     const jx = h ? (d.hinge === 'a' ? 1 : -1) : 0, jy = h ? 0 : (d.hinge === 'a' ? 1 : -1), nx = h ? 0 : d.side, ny = h ? d.side : 0;
     const dx = jx * Math.cos(ang) + nx * Math.sin(ang), dy = jy * Math.cos(ang) + ny * Math.sin(ang);
-    const lf = new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat('#f4f1ec'));
-    lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx); lf.castShadow = true; lf.userData.skip = true; group.add(lf);
+    const lf = CFG.glass ? glassLeaf(mm(ll), lh) : new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat('#f4f1ec'));
+    lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx); lf.castShadow = true; lf.traverse((o) => { o.userData.skip = true; }); group.add(lf);
   }
   for (const p of P.posts) { const m = new THREE.Mesh(new THREE.BoxGeometry(.15, H, .15), mat(CAP)); m.position.set(mm(p[0]), H / 2, mm(p[1])); m.castShadow = true; m.userData.skip = true; group.add(m); }
   for (const f of allFurn()) {
