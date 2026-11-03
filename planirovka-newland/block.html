@@ -4,13 +4,13 @@
   <section class="pick" id="nlPick">
     <div class="pick-head">
       <h2 id="nlHead">Примерьте планировку</h2>
-      <p id="nlSub">Выберите дом — расставьте мебель, подберите цвета и посмотрите интерьер в 3D.</p>
+      <p id="nlSub">Выберите дом — посмотрите планировку с мебелью, подберите цвета стен и загляните внутрь в 3D.</p>
     </div>
     <div class="cards" id="nlCards"></div>
     <div class="demo" id="nlDemo" aria-hidden="true">
       <ol class="demo-steps" id="nlDemoSteps">
         <li><i>1</i><b>Выберите дом</b><span>План откроется в 2D и 3D</span></li>
-        <li><i>2</i><b>Расставьте мебель</b><span>Сами или готовую из проекта</span></li>
+        <li><i>2</i><b>Мебель как в проекте</b><span>Расставлена архитектором</span></li>
         <li><i>3</i><b>Подберите цвета</b><span>Стены, пол и мебель</span></li>
         <li><i>4</i><b>Смотрите в 3D</b><span>Снимок, размеры, стоимость</span></li>
       </ol>
@@ -40,7 +40,7 @@
         <button data-view="top">Сверху</button>
         <button data-view="eye">Из гостиной</button>
         <button data-view="unfold">Развёртка</button>
-        <span class="tag" data-tag="views"><i>3</i><span class="lg">Смотрите в 3D и развёртке</span><span class="sh">3D и развёртка</span><button aria-label="Скрыть подсказку">×</button></span>
+        <span class="tag" data-tag="views"><i>2</i><span class="lg">Смотрите в 3D и развёртке</span><span class="sh">3D и развёртка</span><button aria-label="Скрыть подсказку">×</button></span>
       </div>
       <div class="acts tagged">
         <button class="btn" id="nlDimOut" aria-pressed="false" title="Габариты дома снаружи"><span class="lg">Наружные размеры</span><span class="sh">Размеры снаружи</span></button>
@@ -48,7 +48,7 @@
         <button class="btn" id="nlShot" title="Скачать картинку того, что сейчас на экране"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Снимок</button>
         <a class="btn" id="nlWhere" target="_blank" rel="noopener">Где есть такие дома</a>
         <a class="btn primary price" id="nlPrice" href="#popup:price">Узнать стоимость</a>
-        <span class="tag" data-tag="acts"><i>4</i><span class="lg">Размеры и снимок</span><span class="sh">Размеры, снимок</span><button aria-label="Скрыть подсказку">×</button></span>
+        <span class="tag" data-tag="acts"><i>3</i><span class="lg">Размеры и снимок</span><span class="sh">Размеры, снимок</span><button aria-label="Скрыть подсказку">×</button></span>
       </div>
     </header>
 
@@ -56,20 +56,9 @@
       <aside class="side">
         <a class="btn primary wide price" id="nlPrice2" href="#popup:price">Узнать стоимость этого дома</a>
         <a class="btn wide" id="nlWhere2" target="_blank" rel="noopener">Где есть такие дома</a>
-        <div class="stabs" role="group" aria-label="Панель">
-          <button data-pane="furn" aria-pressed="true">Мебель</button>
-          <button data-pane="paint" aria-pressed="false">Цвета</button>
-        </div>
-        <section class="pane tagged" data-pane="furn">
-          <h3>Мебель <button class="lnk" id="nlClear">Убрать всё</button></h3>
-          <span class="tag" data-tag="furn"><i>1</i>Начните с готовой<button aria-label="Скрыть подсказку">×</button></span>
-          <button class="btn sm rec" id="nlRec" title="Мебель встанет как в проекте — потом её можно двигать и дополнять"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg>Готовая расстановка</button>
-          <div class="catf" id="nlCatF" role="group" aria-label="Раздел каталога"></div>
-          <div id="nlCat" class="cat-wrap"></div>
-        </section>
         <section class="pane tagged" data-pane="paint">
           <h3>Цвет стен</h3>
-          <span class="tag" data-tag="paint"><i>2</i>Цвет → комната<button aria-label="Скрыть подсказку">×</button></span>
+          <span class="tag" data-tag="paint"><i>1</i>Цвет → комната<button aria-label="Скрыть подсказку">×</button></span>
           <div class="swatches" id="nlSw"></div>
           <div class="row"><button class="btn sm" id="nlPaintAll">Покрасить весь дом</button><label class="btn sm pickc">Свой цвет<input type="color" id="nlCustom" value="#d9cbb5"></label></div>
           <div class="muted">Перегородки и окна в этих домах не переносятся — меняется только отделка.</div>
@@ -77,7 +66,6 @@
           <div class="swatches fl" id="nlFloor"></div>
           <h3 class="sub3">Мебель <button class="lnk" id="nlFcolReset">Сбросить</button></h3>
           <div class="fgroups" id="nlFgroups"></div>
-          <div class="muted">Цвет одного предмета — нажмите на него на плане.</div>
         </section>
         <button class="lnk tips" id="nlTips">Показать подсказки</button>
       </aside>
@@ -86,19 +74,13 @@
         <div id="nlStage"></div>
         <div id="nlThree" hidden></div>
         <canvas id="nlUnfold" hidden></canvas>
-        <div class="v3" id="nlV3" hidden><button class="btn sm" id="nlCut" aria-pressed="false">Срезать стены</button><span class="muted" id="nlV3hint"></span></div>
+        <div class="v3" id="nlV3" hidden><button class="btn sm" id="nlCut" aria-pressed="true">Полные стены</button><span class="muted" id="nlV3hint"></span></div>
         <div class="rooms-bar" id="nlRooms" hidden></div>
-        <div class="empty" id="nlEmpty" hidden><span class="lg">План пустой — расставьте мебель из каталога или</span><span class="sh">План пустой —</span><button class="btn sm rec" id="nlRec2"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg>готовая расстановка</button></div>
+        <div class="lbl3" id="nlLbl3" hidden></div>
         <div class="paintbar" id="nlPaintBar" hidden><i id="nlPaintDot"></i><span class="lg">Нажмите на комнату, чтобы покрасить стены</span><span class="sh">Нажмите на комнату</span><button class="btn sm" id="nlPaintOff">Готово</button></div>
-        <div class="ft" id="nlFt" hidden>
-          <button id="nlRot" title="Повернуть на 90° (R)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
-          <button id="nlDup" title="Копия"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
-          <label title="Цвет предмета"><input type="color" id="nlFcol"></label>
-          <button id="nlDel" title="Удалить (Del)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
-        </div>
         <div class="hud">
           <div class="zoom" id="nlZoom"><button id="nlZin" title="Приблизить">+</button><button id="nlZout" title="Отдалить">−</button><button id="nlZfit" title="Вписать">⤢</button></div>
-          <div class="undo"><button class="btn sm rec" id="nlRec3" title="Готовая расстановка мебели из проекта"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg><span class="lg">Из проекта</span><span class="sh">Из проекта</span></button><button class="btn sm" id="nlUndo" title="Отменить (Ctrl+Z)">Отменить</button></div>
+          <div class="undo"><button class="btn sm" id="nlUndo" title="Отменить (Ctrl+Z)">Отменить</button></div>
         </div>
         <div class="toast" id="nlToast" hidden></div>
       </section>
@@ -240,6 +222,14 @@
 #nl-plan .vars button{border:1.5px solid var(--brand);background:var(--panel);color:var(--brand);border-radius:999px;padding:5px 11px;font:700 12.5px var(--text);white-space:nowrap}
 #nl-plan .vars button small{font:500 11px var(--mono);opacity:.75;margin-left:3px}
 #nl-plan .vars button[aria-pressed="true"]{background:var(--brand);color:#fff}
+#nl-plan .lbl3{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+#nl-plan .lbl3 div{position:absolute;transform:translate(-50%,-50%);text-align:center;white-space:nowrap;color:#1b1b1b;font:600 14px/1.15 var(--text);text-shadow:0 0 3px #fff,0 0 6px #fff,0 0 10px rgba(255,255,255,.9)}
+#nl-plan .lbl3 b{display:block;font:700 18px/1.1 var(--text)}
+#nl-plan .lbl3 b sup{font-size:.6em}
+#nl-plan .lbl3.sm div{font-size:10px}
+#nl-plan .lbl3.sm b{font-size:12.5px}
+#nl-plan .card .where{font-size:12px;color:var(--brand);font-weight:600;line-height:1.35}
+#nl-plan .card .where i{font-style:normal;color:var(--muted);font-weight:400}
 #nl-plan .sub3{margin-top:6px;padding-top:12px;border-top:1px solid var(--line)}
 #nl-plan .sub3 .muted{font:500 11px var(--text);letter-spacing:0;text-transform:none}
 #nl-plan .fgroups{display:grid;gap:6px}
@@ -481,10 +471,10 @@ const FLOORS = [
   { n: 'Светлый дуб', c: '#dcbc96' }, { n: 'Натуральный дуб', c: '#c49a6c' }, { n: 'Медовый дуб', c: '#b07c4a' },
   { n: 'Орех', c: '#82583a' }, { n: 'Серый дуб', c: '#a39686' }, { n: 'Венге', c: '#55402f' },
 ];
-const FLOOR_DEF = '#c49a6c';
+const FLOOR_DEF = '#dcbc96';
 const isRug = (t) => baseOf(t) === 'rug' || baseOf(t) === 'rugR';
 const SWATCHES = ['#f4f1ea', '#e9e3d6', '#d9cbb5', '#c9b8a0', '#e7d5c4', '#d7a98a', '#dfe5dc', '#b9c8b4', '#8fa58c', '#d6e1e6', '#a9c0cc', '#6f8a9a', '#ece6f0', '#d8d3c8', '#b3b6b2', '#7d8287', '#4b5157', '#2f3b46'];
-const KIND_COLOR = { living: '#f1ece3', kitchen: '#efe8dc', bed: '#e8ebe4', wet: '#e3ecef', hall: '#efece6', tech: '#ecebe7', terrace: null };
+const KIND_COLOR = {};  // стены по умолчанию белые, как на образце
 const VIEW_LABEL = { plan: 'план', '3d': '3d', top: 'вид-сверху', eye: 'из-гостиной', unfold: 'развертка' };
 
 /* ---------- утилиты ---------- */
@@ -492,7 +482,7 @@ const $ = (s) => ROOT.querySelector(s);
 const $$ = (s) => [...ROOT.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const fmtMM = (v) => Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-const fmtA = (v) => v.toFixed(1).replace('.', ',');
+const fmtA = (v) => (Math.round(v * 100) / 100).toString().replace('.', ',');  // 12,43 · 4,5 · 12
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } };
@@ -501,6 +491,7 @@ const rArea = (r) => (r[2] - r[0]) * (r[3] - r[1]);
 const mainRect = (room) => room.r.reduce((a, b) => (rArea(b) > rArea(a) ? b : a));
 const isHoriz = (r) => r[2] - r[0] >= r[3] - r[1];
 const living = (P) => P.rooms.find((r) => r.k === 'living') || P.rooms[0];
+function aabb(f) { const p = obb(f), xs = p.map((q) => q.x), ys = p.map((q) => q.y); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
 function obb(f) {
   const a = f.rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), hw = f.w / 2, hd = f.d / 2;
   return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, y]) => ({ x: f.x + x * c - y * s, y: f.y + x * s + y * c }));
@@ -668,7 +659,7 @@ function renderCards() {
     const cv = document.createElement('canvas'); cv.width = 480; cv.height = 320;
     b.append(cv);
     const vn = nv > 1 ? `<span class="vn">${nv} ${plural(nv, 'вариант', 'варианта', 'вариантов')} планировки</span>` : '';
-    b.insertAdjacentHTML('beforeend', `<div class="cb"><b>${CFG.series} ${groupTitle(g)}<small>м²</small></b>${vn}<span class="nt">${P.note.replace(/ (м²)/g, ' $1')}</span><em><span class="lg">Открыть планировку →</span><span class="sh">Открыть →</span></em></div>`);
+    b.insertAdjacentHTML('beforeend', `<div class="cb"><b>${CFG.series} ${groupTitle(g)}<small>м²</small></b>${vn}<span class="nt">${P.note.replace(/ (м²)/g, ' $1')}</span>${P.where && P.where.length ? `<span class="where"><i>${CFG.series === 'СМАРТ' ? 'Адреса:' : 'Посёлки:'}</i> ${P.where.join('; ')}</span>` : ''}<em><span class="lg">Открыть планировку →</span><span class="sh">Открыть →</span></em></div>`);
     b.setAttribute('aria-label', `${CFG.series} ${groupTitle(g)} м²`);
     b.onclick = () => openPlan(P.id);
     el.append(b);
@@ -753,9 +744,9 @@ else demoSet(true);
 
 /* ---------- попап-объяснялка: 5 слайдов при первом входе в планировку ---------- */
 const OB_SLIDES = [
-  { t: 'Мебель за один клик', p: 'Нажмите <b>«★ Из проекта»</b> — мебель встанет как у архитектора. Или выбирайте из каталога: нажмите на предмет, и он сам встанет в нужную комнату. На плане его можно двигать, поворачивать и копировать.',
+  { t: 'Мебель как в проекте', p: 'В каждом доме мебель уже расставлена архитектором — видно, где встанут кровати, кухня и диван и сколько остаётся места.',
     a: '<svg viewBox="0 0 220 130"><rect x="20" y="15" width="180" height="100" rx="4" fill="#fff" stroke="#261A7E" stroke-width="6"/><line x1="110" y1="15" x2="110" y2="70" stroke="#261A7E" stroke-width="4"/><rect x="34" y="28" width="52" height="62" rx="8" fill="#ddd6cc" stroke="#261A7E" stroke-width="2"/><rect x="40" y="32" width="18" height="10" rx="4" fill="#fff" stroke="#261A7E"/><rect x="62" y="32" width="18" height="10" rx="4" fill="#fff" stroke="#261A7E"/><rect x="128" y="74" width="60" height="28" rx="8" fill="#dcd6cc" stroke="#261A7E" stroke-width="2"/><rect x="140" y="40" width="34" height="22" rx="3" fill="#a5714d"/><path d="M160 6l3.4 7.3 8 .9-5.9 5.5 1.6 7.9-7.1-4-7.1 4 1.6-7.9-5.9-5.5 8-.9z" fill="#FCC21B"/></svg>' },
-  { t: 'Цвета стен, пола и мебели', p: 'Вкладка <b>«Цвета»</b>: выберите оттенок и нажмите на комнату — стены перекрасятся. Пол — шесть оттенков доски, мебель перекрашивается целыми группами.',
+  { t: 'Цвета стен, пола и мебели', p: 'Выберите оттенок слева и нажмите на комнату — стены перекрасятся. Пол — шесть оттенков доски, мебель перекрашивается целыми группами.',
     a: '<svg viewBox="0 0 220 130"><rect x="30" y="20" width="160" height="90" rx="4" fill="#dfe5dc" stroke="#261A7E" stroke-width="6"/><rect x="36" y="26" width="72" height="78" fill="#e7d5c4"/><rect x="114" y="26" width="70" height="78" fill="#d6e1e6"/><circle cx="60" cy="118" r="0" /><g transform="translate(40 4)"><circle cx="0" cy="0" r="9" fill="#b9c8b4" stroke="#fff" stroke-width="3"/><circle cx="24" cy="0" r="9" fill="#d7a98a" stroke="#fff" stroke-width="3"/><circle cx="48" cy="0" r="9" fill="#a9c0cc" stroke="#261A7E" stroke-width="3"/><circle cx="72" cy="0" r="9" fill="#55402f" stroke="#fff" stroke-width="3"/></g><path d="M150 70l18-18 8 8-18 18c-2 6-8 8-12 8 0-4 2-10 4-16z" fill="#FCC21B" stroke="#261A7E" stroke-width="2"/></svg>' },
   { t: 'Смотрите в 3D', p: 'Переключайте виды: <b>3D</b>, <b>сверху</b>, <b>из гостиной</b> — как будто вы уже внутри, и <b>развёртка</b> стен каждой комнаты с окнами и мебелью.',
     a: '<svg viewBox="0 0 220 130"><path d="M40 70l70-40 70 40-70 40z" fill="#e6cfaf" stroke="#261A7E" stroke-width="3"/><path d="M40 70v-26l70-40v26z" fill="#f4f3f8" stroke="#261A7E" stroke-width="3"/><path d="M110 30V4l70 40v26z" fill="#ebe9f5" stroke="#261A7E" stroke-width="3"/><path d="M92 74l26-15 20 11-26 15z" fill="#dcd6cc" stroke="#261A7E" stroke-width="2"/><path d="M60 72l16-9 14 8-16 9z" fill="#a5714d"/><text x="168" y="118" font-family="Alumni Sans, sans-serif" font-weight="800" font-size="28" fill="#261A7E">3D</text></svg>' },
@@ -782,19 +773,20 @@ $('#nlHelp').onclick = obOpen;
 /* ---------- состояние редактора ---------- */
 let P = null, ST = null, hist = [], view = 'plan', dims = { out: false, in: false }, paintColor = null, sel = null;
 const storeKey = (id) => 'nl-plan-' + id;
-function defaultState() { return { furn: [], colors: P.rooms.map((r) => KIND_COLOR[r.k] || null), floor: FLOOR_DEF, fcol: {} }; }
+/* мебель всегда как в проекте: посетитель меняет только цвета */
+const recFurn = () => (P.rec || []).map((f, i) => ({ ...f, id: 'r' + i }));
+function defaultState() { return { furn: recFurn(), colors: P.rooms.map((r) => KIND_COLOR[r.k] || null), floor: FLOOR_DEF, fcol: {} }; }
 function loadState() {
   const raw = lsGet(storeKey(P.id));
-  if (raw) { try { const d = JSON.parse(raw); if (d && Array.isArray(d.furn) && Array.isArray(d.colors) && d.colors.length === P.rooms.length) return Object.assign({ floor: FLOOR_DEF, fcol: {} }, d); } catch (e) { } }
+  if (raw) { try { const d = JSON.parse(raw); if (d && Array.isArray(d.colors) && d.colors.length === P.rooms.length) return Object.assign({ floor: FLOOR_DEF, fcol: {} }, d, { furn: recFurn() }); } catch (e) { } }
   return defaultState();
 }
-function persist() { lsSet(storeKey(P.id), JSON.stringify(ST)); }
+function persist() { const { furn, ...rest } = ST; lsSet(storeKey(P.id), JSON.stringify(rest)); }
 function mutate(fn) { hist.push(JSON.stringify(ST)); if (hist.length > 80) hist.shift(); fn(); changed(); }
 function undo() { if (!hist.length) return; ST = JSON.parse(hist.pop()); if (sel && !ST.furn.some((f) => f.id === sel)) sel = null; changed(); }
 function changed() {
   persist(); $('#nlUndo').disabled = !hist.length;
   if (K) { renderRooms(); renderFurn(); renderOver(); }
-  $('#nlEmpty').hidden = !(view === 'plan' && ST.furn.length === 0 && !dims.out);
   if (view === 'unfold') drawUnfold();
   if (three && (view === '3d' || view === 'top' || view === 'eye')) build3D();
 }
@@ -807,7 +799,7 @@ function roomAt(x, y) {
 }
 
 /* ---------- подсказки-теги ---------- */
-const TAGS = ['furn', 'paint', 'views', 'acts'];
+const TAGS = ['paint', 'views', 'acts'];
 let tagsDone = {};
 try { tagsDone = JSON.parse(lsGet('nl-plan-tags') || '{}') || {}; } catch (e) { tagsDone = {}; }
 function renderTags() {
@@ -836,7 +828,7 @@ function openPlan(id, keepView) {
     bt.onclick = () => { if (v !== P) openPlan(v.id, true); };
     vb.append(bt);
   }
-  $('#nlMeta').textContent = `${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм · ${n} ${plural(n, 'спальня', 'спальни', 'спален')}`;
+  $('#nlMeta').textContent = `${fmtMM(b[2] - b[0])} × ${fmtMM(b[3] - b[1])} мм · ${n} ${plural(n, 'спальня', 'спальни', 'спален')}${P.terrace ? ` · терраса ${fmtA(P.terrace)} м²` : ''}${CFG.series === 'СМАРТ' && P.where ? ' · ' + P.where.join('; ') : ''}`;
   for (const wh of [$('#nlWhere'), $('#nlWhere2')]) {
     if (P.link) { wh.href = P.link; wh.removeAttribute('aria-disabled'); wh.textContent = 'Где есть такие дома'; wh.title = 'Каталог домов'; }
     else { wh.removeAttribute('href'); wh.setAttribute('aria-disabled', 'true'); wh.textContent = 'Скоро в каталоге'; wh.title = 'Дома этой площади скоро появятся в каталоге'; }
@@ -987,112 +979,16 @@ function renderFurn() {
   const sorted = ST.furn.slice().sort((a, b) => (isRug(a.type) ? -1 : 0) - (isRug(b.type) ? -1 : 0));
   for (const f of sorted) {
     const sh = new K.Shape({
-      x: f.x, y: f.y, width: f.w, height: f.d, offsetX: f.w / 2, offsetY: f.d / 2, rotation: f.rot, name: 'furn', id: f.id,
-      draggable: !paintColor,
+      x: f.x, y: f.y, width: f.w, height: f.d, offsetX: f.w / 2, offsetY: f.d / 2, rotation: f.rot, name: 'furn', id: f.id, listening: false,
       sceneFunc: (ctx, shape) => { const c = ctx._context; c.save(); c.translate(f.w / 2, f.d / 2); if (f.mir) c.scale(-1, 1); drawFurn(c, f, 1 / (vw.s * Math.max(Math.abs(shape.scaleX()), Math.abs(shape.scaleY()), .2))); c.restore(); },
       hitFunc: (ctx, shape) => { ctx.beginPath(); ctx.rect(0, 0, f.w, f.d); ctx.closePath(); ctx.fillStrokeShape(shape); },
     });
-    sh.on('pointerdown', (e) => { if (paintColor) return; e.cancelBubble = true; setSel(f.id); });
-    sh.on('dragmove', () => { sh.position({ x: Math.round(sh.x() / 10) * 10, y: Math.round(sh.y() / 10) * 10 }); placeFt(); });
-    sh.on('dragend', () => commitFurn(f.id, { x: Math.round(sh.x()), y: Math.round(sh.y()) }));
-    sh.on('transform', placeFt);
-    sh.on('transformend', () => {
-      const nw = Math.round(f.w * Math.abs(sh.scaleX()) / 10) * 10, nd = Math.round(f.d * Math.abs(sh.scaleY()) / 10) * 10;
-      commitFurn(f.id, { x: Math.round(sh.x()), y: Math.round(sh.y()), w: nw, d: nd, rot: ((Math.round(sh.rotation()) % 360) + 360) % 360 });
-    });
     Lfurn.add(sh);
   }
-  tr.moveToTop();
-  if (sel) { const n = stage.findOne('#' + sel); if (n) tr.nodes([n]); }
-  Lfurn.batchDraw(); placeFt();
+  Lfurn.batchDraw();
 }
-function commitFurn(id, patch) {
-  const f = ST.furn.find((x) => x.id === id); if (!f) return;
-  const nf = { ...f, ...patch }, b = P.box;
-  if (!(nf.x > b[0] - 300 && nf.x < b[2] + 300 && nf.y > b[1] - 300 && nf.y < b[3] + 300) && roomAt(nf.x, nf.y) < 0) { toast('Предмет вышел за пределы дома — вернул на место'); renderFurn(); return; }
-  mutate(() => Object.assign(ST.furn.find((x) => x.id === id), patch));
-}
-const KIND_OF = { Спальня: ['bed'], Гостиная: ['living'], Кухня: ['kitchen', 'living'], Санузел: ['wet'], Прихожая: ['hall'], Детская: ['bed'], Терраса: ['terrace', 'living'], Техника: ['tech', 'wet'] };
-function aabb(f) { const p = obb(f), xs = p.map((q) => q.x), ys = p.map((q) => q.y); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
-/* что ставится в середину комнаты, остальное — спинкой к стене */
-const CENTER = new Set(['rug', 'rugR', 'coffee', 'table', 'roundtable', 'island', 'pouf', 'beanbag', 'swing', 'barstool', 'chair', 'lounger', 'ochair']);
-/* зоны открывания дверей — туда мебель не ставим */
-function doorZones() {
-  return P.doors.filter((d) => !d.ext).map((d) => { const g = doorGeom(d), ox = g.h ? (d.hinge === 'a' ? d.r[2] : d.r[0]) : g.lx, oy = g.h ? g.ly : (d.hinge === 'a' ? d.r[3] : d.r[1]); return [Math.min(g.hx, ox, g.lx), Math.min(g.hy, oy, g.ly), Math.max(g.hx, ox, g.lx), Math.max(g.hy, oy, g.ly)]; });
-}
-/* ищем свободное место в комнате: не на мебели, не в проходе двери; у стены или ближе к центру */
-function spotIn(type, ri, near) {
-  const c = CAT[type], rug = isRug(type), center = CENTER.has(baseOf(type));
-  const others = (rug ? [] : allFurn().filter((o) => !isRug(o.type)).map(aabb)).concat(rug ? [] : doorZones());
-  let best = null;
-  for (const r of P.rooms[ri].r) for (const rot of center ? [0, 90] : [0, 90, 180, 270]) {
-    const sw = rot % 180, hw = (sw ? c.d : c.w) / 2, hd = (sw ? c.w : c.d) / 2, gap = 20;
-    for (let x = r[0] + hw + gap; x <= r[2] - hw - gap; x += 50) for (let y = r[1] + hd + gap; y <= r[3] - hd - gap; y += 50) {
-      if (others.some((o) => x - hw < o[2] && x + hw > o[0] && y - hd < o[3] && y + hd > o[1])) continue;
-      const toNear = Math.hypot(x - near.x, y - near.y);
-      const back = rot === 0 ? y - hd - r[1] : rot === 180 ? r[3] - y - hd : rot === 90 ? r[2] - x - hw : x - hw - r[0];
-      const score = center ? toNear + (rot ? 150 : 0) : back * 4 + toNear * .15;
-      if (!best || score < best.score) best = { x, y, rot, score };
-    }
-  }
-  return best;
-}
-function freeSpot(type) {
-  const kinds = KIND_OF[CAT[type].g] || ['living'], order = [];
-  // комната в центре экрана — если это основная комната для предмета (спальня для кровати и т. п.)
-  if (view === 'plan' && K) {
-    const c = toWorld({ x: stage.width() / 2, y: stage.height() / 2 }), ri = roomAt(c.x, c.y);
-    if (ri >= 0 && P.rooms[ri].k === kinds[0]) order.push({ ri });
-  }
-  for (const k of kinds) P.rooms.forEach((r, i) => { if (r.k === k) order.push({ ri: i }); });
-  P.rooms.forEach((r, i) => { if (r.k !== 'terrace') order.push({ ri: i }); });
-  for (const o of order) {
-    const m = mainRect(P.rooms[o.ri]), s = spotIn(type, o.ri, { x: (m[0] + m[2]) / 2, y: (m[1] + m[3]) / 2 });
-    if (s) return s;
-  }
-  const m = mainRect(living(P)); return { x: (m[0] + m[2]) / 2, y: (m[1] + m[3]) / 2, rot: 0 };
-}
-function addFurn(type, at) {
-  const p = at ? { x: at.x, y: at.y, rot: 0 } : freeSpot(type);
-  const f = { id: uid(), type, x: Math.round(p.x / 10) * 10, y: Math.round(p.y / 10) * 10, rot: p.rot || 0, w: CAT[type].w, d: CAT[type].d };
-  if (roomAt(f.x, f.y) < 0) { toast('Поставьте предмет внутри дома'); return; }
-  setPaint(null);
-  mutate(() => ST.furn.push(f)); doneTag('furn');
-  if (view === 'plan') { setSel(f.id); showBoard(); }
-  else { showBoard(); toast(`Добавлено: ${CAT[type].n}. Двигать и поворачивать — на плане`); }
-}
-function setSel(id) {
-  sel = id;
-  if (K) { const n = id ? stage.findOne('#' + id) : null; tr.nodes(n ? [n] : []); Lfurn.batchDraw(); }
-  placeFt();
-}
-function placeFt() {
-  const ft = $('#nlFt');
-  if (!sel || view !== 'plan' || !K) { ft.hidden = true; return; }
-  const n = stage.findOne('#' + sel); if (!n) { ft.hidden = true; return; }
-  const f = ST.furn.find((x) => x.id === sel);
-  const r = n.getClientRect({ relativeTo: stage }), a = toScreen({ x: r.x + r.width / 2, y: r.y });
-  ft.hidden = false;
-  ft.style.left = clamp(a.x, 70, stage.width() - 70) + 'px'; ft.style.top = clamp(a.y - 34, 40, stage.height() - 10) + 'px';
-  ft.style.setProperty('--fc', furnColor(f));
-  $('#nlFcol').value = furnColor(f);
-}
-function rotSel() { const f = ST.furn.find((x) => x.id === sel); if (f) commitFurn(f.id, { rot: (Math.round(f.rot / 90) * 90 + 90) % 360 }); }
-function delSel() { if (!sel) return; const id = sel; setSel(null); mutate(() => { ST.furn = ST.furn.filter((x) => x.id !== id); }); }
-function dupSel() { const f = ST.furn.find((x) => x.id === sel); if (!f) return; const n = { ...f, id: uid(), x: f.x + 300, y: f.y + 300 }; mutate(() => ST.furn.push(n)); setSel(n.id); }
-$('#nlRot').onclick = rotSel; $('#nlDel').onclick = delSel; $('#nlDup').onclick = dupSel;
-$('#nlFcol').oninput = (e) => { const f = ST.furn.find((x) => x.id === sel); if (!f) return; f.color = e.target.value; renderFurn(); };
-$('#nlFcol').onchange = (e) => { const f = ST.furn.find((x) => x.id === sel); if (!f) return; const v = e.target.value; mutate(() => { f.color = v; }); };
-$('#nlUndo').onclick = undo;
-function applyRec() {
-  if (!P.rec || !P.rec.length) { toast('Для этого дома расстановки пока нет'); return; }
-  setPaint(null); setSel(null);
-  mutate(() => { ST.furn = P.rec.map((f) => ({ ...f, id: uid() })); });
-  doneTag('furn'); showBoard();
-  toast('Мебель как в проекте. «Отменить» вернёт вашу расстановку');
-}
-$('#nlRec').onclick = applyRec; $('#nlRec2').onclick = applyRec; $('#nlRec3').onclick = applyRec;
-$('#nlClear').onclick = () => { if (!ST.furn.length) return; setSel(null); mutate(() => { ST.furn = []; }); toast('Мебель убрана. «Отменить» вернёт её'); };
+function setSel() { }
+function placeFt() { }
 
 /* панорама, масштаб, щелчки */
 function bindStage() {
@@ -1100,7 +996,6 @@ function bindStage() {
   stage.on('wheel', (e) => { e.evt.preventDefault(); zoomAt(Math.pow(1.0015, -e.evt.deltaY), stage.getPointerPosition()); });
   stage.on('pointerdown', (e) => {
     const t = e.target;
-    if (t.name() === 'furn' || t.getParent()?.className === 'Transformer' || t.getParent() === tr) return;
     const p = stage.getPointerPosition(); const wp = toWorld(p); pan = { x: p.x, y: p.y, vx: vw.x, vy: vw.y, moved: false, room: roomAt(wp.x, wp.y) };
   });
   stage.on('pointermove', () => {
@@ -1123,11 +1018,6 @@ function bindStage() {
     zoomAt(d / pinch.d, { x: (a.clientX + b.clientX) / 2 - r.left, y: (a.clientY + b.clientY) / 2 - r.top }); pinch.d = d;
   }, { passive: true });
   el.addEventListener('touchend', (e) => { if (e.touches.length < 2) pinch = null; });
-  el.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
-  el.addEventListener('drop', (e) => {
-    e.preventDefault(); const k = e.dataTransfer.getData('text/plain'); if (!CAT[k]) return;
-    stage.setPointersPositions(e); addFurn(k, toWorld(stage.getPointerPosition()));
-  });
 }
 
 /* надписи и размеры: пересобираются при масштабе, чтобы текст оставался читаемым */
@@ -1205,35 +1095,6 @@ function drawOuterDims(px, fs) {
   Lover.add(bub(b[0], yTop2 - gap * .5 - rb, '1'), bub(b[2], yTop2 - gap * .5 - rb, '2'), bub(xL2 - gap * .5 - rb, b[1], 'Б'), bub(xL2 - gap * .5 - rb, b[3], 'А'));
 }
 
-/* ---------- каталог ---------- */
-let catGroup = 'Все';
-function renderCatalog() {
-  const groups = {};
-  for (const [k, v] of Object.entries(CAT)) (groups[v.g] = groups[v.g] || []).push(k);
-  const fe = $('#nlCatF'); fe.innerHTML = '';
-  for (const g of ['Все', ...Object.keys(groups)]) {
-    const b = document.createElement('button'); b.textContent = g; b.setAttribute('aria-pressed', g === catGroup);
-    b.onclick = () => { catGroup = g; renderCatalog(); };
-    fe.append(b);
-  }
-  const el = $('#nlCat'); el.innerHTML = '';
-  for (const [g, items] of Object.entries(groups)) {
-    if (catGroup !== 'Все' && g !== catGroup) continue;
-    const box = document.createElement('div'); box.className = 'cat-group';
-    box.innerHTML = `<h4>${g} <small>${items.length}</small></h4><div class="cat"></div>`;
-    for (const k of items) {
-      const b = document.createElement('button'); b.className = 'item'; b.draggable = true; b.title = `${CAT[k].n} ${CAT[k].w}×${CAT[k].d} мм`;
-      const cv = document.createElement('canvas'); cv.width = 92; cv.height = 80; b.append(cv, document.createTextNode(CAT[k].n));
-      const c = cv.getContext('2d'), f = { type: k, w: CAT[k].w, d: CAT[k].d }, sc = Math.min(80 / f.w, 66 / f.d);
-      c.translate(46, 40); c.scale(sc, sc); drawFurn(c, f, 1.6 / sc);
-      b.onclick = () => addFurn(k);
-      b.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', k); e.dataTransfer.effectAllowed = 'copy'; if (view !== 'plan') setView('plan'); });
-      box.querySelector('.cat').append(b);
-    }
-    el.append(box);
-  }
-}
-
 /* ---------- покраска стен ---------- */
 function renderSwatches() {
   const el = $('#nlSw'); el.innerHTML = '';
@@ -1280,13 +1141,12 @@ function renderFgroups() {
     lb.append(inp); el.append(lb);
   }
 }
-$('#nlFcolReset').onclick = () => { mutate(() => { ST.fcol = {}; ST.furn.forEach((f) => { delete f.color; }); }); renderFgroups(); };
+$('#nlFcolReset').onclick = () => { mutate(() => { ST.fcol = {}; }); renderFgroups(); };
 const furnColor = (f) => f.color || (groupOf(f.type) && ST.fcol[groupOf(f.type).k]) || CAT[f.type].c3;
 $('#nlPaintAll').onclick = () => { const c = paintColor || SWATCHES[1]; mutate(() => { ST.colors = P.rooms.map((r) => (r.k === 'terrace' ? null : c)); }); doneTag('paint'); };
 $('#nlCustom').oninput = (e) => { setPaint(e.target.value); };
 $('#nlCustom').onchange = () => showBoard();
-$$('.stabs button').forEach((b) => { b.onclick = () => { $$('.stabs button').forEach((x) => x.setAttribute('aria-pressed', x === b)); $('.side').dataset.pane = b.dataset.pane; }; });
-$('.side').dataset.pane = 'furn';
+$('.side').dataset.pane = 'paint';
 
 /* ---------- виды ---------- */
 $$('.views>button').forEach((b) => { b.onclick = () => { setView(b.dataset.view); if (b.dataset.view !== 'plan') doneTag('views'); }; });
@@ -1295,8 +1155,7 @@ async function setView(v, quiet) {
   $$('.views>button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === v));
   const is3 = v === '3d' || v === 'top' || v === 'eye';
   $('#nlStage').hidden = v !== 'plan'; $('#nlThree').hidden = !is3; $('#nlUnfold').hidden = v !== 'unfold';
-  $('#nlZoom').hidden = v !== 'plan'; $('#nlV3').hidden = !is3; $('#nlRooms').hidden = v !== 'unfold';
-  $('#nlEmpty').hidden = !(v === 'plan' && ST && ST.furn.length === 0);
+  $('#nlZoom').hidden = v !== 'plan'; $('#nlV3').hidden = !is3; $('#nlRooms').hidden = v !== 'unfold'; $('#nlLbl3').hidden = !(v === '3d' || v === 'top');
   $('#nlPaintBar').hidden = !paintColor || v === 'unfold';
   $('#nlCut').hidden = v === 'eye';
   $('#nlV3hint').textContent = touch()
@@ -1314,7 +1173,7 @@ async function setView(v, quiet) {
 }
 
 /* ---------- 3D ---------- */
-let three = null, THREE = null, cut = false;
+let three = null, THREE = null, cut = true;  // стены срезаны, как на образце
 async function init3D() {
   if (!window.THREE) await loadScript(LIBS.three);
   THREE = window.THREE;
@@ -1386,7 +1245,32 @@ function makeControls(camera, dom) {
   return { st, apply };
 }
 function resize3D() { if (!three) return; const w = board.clientWidth, h = board.clientHeight; if (!w || !h) return; three.renderer.setSize(w, h); three.camera.aspect = w / h; three.camera.updateProjectionMatrix(); }
-function loop3D() { three.renderer.render(three.scene, three.camera); }
+function loop3D() { three.renderer.render(three.scene, three.camera); placeLabels3(); }
+/* подписи помещений поверх 3D: название и площадь, как на образце */
+const roomLabelPoint = (room) => (room.lp ? room.lp : (() => { const r = mainRect(room); return [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2]; })());
+function labels3() {
+  const el = $('#nlLbl3'); el.innerHTML = '';
+  for (const room of P.rooms) {
+    const d = document.createElement('div');
+    d.innerHTML = `${room.n}<b>${fmtA(room.a)} м<sup>2</sup></b>`;
+    el.append(d);
+  }
+}
+function projLabels() {
+  const W = board.clientWidth, H = board.clientHeight, v = new THREE.Vector3(), out = [];
+  for (const room of P.rooms) {
+    const [x, y] = roomLabelPoint(room); v.set(x / 1000, .05, y / 1000).project(three.camera);
+    out.push({ x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, ok: v.z < 1, room });
+  }
+  return out;
+}
+function placeLabels3() {
+  const el = $('#nlLbl3'); if (el.hidden || !P) return;
+  if (el.childElementCount !== P.rooms.length) labels3();
+  // на узком экране шрифт меньше, а подписи помещений меньше 5 м² скрыты, чтобы не налезали
+  const sm = board.clientWidth < 600; el.classList.toggle('sm', sm);
+  projLabels().forEach((p, i) => { const d = el.children[i]; d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; d.style.display = p.ok && !(sm && p.room.a < 5) ? '' : 'none'; });
+}
 function camPreset(k) {
   const { st, apply } = three.ctl, e = extent(P), b = P.box, cx = (b[0] + b[2]) / 2000, cz = (b[1] + b[3]) / 2000, size = Math.max(e[2] - e[0], e[3] - e[1]) / 1000;
   three.camera.fov = k === 'top' ? 38 : k === 'eye' ? 70 : 45; three.camera.updateProjectionMatrix();
@@ -1401,7 +1285,7 @@ function camPreset(k) {
   st.mode = 'orbit'; st.target.set(cx, 0, cz);
   const asp = three.camera.aspect || 1, far = asp < 1.25 ? Math.pow(1.25 / asp, .85) : 1;
   if (k === 'top') { st.th = 0; st.ph = .02; st.r = size * 1.55 * far; }
-  else { st.th = -.62; st.ph = .86; st.r = size * 1.25 * far; }
+  else { st.th = -.18; st.ph = .78; st.r = size * 1.2 * far; }
   apply();
 }
 $('#nlCut').onclick = (e) => { cut = !cut; e.currentTarget.setAttribute('aria-pressed', cut); e.currentTarget.textContent = cut ? 'Полные стены' : 'Срезать стены'; build3D(); };
@@ -1443,7 +1327,7 @@ function floorMesh(r, kind, y = .002) {
   me.rotation.x = -Math.PI / 2; me.position.set((r[0] + r[2]) / 2000, y, (r[1] + r[3]) / 2000); me.receiveShadow = true; me.userData.ownMat = true;
   return me;
 }
-const DEFAULT_WALL = '#f3f1ec', FACADE = '#e3ddd2';
+const DEFAULT_WALL = '#FBFBFC', FACADE = '#F4F5FA', CAP = '#261A7E';
 function wallColorAt(x, y) {
   const i = roomAt(x, y); if (i < 0 || P.rooms[i].k === 'terrace') return { c: FACADE, p: null };
   return { c: ST.colors[i] || DEFAULT_WALL, p: { x, y } };
@@ -1458,9 +1342,9 @@ function build3D() {
   sun.position.set(cx - size * .5, size * 1.2, cz - size * .7); sun.target.position.set(cx, 0, cz);
   Object.assign(sun.shadow.camera, { left: -size * .8, right: size * .8, top: size * .8, bottom: -size * .8, near: 1, far: size * 4 }); sun.shadow.camera.updateProjectionMatrix();
   const H = (cut && view !== 'top') ? 1.15 : WALL_H / 1000, mm = (v) => v / 1000;
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size * 6, size * 6), mat('#c9c6b8')); ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -.2, cz); ground.receiveShadow = true; ground.userData.skip = true; group.add(ground);
-  const plinth = new THREE.Mesh(new THREE.BoxGeometry(mm(b[2] - b[0] + 300), .2, mm(b[3] - b[1] + 300)), mat('#a9a399')); plinth.position.set(cx, -.1, cz); plinth.receiveShadow = true; plinth.userData.skip = true; group.add(plinth);
-  for (const d of P.decks) { const m = new THREE.Mesh(new THREE.BoxGeometry(mm(d.r[2] - d.r[0]), .16, mm(d.r[3] - d.r[1])), mat('#9a8a78')); m.position.set(mm(d.r[0] + d.r[2]) / 2, -.1, mm(d.r[1] + d.r[3]) / 2); m.receiveShadow = true; m.userData.skip = true; group.add(m); group.add(floorMesh(d.r, 'deck', -.015)); }
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size * 6, size * 6), mat('#E1E4EE')); ground.rotation.x = -Math.PI / 2; ground.position.set(cx, -.2, cz); ground.receiveShadow = true; ground.userData.skip = true; group.add(ground);
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(mm(b[2] - b[0] + 300), .2, mm(b[3] - b[1] + 300)), mat('#C9CEE6')); plinth.position.set(cx, -.1, cz); plinth.receiveShadow = true; plinth.userData.skip = true; group.add(plinth);
+  for (const d of P.decks) { const m = new THREE.Mesh(new THREE.BoxGeometry(mm(d.r[2] - d.r[0]), .16, mm(d.r[3] - d.r[1])), mat('#b9a896')); m.position.set(mm(d.r[0] + d.r[2]) / 2, -.1, mm(d.r[1] + d.r[3]) / 2); m.receiveShadow = true; m.userData.skip = true; group.add(m); group.add(floorMesh(d.r, 'deck', -.015)); }
   for (const room of P.rooms) for (const r of room.r) group.add(floorMesh(r, room.k === 'wet' ? 'tile' : room.k === 'terrace' ? 'deck' : 'wood'));
   // двери и окна закрыты сверху перемычкой, у окон ещё подоконная часть
   const pieces = P.walls.map((r) => ({ r, y0: 0, y1: H }));
@@ -1475,7 +1359,7 @@ function build3D() {
       const s = h ? [edges[i], r[1], edges[i + 1], r[3]] : [r[0], edges[i], r[2], edges[i + 1]];
       const mx = (s[0] + s[2]) / 2, my = (s[1] + s[3]) / 2, o = 90;
       const f = [wallColorAt(s[2] + o, my), wallColorAt(s[0] - o, my), null, null, wallColorAt(mx, s[3] + o), wallColorAt(mx, s[1] - o)];
-      const top = mat('#6f7275');
+      const top = mat(CAP);
       const mats = f.map((v) => (v ? mat(v.c) : top));
       const me = new THREE.Mesh(new THREE.BoxGeometry(mm(s[2] - s[0]), pc.y1 - pc.y0, mm(s[3] - s[1])), mats);
       me.position.set(mm(mx), (pc.y0 + pc.y1) / 2, mm(my)); me.castShadow = true; me.receiveShadow = true;
@@ -1484,24 +1368,30 @@ function build3D() {
   }
   for (const r of P.windows) {
     const h = isHoriz(r), gt = Math.min(HEAD / 1000, H); if (gt <= SILL / 1000) continue;
-    const gl = new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) : .02, gt - SILL / 1000, h ? .02 : mm(r[3] - r[1])), mat('#a8cfe0', { op: .3, r: .1 }));
+    const gl = new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) : .02, gt - SILL / 1000, h ? .02 : mm(r[3] - r[1])), mat('#b9d4e6', { op: .35, r: .1 }));
     gl.position.set(mm(r[0] + r[2]) / 2, (SILL / 1000 + gt) / 2, mm(r[1] + r[3]) / 2); gl.userData.skip = true; group.add(gl);
     const fr = new THREE.Mesh(new THREE.BoxGeometry(mm(r[2] - r[0]) + .01, .05, mm(r[3] - r[1]) + .01), mat('#ffffff')); fr.position.set(mm(r[0] + r[2]) / 2, SILL / 1000 + .025, mm(r[1] + r[3]) / 2); fr.userData.skip = true; group.add(fr);
   }
   for (const d of P.doors) {
     const lh = Math.min(2.05, H), r = d.r, h = isHoriz(r);
     if (d.ext) {
-      const lf = new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) - .02 : .06, lh, h ? .06 : mm(r[3] - r[1]) - .02), mat('#5a4a3e'));
+      const lf = new THREE.Mesh(new THREE.BoxGeometry(h ? mm(r[2] - r[0]) - .02 : .06, lh, h ? .06 : mm(r[3] - r[1]) - .02), mat(CAP));
       lf.position.set(mm(r[0] + r[2]) / 2, lh / 2, mm(r[1] + r[3]) / 2); lf.castShadow = true; lf.userData.skip = true; group.add(lf); continue;
     }
     const g = doorGeom(d), ang = 70 * Math.PI / 180, ll = g.L - 20;
     const jx = h ? (d.hinge === 'a' ? 1 : -1) : 0, jy = h ? 0 : (d.hinge === 'a' ? 1 : -1), nx = h ? 0 : d.side, ny = h ? d.side : 0;
     const dx = jx * Math.cos(ang) + nx * Math.sin(ang), dy = jy * Math.cos(ang) + ny * Math.sin(ang);
-    const lf = new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat('#efe9dd'));
+    const lf = new THREE.Mesh(new THREE.BoxGeometry(mm(ll), lh, .04), mat('#f4f1ec'));
     lf.position.set(mm(g.hx + dx * ll / 2), lh / 2, mm(g.hy + dy * ll / 2)); lf.rotation.y = -Math.atan2(dy, dx); lf.castShadow = true; lf.userData.skip = true; group.add(lf);
   }
-  for (const p of P.posts) { const m = new THREE.Mesh(new THREE.BoxGeometry(.15, WALL_H / 1000, .15), mat('#6b5544')); m.position.set(mm(p[0]), WALL_H / 2000, mm(p[1])); m.castShadow = true; m.userData.skip = true; group.add(m); }
-  for (const f of allFurn()) { const g = furn3D(f); g.traverse((o) => { o.userData.skip = true; }); group.add(g); }
+  for (const p of P.posts) { const m = new THREE.Mesh(new THREE.BoxGeometry(.15, H, .15), mat(CAP)); m.position.set(mm(p[0]), H / 2, mm(p[1])); m.castShadow = true; m.userData.skip = true; group.add(m); }
+  for (const f of allFurn()) {
+    const g = furn3D(f); g.traverse((o) => { o.userData.skip = true; });
+    // при срезанных стенах высокая мебель (шкафы, холодильник) срезается вместе с ними
+    if (H < 2) { const bb = new THREE.Box3().setFromObject(g); if (bb.max.y > H + .05) g.scale.y *= H / bb.max.y; }
+    group.add(g);
+  }
+  labels3();
 }
 /* скруглённый брусок: мягкие детали скругляются сильнее, корпусная мебель — на 1–2 см (как в planirovki-3d) */
 const RB = new Map();
@@ -1767,6 +1657,18 @@ function snapshot() {
   const c = out.getContext('2d'); c.fillStyle = '#ffffff'; c.fillRect(0, 0, out.width, out.height);
   if (view === 'plan') { c.fillStyle = SHEET; c.fillRect(0, head, out.width, src.height); }
   c.drawImage(src, 0, head);
+  if ((view === '3d' || view === 'top') && three) {
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+    const sm = board.clientWidth < 600;
+    for (const p of projLabels()) {
+      if (!p.ok || (sm && p.room.a < 5)) continue;
+      const x = p.x * k, y = head + p.y * k, area = fmtA(p.room.a) + ' м²';
+      c.font = `600 ${Math.round(14 * k)}px ${F_DRAW}`; c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 5 * k;
+      c.strokeText(p.room.n, x, y - 9 * k); c.fillStyle = '#1b1b1b'; c.fillText(p.room.n, x, y - 9 * k);
+      c.font = `700 ${Math.round(18 * k)}px ${F_DRAW}`; c.strokeText(area, x, y + 10 * k); c.fillText(area, x, y + 10 * k);
+    }
+    c.textAlign = 'left';
+  }
   c.fillStyle = BRAND; c.fillRect(0, 0, out.width, head);
   c.textBaseline = 'middle'; c.font = `800 ${Math.round(20 * k)}px ${F_DISP}`;
   const brandW = c.measureText('НОВАЯ ЗЕМЛЯ').width;
@@ -1836,7 +1738,6 @@ function setDims(k) {
   dims[k] = !dims[k]; $('#nlDimOut').setAttribute('aria-pressed', dims.out); $('#nlDimIn').setAttribute('aria-pressed', dims.in);
   if (view !== 'plan') setView('plan');
   if (k === 'out' && K) fit();
-  $('#nlEmpty').hidden = !(view === 'plan' && ST.furn.length === 0 && !dims.out);
   renderOver(); doneTag('acts');
 }
 $('#nlDimOut').onclick = () => setDims('out'); $('#nlDimIn').onclick = () => setDims('in');
@@ -1851,17 +1752,14 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); undo(); return; }
   if (k === 'escape') { setPaint(null); setSel(null); return; }
-  if (!sel || view !== 'plan') return;
-  if (k === 'delete' || k === 'backspace') { e.preventDefault(); delSel(); }
-  else if (k === 'r' || k === 'к') rotSel();
 });
 
 /* ---------- запуск ---------- */
-renderCards(); renderCatalog(); renderTags();
+renderCards(); renderTags();
 if (document.fonts && document.fonts.load) Promise.all(['800 20px "Alumni Sans"', '700 20px "Alumni Sans"', '400 14px Raleway', '700 14px Raleway', '400 12px "JetBrains Mono"'].map((f) => document.fonts.load(f).catch(() => null)))
   .then(() => { renderCards(); if (K && P) { render2D(); if (view === 'unfold') drawUnfold(); } });
 const want = (location.hash.match(/^#plan-([\w-]+)/) || [])[1];
 if (want) { const p = PLANS.find((x) => x.id === want || String(x.area) === want); if (p) openPlan(p.id); }
-window.__nlPlan = { get P() { return P; }, get ST() { return ST; }, get view() { return view; }, openPlan, setView, addFurn, paintRoom, setPaint, toScreen: (x, y) => { const r = $('#nlStage').getBoundingClientRect(), p = toScreen({ x, y }); return { x: r.left + p.x, y: r.top + p.y }; } };
+window.__nlPlan = { get P() { return P; }, get ST() { return ST; }, get view() { return view; }, openPlan, setView, paintRoom, setPaint, toScreen: (x, y) => { const r = $('#nlStage').getBoundingClientRect(), p = toScreen({ x, y }); return { x: r.left + p.x, y: r.top + p.y }; } };
 })();
 </script>

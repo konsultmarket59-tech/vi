@@ -22,11 +22,11 @@ MANAGERS = [
 ]
 SERIES = {
     'classic': ('tilda-block.html', 'index.html', {
-        'series': 'КЛАССИК', 'head': 'Примерьте планировку',
-        'sub': 'Выберите дом — расставьте мебель, подберите цвета и посмотрите интерьер в 3D.', 'managers': MANAGERS}),
+        'series': 'КЛАССИК', 'head': 'Дома КЛАССИК: посмотрите планировку',
+        'sub': 'Выберите дом — посмотрите планировку с мебелью, подберите цвета стен и загляните внутрь в 3D.', 'managers': MANAGERS}),
     'smart': ('tilda-block-smart.html', 'smart.html', {
-        'series': 'СМАРТ', 'head': 'Дома СМАРТ: примерьте планировку',
-        'sub': 'Выберите дом и вариант планировки — расставьте мебель, подберите цвета и посмотрите интерьер в 3D. Площадь указана вместе с террасой.', 'managers': MANAGERS}),
+        'series': 'СМАРТ', 'head': 'Дома СМАРТ: посмотрите планировку',
+        'sub': 'Выберите дом — посмотрите планировку с мебелью, подберите цвета стен и загляните внутрь в 3D.', 'managers': MANAGERS}),
 }
 for key, (block_name, page_name, cfg) in SERIES.items():
     block = src.replace('/*__PLANS__*/[]', plans_json(key)).replace('/*__CFG__*/{}', json.dumps(cfg, ensure_ascii=False))

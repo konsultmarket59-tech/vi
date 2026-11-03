@@ -11,6 +11,7 @@ x, y — центр в пикселях чертежа, w, d — размеры 
 side -1/1 — полотно открывается в сторону меньшей/большей координаты поперёк стены.
 """
 import json
+from pathlib import Path
 
 CAT = 'https://newland59.ru/katalog'
 CAT_AREA = CAT + '?tfc_charact:9351132%5B2427391811%5D={}&tfc_div=:::'
@@ -272,48 +273,92 @@ def _without_fixed(furn, fixed):
     return [f for f in furn if not any(b[0] - 200 <= f['x'] <= b[2] + 200 and b[1] - 200 <= f['y'] <= b[3] + 200 for b in boxes)]
 
 
+HOUSES = json.loads((Path(__file__).parent / 'houses.json').read_text(encoding='utf-8'))
+
+# Дома СМАРТ — по адресам; все остальные дома из выгрузки — КЛАССИК
+SMART_ADDR = {
+    ('Горный воздух', 'Воздушная'): ['34'],
+    ('КРП', 'Нефритовая'): ['41', '39', '37', '38', '35', '36'],
+    ('Болдино Лайф', 'Ландышевая'): ['3', '5', '7', '11', '26', '16', '18', '20', '22', '24', '28', '30'],
+}
+is_smart = lambda h: h['number'] in SMART_ADDR.get((h['village'], h['street']), [])
+
+
+def villages(houses):
+    """«Горный воздух, КРП, Лобаново» — посёлки, где есть такие дома."""
+    out = []
+    for h in houses:
+        name = 'Болдино LIFE' if h['village'] == 'Болдино Лайф' else h['village']
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def addresses(houses):
+    """«КРП · Нефритовая 37, 39, 41» — адреса домов СМАРТ."""
+    groups = {}
+    for h in houses:
+        groups.setdefault((h['village'], h['street']), []).append(h['number'])
+    nkey = lambda n: (int(''.join(c for c in n if c.isdigit()) or 0), n)
+    return ['%s · %s %s' % ('Болдино LIFE' if v == 'Болдино Лайф' else v, st, ', '.join(sorted(ns, key=nkey))) for (v, st), ns in groups.items()]
+
+
 def classic():
-    """Дома КЛАССИК: стены отсюда, рекомендованная расстановка — из plans3d.py (те же стены)."""
+    """Дома КЛАССИК: площади из выгрузки; стены отсюда, мебель — из plans3d.py (те же стены)."""
     import plans3d
     rec = {p['id']: plans3d.mm(p)['furn'] for p in plans3d.PLANS}
+    houses = [h for h in HOUSES if not is_smart(h)]
     out = []
     for p in PLANS:
-        if p.get('hidden'):
-            continue
+        hs = [h for h in houses if h['area'] == p['area']]
+        if not hs:
+            continue  # такой площади в продаже нет
         m = mm(p)
         m['title'] = 'КЛАССИК %d м²' % p['area']
         m['group'] = m['id']
         m['rec'] = _without_fixed(rec.get(p['id'], []), m['fixed'])
+        m['where'] = villages(hs)
         out.append(m)
     return out
 
 
 CATALOG = 'https://newland59.ru/katalog'
-# Дома СМАРТ: группа — одна планировка, внутри варианты
+# Дома СМАРТ: площадь из выгрузки → планировка из plans3d.py (по одной на дом).
+# area — правки площадей помещений по присланным чертежам, по порядку помещений.
 SMART = [
-    ('p68', ['p68']),
-    ('slate85', ['slate85-1', 'slate85-2']),
-    ('slate100', ['slate100-1', 'slate100-2', 'slate100-3', 'slate100-4', 'slate100-5']),
-    ('dom100', ['dom100-1', 'dom100-2', 'dom100-3']),
+    {'area': 85, 'plan': 'slate85-1', 'note': '3 спальни · 2 санузла · терраса 17,5 м²',
+     'area_fix': {9: 17.53},
+     # терраса по чертежу: не на всю ширину, а 5,8 × 3 м посередине, с двумя опорами
+     'terrace': [3210, -3000, 9020, 0], 'posts': [[3810, -1920], [8470, -1920]]},
+    {'area': 101, 'plan': 'p68', 'note': '3 спальни · кабинет · 2 террасы',
+     'area_fix': {0: 11.83, 2: 4.80, 3: 19.80, 4: 7.22, 5: 4.95, 6: 6.64, 7: 5.18}},
 ]
 
 
 def smart():
-    """Дома СМАРТ из plans3d.py. Площадь в названии — вместе с террасами (без крыльца)."""
+    """Дома СМАРТ из plans3d.py. В названии — площадь дома из выгрузки."""
     import plans3d
     src = {p['id']: p for p in plans3d.PLANS}
+    houses = [h for h in HOUSES if is_smart(h)]
     out = []
-    for gid, ids in SMART:
-        for i, pid in enumerate(ids):
-            m = plans3d.mm(src[pid])
-            area = round(sum(r['a'] for r in m['rooms'] if r['n'] != 'Крыльцо'))
-            out.append({
-                'id': pid, 'area': area, 'title': 'СМАРТ %d м²' % area, 'note': m['note'], 'link': CATALOG,
-                'group': gid, 'variant': 'Вариант %d' % (i + 1) if len(ids) > 1 else '',
-                'walls': m['walls'], 'windows': m['windows'], 'doors': m['doors'], 'rooms': m['rooms'],
-                'zones': [], 'decks': [{'k': 'porch', 'r': r} for r in m['decks']], 'posts': m['posts'],
-                'roof': [], 'fixed': [], 'box': m['box'], 'rec': m['furn'],
-            })
+    for s in SMART:
+        m = plans3d.mm(src[s['plan']])
+        rooms = [dict(r) for r in m['rooms']]
+        for i, a in s.get('area_fix', {}).items():
+            rooms[i]['a'] = a
+        if 'terrace' in s:
+            t = next(r for r in rooms if r['n'] == 'Терраса')
+            t['r'] = [s['terrace']]
+            t['lp'] = [(s['terrace'][0] + s['terrace'][2]) // 2, (s['terrace'][1] + s['terrace'][3]) // 2]
+        hs = [h for h in houses if h['area'] == s['area']]
+        terr = sum(r['a'] for r in rooms if r['k'] == 'terrace' and r['n'] != 'Крыльцо')
+        out.append({
+            'id': s['plan'], 'area': s['area'], 'title': 'СМАРТ %d м²' % s['area'], 'note': s['note'], 'link': CATALOG,
+            'group': s['plan'], 'variant': '', 'where': addresses(hs), 'terrace': round(terr, 1),
+            'walls': m['walls'], 'windows': m['windows'], 'doors': m['doors'], 'rooms': rooms,
+            'zones': [], 'decks': [{'k': 'porch', 'r': r} for r in m['decks']], 'posts': s.get('posts', m['posts']),
+            'roof': [], 'fixed': [], 'box': m['box'], 'rec': m['furn'],
+        })
     return out
 
 
