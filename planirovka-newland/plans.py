@@ -332,6 +332,14 @@ SMART = [
      'terrace': [3210, -3000, 9020, 0], 'posts': [[3810, -1920], [8470, -1920]]},
     {'area': 101, 'plan': 'p68', 'note': '3 спальни · кабинет · 2 террасы',
      'area_fix': {0: 11.83, 2: 4.80, 3: 19.80, 4: 7.22, 5: 4.95, 6: 6.64, 7: 5.18}},
+    # 108 м² — та же планировка SLATE 85 (по присланным чертежам), свои адреса
+    {'area': 108, 'plan': 'slate85-1', 'id': 'slate85-108', 'note': '3 спальни · 2 санузла · терраса 17,5 м²',
+     'area_fix': {9: 17.53},
+     'terrace': [3210, -3000, 9020, 0], 'posts': [[3810, -1920], [8470, -1920]]},
+    # 161 м² — «Дом 100» 14 × 8,4 м: 104 м² + терраса 47,05 на всю ширину + крыльцо 10,5
+    {'area': 161, 'plan': 'dom100-1', 'note': '3 спальни · кабинет · 2 санузла · терраса 47 м²',
+     'area_fix': {0: 31.71, 3: 11.41, 9: 47.05},
+     'terrace': [30, -150, 14840, 3030], 'posts': [[820, 970], [4700, 970], [9860, 970], [14080, 970]]},
 ]
 
 
@@ -353,8 +361,8 @@ def smart():
         hs = [h for h in houses if h['area'] == s['area']]
         terr = sum(r['a'] for r in rooms if r['k'] == 'terrace' and r['n'] != 'Крыльцо')
         out.append({
-            'id': s['plan'], 'area': s['area'], 'title': 'СМАРТ %d м²' % s['area'], 'note': s['note'], 'link': CATALOG,
-            'group': s['plan'], 'variant': '', 'where': addresses(hs), 'terrace': round(terr, 1),
+            'id': s.get('id', s['plan']), 'area': s['area'], 'title': 'СМАРТ %d м²' % s['area'], 'note': s['note'], 'link': CATALOG,
+            'group': s.get('id', s['plan']), 'variant': '', 'where': addresses(hs), 'terrace': round(terr, 1),
             'walls': m['walls'], 'windows': m['windows'], 'doors': m['doors'], 'rooms': rooms,
             'zones': [], 'decks': [{'k': 'porch', 'r': r} for r in m['decks']], 'posts': s.get('posts', m['posts']),
             'roof': [], 'fixed': [], 'box': m['box'], 'rec': m['furn'],
