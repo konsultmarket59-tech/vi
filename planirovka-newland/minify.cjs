@@ -8,7 +8,7 @@ const path = require('path');
 const { minify: minifyHtml } = require('html-minifier-terser');
 const { minify: minifyJs } = require('terser');
 
-const LIMIT = 30000;
+const LIMIT = 28500;
 const here = __dirname;
 const SERIES = [
   { src: 'tilda-block.html', dir: 'tilda', key: '__nlPartsClassic', name: 'КЛАССИК' },
