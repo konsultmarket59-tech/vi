@@ -22,7 +22,7 @@ MANAGERS = [
 ]
 SERIES = {
     'classic': ('tilda-block.html', 'index.html', {
-        'series': 'КЛАССИК', 'head': 'Дома КЛАССИК: посмотрите планировку',
+        'series': 'КЛАССИК', 'glass': True, 'head': 'Дома КЛАССИК: посмотрите планировку',
         'sub': 'Выберите дом и посмотрите планировку в 2D и 3D: мебель расставлена, чтобы оценить эргономику помещений.', 'managers': MANAGERS}),
     'smart': ('tilda-block-smart.html', 'smart.html', {
         'series': 'СМАРТ', 'glass': True, 'head': 'Дома СМАРТ: посмотрите планировку',

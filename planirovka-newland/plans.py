@@ -348,15 +348,7 @@ SMART = [
 # Картинки загрузите в Тильду (или на сайт) и вставьте сюда ссылки, затем python3 build.py.
 # картинки лежат в facades/ и раздаются через jsDelivr из публичного репозитория (по коммиту — ссылка не меняется)
 FAC_CDN = 'https://cdn.jsdelivr.net/gh/konsultmarket59-tech/vi@4fc810141aa766c6c8235f35031a173f0adae806/planirovka-newland/facades/'
-FACADES = {
-    'slate85-1': [('Фасад со стороны входа', FAC_CDN + 'smart85-entrance.jpg'),
-                  ('Фасад со стороны террасы', FAC_CDN + 'smart85-terrace.jpg'),
-                  ('Боковой фасад А–Б', FAC_CDN + 'smart85-side1.jpg'),
-                  ('Боковой фасад Б–А', FAC_CDN + 'smart85-side2.jpg')],
-    'p68': [],          # СМАРТ 101 — фасадов нет
-    'slate100-5': [],   # СМАРТ 108 — фасадов нет
-    'dom100-1': [],     # СМАРТ 161 — фасадов нет
-}
+FACADES = {}  # фасады убраны; формат: 'id планировки': [(подпись, ссылка), …]
 
 
 def smart():
